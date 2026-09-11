@@ -3,6 +3,20 @@
     "schemas": {
       "AdminOverviewOut": {
         "description": "平台概览。",
+        "examples": [
+          {
+            "statistics": {
+              "cancelled": 23,
+              "completed": 1124,
+              "failed": 137
+            },
+            "store_count": 89,
+            "success_rate": 87.6,
+            "task_today": 23,
+            "task_total": 1284,
+            "user_count": 57
+          }
+        ],
         "properties": {
           "statistics": {
             "additionalProperties": true,
@@ -46,6 +60,18 @@
       },
       "AdminStoreOut": {
         "description": "店铺行（跨用户平台视角）。",
+        "examples": [
+          {
+            "currency": "CNY",
+            "id": "3c9d2f4e-1111-4222-8333-444455556666",
+            "is_default": true,
+            "last_validated_at": "2026-09-11T00:00:00Z",
+            "ozon_client_id": "5381204",
+            "shop_name": "测试店",
+            "status": "active",
+            "tenant_id": "28"
+          }
+        ],
         "properties": {
           "currency": {
             "default": "CNY",
@@ -109,6 +135,26 @@
       },
       "AdminUserDetailOut": {
         "description": "用户详情（店铺 + 任务统计）。",
+        "examples": [
+          {
+            "id": "28",
+            "stores": [
+              {
+                "currency": "CNY",
+                "id": "3c9d2f4e-1111-4222-8333-444455556666",
+                "is_default": true,
+                "last_validated_at": "2026-09-11T00:00:00Z",
+                "ozon_client_id": "5381204",
+                "shop_name": "测试店",
+                "status": "active",
+                "tenant_id": "28"
+              }
+            ],
+            "task_completed": 187,
+            "task_failed": 21,
+            "task_total": 214
+          }
+        ],
         "properties": {
           "id": {
             "description": "用户 ID",
@@ -150,6 +196,17 @@
       },
       "AdminUserOut": {
         "description": "用户行（平台视角）。",
+        "examples": [
+          {
+            "created_at": "2026-06-01T00:00:00Z",
+            "id": "28",
+            "quota": 42.5,
+            "role": "user",
+            "store_count": 3,
+            "task_count": 214,
+            "username": "seller_a"
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -213,6 +270,13 @@
       },
       "AnalyticsReportResponse": {
         "description": "上报成功响应。",
+        "examples": [
+          {
+            "inserted": 42,
+            "status": "ok",
+            "upserted": 7
+          }
+        ],
         "properties": {
           "inserted": {
             "default": 0,
@@ -308,6 +372,12 @@
       },
       "CancelReasonOut": {
         "description": "订单取消原因（/v1/posting/fbs/cancel-reason）。",
+        "examples": [
+          {
+            "id": 6,
+            "title": "Товар закончился на складе"
+          }
+        ],
         "properties": {
           "id": {
             "description": "原因 ID",
@@ -329,6 +399,13 @@
       },
       "CancelTaskResponse": {
         "description": "取消任务响应。",
+        "examples": [
+          {
+            "message": "任务已取消",
+            "ok": true,
+            "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+          }
+        ],
         "properties": {
           "message": {
             "description": "取消结果消息",
@@ -498,6 +575,12 @@
       },
       "DraftAiResponse": {
         "description": "T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存）。",
+        "examples": [
+          {
+            "field": "title",
+            "value": "Автопоилка для животных 2 л, фонтан с фильтром"
+          }
+        ],
         "properties": {
           "field": {
             "description": "title/description/attributes/tags",
@@ -598,6 +681,47 @@
       },
       "DraftOut": {
         "description": "草稿详情（payload = envelope，不含任何凭证）。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T10:00:00Z",
+            "id": "a1b2c3d4-0000-4000-8000-000000000001",
+            "image_mirror_state": "mirrored",
+            "notes": "竞品月销 140，跟卖利润空间 12%",
+            "payload": {
+              "draft": {
+                "attributes": {
+                  "材质": "硅胶",
+                  "颜色": "蓝色"
+                },
+                "currency": "CNY",
+                "dimensions": {
+                  "height": 60,
+                  "length": 150,
+                  "width": 90
+                },
+                "images": [
+                  "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+                ],
+                "item_id": "812345678901",
+                "purchase_cost": 8.5,
+                "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                "title": "便携折叠水杯 500ml 硅胶",
+                "weight": 120
+              },
+              "extensions": {},
+              "source": {
+                "purchase_cost": 8.5,
+                "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+              }
+            },
+            "source": "skill",
+            "source_batch": "batch-20260908-100000",
+            "submission_status": "pending",
+            "tenant_id": "28",
+            "updated_at": "2026-09-08T10:05:00Z",
+            "version": 1
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -763,6 +887,13 @@
       },
       "HealthResponse": {
         "description": "健康检查响应。",
+        "examples": [
+          {
+            "db": "connected",
+            "message": "服务正常",
+            "status": "ok"
+          }
+        ],
         "properties": {
           "db": {
             "description": "数据库连接状态: connected / disconnected",
@@ -790,6 +921,19 @@
       },
       "ImageRegenResponse": {
         "description": "POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。",
+        "examples": [
+          {
+            "ok": true,
+            "params": {
+              "prompt_style": "clean white background",
+              "slot": "main"
+            },
+            "slot": "main",
+            "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+            "url": "https://cdn1.ozone.ru/s3/mxou/example_v2.jpg",
+            "version": 2
+          }
+        ],
         "properties": {
           "image_parent_task_id": {
             "anyOf": [
@@ -998,6 +1142,22 @@
       },
       "ListingTemplateConfig": {
         "description": "模板扩展参数（白名单；全部可选，None 表示不注入）。",
+        "examples": [
+          {
+            "fx_buffer": 0.05,
+            "margin_anchor": 2.0,
+            "margin_floor": 0.6,
+            "margin_rate": 0.25,
+            "offer_id_prefix": "MX",
+            "promo_variable_cost_rate": 0.245,
+            "stock": 10,
+            "traffic_keywords": [
+              "поилка для животных",
+              "фонтан для кошек"
+            ],
+            "variable_cost_rate": 0.155
+          }
+        ],
         "properties": {
           "commission_rate": {
             "anyOf": [
@@ -1168,6 +1328,28 @@
       },
       "ListingTemplateOut": {
         "description": "上架配置模板响应。",
+        "examples": [
+          {
+            "config": {
+              "fx_buffer": 0.05,
+              "margin_anchor": 2.0,
+              "margin_floor": 0.6,
+              "margin_rate": 0.25,
+              "offer_id_prefix": "MX",
+              "promo_variable_cost_rate": 0.245,
+              "stock": 10,
+              "variable_cost_rate": 0.155
+            },
+            "created_at": "2026-09-01T00:00:00Z",
+            "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+            "id": "f0e1d2c3-0000-4000-8000-000000000003",
+            "is_default": true,
+            "name": "默认三档定价",
+            "platform": "OZON",
+            "tenant_id": "28",
+            "updated_at": "2026-09-08T10:00:00Z"
+          }
+        ],
         "properties": {
           "config": {
             "$ref": "#/components/schemas/ListingTemplateConfig",
@@ -1376,6 +1558,13 @@
       },
       "MxouKeyCreateResponse": {
         "description": "新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。",
+        "examples": [
+          {
+            "id": "tok_02",
+            "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+            "name": "webui"
+          }
+        ],
         "properties": {
           "id": {
             "description": "token id",
@@ -1403,6 +1592,14 @@
       },
       "MxouKeyItem": {
         "description": "MXOU API Key 条目（脱敏展示，绝不含 full_key）。",
+        "examples": [
+          {
+            "id": "tok_01",
+            "masked": true,
+            "name": "default",
+            "status": 1
+          }
+        ],
         "properties": {
           "id": {
             "description": "token id",
@@ -1436,6 +1633,11 @@
       },
       "MxouKeySelectResponse": {
         "description": "切换密钥响应（key 仅此一次返回——用户复制后不再可查）。",
+        "examples": [
+          {
+            "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+          }
+        ],
         "properties": {
           "key": {
             "description": "所选密钥完整值（仅此一次返回）",
@@ -1451,6 +1653,24 @@
       },
       "MxouLoginResponse": {
         "description": "MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。",
+        "examples": [
+          {
+            "balance": 128.4,
+            "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+            "keys": [
+              {
+                "id": "tok_01",
+                "masked": true,
+                "name": "default",
+                "status": 1
+              }
+            ],
+            "role": "user",
+            "selected_key_id": "tok_01",
+            "session_expires_at": "2026-09-11T23:59:59",
+            "username": "seller@example.com"
+          }
+        ],
         "properties": {
           "balance": {
             "anyOf": [
@@ -1528,6 +1748,15 @@
       },
       "OrderActionResponse": {
         "description": "订单写入操作响应（备货/取消）。",
+        "examples": [
+          {
+            "ok": true,
+            "posting_number": "0031-726193-0001",
+            "result": {
+              "accepted": true
+            }
+          }
+        ],
         "properties": {
           "ok": {
             "default": true,
@@ -1555,6 +1784,13 @@
       },
       "OrderLabelResponse": {
         "description": "面单 PDF 响应（base64，路由层编码）。",
+        "examples": [
+          {
+            "content_type": "application/pdf",
+            "label_base64": "JVBERi0xLjQKJ...",
+            "posting_number": "0031-726193-0001"
+          }
+        ],
         "properties": {
           "content_type": {
             "default": "application/pdf",
@@ -1582,6 +1818,37 @@
       },
       "OrderListResponse": {
         "description": "订单列表响应。",
+        "examples": [
+          {
+            "items": [
+              {
+                "cancel_reason": "",
+                "cancellation": "",
+                "commission_amount": 109.35,
+                "created_at": "2026-09-08T09:30:00Z",
+                "delivery_method": "Courier",
+                "posting_number": "0031-726193-0001",
+                "product_count": 1,
+                "products": [],
+                "profit": 155.2,
+                "raw_status": "awaiting_packaging",
+                "real_profit": 132.8,
+                "status": "awaiting",
+                "total_amount": 729.0,
+                "warehouse": "Коледино"
+              }
+            ],
+            "last_synced_at": "2026-09-11T01:55:00Z",
+            "limit": 50,
+            "offset": 0,
+            "store": {
+              "id": "3c9d2f4e-1111-4222-8333-444455556666",
+              "ozon_client_id": "5381204"
+            },
+            "sync_status": "ok",
+            "total": 342
+          }
+        ],
         "properties": {
           "items": {
             "items": {
@@ -1656,6 +1923,20 @@
       },
       "OrderNoteOut": {
         "description": "订单货源/采购信息标注（P1-1 本地元数据）。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T09:40:00Z",
+            "posting_number": "0031-726193-0001",
+            "purchase_carrier": "中通",
+            "purchase_no": "PO-20260908-001",
+            "purchase_tracking": "78412345678901",
+            "source_cost": 8.5,
+            "source_remark": "蓝色 500ml",
+            "source_url": "https://detail.1688.com/offer/812345678901.html",
+            "tenant_id": "28",
+            "updated_at": "2026-09-08T09:40:00Z"
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -1743,6 +2024,34 @@
       },
       "OrderOut": {
         "description": "订单行（Ozon FBS posting 标准化）。",
+        "examples": [
+          {
+            "cancel_reason": "",
+            "cancellation": "",
+            "commission_amount": 109.35,
+            "created_at": "2026-09-08T09:30:00Z",
+            "delivery_method": "Courier",
+            "posting_number": "0031-726193-0001",
+            "product_count": 1,
+            "products": [
+              {
+                "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+                "name": "Автопоилка для животных 2 л",
+                "offer_id": "812345678901",
+                "price": 729.0,
+                "product_id": 3171397439,
+                "quantity": 1,
+                "sku": 3171397439
+              }
+            ],
+            "profit": 155.2,
+            "raw_status": "awaiting_packaging",
+            "real_profit": 132.8,
+            "status": "awaiting",
+            "total_amount": 729.0,
+            "warehouse": "Коледино"
+          }
+        ],
         "properties": {
           "cancel_reason": {
             "default": "",
@@ -1856,6 +2165,17 @@
       },
       "OrderProductOut": {
         "description": "订单内商品行。",
+        "examples": [
+          {
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "name": "Автопоилка для животных 2 л",
+            "offer_id": "812345678901",
+            "price": 729.0,
+            "product_id": 3171397439,
+            "quantity": 1,
+            "sku": 3171397439
+          }
+        ],
         "properties": {
           "image": {
             "anyOf": [
@@ -1929,6 +2249,34 @@
       },
       "OzonProductListResponse": {
         "description": "Ozon 在线商品列表响应。",
+        "examples": [
+          {
+            "items": [
+              {
+                "archived": false,
+                "currency": "RUB",
+                "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+                "min_price": 547.0,
+                "name": "Автопоилка для животных 2 л",
+                "offer_id": "812345678901",
+                "old_price": 910.0,
+                "price": 729.0,
+                "product_id": "3171397439",
+                "status": "visible",
+                "stock": 12
+              }
+            ],
+            "last_synced_at": "2026-09-11T01:55:00Z",
+            "limit": 50,
+            "offset": 0,
+            "store": {
+              "id": "3c9d2f4e-1111-4222-8333-444455556666",
+              "ozon_client_id": "5381204"
+            },
+            "sync_status": "ok",
+            "total": 86
+          }
+        ],
         "properties": {
           "items": {
             "items": {
@@ -2003,6 +2351,21 @@
       },
       "OzonProductOut": {
         "description": "Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）。",
+        "examples": [
+          {
+            "archived": false,
+            "currency": "RUB",
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "min_price": 547.0,
+            "name": "Автопоилка для животных 2 л",
+            "offer_id": "812345678901",
+            "old_price": 910.0,
+            "price": 729.0,
+            "product_id": "3171397439",
+            "status": "visible",
+            "stock": 12
+          }
+        ],
         "properties": {
           "archived": {
             "default": false,
@@ -2121,6 +2484,43 @@
       },
       "ProductEditResponse": {
         "description": "T6: GET /products/{product_id}/edit — 在线商品编辑初值。\n\n数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。",
+        "examples": [
+          {
+            "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+            "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+            "draft_version": 3,
+            "moderation_status": "approved",
+            "offer_id": "812345678901",
+            "payload": {
+              "draft": {
+                "attributes": {
+                  "材质": "硅胶",
+                  "颜色": "蓝色"
+                },
+                "currency": "CNY",
+                "dimensions": {
+                  "height": 60,
+                  "length": 150,
+                  "width": 90
+                },
+                "images": [
+                  "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+                ],
+                "item_id": "812345678901",
+                "purchase_cost": 8.5,
+                "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                "title": "便携折叠水杯 500ml 硅胶",
+                "weight": 120
+              },
+              "extensions": {},
+              "source": {
+                "purchase_cost": 8.5,
+                "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+              }
+            },
+            "product_id": "3171397439"
+          }
+        ],
         "properties": {
           "credential_id": {
             "anyOf": [
@@ -2185,6 +2585,17 @@
       },
       "ProductListItem": {
         "description": "在售商品列表项 — 只读，product_task_index 行 + 任务 result 审核状态。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T10:05:00Z",
+            "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+            "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+            "moderation_status": "approved",
+            "offer_id": "812345678901",
+            "product_id": "3171397439",
+            "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -2261,6 +2672,24 @@
       },
       "ProductListResponse": {
         "description": "在售商品列表响应（M2.1）。",
+        "examples": [
+          {
+            "items": [
+              {
+                "created_at": "2026-09-08T10:05:00Z",
+                "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+                "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+                "moderation_status": "approved",
+                "offer_id": "812345678901",
+                "product_id": "3171397439",
+                "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+              }
+            ],
+            "limit": 20,
+            "offset": 0,
+            "total": 86
+          }
+        ],
         "properties": {
           "items": {
             "description": "在售商品列表（created_at DESC）",
@@ -2654,6 +3083,13 @@
       },
       "StoreSyncConfigUpdate": {
         "description": "店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。",
+        "examples": [
+          {
+            "sync_enabled": true,
+            "sync_interval_minutes": 15,
+            "sync_products_interval_minutes": 30
+          }
+        ],
         "properties": {
           "sync_enabled": {
             "anyOf": [
@@ -2701,6 +3137,19 @@
       },
       "SubmissionTimelineItem": {
         "description": "M2.2: 草稿提交时间线条目（draft_submissions 行，created_at 倒序）。\n\n供 WebUI 展示「这个草稿被提交过几次、到过哪些店、结果如何」。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T10:10:00Z",
+            "extensions": {
+              "margin_rate": 0.25,
+              "stock": 10
+            },
+            "id": "a1b2c3d4-0000-4000-8000-000000000002",
+            "status": "published",
+            "store_client_id": "5381204",
+            "submitted_task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -2882,6 +3331,11 @@
       },
       "TaskDraftResponse": {
         "description": "GET /tasks/{task_id}/draft 响应（M1.1 失败/被拒任务 → 找回采集箱草稿）。\n\n解析顺序：draft_submissions.submitted_task_id → product_task_index.task_id → None\n（直连任务无 submission 行时回落到 product_task_index；都无 → draft_id=None）。",
+        "examples": [
+          {
+            "draft_id": "a1b2c3d4-0000-4000-8000-000000000001"
+          }
+        ],
         "properties": {
           "draft_id": {
             "anyOf": [
@@ -2901,6 +3355,18 @@
       },
       "TaskImageItem": {
         "description": "单张生图缓存行（URL 元数据，不存二进制）。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T10:03:00Z",
+            "params": {
+              "prompt_style": "clean white background",
+              "slot": "main"
+            },
+            "slot": "main",
+            "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "version": 1
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -2966,6 +3432,24 @@
       },
       "TaskImagesResponse": {
         "description": "GET /tasks/{id}/images 响应。",
+        "examples": [
+          {
+            "images": [
+              {
+                "created_at": "2026-09-08T10:03:00Z",
+                "params": {
+                  "prompt_style": "clean white background",
+                  "slot": "main"
+                },
+                "slot": "main",
+                "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+                "version": 1
+              }
+            ],
+            "ok": true,
+            "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f"
+          }
+        ],
         "properties": {
           "images": {
             "description": "全部槽位 × 版本",
@@ -2994,6 +3478,44 @@
       },
       "TaskListItem": {
         "description": "任务列表项 — 只读摘要，不含 payload（体积大且含敏感 token）。",
+        "examples": [
+          {
+            "created_at": "2026-09-08T10:00:00Z",
+            "follow_sell": false,
+            "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "item_id": "812345678901",
+            "ozon_client_id": "5381204",
+            "product_summary": [],
+            "progress": {
+              "message": "生成主图 2/5",
+              "percent": 53,
+              "stage": "image_generation",
+              "stages_completed": [
+                "auth",
+                "ingest",
+                "category_match",
+                "pricing",
+                "attributes",
+                "description"
+              ],
+              "stages_remaining": [
+                "image_generation",
+                "prepare_ozon_upload",
+                "ozon_validate",
+                "check_quota",
+                "ozon_upload",
+                "ozon_status",
+                "learning_record"
+              ]
+            },
+            "shop_name": "测试店",
+            "status": "running",
+            "title": "Автопоилка для животных 2 л",
+            "update_mode": false,
+            "updated_at": "2026-09-08T10:01:30Z"
+          }
+        ],
         "properties": {
           "created_at": {
             "anyOf": [
@@ -3146,6 +3668,29 @@
       },
       "TaskListResponse": {
         "description": "任务列表响应（T8）。",
+        "examples": [
+          {
+            "items": [
+              {
+                "created_at": "2026-09-08T10:00:00Z",
+                "follow_sell": false,
+                "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+                "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+                "item_id": "812345678901",
+                "ozon_client_id": "5381204",
+                "product_summary": [],
+                "shop_name": "测试店",
+                "status": "running",
+                "title": "Автопоилка для животных 2 л",
+                "update_mode": false,
+                "updated_at": "2026-09-08T10:01:30Z"
+              }
+            ],
+            "limit": 20,
+            "offset": 0,
+            "total": 214
+          }
+        ],
         "properties": {
           "items": {
             "description": "任务列表（created_at DESC）",
@@ -3179,6 +3724,17 @@
       },
       "TaskStatisticsResponse": {
         "description": "任务统计响应。",
+        "examples": [
+          {
+            "avg_duration_seconds": 212.6,
+            "cancelled": 3,
+            "completed": 100,
+            "failed": 20,
+            "pending": 3,
+            "running": 2,
+            "total": 128
+          }
+        ],
         "properties": {
           "avg_duration_seconds": {
             "anyOf": [
@@ -3423,6 +3979,23 @@
       },
       "UpdateProductImagesResponse": {
         "description": "T14 在线商品改图重传响应。",
+        "examples": [
+          {
+            "images": [
+              "https://cdn1.ozone.ru/s3/mxou/example.jpg"
+            ],
+            "images_filtered": [
+              "https://cbu01.alicdn.com/img/ibank/dead-link.jpg"
+            ],
+            "import_task_id": "77123456",
+            "message": "改图重传已提交，商品重新审核中",
+            "offer_id": "812345678901",
+            "ok": true,
+            "product_id": "3171397439",
+            "re_under_review": true,
+            "status": "pending_moderation"
+          }
+        ],
         "properties": {
           "images": {
             "description": "实际提交的存活图片 URL",
@@ -3489,6 +4062,13 @@
       },
       "ValidateResponse": {
         "description": "凭证校验响应。",
+        "examples": [
+          {
+            "last_validated_at": "2026-09-11T02:00:00Z",
+            "reason": "ok",
+            "valid": true
+          }
+        ],
         "properties": {
           "last_validated_at": {
             "anyOf": [
@@ -6072,6 +6652,114 @@
       },
       "post": {
         "operationId": "create_draft_api_v1_drafts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /drafts：收 GraphInput 信封 + 凭证。\n\nWorker 剥离凭证（AES-256-GCM 加密存 credentials 表），payload 只存 envelope。",
+                "examples": [
+                  {
+                    "envelope": {
+                      "draft": {
+                        "attributes": {
+                          "材质": "硅胶",
+                          "颜色": "蓝色"
+                        },
+                        "currency": "CNY",
+                        "dimensions": {
+                          "height": 60,
+                          "length": 150,
+                          "width": 90
+                        },
+                        "images": [
+                          "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+                        ],
+                        "item_id": "812345678901",
+                        "purchase_cost": 8.5,
+                        "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                        "title": "便携折叠水杯 500ml 硅胶",
+                        "weight": 120
+                      },
+                      "extensions": {},
+                      "source": {
+                        "purchase_cost": 8.5,
+                        "purchase_url": "https://detail.1688.com/offer/812345678901.html"
+                      }
+                    },
+                    "ozon_api_key": "",
+                    "ozon_client_id": "",
+                    "source": "skill",
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "envelope": {
+                    "additionalProperties": true,
+                    "description": "产品数据信封 {draft, source, extensions}；NO raw credentials",
+                    "title": "Envelope",
+                    "type": "object"
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "运营备注（采集/选品依据人工标注，如 skill --note）；不进信封 payload",
+                    "title": "Notes"
+                  },
+                  "ozon_api_key": {
+                    "default": "",
+                    "description": "Ozon 卖家 Api-Key（剥离加密存储）",
+                    "title": "Ozon Api Key",
+                    "type": "string"
+                  },
+                  "ozon_client_id": {
+                    "default": "",
+                    "description": "Ozon 卖家 Client-Id（剥离存储）",
+                    "title": "Ozon Client Id",
+                    "type": "string"
+                  },
+                  "source": {
+                    "default": "skill",
+                    "description": "'skill' | 'webui'",
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "source_batch": {
+                    "anyOf": [
+                      {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "来源批次标识（T-P3.1 批次契约）：skill 采集批次（如 batch 时间戳/任务组 ID）；可选，≤64 字符，缺省 None",
+                    "title": "Source Batch"
+                  },
+                  "token": {
+                    "description": "MXOU API Key（带或不带 sk- 前缀）",
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "envelope"
+                ],
+                "title": "DraftCreate",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6094,6 +6782,60 @@
       "post": {
         "description": "批量提交草稿(≤50):逐条进行中守卫;返回 submitted/skipped/failed 明细。",
         "operationId": "batch_submit_drafts_api_v1_drafts_batch_submit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /drafts/batch-submit 请求体（≤50 条逐条提交，失败不阻断其余）。",
+                "examples": [
+                  {
+                    "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+                    "ids": [
+                      "a1b2c3d4-0000-4000-8000-000000000001",
+                      "a1b2c3d4-0000-4000-8000-000000000004"
+                    ],
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "credential_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "目标店铺凭证 ID；NULL → 用 is_default=true 店铺",
+                    "title": "Credential Id"
+                  },
+                  "ids": {
+                    "description": "草稿 ID 列表（最多取前 50 条）",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Ids",
+                    "type": "array"
+                  },
+                  "token": {
+                    "description": "MXOU API Key（批量提交共用）",
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ids",
+                  "token"
+                ],
+                "title": "DraftBatchSubmitRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6134,6 +6876,59 @@
       "post": {
         "description": "PRD M5b(P2): CSV/JSON 批量导入采集箱(竞品对标)。\n\nContent-Type: text/csv → 原始 CSV(表头 title,item_id,images,purchase_cost,\npurchase_url,price,stock,supplier,weight,length,width,height;images 用\n| 或 ; 分隔);application/json → {\"rows\": [...]}。逐行复用 create_draft\n(凭证剥离/字段校验/图片镜像),失败行返回 error 不阻断其余行。",
         "operationId": "import_drafts_csv_api_v1_drafts_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /drafts/import 请求体（application/json 形态；text/csv 表头形态见端点说明）。\n\nrows 每行字段与 CSV 表头一致：title/item_id/images/purchase_cost/purchase_url/\nprice/stock/supplier/weight/length/width/height；images 支持列表或 \"|\"/\";\"\n分隔字符串；逐行复用 create_draft，失败行返回 error 不阻断。",
+                "examples": [
+                  {
+                    "rows": [
+                      {
+                        "height": 60,
+                        "images": [
+                          "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"
+                        ],
+                        "item_id": "812345678901",
+                        "length": 150,
+                        "price": 729.0,
+                        "purchase_cost": 8.5,
+                        "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                        "stock": 10,
+                        "supplier": "义乌市某日用品厂",
+                        "title": "便携折叠水杯 500ml 硅胶",
+                        "weight": 120,
+                        "width": 90
+                      }
+                    ]
+                  }
+                ],
+                "properties": {
+                  "rows": {
+                    "description": "导入行列表（≤500 行）；字段同 CSV 表头，images 支持列表或 '|'/';' 分隔字符串",
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "title": "Rows",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "rows"
+                ],
+                "title": "DraftBatchImportRequest",
+                "type": "object"
+              }
+            },
+            "text/csv": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6290,6 +7085,33 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "T14b: 单字段 AI 重新生成请求。\n\n请求体仅携带 token（与全站一致：token 在 body 而非 header）；\n草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。",
+                "examples": [
+                  {
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "token": {
+                    "description": "mxou API Key（用于 LLM 调用与鉴权）",
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "title": "DraftAiRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6338,6 +7160,11 @@
             "application/json": {
               "schema": {
                 "description": "T14b: 单字段 AI 重新生成请求。\n\n请求体仅携带 token（与全站一致：token 在 body 而非 header）；\n草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。",
+                "examples": [
+                  {
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
                 "properties": {
                   "token": {
                     "description": "mxou API Key（用于 LLM 调用与鉴权）",
@@ -6439,6 +7266,83 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /drafts/{id}/submit：凭证注入 → 入队（/resubmit 同构，openapi_extra 展示用）。\n\n路由手拆 raw body，schema 仅文档展示；字段与路由实际读取一一对应\n（template_id/scheduled_at 为 v0.7x 定时上架/模板配置面）。",
+                "examples": [
+                  {
+                    "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "credential_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "目标店铺凭证 ID；NULL → 用 is_default=true 店铺",
+                    "title": "Credential Id"
+                  },
+                  "scheduled_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "定时上架时间（ISO 8601，如 2026-09-12T09:00:00+08:00）；有值 → 202 落 scheduled_listings 定时队列而非立即入队",
+                    "title": "Scheduled At"
+                  },
+                  "template_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "上架配置模板 ID（/api/v1/templates）；NULL → 用租户默认模板/不注入",
+                    "title": "Template Id"
+                  },
+                  "token": {
+                    "description": "MXOU API Key（重建 GraphInput 用）",
+                    "title": "Token",
+                    "type": "string"
+                  },
+                  "update_product_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id",
+                    "title": "Update Product Id"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "title": "DraftSubmitRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6528,6 +7432,83 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /drafts/{id}/submit：凭证注入 → 入队（/resubmit 同构，openapi_extra 展示用）。\n\n路由手拆 raw body，schema 仅文档展示；字段与路由实际读取一一对应\n（template_id/scheduled_at 为 v0.7x 定时上架/模板配置面）。",
+                "examples": [
+                  {
+                    "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "credential_id": {
+                    "anyOf": [
+                      {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "目标店铺凭证 ID；NULL → 用 is_default=true 店铺",
+                    "title": "Credential Id"
+                  },
+                  "scheduled_at": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "定时上架时间（ISO 8601，如 2026-09-12T09:00:00+08:00）；有值 → 202 落 scheduled_listings 定时队列而非立即入队",
+                    "title": "Scheduled At"
+                  },
+                  "template_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "上架配置模板 ID（/api/v1/templates）；NULL → 用租户默认模板/不注入",
+                    "title": "Template Id"
+                  },
+                  "token": {
+                    "description": "MXOU API Key（重建 GraphInput 用）",
+                    "title": "Token",
+                    "type": "string"
+                  },
+                  "update_product_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id",
+                    "title": "Update Product Id"
+                  }
+                },
+                "required": [
+                  "token"
+                ],
+                "title": "DraftSubmitRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -6558,7 +7539,7 @@
     },
     "/api/v1/error_reports": {
       "get": {
-        "description": "本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。",
+        "description": "本租户错误报告列表（新→旧，status 可筛，limit≤200）。详情：?report_id=。\n\n现状内联序列无限流检查 → 用 get_tenant_no_rate_limit 逐字对齐。",
         "operationId": "v1_list_error_reports_api_v1_error_reports_get",
         "responses": {
           "200": {
@@ -6573,11 +7554,12 @@
         "summary": "V1 List Error Reports",
         "tags": [
           "v1",
+          "error-reports",
           "error-reports"
         ]
       },
       "post": {
-        "description": "用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。\n\nworker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：\n快照自带 status/error/product_id/时间线，报告自足可复现）。\n模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源。",
+        "description": "用户问题反馈错误报告（v0.69）：agent 按模板填写（含复现方式/证据）→ 落库。\n\nworker 按 evidence.task_ids 自动附加本租户任务快照（假成功取证实证：\n快照自带 status/error/product_id/时间线，报告自足可复现）。\n模板契约：docs/ERROR-REPORT-TEMPLATE.md。鉴权/限流与 analytics 同源\n（Bearer 提取 + _verify_analytics_token + 限流已由 get_tenant 承担）。",
         "operationId": "v1_create_error_report_api_v1_error_reports_post",
         "responses": {
           "200": {
@@ -6592,6 +7574,7 @@
         "summary": "V1 Create Error Report",
         "tags": [
           "v1",
+          "error-reports",
           "error-reports"
         ]
       }
@@ -6653,6 +7636,8 @@
         },
         "summary": "V1 Task Forensics",
         "tags": [
+          "v1",
+          "error-reports",
           "error-reports"
         ]
       }
@@ -7793,66 +8778,6 @@
           }
         },
         "summary": "List Products",
-        "tags": [
-          "v1",
-          "products"
-        ]
-      }
-    },
-    "/api/v1/products/bulk-archive": {
-      "post": {
-        "operationId": "bulk_archive_api_v1_products_bulk_archive_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Bulk Archive",
-        "tags": [
-          "v1",
-          "products"
-        ]
-      }
-    },
-    "/api/v1/products/bulk-prices": {
-      "post": {
-        "operationId": "bulk_prices_api_v1_products_bulk_prices_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Bulk Prices",
-        "tags": [
-          "v1",
-          "products"
-        ]
-      }
-    },
-    "/api/v1/products/bulk-stocks": {
-      "post": {
-        "operationId": "bulk_stocks_api_v1_products_bulk_stocks_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Bulk Stocks",
         "tags": [
           "v1",
           "products"
@@ -9364,6 +10289,31 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "POST /tasks/{id}/images/{slot}/regen 请求体（Bearer 优先，body token 兜底，可整体省略）。",
+                "examples": [
+                  {
+                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                  }
+                ],
+                "properties": {
+                  "token": {
+                    "default": "",
+                    "description": "MXOU API Key（Authorization: Bearer 缺席时的兜底；可省略）",
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "title": "TaskImageRegenRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -9976,8 +10926,8 @@
     },
     "/forensics/task/{task_id}": {
       "get": {
-        "description": "任务取证一站式只读聚合（v0.70）：任务快照 + listing_result_log +\ncategory_match_log + attr_match_log 四路事实。\n\n替代「换库 Supabase」的本地/云端配合取证通道——agent/MCP 凭 Bearer 直接查\n生产任务的留存与审计（此前只能 SSH psql）。租户校验：任务行不属本租户 →\n404（等价不存在）。v0.67 前的 category_match_log 历史行为 ingest 随机 uuid，\n无法与任务行关联（已知数据断层）。",
-        "operationId": "v1_task_forensics_forensics_task__task_id__get",
+        "description": "旧路径兼容（main.py 版 @app.get(\"/forensics/task/{task_id}\") 双装饰器的一半）。",
+        "operationId": "task_forensics_legacy_path_forensics_task__task_id__get",
         "parameters": [
           {
             "in": "path",
@@ -10009,8 +10959,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "V1 Task Forensics",
+        "summary": "Task Forensics Legacy Path",
         "tags": [
+          "error-reports",
           "error-reports"
         ]
       }

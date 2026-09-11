@@ -31,6 +31,8 @@ class WorkerErrorCode(str, Enum):
 
     # 任务
     TASK_NOT_FOUND = "TASK_NOT_FOUND"
+    # B4 (2026-09-11 仓库治理, A5 §2 D-01)：已接线——main.py http_cancel_task
+    # 对非 pending 任务返 409 + 本码（原 200+{status:failed} 不可编程处理）。
     TASK_NOT_CANCELLABLE = "TASK_NOT_CANCELLABLE"
     TASK_NOT_RESUBMITTABLE = "TASK_NOT_RESUBMITTABLE"
     TASK_SUBMIT_FAILED = "TASK_SUBMIT_FAILED"

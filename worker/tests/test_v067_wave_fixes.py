@@ -83,7 +83,7 @@ def test_resolver_cache_positive_still_used():
     """正常缓存行行为不变：13% → 0.13, cache:leq_5000。"""
     rate, source = resolve_commission_rate(
         41777465, 3000.0, None,
-        get_category_commission_fn=lambda dc: {"fbs_leq_5000": 13.0},
+        get_category_commission_fn=lambda dc: {"fbs_leq_5000": 13.0, "updated_at": __import__("time").time()},
     )
     assert abs(rate - 0.13) < 1e-9
     assert source == "cache:leq_5000"

@@ -102,6 +102,10 @@ class TaskStatus(str, Enum):
     REJECTED = "rejected"
     PENDING_MODERATION = "pending_moderation"  # T14: 在线商品改图重传后重新审核中
 
+    # 注意：枚举类不能挂 model_config/_examples——Python Enum 会把普通类属性变成
+    # 假成员（实测 model_config 被收编为 TaskStatus.model_config），example-lint
+    # 对此 schema 的缺示例告警属预期豁免。
+
 
 class TaskStatusResponse(BaseModel):
     """任务状态响应。"""
@@ -150,6 +154,7 @@ class TaskStatusResponse(BaseModel):
 
 class CancelTaskResponse(BaseModel):
     """取消任务响应。"""
+    model_config = _examples({"ok": True, "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f", "message": "任务已取消"})
     ok: bool = True
     task_id: str = Field(..., description="任务 UUID")
     message: str = Field(..., description="取消结果消息")
@@ -162,6 +167,7 @@ class CancelTaskResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """健康检查响应。"""
+    model_config = _examples({"status": "ok", "message": "服务正常", "db": "connected"})
     status: str = Field(..., description="服务状态: ok / degraded")
     message: str = Field(..., description="状态描述")
     db: str = Field(..., description="数据库连接状态: connected / disconnected")
@@ -174,6 +180,10 @@ class HealthResponse(BaseModel):
 
 class TaskStatisticsResponse(BaseModel):
     """任务统计响应。"""
+    model_config = _examples({
+        "total": 128, "pending": 3, "running": 2, "completed": 100,
+        "failed": 20, "cancelled": 3, "avg_duration_seconds": 212.6,
+    })
     total: int = Field(0, description="总任务数")
     pending: int = Field(0, description="待处理")
     running: int = Field(0, description="执行中")
@@ -269,6 +279,7 @@ class DiscoveryRunItem(BaseModel):
 
 class AnalyticsReportResponse(BaseModel):
     """上报成功响应。"""
+    model_config = _examples({"status": "ok", "inserted": 42, "upserted": 7})
     status: str = Field("ok", description="状态: ok / error")
     inserted: int = Field(0, description="本次新增行数")
     upserted: int = Field(0, description="本次覆盖更新行数")
@@ -304,6 +315,19 @@ class DraftCreate(BaseModel):
 
 class DraftOut(BaseModel):
     """草稿详情（payload = envelope，不含任何凭证）。"""
+    model_config = _examples({
+        "id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "tenant_id": "28",
+        "payload": _ENVELOPE_EXAMPLE,
+        "source": "skill",
+        "version": 1,
+        "created_at": "2026-09-08T10:00:00Z",
+        "updated_at": "2026-09-08T10:05:00Z",
+        "submission_status": "pending",
+        "image_mirror_state": "mirrored",
+        "notes": "竞品月销 140，跟卖利润空间 12%",
+        "source_batch": "batch-20260908-100000",
+    })
     id: UUID = Field(..., description="草稿 ID")
     tenant_id: str = Field(..., description="归属用户（_authenticate_token 的 user_id）")
     payload: dict[str, Any] = Field(..., description="envelope {draft, source, extensions}；无 api_key 明文")
@@ -341,14 +365,31 @@ class DraftPatch(BaseModel):
 
 
 class DraftSubmitRequest(BaseModel):
-    """POST /drafts/{id}/submit：凭证注入 → 入队。"""
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "credential_id": "3c9d2f4e-1111-4222-8333-444455556666", "update_product_id": None})
+    """POST /drafts/{id}/submit：凭证注入 → 入队（/resubmit 同构，openapi_extra 展示用）。
+
+    路由手拆 raw body，schema 仅文档展示；字段与路由实际读取一一对应
+    （template_id/scheduled_at 为 v0.7x 定时上架/模板配置面）。
+    """
+    model_config = _examples({
+        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+        "update_product_id": None,
+        "template_id": None,
+        "scheduled_at": None,
+    })
     token: str = Field(..., description="MXOU API Key（重建 GraphInput 用）")
     credential_id: Optional[UUID] = Field(
         None, description="目标店铺凭证 ID；NULL → 用 is_default=true 店铺"
     )
     update_product_id: Optional[str] = Field(
         None, description="更新模式：已存在商品的 Ozon product_id；设置后跳过 per-store 重复校验，注入 extensions.update_product_id"
+    )
+    template_id: Optional[str] = Field(
+        None, description="上架配置模板 ID（/api/v1/templates）；NULL → 用租户默认模板/不注入"
+    )
+    scheduled_at: Optional[str] = Field(
+        None,
+        description="定时上架时间（ISO 8601，如 2026-09-12T09:00:00+08:00）；有值 → 202 落 scheduled_listings 定时队列而非立即入队",
     )
 
 
@@ -400,6 +441,7 @@ class CredentialUpdate(BaseModel):
 
 class StoreSyncConfigUpdate(BaseModel):
     """店铺同步配置更新(PATCH /stores/{id}/sync-config,免 api_key;间隔下限 5min)。"""
+    model_config = _examples({"sync_enabled": True, "sync_interval_minutes": 15, "sync_products_interval_minutes": 30})
     sync_enabled: Optional[bool] = Field(None, description="定时同步开关(手动同步仍可用)")
     sync_interval_minutes: Optional[int] = Field(None, ge=5, le=1440, description="订单同步间隔(分钟)")
     sync_products_interval_minutes: Optional[int] = Field(None, ge=5, le=1440, description="商品同步间隔(分钟)")
@@ -437,6 +479,7 @@ class CredentialOut(BaseModel):
 
 class ValidateResponse(BaseModel):
     """凭证校验响应。"""
+    model_config = _examples({"valid": True, "reason": "ok", "last_validated_at": "2026-09-11T02:00:00Z"})
     valid: bool = Field(..., description="key 是否有效")
     reason: str = Field(..., description="ok / invalid_key / ozon_api_error / decrypt_failed")
     last_validated_at: Optional[datetime] = Field(None, description="本次校验时间")
@@ -449,6 +492,17 @@ class ValidateResponse(BaseModel):
 
 class ListingTemplateConfig(BaseModel):
     """模板扩展参数（白名单；全部可选，None 表示不注入）。"""
+    model_config = _examples({
+        "margin_rate": 0.25,
+        "fx_buffer": 0.05,
+        "margin_floor": 0.6,
+        "margin_anchor": 2.0,
+        "variable_cost_rate": 0.155,
+        "promo_variable_cost_rate": 0.245,
+        "traffic_keywords": ["поилка для животных", "фонтан для кошек"],
+        "offer_id_prefix": "MX",
+        "stock": 10,
+    })
     margin_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="利润率（0-1），不设则 worker 默认 0.25")
     commission_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="佣金率；0=让 worker 自动查店铺真实佣金")
     fx_buffer: Optional[float] = Field(None, ge=0.0, le=0.5, description="汇率缓冲（0-0.5），不设则 worker 默认 0.05")
@@ -483,6 +537,22 @@ class ListingTemplateUpdate(BaseModel):
 
 class ListingTemplateOut(BaseModel):
     """上架配置模板响应。"""
+    model_config = _examples({
+        "id": "f0e1d2c3-0000-4000-8000-000000000003",
+        "tenant_id": "28",
+        "name": "默认三档定价",
+        "description": "日常 25% / 锚点 2.0 / 促销底线 0.6",
+        "platform": "OZON",
+        "is_default": True,
+        "config": {
+            "margin_rate": 0.25, "fx_buffer": 0.05, "margin_floor": 0.6,
+            "margin_anchor": 2.0, "variable_cost_rate": 0.155,
+            "promo_variable_cost_rate": 0.245, "offer_id_prefix": "MX", "stock": 10,
+        },
+        "store_overrides": None,
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-08T10:00:00Z",
+    })
     id: str = Field(..., description="模板 UUID")
     tenant_id: str = Field(..., description="所属租户")
     name: str = Field(..., description="配置名称")
@@ -502,6 +572,15 @@ class ListingTemplateOut(BaseModel):
 
 class OrderProductOut(BaseModel):
     """订单内商品行。"""
+    model_config = _examples({
+        "name": "Автопоилка для животных 2 л",
+        "sku": 3171397439,
+        "quantity": 1,
+        "price": 729.0,
+        "offer_id": "812345678901",
+        "product_id": 3171397439,
+        "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+    })
     name: str = Field("", description="商品名称")
     sku: Optional[int] = Field(None, description="Ozon SKU")
     quantity: int = Field(0, description="数量")
@@ -513,6 +592,26 @@ class OrderProductOut(BaseModel):
 
 class OrderOut(BaseModel):
     """订单行（Ozon FBS posting 标准化）。"""
+    model_config = _examples({
+        "posting_number": "0031-726193-0001",
+        "status": "awaiting",
+        "raw_status": "awaiting_packaging",
+        "created_at": "2026-09-08T09:30:00Z",
+        "products": [{
+            "name": "Автопоилка для животных 2 л", "sku": 3171397439, "quantity": 1,
+            "price": 729.0, "offer_id": "812345678901", "product_id": 3171397439,
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        }],
+        "product_count": 1,
+        "total_amount": 729.0,
+        "commission_amount": 109.35,
+        "profit": 155.2,
+        "real_profit": 132.8,
+        "warehouse": "Коледино",
+        "delivery_method": "Courier",
+        "cancel_reason": "",
+        "cancellation": "",
+    })
     posting_number: str = Field(..., description="货件编号")
     status: str = Field(..., description="统一态：pending/awaiting/waiting/delivering/delivered/cancelled/other")
     raw_status: str = Field("", description="Ozon 原始状态")
@@ -531,6 +630,23 @@ class OrderOut(BaseModel):
 
 class OrderListResponse(BaseModel):
     """订单列表响应。"""
+    model_config = _examples({
+        "items": [{
+            "posting_number": "0031-726193-0001", "status": "awaiting",
+            "raw_status": "awaiting_packaging", "created_at": "2026-09-08T09:30:00Z",
+            "products": [], "product_count": 1, "total_amount": 729.0,
+            "commission_amount": 109.35, "profit": 155.2, "real_profit": 132.8,
+            "warehouse": "Коледино", "delivery_method": "Courier",
+            "cancel_reason": "", "cancellation": "",
+        }],
+        "total": 342,
+        "limit": 50,
+        "offset": 0,
+        "store": {"id": "3c9d2f4e-1111-4222-8333-444455556666", "ozon_client_id": "5381204"},
+        "last_synced_at": "2026-09-11T01:55:00Z",
+        "sync_error": None,
+        "sync_status": "ok",
+    })
     items: list[OrderOut] = Field(default_factory=list)
     total: int = Field(0, description="订单总数")
     limit: int = Field(50, description="本次页大小")
@@ -543,6 +659,18 @@ class OrderListResponse(BaseModel):
 
 class OrderNoteOut(BaseModel):
     """订单货源/采购信息标注（P1-1 本地元数据）。"""
+    model_config = _examples({
+        "posting_number": "0031-726193-0001",
+        "tenant_id": "28",
+        "source_url": "https://detail.1688.com/offer/812345678901.html",
+        "source_cost": 8.5,
+        "source_remark": "蓝色 500ml",
+        "purchase_no": "PO-20260908-001",
+        "purchase_carrier": "中通",
+        "purchase_tracking": "78412345678901",
+        "created_at": "2026-09-08T09:40:00Z",
+        "updated_at": "2026-09-08T09:40:00Z",
+    })
     posting_number: str = Field(..., description="Ozon FBS 货件编号")
     tenant_id: str = Field(..., description="所属租户")
     source_url: str = Field("", description="货源地址")
@@ -567,6 +695,11 @@ class OrderNoteUpsert(BaseModel):
 
 class OrderLabelResponse(BaseModel):
     """面单 PDF 响应（base64，路由层编码）。"""
+    model_config = _examples({
+        "posting_number": "0031-726193-0001",
+        "content_type": "application/pdf",
+        "label_base64": "JVBERi0xLjQKJ...",
+    })
     posting_number: str = Field(..., description="货件编号")
     content_type: str = Field("application/pdf", description="MIME")
     label_base64: str = Field(..., description="PDF base64")
@@ -574,6 +707,7 @@ class OrderLabelResponse(BaseModel):
 
 class CancelReasonOut(BaseModel):
     """订单取消原因（/v1/posting/fbs/cancel-reason）。"""
+    model_config = _examples({"id": 6, "title": "Товар закончился на складе"})
     id: int = Field(..., description="原因 ID")
     title: str = Field("", description="原因标题")
 
@@ -586,6 +720,7 @@ class CancelRequest(BaseModel):
 
 class OrderActionResponse(BaseModel):
     """订单写入操作响应（备货/取消）。"""
+    model_config = _examples({"ok": True, "posting_number": "0031-726193-0001", "result": {"accepted": True}})
     ok: bool = Field(True, description="操作是否提交成功")
     posting_number: str = Field(..., description="货件编号")
     result: dict = Field(default_factory=dict, description="Ozon 返回 result")
@@ -593,6 +728,20 @@ class OrderActionResponse(BaseModel):
 
 class OzonProductOut(BaseModel):
     """Ozon 店铺在线商品（v0.50 实时拉取，覆盖非本系统上架商品）。"""
+    model_config = _examples({
+        "product_id": "3171397439",
+        "offer_id": "812345678901",
+        "name": "Автопоилка для животных 2 л",
+        "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "price": 729.0,
+        "old_price": 910.0,
+        "min_price": 547.0,
+        "stock": 12,
+        "currency": "RUB",
+        "status": "visible",
+        "error": None,
+        "archived": False,
+    })
     product_id: str = Field(..., description="Ozon product_id")
     offer_id: str = Field("", description="货号")
     name: str = Field("", description="商品名称")
@@ -609,6 +758,21 @@ class OzonProductOut(BaseModel):
 
 class OzonProductListResponse(BaseModel):
     """Ozon 在线商品列表响应。"""
+    model_config = _examples({
+        "items": [{
+            "product_id": "3171397439", "offer_id": "812345678901",
+            "name": "Автопоилка для животных 2 л",
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "price": 729.0, "old_price": 910.0, "min_price": 547.0,
+            "stock": 12, "currency": "RUB", "status": "visible",
+            "error": None, "archived": False,
+        }],
+        "total": 86, "limit": 50, "offset": 0,
+        "store": {"id": "3c9d2f4e-1111-4222-8333-444455556666", "ozon_client_id": "5381204"},
+        "last_synced_at": "2026-09-11T01:55:00Z",
+        "sync_error": None,
+        "sync_status": "ok",
+    })
     items: list[OzonProductOut] = Field(default_factory=list)
     total: int = Field(0, description="商品总数")
     limit: int = Field(50, description="本次页大小")
@@ -626,6 +790,11 @@ class OzonProductListResponse(BaseModel):
 
 class AdminOverviewOut(BaseModel):
     """平台概览。"""
+    model_config = _examples({
+        "user_count": 57, "store_count": 89, "task_total": 1284,
+        "task_today": 23, "success_rate": 87.6,
+        "statistics": {"completed": 1124, "failed": 137, "cancelled": 23},
+    })
     user_count: int = Field(0, description="用户数")
     store_count: int = Field(0, description="活跃店铺数")
     task_total: int = Field(0, description="任务总数")
@@ -636,6 +805,10 @@ class AdminOverviewOut(BaseModel):
 
 class AdminUserOut(BaseModel):
     """用户行（平台视角）。"""
+    model_config = _examples({
+        "id": "28", "username": "seller_a", "quota": 42.5, "role": "user",
+        "created_at": "2026-06-01T00:00:00Z", "store_count": 3, "task_count": 214,
+    })
     id: str = Field(..., description="用户 ID")
     username: str = Field("", description="用户名/显示名")
     quota: Optional[float] = Field(None, description="余额")
@@ -647,6 +820,11 @@ class AdminUserOut(BaseModel):
 
 class AdminStoreOut(BaseModel):
     """店铺行（跨用户平台视角）。"""
+    model_config = _examples({
+        "id": "3c9d2f4e-1111-4222-8333-444455556666", "tenant_id": "28",
+        "ozon_client_id": "5381204", "shop_name": "测试店", "currency": "CNY",
+        "is_default": True, "status": "active", "last_validated_at": "2026-09-11T00:00:00Z",
+    })
     id: str = Field(..., description="凭证 UUID")
     tenant_id: str = Field(..., description="归属用户 ID")
     ozon_client_id: str = Field(..., description="Ozon Client-Id")
@@ -659,6 +837,15 @@ class AdminStoreOut(BaseModel):
 
 class AdminUserDetailOut(BaseModel):
     """用户详情（店铺 + 任务统计）。"""
+    model_config = _examples({
+        "id": "28",
+        "stores": [{
+            "id": "3c9d2f4e-1111-4222-8333-444455556666", "tenant_id": "28",
+            "ozon_client_id": "5381204", "shop_name": "测试店", "currency": "CNY",
+            "is_default": True, "status": "active", "last_validated_at": "2026-09-11T00:00:00Z",
+        }],
+        "task_total": 214, "task_completed": 187, "task_failed": 21,
+    })
     id: str = Field(..., description="用户 ID")
     stores: list[AdminStoreOut] = Field(default_factory=list, description="店铺列表")
     task_total: int = Field(0, description="任务总数")
@@ -677,11 +864,13 @@ class DraftAiRequest(BaseModel):
     请求体仅携带 token（与全站一致：token 在 body 而非 header）；
     草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。
     """
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx"})
     token: str = Field(..., description="mxou API Key（用于 LLM 调用与鉴权）")
 
 
 class DraftAiResponse(BaseModel):
     """T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存）。"""
+    model_config = _examples({"field": "title", "value": "Автопоилка для животных 2 л, фонтан с фильтром"})
     field: str = Field(..., description="title/description/attributes/tags")
     value: str = Field(..., description="俄语 RU 值（非空，无中文/拉丁残留）")
 
@@ -723,6 +912,15 @@ class SubmissionTimelineItem(BaseModel):
 
     供 WebUI 展示「这个草稿被提交过几次、到过哪些店、结果如何」。
     """
+    model_config = _examples({
+        "id": "a1b2c3d4-0000-4000-8000-000000000002",
+        "store_client_id": "5381204",
+        "status": "published",
+        "error_message": None,
+        "extensions": {"margin_rate": 0.25, "stock": 10},
+        "submitted_task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "created_at": "2026-09-08T10:10:00Z",
+    })
     id: UUID = Field(..., description="submission 记录 ID（draft_submissions.id）")
     store_client_id: Optional[str] = Field(None, description="目标店铺 Ozon Client-Id")
     status: str = Field(..., description="提交状态：pending/uploading/published/failed/rejected（M0.3 写回）")
@@ -739,6 +937,27 @@ class SubmissionTimelineItem(BaseModel):
 
 class TaskListItem(BaseModel):
     """任务列表项 — 只读摘要，不含 payload（体积大且含敏感 token）。"""
+    model_config = _examples({
+        "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "status": "running",
+        "progress": {
+            "stage": "image_generation", "percent": 53,
+            "stages_completed": ["auth", "ingest", "category_match", "pricing", "attributes", "description"],
+            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"],
+            "message": "生成主图 2/5",
+        },
+        "product_summary": [],
+        "created_at": "2026-09-08T10:00:00Z",
+        "updated_at": "2026-09-08T10:01:30Z",
+        "title": "Автопоилка для животных 2 л",
+        "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "item_id": "812345678901",
+        "ozon_client_id": "5381204",
+        "shop_name": "测试店",
+        "follow_sell": False,
+        "update_mode": False,
+        "parent_task_id": None,
+    })
     id: str = Field(..., description="任务 UUID")
     status: TaskStatus = Field(..., description="任务状态")
     progress: Optional[dict[str, Any]] = Field(None, description="实时进度 {stage, percent, stages_completed[], stages_remaining[], message}")
@@ -758,6 +977,19 @@ class TaskListItem(BaseModel):
 
 class TaskListResponse(BaseModel):
     """任务列表响应（T8）。"""
+    model_config = _examples({
+        "items": [{
+            "id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f", "status": "running",
+            "progress": None, "product_summary": [],
+            "created_at": "2026-09-08T10:00:00Z", "updated_at": "2026-09-08T10:01:30Z",
+            "title": "Автопоилка для животных 2 л",
+            "image": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "item_id": "812345678901", "ozon_client_id": "5381204",
+            "shop_name": "测试店", "follow_sell": False, "update_mode": False,
+            "parent_task_id": None,
+        }],
+        "total": 214, "limit": 20, "offset": 0,
+    })
     items: list[TaskListItem] = Field(default_factory=list, description="任务列表（created_at DESC）")
     total: int = Field(0, description="该租户任务总数（分页前）")
     limit: int = Field(20, description="本次分页大小（1-100）")
@@ -770,6 +1002,7 @@ class TaskDraftResponse(BaseModel):
     解析顺序：draft_submissions.submitted_task_id → product_task_index.task_id → None
     （直连任务无 submission 行时回落到 product_task_index；都无 → draft_id=None）。
     """
+    model_config = _examples({"draft_id": "a1b2c3d4-0000-4000-8000-000000000001"})
     draft_id: Optional[str] = Field(None, description="采集箱草稿 UUID；无关联草稿（直连任务）→ None")
 
 
@@ -780,6 +1013,14 @@ class TaskDraftResponse(BaseModel):
 
 class TaskImageItem(BaseModel):
     """单张生图缓存行（URL 元数据，不存二进制）。"""
+    model_config = _examples({
+        "slot": "main",
+        "version": 1,
+        "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+        "params": {"slot": "main", "prompt_style": "clean white background"},
+        "image_parent_task_id": None,
+        "created_at": "2026-09-08T10:03:00Z",
+    })
     slot: str = Field(..., description="槽位: main/white_bg/multi_angle/detail/social_proof/comparison/scene_1..3/variant_{idx}")
     version: int = Field(..., description="生成版本（1 起；regen 递增）")
     url: str = Field(..., description="图片 URL（COS/1688 alicdn/Ozon，前端自行处理失效）")
@@ -790,6 +1031,16 @@ class TaskImageItem(BaseModel):
 
 class TaskImagesResponse(BaseModel):
     """GET /tasks/{id}/images 响应。"""
+    model_config = _examples({
+        "ok": True,
+        "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "images": [{
+            "slot": "main", "version": 1,
+            "url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+            "params": {"slot": "main", "prompt_style": "clean white background"},
+            "image_parent_task_id": None, "created_at": "2026-09-08T10:03:00Z",
+        }],
+    })
     ok: bool = True
     task_id: str = Field(..., description="任务 UUID")
     images: list[TaskImageItem] = Field(default_factory=list, description="全部槽位 × 版本")
@@ -797,6 +1048,15 @@ class TaskImagesResponse(BaseModel):
 
 class ImageRegenResponse(BaseModel):
     """POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。"""
+    model_config = _examples({
+        "ok": True,
+        "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "slot": "main",
+        "version": 2,
+        "url": "https://cdn1.ozone.ru/s3/mxou/example_v2.jpg",
+        "params": {"slot": "main", "prompt_style": "clean white background"},
+        "image_parent_task_id": None,
+    })
     ok: bool = True
     task_id: str = Field(..., description="任务 UUID")
     slot: str = Field(..., description="槽位")
@@ -813,6 +1073,15 @@ class ImageRegenResponse(BaseModel):
 
 class ProductListItem(BaseModel):
     """在售商品列表项 — 只读，product_task_index 行 + 任务 result 审核状态。"""
+    model_config = _examples({
+        "product_id": "3171397439",
+        "offer_id": "812345678901",
+        "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+        "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+        "created_at": "2026-09-08T10:05:00Z",
+        "moderation_status": "approved",
+    })
     product_id: str = Field(..., description="Ozon product_id（上传成功后回填）")
     offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
     task_id: str = Field(..., description="上架任务 UUID")
@@ -827,6 +1096,16 @@ class ProductListItem(BaseModel):
 
 class ProductListResponse(BaseModel):
     """在售商品列表响应（M2.1）。"""
+    model_config = _examples({
+        "items": [{
+            "product_id": "3171397439", "offer_id": "812345678901",
+            "task_id": "8f1c2c1e-3b7a-4c58-9d2e-1a2b3c4d5e6f",
+            "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+            "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+            "created_at": "2026-09-08T10:05:00Z", "moderation_status": "approved",
+        }],
+        "total": 86, "limit": 20, "offset": 0,
+    })
     items: list[ProductListItem] = Field(default_factory=list, description="在售商品列表（created_at DESC）")
     total: int = Field(0, description="该租户商品总数（分页前）")
     limit: int = Field(20, description="本次分页大小（1-100）")
@@ -850,6 +1129,17 @@ class UpdateProductImagesRequest(BaseModel):
 
 class UpdateProductImagesResponse(BaseModel):
     """T14 在线商品改图重传响应。"""
+    model_config = _examples({
+        "ok": True,
+        "product_id": "3171397439",
+        "offer_id": "812345678901",
+        "import_task_id": "77123456",
+        "status": "pending_moderation",
+        "re_under_review": True,
+        "message": "改图重传已提交，商品重新审核中",
+        "images": ["https://cdn1.ozone.ru/s3/mxou/example.jpg"],
+        "images_filtered": ["https://cbu01.alicdn.com/img/ibank/dead-link.jpg"],
+    })
     ok: bool = True
     product_id: str = Field(..., description="Ozon product_id")
     offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
@@ -869,6 +1159,15 @@ class ProductEditResponse(BaseModel):
 
     数据来源：product_task_index 关联草稿（直连任务无草稿 → 409，仅改图走 update_images）。
     """
+    model_config = _examples({
+        "product_id": "3171397439",
+        "offer_id": "812345678901",
+        "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+        "draft_id": "a1b2c3d4-0000-4000-8000-000000000001",
+        "draft_version": 3,
+        "payload": _ENVELOPE_EXAMPLE,
+        "moderation_status": "approved",
+    })
     product_id: str = Field(..., description="Ozon product_id")
     offer_id: str = Field(..., description="信封 offer_id（sku_id / follow_{id}）")
     credential_id: str | None = Field(None, description="店铺凭证 id")
@@ -897,6 +1196,7 @@ class MxouLoginRequest(BaseModel):
 
 class MxouKeyItem(BaseModel):
     """MXOU API Key 条目（脱敏展示，绝不含 full_key）。"""
+    model_config = _examples({"id": "tok_01", "name": "default", "masked": True, "status": 1})
     id: str = Field(..., description="token id")
     name: str = Field("", description="token 名称")
     masked: bool = Field(True, description="key 是否为脱敏形态（masked=true 时不含明文）")
@@ -905,6 +1205,15 @@ class MxouKeyItem(BaseModel):
 
 class MxouLoginResponse(BaseModel):
     """MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。"""
+    model_config = _examples({
+        "username": "seller@example.com",
+        "balance": 128.4,
+        "keys": [{"id": "tok_01", "name": "default", "masked": True, "status": 1}],
+        "selected_key_id": "tok_01",
+        "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "session_expires_at": "2026-09-11T23:59:59",
+        "role": "user",
+    })
     username: str = Field(..., description="MXOU 用户名")
     balance: float | None = Field(None, description="平台真实余额（美元，/v1/dashboard/billing/subscription 同源；查询失败 None）")
     keys: list[MxouKeyItem] = Field(default_factory=list, description="API Key 列表（已脱敏，无 full_key）")
@@ -921,6 +1230,7 @@ class MxouKeyCreateRequest(BaseModel):
 
 class MxouKeyCreateResponse(BaseModel):
     """新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。"""
+    model_config = _examples({"id": "tok_02", "name": "webui", "key": "sk-yyyyyyyyyyyyyyyyyyyy"})
     id: str = Field(..., description="token id")
     name: str = Field(..., description="token 名称")
     key: str = Field(..., description="新建密钥完整值（仅此一次返回）")
@@ -928,6 +1238,7 @@ class MxouKeyCreateResponse(BaseModel):
 
 class MxouKeySelectResponse(BaseModel):
     """切换密钥响应（key 仅此一次返回——用户复制后不再可查）。"""
+    model_config = _examples({"key": "sk-yyyyyyyyyyyyyyyyyyyy"})
     key: str = Field(..., description="所选密钥完整值（仅此一次返回）")
 
 
@@ -937,3 +1248,58 @@ class SellerSyncIn(BaseModel):
     source_company_id: str | None = None
     model_config = _examples({"items": [{"sku": 3171397439, "sales_payload": {"monthsales": 140}}],
                               "source_company_id": "5381204"})
+
+
+# ──────────────────────────────────────────────
+# drafts / tasks 手拆 body 路由的 openapi_extra 展示 schema（v1_submit_task 先例）
+# —— 仅文档展示用，路由仍手读 raw Request，不参与校验
+# ──────────────────────────────────────────────
+
+
+class DraftBatchSubmitRequest(BaseModel):
+    """POST /drafts/batch-submit 请求体（≤50 条逐条提交，失败不阻断其余）。"""
+    model_config = _examples({
+        "ids": ["a1b2c3d4-0000-4000-8000-000000000001", "a1b2c3d4-0000-4000-8000-000000000004"],
+        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+    })
+    ids: List[str] = Field(..., description="草稿 ID 列表（最多取前 50 条）")
+    token: str = Field(..., description="MXOU API Key（批量提交共用）")
+    credential_id: Optional[UUID] = Field(
+        None, description="目标店铺凭证 ID；NULL → 用 is_default=true 店铺"
+    )
+
+
+class DraftBatchImportRequest(BaseModel):
+    """POST /drafts/import 请求体（application/json 形态；text/csv 表头形态见端点说明）。
+
+    rows 每行字段与 CSV 表头一致：title/item_id/images/purchase_cost/purchase_url/
+    price/stock/supplier/weight/length/width/height；images 支持列表或 "|"/";"
+    分隔字符串；逐行复用 create_draft，失败行返回 error 不阻断。
+    """
+    model_config = _examples({
+        "rows": [{
+            "title": "便携折叠水杯 500ml 硅胶",
+            "item_id": "812345678901",
+            "images": ["https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg"],
+            "purchase_cost": 8.5,
+            "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+            "price": 729.0,
+            "stock": 10,
+            "supplier": "义乌市某日用品厂",
+            "weight": 120,
+            "length": 150,
+            "width": 90,
+            "height": 60,
+        }]
+    })
+    rows: List[Dict[str, Any]] = Field(
+        ...,
+        description="导入行列表（≤500 行）；字段同 CSV 表头，images 支持列表或 '|'/';' 分隔字符串",
+    )
+
+
+class TaskImageRegenRequest(BaseModel):
+    """POST /tasks/{id}/images/{slot}/regen 请求体（Bearer 优先，body token 兜底，可整体省略）。"""
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx"})
+    token: str = Field("", description="MXOU API Key（Authorization: Bearer 缺席时的兜底；可省略）")

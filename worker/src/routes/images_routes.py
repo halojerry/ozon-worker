@@ -12,7 +12,7 @@ import json
 
 from fastapi import APIRouter, Request
 
-from api.schemas import ImageRegenResponse, TaskImagesResponse
+from api.schemas import ImageRegenResponse, TaskImageRegenRequest, TaskImagesResponse
 from services import image_service
 
 router = APIRouter(prefix="/tasks", tags=["images"])
@@ -42,7 +42,11 @@ async def list_task_images(task_id: str, request: Request):
     return image_service.list_images(task_id, tenant_id)
 
 
-@router.post("/{task_id}/images/{slot}/regen", response_model=ImageRegenResponse)
+@router.post("/{task_id}/images/{slot}/regen", response_model=ImageRegenResponse,
+             # 函数不消费 body（鉴权只兜底读 token）：请求体声明为可选 TaskImageRegenRequest，
+             # 文档如实呈现「Bearer 优先、body 可省略」（v1_submit_task 先例）。
+             openapi_extra={"requestBody": {"required": False, "content": {
+                 "application/json": {"schema": TaskImageRegenRequest.model_json_schema()}}}})
 async def regen_task_image(task_id: str, slot: str, request: Request):
     tenant_id = await _authenticate(request)
     return await image_service.regen_image(task_id, slot, tenant_id)

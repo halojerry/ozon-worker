@@ -357,6 +357,81 @@ def render_snapshot(spec: dict[str, Any]) -> str:
     return json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+# ── example-lint（A6 审计 §2.4：示例强制化，告警不阻断） ──────────
+
+
+def lint_examples(spec: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
+    """统计示例覆盖缺口（docs/audit/2026-09-11-repo-gov A6 §2.4 方案落地）。
+
+    三份名单（纯只读，不修改 spec、不进任何产物）：
+      1. components.schemas 中无 ``example``/``examples`` 的 schema 名
+         （Pydantic ``model_config = _examples({...})`` 注入后即体现为这两键）；
+      2. 声明了 requestBody 但解引用后无示例的操作（"METHOD path"）；
+      3. 200/201 响应 schema 解引用后无示例的操作。
+
+    返回 (无示例 schema 名单, 请求体无示例操作, 响应无示例操作)。
+    """
+    components: dict[str, Any] = spec.get("components", {}).get("schemas", {})
+    missing_schemas = sorted(
+        name for name, sc in components.items()
+        if isinstance(sc, dict) and not (sc.get("examples") or "example" in sc)
+    )
+
+    no_req_example: list[str] = []
+    no_resp_example: list[str] = []
+    for raw_path, item in spec.get("paths", {}).items():
+        if not isinstance(item, dict):
+            continue
+        for method, op in item.items():
+            if method not in METHOD_ORDER or not isinstance(op, dict):
+                continue
+            label = f"{method.upper()} {raw_path}"
+            body = op.get("requestBody")
+            if body:
+                mschema = next(iter(body.get("content", {}).values()), {}).get("schema")
+                resolved = resolve(mschema, components)
+                if not (resolved.get("examples") or "example" in resolved):
+                    no_req_example.append(label)
+            ok = (op.get("responses") or {}).get("200") or (op.get("responses") or {}).get("201")
+            if ok:
+                rschema = next(iter(ok.get("content", {}).values()), {}).get("schema")
+                resolved = resolve(rschema, components)
+                if not (resolved.get("examples") or "example" in resolved):
+                    no_resp_example.append(label)
+    return missing_schemas, no_req_example, no_resp_example
+
+
+def report_example_lint(spec: dict[str, Any], strict: bool = False) -> int:
+    """把 lint_examples 结果打到 stderr（绝不进产物，--check 字节比对不受影响）。
+
+    strict=True（--fail-on-missing-examples）时 schema 缺示例返回退出码 2，
+    供后续渐进收紧 CI 门禁用（A6 §2.4 第 4 点：先警告后阻断）。
+    """
+    import sys as _sys
+
+    missing, no_req, no_resp = lint_examples(spec)
+    total = len(spec.get("components", {}).get("schemas", {}))
+    with_example = total - len(missing)
+    pct = (with_example * 100 // total) if total else 100
+    print(
+        f"[example-lint] 示例覆盖：{with_example}/{total} schema 带示例（{pct}%）；"
+        f"{len(missing)} schema 无示例（告警不阻断）",
+        file=_sys.stderr,
+    )
+    if no_req:
+        print(f"[example-lint] requestBody 无示例的操作 {len(no_req)} 个（前 10）：", file=_sys.stderr)
+        for label in no_req[:10]:
+            print(f"  - {label}", file=_sys.stderr)
+    if no_resp:
+        print(f"[example-lint] 200/201 响应无示例的操作 {len(no_resp)} 个", file=_sys.stderr)
+    if missing:
+        print(f"[example-lint] 无示例 schema：{', '.join(missing)}", file=_sys.stderr)
+    if strict and missing:
+        print(f"[example-lint] --fail-on-missing-examples：{len(missing)} 个 schema 缺示例 → exit 2", file=_sys.stderr)
+        return 2
+    return 0
+
+
 # ── CLI ────────────────────────────────────────────────────────
 
 
@@ -373,10 +448,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--snapshot", type=Path, nargs="*", default=list(DEFAULT_SNAPSHOTS), help="openapi.json 快照输出路径（可多份）")
     ap.add_argument("--no-snapshot", action="store_true", help="不写快照")
     ap.add_argument("--check", action="store_true", help="只比对不写入，漂移则 exit 1")
+    ap.add_argument(
+        "--fail-on-missing-examples", action="store_true",
+        help="example-lint 发现无示例 schema 时 exit 2（渐进收紧 CI 门禁用；默认只告警）",
+    )
     args = ap.parse_args(argv)
 
     version = (REPO_ROOT / "VERSION").read_text().strip()
     spec = load_spec()
+    # example-lint 只打 stderr（A6 §2.4）：--check 与普通生成模式都打印，产物零影响。
+    lint_rc = report_example_lint(spec, strict=args.fail_on_missing_examples)
     targets: list[tuple[Path, str]] = [(args.out, render_markdown(spec, version))]
     if not args.no_snapshot:
         snap = render_snapshot(spec)
@@ -391,13 +472,13 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         n_canon, n_ops, n_raw = count_paths(spec)
         print(f"API 文档与快照一致（{n_canon} canonical path / {n_ops} 操作 / {n_raw} 含兼容别名）")
-        return 0
+        return lint_rc  # 漂移零 → lint 的 strict 退出码透传（默认 0）
 
     for p, content in targets:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         print(f"wrote {_rel(p)} ({len(content.splitlines())} lines)")
-    return 0
+    return lint_rc  # 普通模式同样透传 strict 退出码（默认 0）
 
 
 if __name__ == "__main__":

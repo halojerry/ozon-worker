@@ -15,7 +15,7 @@ from utils.price_sanity_guard import check_price_sanity  # ✅ v0.73: 价差守�
 from utils.commission_resolver import (  # 任务 1.3: 佣金唯一解析入口（explicit>缓存表>segments>0.10）
     get_category_commission,
     pick_price_band,
-    resolve_commission_rate,
+    resolve_commission_rate_detail,  # BL-24 一期: 180d 新鲜度闸（detail 版带 stale 标志）
 )
 import time as _time
 
@@ -237,16 +237,23 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         dc_id: str = getattr(state, "description_category_id", "") or ""
         dc_id_int = int(dc_id) if str(dc_id).isdigit() else None
         
-        commission_rate, commission_source = resolve_commission_rate(
+        # ✅ BL-24 一期: 缓存行 180d 新鲜度闸——超龄行不再直接采信，降级
+        # segments/fallback（resolve_commission_rate_detail 内部处理），
+        # stale=True 时 pricing_info marks 留 commission_source="stale_fallback" 供审计。
+        _commission_detail = resolve_commission_rate_detail(
             description_category_id=dc_id_int,
             price_rub=_price_rub,
             explicit_commission=explicit_commission,
             extensions_commission_segments=extensions.get("commission_segments"),
             get_category_commission_fn=get_category_commission,
         )
+        commission_rate: float = _commission_detail["rate"]
+        commission_source: str = _commission_detail["source"]
+        _commission_stale: bool = bool(_commission_detail.get("stale", False))
         logger.info(
             f"佣金来源(source)={commission_source}, 类目={dc_id or 'N/A'}, "
             f"档={band}, 佣金={commission_rate*100:.1f}%"
+            + (", stale_fallback=缓存行超龄降级" if _commission_stale else "")
         )
         
         # 三档时透传新参数给 compute_price（唯一定价公式入口）；单档时全不传 → compute_price 保持旧行为
@@ -296,6 +303,9 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             "total_cost_cny": total_cost_cny,
             "margin_rate": margin_rate,
             "commission_rate": commission_rate,
+            # ✅ BL-24 一期: 缓存行超龄降级（stale）时留痕——审计可回答「这个价
+            # 的佣金哪来的」；非 stale 不加键（零行为噪音，与现状逐字一致）。
+            **({"commission_source": "stale_fallback"} if _commission_stale else {}),
             "fx_buffer": fx_buffer,
             "currency_code": currency_code,
             "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,

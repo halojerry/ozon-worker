@@ -17,6 +17,7 @@ import asyncio
 import copy
 import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -241,6 +242,9 @@ def test_estimate_returns_commission_source(monkeypatch):
             "fbo_leq_5000": 9.0,
             "fbo_gt_5000": 11.0,
             "source": "what_to_sell",
+            # BL-24 一期: 缓存行 180d 新鲜度闸——夹具给新鲜 updated_at 锁「新鲜行采信」；
+            # 缺失/超龄行降级 fallback:stale（见 test_commission_stale_v075.py）。
+            "updated_at": time.time(),
         },
     )
     result = _call_endpoint(

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""compile.py P6 编译清单回归测试：COMPILE_FILES 从 8 扩到 14。
+"""compile.py 编译清单回归测试：P6 扩到 14，B4（2026-09-11 仓库治理）降为 13。
 
-三个断言锁定：
-① COMPILE_FILES 恰好 14 个模块（含 6 个新晋编译的 discover/CDP 链路模块）
+断言锁定：
+① COMPILE_FILES 恰好 13 个模块（B4：ozon_seller.py 出编译清单——生产零 import，
+   佣金/属性链已迁 worker；源文件降级 AUX_FILES 明文随包，见 A5 §2 D-08）
 ② COMPILE_FILES ∩ AUX_FILES == ∅（AUX 复制在 stub 生成之后，模块两属会
    明文覆盖 stub —— 编译保护失效）
 ③ COMPILE_FILES ∩ COPY_FILES == ∅（同理由）
+④ ozon_seller.py 必须在 AUX_FILES（明文随包保留 premium spoof 能力）且不在
+   COMPILE_FILES（防回潮——重新加回编译清单即构建时间浪费复发）
 
 运行：
     cd skill && .venv314/bin/python tests/test_compile_lists.py
@@ -35,9 +38,8 @@ def _load_compile():
 compile_mod = _load_compile()
 
 
-def test_compile_files_has_14_modules():
-    """COMPILE_FILES 必须恰好 14 个（8 原有 + 6 新晋：ozon_seller_analytics、
-    analytics_upload、ozon_fission、ozon_discovery、ozon_seller、cdp_client）。"""
+def test_compile_files_has_13_modules():
+    """COMPILE_FILES 必须恰好 13 个（B4 起：14 − ozon_seller）。"""
     expected = {
         "scripts/lib/ak_1688_client.py",
         "scripts/lib/ak_callback.py",
@@ -51,16 +53,25 @@ def test_compile_files_has_14_modules():
         "scripts/lib/analytics_upload.py",
         "scripts/lib/ozon_fission.py",
         "scripts/lib/ozon_discovery.py",
-        "scripts/lib/ozon_seller.py",
         "scripts/lib/cdp_client.py",
     }
-    assert len(compile_mod.COMPILE_FILES) == 14, (
-        f"COMPILE_FILES 应为 14 个，实际 {len(compile_mod.COMPILE_FILES)}"
+    assert len(compile_mod.COMPILE_FILES) == 13, (
+        f"COMPILE_FILES 应为 13 个，实际 {len(compile_mod.COMPILE_FILES)}"
     )
     assert set(compile_mod.COMPILE_FILES) == expected, (
         f"COMPILE_FILES 清单不一致:\n"
         f"  缺: {sorted(expected - set(compile_mod.COMPILE_FILES))}\n"
         f"  多: {sorted(set(compile_mod.COMPILE_FILES) - expected)}"
+    )
+
+
+def test_ozon_seller_demoted_to_aux_not_compiled():
+    """B4 (A5 D-08)：ozon_seller.py 出编译清单降级 AUX——防回潮断言。"""
+    assert "scripts/lib/ozon_seller.py" not in compile_mod.COMPILE_FILES, (
+        "ozon_seller.py 不得回到 COMPILE_FILES（生产零 import，编译浪费 4 平台构建时间）"
+    )
+    assert "scripts/lib/ozon_seller.py" in compile_mod.AUX_FILES, (
+        "ozon_seller.py 必须留在 AUX_FILES（明文随包，保留 premium spoof 能力）"
     )
 
 
