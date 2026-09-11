@@ -164,9 +164,9 @@ jobs:
       - name: Run tests
         working-directory: worker
         run: python -m pytest tests/ -v --tb=short
-      - name: API docs drift check (docs/API-REFERENCE.md + openapi.json 快照)
+      - name: API docs drift check (docs/API-REFERENCE.md + openapi.json 快照 + example-lint strict)
         working-directory: worker
-        run: python scripts/gen_api_docs.py --check
+        run: python scripts/gen_api_docs.py --check --fail-on-missing-examples
 
   test-skill:
     name: Skill Tests (3.12 Docker)

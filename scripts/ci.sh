@@ -189,12 +189,17 @@ for cand in "$PYTHON_BIN" "$SKILL_DIR/.venv314/bin/python"; do
     fi
 done
 if [ -n "$DOCS_PY" ]; then
-    if "$DOCS_PY" worker/scripts/gen_api_docs.py --check 2>/dev/null; then
-        green "   ✅ API-REFERENCE.md / openapi.json 与代码一致"
+    # v0.75：--fail-on-missing-examples strict 转正（schema/请求体/响应示例三名单任一非空 exit 2）；
+    # stderr 含 lint 明细，失败时展示（成功时仍丢弃防刷屏）
+    _5D_ERR="$(mktemp)"
+    if "$DOCS_PY" worker/scripts/gen_api_docs.py --check --fail-on-missing-examples 2>"$_5D_ERR"; then
+        green "   ✅ API-REFERENCE.md / openapi.json 与代码一致（example-lint strict 门禁通过）"
     else
-        red "   ❌ API 文档漂移：运行 python worker/scripts/gen_api_docs.py 并提交产物"
+        red "   ❌ API 文档漂移或示例缺口：运行 python worker/scripts/gen_api_docs.py 并提交产物（明细：）"
+        sed 's/^/      /' "$_5D_ERR"
         FAILED=1
     fi
+    rm -f "$_5D_ERR"
 else
     yellow "   ⚠️  无带 fastapi 的 Python，跳过（CI 的 test-worker job 会强制检查）"
 fi

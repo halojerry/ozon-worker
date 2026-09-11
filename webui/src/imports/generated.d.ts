@@ -3511,7 +3511,15 @@ export interface components {
              */
             valid: boolean;
         };
-        /** BackupItem */
+        /**
+         * BackupItem
+         * @description 配置备份文件（命名 {name}.{YYYYMMDDHHMMSS}.json，mtime 为 epoch 秒）。
+         * @example {
+         *       "mtime": 1789113600,
+         *       "name": "image_prompts.json.20260911083000.json",
+         *       "size": 5120
+         *     }
+         */
         BackupItem: {
             /** Mtime */
             mtime: number;
@@ -3567,7 +3575,13 @@ export interface components {
              */
             task_id: string;
         };
-        /** ConfigListItem */
+        /**
+         * ConfigListItem
+         * @description config 目录下的配置文件名。
+         * @example {
+         *       "name": "image_prompts.json"
+         *     }
+         */
         ConfigListItem: {
             /** Name */
             name: string;
@@ -3952,7 +3966,16 @@ export interface components {
              */
             version: number;
         };
-        /** ImageTaskCreateRequest */
+        /**
+         * ImageTaskCreateRequest
+         * @example {
+         *       "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "params": {
+         *         "tolerance": 30
+         *       },
+         *       "type": "remove_bg"
+         *     }
+         */
         ImageTaskCreateRequest: {
             /** Input Image Url */
             input_image_url: string;
@@ -3963,7 +3986,28 @@ export interface components {
             /** Type */
             type: string;
         };
-        /** ImageTaskListResponse */
+        /**
+         * ImageTaskListResponse
+         * @example {
+         *       "items": [
+         *         {
+         *           "created_at": "2026-09-11T08:30:00.123456+00:00",
+         *           "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+         *           "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "params": {
+         *             "tolerance": 30
+         *           },
+         *           "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *           "status": "completed",
+         *           "type": "remove_bg",
+         *           "updated_at": "2026-09-11T08:30:00.123456+00:00"
+         *         }
+         *       ],
+         *       "limit": 50,
+         *       "offset": 0,
+         *       "total": 3
+         *     }
+         */
         ImageTaskListResponse: {
             /** Items */
             items: components["schemas"]["ImageTaskResponse"][];
@@ -3974,7 +4018,21 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** ImageTaskResponse */
+        /**
+         * ImageTaskResponse
+         * @example {
+         *       "created_at": "2026-09-11T08:30:00.123456+00:00",
+         *       "id": "3f8a9c2e-5d41-4b7a-9e02-6c8d1f4a2b3c",
+         *       "input_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "params": {
+         *         "tolerance": 30
+         *       },
+         *       "result_image_url": "https://cdn1.ozone.ru/s3/mxou/example.jpg",
+         *       "status": "completed",
+         *       "type": "remove_bg",
+         *       "updated_at": "2026-09-11T08:30:00.123456+00:00"
+         *     }
+         */
         ImageTaskResponse: {
             /** Created At */
             created_at?: string | null;
@@ -4158,6 +4216,16 @@ export interface components {
         /**
          * LogisticsImportResult
          * @description 导入结果：inserted/updated 计数 + 逐行错误。
+         * @example {
+         *       "errors": [
+         *         {
+         *           "error": "weight_min 不能大于 weight_max",
+         *           "row": 5
+         *         }
+         *       ],
+         *       "imported": 12,
+         *       "updated": 3
+         *     }
          */
         LogisticsImportResult: {
             /** Errors */
@@ -4172,6 +4240,21 @@ export interface components {
         /**
          * LogisticsRateRow
          * @description 单条费率行（服务返回结构，供文档/校验用）。
+         * @example {
+         *       "base_cost": 3.12,
+         *       "charge_type": "actual",
+         *       "delivery_method": "RETS Express Extra Small",
+         *       "id": 1,
+         *       "longest_limit_cm": 60,
+         *       "per_gram_rate": 0.0468,
+         *       "scoring_group": "Extra Small",
+         *       "service_level": "Express",
+         *       "sum_limit_cm": 90,
+         *       "tpl_provider": "RETS",
+         *       "vol_weight_divisor": 0,
+         *       "weight_max": 500,
+         *       "weight_min": 1
+         *     }
          */
         LogisticsRateRow: {
             /** Base Cost */
@@ -5047,6 +5130,13 @@ export interface components {
         /**
          * ProductSourceUpdate
          * @description 成本/货源手动维护(PATCH /products/{id}/source,manual 最高优先级)。
+         * @example {
+         *       "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+         *       "freight_cny": 3.5,
+         *       "purchase_cost": 12.8,
+         *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+         *       "supplier": "义乌市日用品贸易有限公司"
+         *     }
          */
         ProductSourceUpdate: {
             /**
@@ -5080,6 +5170,10 @@ export interface components {
         /**
          * QueryDeleteOut
          * @description 删除结果。
+         * @example {
+         *       "deleted": true,
+         *       "ok": true
+         *     }
          */
         QueryDeleteOut: {
             /**
@@ -5096,6 +5190,18 @@ export interface components {
         /**
          * QueryImportIn
          * @description 导入请求体：csv 文本与 items 数组二选一。
+         * @example {
+         *       "csv": "query,count,ca,avg_ca_rub\nорганайзер для косметики,1520,0.8,1250.5\n"
+         *     }
+         * @example {
+         *       "items": [
+         *         {
+         *           "ca": 0.8,
+         *           "count": 1520,
+         *           "query": "органайзер для косметики"
+         *         }
+         *       ]
+         *     }
          */
         QueryImportIn: {
             /** Csv */
@@ -5108,6 +5214,16 @@ export interface components {
         /**
          * QueryImportResult
          * @description 导入结果：新增/更新计数 + 逐行错误。
+         * @example {
+         *       "errors": [
+         *         {
+         *           "error": "query 必填",
+         *           "row": 3
+         *         }
+         *       ],
+         *       "imported": 40,
+         *       "updated": 2
+         *     }
          */
         QueryImportResult: {
             /** Errors */
@@ -5128,6 +5244,24 @@ export interface components {
         /**
          * QueryListOut
          * @description 库浏览响应。
+         * @example {
+         *       "items": [
+         *         {
+         *           "avg_ca_rub": 1250.5,
+         *           "avg_count_items": 310.2,
+         *           "ca": 0.8,
+         *           "count": 1520,
+         *           "created_at": "2026-09-10T12:00:00+00:00",
+         *           "id": 42,
+         *           "items_views": 45600,
+         *           "query": "органайзер для косметики",
+         *           "source": "fetched",
+         *           "uniq_queries_wca": 118,
+         *           "uniq_sellers": 128
+         *         }
+         *       ],
+         *       "total": 137
+         *     }
          */
         QueryListOut: {
             /** Items */
@@ -5140,7 +5274,20 @@ export interface components {
         };
         /**
          * QueryRow
-         * @description 关键词行（库浏览返回项）。
+         * @description 关键词行（库浏览返回项；字段即 blue_ocean_queries 列，created_at 为 isoformat 串）。
+         * @example {
+         *       "avg_ca_rub": 1250.5,
+         *       "avg_count_items": 310.2,
+         *       "ca": 0.8,
+         *       "count": 1520,
+         *       "created_at": "2026-09-10T12:00:00+00:00",
+         *       "id": 42,
+         *       "items_views": 45600,
+         *       "query": "органайзер для косметики",
+         *       "source": "fetched",
+         *       "uniq_queries_wca": 118,
+         *       "uniq_sellers": 128
+         *     }
          */
         QueryRow: {
             /** Avg Ca Rub */
@@ -5172,7 +5319,17 @@ export interface components {
             /** Uniq Sellers */
             uniq_sellers?: number | null;
         };
-        /** SiteAnnouncementOut */
+        /**
+         * SiteAnnouncementOut
+         * @example {
+         *       "announcement_type": "popup",
+         *       "content": "Worker 将于 2026-09-12 02:00-03:00（UTC+8）升级，期间任务提交可能短暂失败。",
+         *       "created_at": "2026-09-10T04:00:00+00:00",
+         *       "enabled": true,
+         *       "id": 1,
+         *       "title": "系统升级公告"
+         *     }
+         */
         SiteAnnouncementOut: {
             /**
              * Announcement Type
@@ -5196,7 +5353,19 @@ export interface components {
              */
             title: string;
         };
-        /** SiteBannerOut */
+        /**
+         * SiteBannerOut
+         * @example {
+         *       "created_at": "2026-09-01T02:00:00+00:00",
+         *       "enabled": true,
+         *       "id": 1,
+         *       "image_url": "https://worker.mxou.cn/static/banners/autumn-2026.png",
+         *       "link_url": "https://worker.mxou.cn/bestsellers",
+         *       "sort_order": 10,
+         *       "title": "秋季选品季",
+         *       "updated_at": "2026-09-10T04:30:00+00:00"
+         *     }
+         */
         SiteBannerOut: {
             /** Created At */
             created_at?: string | null;
@@ -5712,6 +5881,7 @@ export interface components {
         };
         /**
          * TaskStatus
+         * @example running
          * @enum {string}
          */
         TaskStatus: "pending" | "running" | "completed" | "failed" | "cancelled" | "rejected" | "pending_moderation";
@@ -5963,6 +6133,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "action": "credential.rotate",
+                     *           "created_at": "2026-09-11T08:30:00",
+                     *           "detail": {
+                     *             "offer_id": "SKU-1001"
+                     *           },
+                     *           "id": 42,
+                     *           "resource": "credentials/7f3a",
+                     *           "user_id": "28"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -5992,6 +6181,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "action": "credential.rotate",
+                     *       "created_at": "2026-09-11T08:30:00",
+                     *       "detail": {
+                     *         "offer_id": "SKU-1001"
+                     *       },
+                     *       "id": 42,
+                     *       "resource": "credentials/7f3a",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6015,6 +6216,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "action": "credential.rotate",
+                     *           "created_at": "2026-09-11T08:30:00",
+                     *           "detail": {
+                     *             "offer_id": "SKU-1001"
+                     *           },
+                     *           "id": 42,
+                     *           "resource": "credentials/7f3a",
+                     *           "user_id": "28"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6044,6 +6264,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "action": "credential.rotate",
+                     *       "created_at": "2026-09-11T08:30:00",
+                     *       "detail": {
+                     *         "offer_id": "SKU-1001"
+                     *       },
+                     *       "id": 42,
+                     *       "resource": "credentials/7f3a",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6064,6 +6296,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "children": [],
+                     *         "depth": 2,
+                     *         "description_category_id": 17027532,
+                     *         "full_path": "汽车摩托车 > 车内用品 > 汽车香薰",
+                     *         "id": 9101,
+                     *         "name": "汽车香薰",
+                     *         "parent_id": 17027480,
+                     *         "top_level_category_name": "汽车摩托车",
+                     *         "type_id": 9165596
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6084,6 +6331,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "汽车香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6104,6 +6360,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "children": [],
+                     *         "depth": 2,
+                     *         "description_category_id": 17027532,
+                     *         "full_path": "汽车摩托车 > 车内用品 > 汽车香薰",
+                     *         "id": 9101,
+                     *         "name": "汽车香薰",
+                     *         "parent_id": 17027480,
+                     *         "top_level_category_name": "汽车摩托车",
+                     *         "type_id": 9165596
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6124,6 +6395,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "汽车香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6175,6 +6455,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "description_category_id": 17027532,
+                     *       "id": 9101,
+                     *       "name": "车载香薰",
+                     *       "parent_id": 17027480,
+                     *       "type_id": 9165596
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6246,6 +6535,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "model": "deepseek-v4-flash",
+                     *       "system_prompt": "你是 Ozon 上架类目匹配专家",
+                     *       "temperature": 0.2
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -6279,6 +6575,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "backup_path": "/app/config/backup/image_prompts.json.20260911083000",
+                     *       "updated": true
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -6343,6 +6645,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "name": "image_prompts.json",
+                     *       "restored": true
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -6377,6 +6685,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "config": {
+                     *             "encoding": "utf-8",
+                     *             "url": "https://example.com/list.csv"
+                     *           },
+                     *           "created_at": "2026-09-10T12:00:00",
+                     *           "enabled": true,
+                     *           "id": 3,
+                     *           "name": "1688-选品源A",
+                     *           "type": "csv",
+                     *           "updated_at": "2026-09-11T08:30:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6406,6 +6735,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6429,6 +6772,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "config": {
+                     *             "encoding": "utf-8",
+                     *             "url": "https://example.com/list.csv"
+                     *           },
+                     *           "created_at": "2026-09-10T12:00:00",
+                     *           "enabled": true,
+                     *           "id": 3,
+                     *           "name": "1688-选品源A",
+                     *           "type": "csv",
+                     *           "updated_at": "2026-09-11T08:30:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6458,6 +6822,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6478,6 +6856,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "imported": 12
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6500,6 +6883,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6560,6 +6957,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "config": {
+                     *         "encoding": "utf-8",
+                     *         "url": "https://example.com/list.csv"
+                     *       },
+                     *       "created_at": "2026-09-10T12:00:00",
+                     *       "enabled": true,
+                     *       "id": 3,
+                     *       "name": "1688-选品源A",
+                     *       "type": "csv",
+                     *       "updated_at": "2026-09-11T08:30:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -6592,6 +7003,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "base_cost": 3.12,
+                     *           "charge_type": "actual",
+                     *           "delivery_method": "RETS Express Extra Small",
+                     *           "id": 1,
+                     *           "longest_limit_cm": 60,
+                     *           "per_gram_rate": 0.0468,
+                     *           "scoring_group": "Extra Small",
+                     *           "service_level": "Express",
+                     *           "sum_limit_cm": 90,
+                     *           "tpl_provider": "RETS",
+                     *           "vol_weight_divisor": 0,
+                     *           "weight_max": 500,
+                     *           "weight_min": 1
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -7044,6 +7477,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "consecutive_failures": 0,
+                     *           "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *           "is_stale": false,
+                     *           "last_success_at": "2026-09-11T08:30:00+00:00",
+                     *           "orders_error": "",
+                     *           "ozon_client_id": "5381204",
+                     *           "products_error": "",
+                     *           "shop_name": "测试店",
+                     *           "sync_enabled": true
+                     *         }
+                     *       ],
+                     *       "summary": {
+                     *         "stale": 0,
+                     *         "syncing": 1,
+                     *         "total": 2
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7064,6 +7519,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "avg_duration_seconds": 173.45,
+                     *       "cancelled": 0,
+                     *       "completed": 296,
+                     *       "failed": 18,
+                     *       "pending": 4,
+                     *       "running": 2,
+                     *       "total": 320
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7104,6 +7570,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "email": "seller@example.com",
+                     *       "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+                     *       "quota": 0,
+                     *       "role": "user"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7157,6 +7631,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d",
+                     *       "quota": 500,
+                     *       "role": "admin",
+                     *       "status": "active"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7186,6 +7668,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "avg_price_rub": 3117.7,
+                     *           "brand": "Thermos",
+                     *           "category_path": "Дом и сад / Термосы",
+                     *           "contributed_by_token_id": "test-token-123",
+                     *           "ordering_amount": 1284500,
+                     *           "ordering_count": 412,
+                     *           "sku_or_id": "1680357214"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7206,6 +7706,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category": "宠物饮水机",
+                     *           "run_count": 6,
+                     *           "total_products": 240
+                     *         }
+                     *       ],
+                     *       "scope": "tenant"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7226,6 +7738,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "avg_ca_rub": 1250.5,
+                     *           "avg_count_items": 310.2,
+                     *           "ca": 0.8,
+                     *           "count": 1520,
+                     *           "items_views": 45600,
+                     *           "query": "органайзер для косметики",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "scope": "global"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7266,6 +7795,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "bestseller_count": 5000,
+                     *       "scope": "tenant",
+                     *       "total_discovery_runs": 27,
+                     *       "total_gmv": 152340.5,
+                     *       "total_orders": 1206,
+                     *       "total_products": 348
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7326,6 +7865,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "date": "2026-09-10",
+                     *           "gmv": 21540,
+                     *           "orders": 168
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7357,6 +7907,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "accepted": 10,
+                     *       "skipped": 2
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7379,6 +7935,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "metrics": [
+                     *         {
+                     *           "category_dc": 17027532,
+                     *           "category_name_zh": "汽车香薰",
+                     *           "category_tp": 9165596,
+                     *           "needs_sales_sync": false,
+                     *           "needs_variant_sync": true,
+                     *           "sales_payload": {
+                     *             "orders": 42
+                     *           },
+                     *           "sku": "123456789",
+                     *           "updated_at": "2026-09-11T06:00:00+00:00"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7408,6 +7982,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "items": []
+                     *       },
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7497,6 +8079,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attributes": [
+                     *         {
+                     *           "dictionary_id": 0,
+                     *           "id": 4180,
+                     *           "is_collection": false,
+                     *           "max_value_count": 1,
+                     *           "name": "Тип",
+                     *           "required": true,
+                     *           "type": "String"
+                     *         }
+                     *       ],
+                     *       "cached": true,
+                     *       "fetched": false,
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7517,6 +8117,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+                     *           "description_category_id": "91936",
+                     *           "node_name": "Автомобильный компрессор",
+                     *           "similarity": 0.87,
+                     *           "type_id": "91938"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7537,6 +8150,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "fbo": {
+                     *         "gt_5000": 0.09,
+                     *         "leq_1500": 0.14,
+                     *         "leq_5000": 0.11
+                     *       },
+                     *       "fbs": {
+                     *         "gt_5000": 0.1,
+                     *         "leq_1500": 0.16,
+                     *         "leq_5000": 0.12
+                     *       },
+                     *       "found": true,
+                     *       "source": "prices_api"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7599,6 +8228,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7661,6 +8296,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "deleted_total": 214,
+                     *       "ok": true,
+                     *       "per_table": {
+                     *         "ozon_orders_cache": 180,
+                     *         "ozon_products_cache": 34
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7692,6 +8338,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cookie_names": [
+                     *         "__Secure-access_token",
+                     *         "sc_company_id",
+                     *         "session_context"
+                     *       ],
+                     *       "harvested_at": "2026-09-11T08:30:00+00:00",
+                     *       "status": "active"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7717,6 +8374,13 @@ export interface operations {
         };
         requestBody: {
             content: {
+                /**
+                 * @example {
+                 *       "cookies": {
+                 *         "sc_company_id": "5371047"
+                 *       }
+                 *     }
+                 */
                 "application/json": {
                     /**
                      * @description seller.ozon.ru 会话 cookie {名: 值}（核心 sc_company_id）
@@ -7737,6 +8401,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cookie_names": [
+                     *         "__Secure-access_token",
+                     *         "sc_company_id",
+                     *         "session_context"
+                     *       ],
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "ok": true,
+                     *       "status": "active"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7826,6 +8502,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "active_products": 132,
+                     *       "hot_products": [
+                     *         {
+                     *           "name": "汽车香薰",
+                     *           "product_id": "123456789",
+                     *           "quantity": 28
+                     *         }
+                     *       ],
+                     *       "last_synced_at": "2026-09-11T08:00:00+00:00",
+                     *       "latest_orders": [
+                     *         {
+                     *           "created_at": "2026-09-11T07:40:00+00:00",
+                     *           "posting_number": "23456789-0010-3",
+                     *           "product_name": "汽车香薰",
+                     *           "status": "awaiting_packaging",
+                     *           "total_amount": 2150
+                     *         }
+                     *       ],
+                     *       "pending_tasks": 3,
+                     *       "store_count": 2,
+                     *       "today": {
+                     *         "commission_amount": 8685.09,
+                     *         "orders_count": 12,
+                     *         "profit_amount": 6200.4,
+                     *         "sales_amount": 48250.5
+                     *       },
+                     *       "trend": [
+                     *         {
+                     *           "date": "2026-09-10",
+                     *           "orders": 9,
+                     *           "profit_amount": 4650,
+                     *           "sales_amount": 36120
+                     *         }
+                     *       ],
+                     *       "trend_days": 14
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -7846,6 +8561,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "candidates": 23,
+                     *           "contributed_by_fp": "a1b2c3d4e5f60718",
+                     *           "contributed_by_token_id": "test-token-123",
+                     *           "created_at": "2026-09-11T10:24:31",
+                     *           "filters": {
+                     *             "min_margin": 0.25
+                     *           },
+                     *           "id": "0192b1f0-9c3f-7f2e-8b1a-3d4e5f6a7b8c",
+                     *           "keyword": "宠物饮水机"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8002,6 +8737,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [
+                     *         {
+                     *           "draft_id": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+                     *           "reason": "该草稿缺少有效货源链接"
+                     *         }
+                     *       ],
+                     *       "skipped": [
+                     *         {
+                     *           "draft_id": "5a6b7c8d-1111-2222-3333-444455556666",
+                     *           "reason": "已在上架中"
+                     *         }
+                     *       ],
+                     *       "submitted": [
+                     *         "3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d"
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8023,6 +8777,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example title,item_id,images,purchase_cost,purchase_url,price,stock,supplier,weight,length,width,height
+                     *     便携折叠水杯 500ml,812345678901,https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg,8.5,https://detail.1688.com/offer/812345678901.html,,100,义乌市xx日用品有限公司,120,15,9,6
+                     */
+                    "text/csv": unknown;
                 };
             };
         };
@@ -8055,6 +8814,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created": 8,
+                     *       "errors": [
+                     *         {
+                     *           "error": "title 不能为空",
+                     *           "row": 4
+                     *         }
+                     *       ],
+                     *       "failed": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8251,6 +9022,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "commission_rate": 0.15,
+                     *       "commission_source": "cache:leq_5000",
+                     *       "currency": "RUB",
+                     *       "logistics_cost_cny": 8,
+                     *       "margin_anchor": 2,
+                     *       "margin_floor": 0.6,
+                     *       "old_price": 258,
+                     *       "price": 215,
+                     *       "profit_cny": 32.6,
+                     *       "profit_rate": 0.152,
+                     *       "promo_price": 129,
+                     *       "variable_cost_rate": 0.155
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8433,6 +9220,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "reports": [
+                     *         {
+                     *           "category": "listing",
+                     *           "created_at": "2026-09-11T08:30:00+00:00",
+                     *           "enriched": true,
+                     *           "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+                     *           "severity": "high",
+                     *           "status": "new",
+                     *           "title": "批量 10 单报「标题与类目不一致」"
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8453,6 +9256,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:30:00+00:00",
+                     *       "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+                     *       "status": "ok",
+                     *       "tasks_attached": 2
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8473,6 +9284,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "commission_rate": 0.15,
+                     *       "commission_source": "cache:leq_5000",
+                     *       "currency": "RUB",
+                     *       "logistics_cost_cny": 8,
+                     *       "margin_anchor": 2,
+                     *       "margin_floor": 0.6,
+                     *       "old_price": 258,
+                     *       "price": 215,
+                     *       "profit_cny": 32.6,
+                     *       "profit_rate": 0.152,
+                     *       "promo_price": 129,
+                     *       "variable_cost_rate": 0.155
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8495,6 +9322,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attr_match_log": [],
+                     *       "category_match_log": [],
+                     *       "task": {
+                     *         "completed_at": "2026-09-11T06:04:31+00:00",
+                     *         "created_at": "2026-09-11T06:00:00+00:00",
+                     *         "error_message": "LOCAL_TITLE_CATEGORY_MISMATCH: 标题与类目不一致",
+                     *         "product_id": "",
+                     *         "status": "failed",
+                     *         "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+                     *         "title": "便携折叠水杯 500ml"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8707,6 +9549,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task cancelled",
+                     *       "status": "ok",
+                     *       "task_id": "5a6b7c8d-1111-2222-3333-444455556666"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8736,6 +9585,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "base_cost": 6,
+                     *       "billable_weight": 500,
+                     *       "channel": "RETS_Standard_A",
+                     *       "dims_cm": [
+                     *         20,
+                     *         15,
+                     *         10
+                     *       ],
+                     *       "fallback_chain": [],
+                     *       "logistics_cost_cny": 8,
+                     *       "per_gram_rate": 0.004,
+                     *       "scoring_group": "A",
+                     *       "service_level": "Standard",
+                     *       "tpl_provider": "RETS",
+                     *       "weight": 480
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8756,6 +9624,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "found": true,
+                     *       "mappings": [
+                     *         {
+                     *           "confidence": 0.85,
+                     *           "dc": "91936",
+                     *           "tp": "91540"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8776,6 +9656,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "balance": 128.5,
+                     *       "currency": "CNY",
+                     *       "source": "mxou"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8916,6 +9803,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8936,6 +9828,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "email": "seller@example.com",
+                     *       "role": "user",
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -8958,6 +9857,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "key": "sk-test-token-123"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9023,6 +9927,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [],
+                     *       "items": [
+                     *         {
+                     *           "content_type": "application/pdf",
+                     *           "label_base64": "JVBERi0xLjQKJ...",
+                     *           "posting_number": "23456789-0010-3"
+                     *         }
+                     *       ],
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9043,6 +9960,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "failed": [
+                     *         {
+                     *           "error": "面单未生成",
+                     *           "posting_number": "23456789-0012-1"
+                     *         }
+                     *       ],
+                     *       "ok": true,
+                     *       "shipped": [
+                     *         "23456789-0010-3",
+                     *         "23456789-0011-2"
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9063,6 +9995,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "key": "passport",
+                     *         "name": "催护照",
+                     *         "text": "Здравствуйте! Товар, который вы покупаете: [货件编号] ([商品名称]), Вы еще не заполнили паспорт, поторопитесь заполнить паспортные данные и я организую доставку в кратчайшие сроки!"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9086,6 +10027,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                     *           "created_at": "2026-09-11T07:40:00",
+                     *           "error": "",
+                     *           "message": "Здравствуйте! …",
+                     *           "posting_number": "23456789-0010-3",
+                     *           "status": "sent",
+                     *           "template_key": "passport"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9212,6 +10171,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+                     *       "message": "Здравствуйте! Ваш заказ отправлен.",
+                     *       "ok": true,
+                     *       "posting_number": "23456789-0010-3"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9378,6 +10345,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cost_source": "manual",
+                     *       "freight_cny": 3.5,
+                     *       "history": [
+                     *         {
+                     *           "changed_at": "2026-09-11T08:30:00+00:00",
+                     *           "changed_by": "user:manual",
+                     *           "new_cost": 12.8,
+                     *           "old_cost": 9.3
+                     *         }
+                     *       ],
+                     *       "offer_id": "SKU-1001",
+                     *       "product_id": "123456789",
+                     *       "purchase_cost": 12.8,
+                     *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                     *       "supplier": "义乌市日用品贸易有限公司",
+                     *       "updated_at": "2026-09-11T08:30:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9444,6 +10431,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "cost_source": "manual",
+                     *       "freight_cny": 3.5,
+                     *       "history": [
+                     *         {
+                     *           "changed_at": "2026-09-11T08:30:00+00:00",
+                     *           "changed_by": "user:manual",
+                     *           "new_cost": 12.8,
+                     *           "old_cost": 9.3
+                     *         }
+                     *       ],
+                     *       "offer_id": "SKU-1001",
+                     *       "product_id": "123456789",
+                     *       "purchase_cost": 12.8,
+                     *       "purchase_url": "https://detail.1688.com/offer/812345678901.html",
+                     *       "supplier": "义乌市日用品贸易有限公司",
+                     *       "updated_at": "2026-09-11T08:30:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9477,6 +10484,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "created_at": "2026-09-11T07:00:00+00:00",
+                     *         "match_method": "image_search",
+                     *         "match_score": 0.92,
+                     *         "price_cny": 9.3,
+                     *         "source_offer_id": "812345678901",
+                     *         "source_url": "https://detail.1688.com/offer/812345678901.html",
+                     *         "status": "valid"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9540,6 +10560,12 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example id: 6
+                     *     event: progress
+                     *     data: {"seq": 6, "node": "pricing_node", "step": "compute_price", "status": "success", "message": "定价完成", "detail": null, "started_at": "2026-09-11T08:30:10+00:00", "finished_at": "2026-09-11T08:30:11+00:00"}
+                     */
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */
@@ -9617,6 +10643,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "keywords": [
+                     *         {
+                     *           "count": 1520,
+                     *           "query": "органайзер для косметики",
+                     *           "source": "fetched",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9637,6 +10677,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "keywords": [
+                     *         {
+                     *           "count": 1520,
+                     *           "query": "органайзер для косметики",
+                     *           "source": "fetched",
+                     *           "uniq_queries_wca": 118,
+                     *           "uniq_sellers": 128
+                     *         }
+                     *       ],
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9657,6 +10711,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "auto_review_enabled": true,
+                     *       "auto_review_score": 85,
+                     *       "daily_report_enabled": false,
+                     *       "fx_buffer_percent": 3.5,
+                     *       "low_stock_threshold": 10,
+                     *       "order_status_notify": true,
+                     *       "task_fail_notify": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9677,6 +10742,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "auto_review_enabled": true,
+                     *       "auto_review_score": 85,
+                     *       "daily_report_enabled": false,
+                     *       "fx_buffer_percent": 3.5,
+                     *       "low_stock_threshold": 10,
+                     *       "order_status_notify": true,
+                     *       "task_fail_notify": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9697,6 +10773,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "announcement_type": "banner",
+                     *         "content": "错配拦截与类目桥接上线，建议升级 skill 后重试失败草稿。",
+                     *         "created_at": "2026-09-01T00:00:00",
+                     *         "enabled": true,
+                     *         "id": 1,
+                     *         "title": "v0.75 上架成功率优化"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9717,6 +10805,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example [
+                     *       {
+                     *         "created_at": "2026-09-01T00:00:00",
+                     *         "enabled": true,
+                     *         "id": 1,
+                     *         "image_url": "https://worker.mxou.cn/static/banner-autumn.png",
+                     *         "link_url": "https://worker.mxou.cn/app/discover",
+                     *         "sort_order": 1,
+                     *         "title": "秋季选品季",
+                     *         "updated_at": "2026-09-01T00:00:00"
+                     *       }
+                     *     ]
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9737,6 +10839,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "inserted": 3,
+                     *       "updated": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9760,6 +10868,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "daily_limit": 200,
+                     *       "daily_remaining": 160,
+                     *       "daily_usage": 40,
+                     *       "remaining": 100,
+                     *       "status": "ok",
+                     *       "total_limit": 10000,
+                     *       "total_usage": 9900
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9789,6 +10908,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "enqueued": 2,
+                     *       "job_ids": [
+                     *         88,
+                     *         89
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9809,6 +10937,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "is_rfbs": false,
+                     *           "name": "Коледино",
+                     *           "warehouse_id": 23642110530000
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9831,6 +10970,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "ok": true,
+                     *       "result": {
+                     *         "errors": [],
+                     *         "failed": [],
+                     *         "updated": 5
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9862,6 +11011,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "low_margin_products": [
+                     *         {
+                     *           "name": "汽车香薰",
+                     *           "price_rub": 690,
+                     *           "product_id": "123456789",
+                     *           "profit_rate": 0.04,
+                     *           "suggestion": "考虑提价或更换货源"
+                     *         }
+                     *       ],
+                     *       "out_of_stock_products": [
+                     *         {
+                     *           "name": "折叠水杯",
+                     *           "product_id": "987654321",
+                     *           "stock": 0
+                     *         }
+                     *       ],
+                     *       "profit_trend": [
+                     *         {
+                     *           "profit_rate": 0.18,
+                     *           "sales_amount": 36120,
+                     *           "snapshot_at": "2026-09-10T00:00:00+00:00"
+                     *         }
+                     *       ],
+                     *       "promo_ready_products": [],
+                     *       "summary": {
+                     *         "active_discount_count": 2,
+                     *         "avg_profit_rate": 0.18,
+                     *         "low_stock_count": 3,
+                     *         "product_count": 120
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9895,6 +11078,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "metric": "hits_view_search",
+                     *           "stat_date": "2026-09-10",
+                     *           "value": 1520
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9928,6 +11122,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "active_discount_count": 2,
+                     *           "commission_amount": 6514.4,
+                     *           "low_stock_count": 3,
+                     *           "order_count": 9,
+                     *           "product_count": 120,
+                     *           "profit_amount": 4650,
+                     *           "profit_rate": 0.129,
+                     *           "sales_amount": 36120,
+                     *           "stat_date": "2026-09-10"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9962,6 +11173,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "compensation_status": "NOT_COMPENSATED",
+                     *           "order_id": 44818899,
+                     *           "posting_number": "23456789-0010-3",
+                     *           "product": "汽车香薰",
+                     *           "reason": "Товар не подошёл",
+                     *           "return_id": 1209931,
+                     *           "return_type": "customer",
+                     *           "schema": "FBS",
+                     *           "status": "arrived_at_return_place",
+                     *           "synced_at": "2026-09-11T08:00:00+00:00"
+                     *         }
+                     *       ],
+                     *       "limit": 50,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -9993,6 +11225,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "data_freshness": {
+                     *         "is_stale": false,
+                     *         "synced_at": "2026-09-11T08:30:00+00:00"
+                     *       },
+                     *       "ozon_client_id": "5381204",
+                     *       "stats_date": "2026-09-11",
+                     *       "today_commission": 8685.09,
+                     *       "today_orders": 12,
+                     *       "today_product_count": 132,
+                     *       "today_profit": 6200.4,
+                     *       "today_sales_amount": 48250.5
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10024,6 +11272,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "job_id": 88,
+                     *       "kind": "manual",
+                     *       "status": "running"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10059,6 +11314,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "sync_enabled": true,
+                     *       "sync_interval_minutes": 15,
+                     *       "sync_products_interval_minutes": 30
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10093,6 +11355,30 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "created_at": "2026-09-11T08:30:00+00:00",
+                     *           "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *           "error": "",
+                     *           "error_code": "",
+                     *           "id": 88,
+                     *           "kind": "manual",
+                     *           "orders_synced": 42,
+                     *           "products_synced": 128,
+                     *           "progress": 60,
+                     *           "started_at": "2026-09-11T08:30:00+00:00",
+                     *           "status": "running",
+                     *           "tenant_id": "28",
+                     *           "trigger": "manual"
+                     *         }
+                     *       ],
+                     *       "limit": 20,
+                     *       "offset": 0,
+                     *       "total": 1
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10124,6 +11410,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "consecutive_failures": 0,
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "last_success_at": "2026-09-11T08:30:00+00:00",
+                     *       "orders_error": "",
+                     *       "orders_last_synced_at": "2026-09-11T08:30:00+00:00",
+                     *       "products_error": "",
+                     *       "products_last_synced_at": "2026-09-11T08:00:00+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10171,6 +11468,12 @@ export interface operations {
                      * @description Ozon 卖家 Client-Id
                      */
                     ozon_client_id: string;
+                    /**
+                     * Priority
+                     * @description 任务优先级 0-100（缺省 0；越界由端点 clamp，非数字当 0）
+                     * @default 0
+                     */
+                    priority?: number;
                     /**
                      * Timeout Seconds
                      * @description 任务超时时间（秒），默认 30 分钟
@@ -10250,6 +11553,23 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:30:00+00:00",
+                     *       "credential_id": "7f3a91d2-4c5b-4e8f-9a01-2b3c4d5e6f70",
+                     *       "error": "",
+                     *       "error_code": "",
+                     *       "id": 88,
+                     *       "kind": "manual",
+                     *       "orders_synced": 42,
+                     *       "products_synced": 128,
+                     *       "progress": 60,
+                     *       "started_at": "2026-09-11T08:30:00+00:00",
+                     *       "status": "running",
+                     *       "tenant_id": "28",
+                     *       "trigger": "manual"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10475,6 +11795,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "events": [
+                     *         {
+                     *           "finished_at": "2026-09-11T08:30:11+00:00",
+                     *           "message": "定价完成",
+                     *           "node": "pricing_node",
+                     *           "seq": 6,
+                     *           "started_at": "2026-09-11T08:30:10+00:00",
+                     *           "status": "success",
+                     *           "step": "compute_price"
+                     *         }
+                     *       ],
+                     *       "message": "生图中 3/5",
+                     *       "percent": 60,
+                     *       "stage": "image_gen",
+                     *       "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10637,6 +11976,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10668,6 +12017,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10699,6 +12058,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10730,6 +12099,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10761,6 +12140,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "data": {
+                     *         "quota": 5000000,
+                     *         "username": "demo_user"
+                     *       },
+                     *       "message": "",
+                     *       "success": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10790,6 +12179,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "status": "queued",
+                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -10834,6 +12229,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Cancellation signal sent, task will be cancelled at next await point",
+                     *       "run_id": "e1f2a3b4c5d647e8",
+                     *       "status": "success"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10865,6 +12267,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task cancelled successfully",
+                     *       "status": "success",
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error_code": "TASK_NOT_CANCELLABLE",
+                     *       "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
+                     *       "ok": false
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10894,6 +12319,24 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attributes": [
+                     *         {
+                     *           "dictionary_id": 0,
+                     *           "id": 4180,
+                     *           "is_collection": false,
+                     *           "max_value_count": 1,
+                     *           "name": "Тип",
+                     *           "required": true,
+                     *           "type": "String"
+                     *         }
+                     *       ],
+                     *       "cached": true,
+                     *       "fetched": false,
+                     *       "found": true
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10914,6 +12357,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+                     *           "description_category_id": "91936",
+                     *           "node_name": "Автомобильный компрессор",
+                     *           "similarity": 0.87,
+                     *           "type_id": "91938"
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10934,6 +12390,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "fbo": {
+                     *         "gt_5000": 0.09,
+                     *         "leq_1500": 0.14,
+                     *         "leq_5000": 0.11
+                     *       },
+                     *       "fbs": {
+                     *         "gt_5000": 0.1,
+                     *         "leq_1500": 0.16,
+                     *         "leq_5000": 0.12
+                     *       },
+                     *       "found": true,
+                     *       "source": "prices_api"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10956,6 +12428,21 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "attr_match_log": [],
+                     *       "category_match_log": [],
+                     *       "task": {
+                     *         "completed_at": "2026-09-11T06:04:31+00:00",
+                     *         "created_at": "2026-09-11T06:00:00+00:00",
+                     *         "error_message": "LOCAL_TITLE_CATEGORY_MISMATCH: 标题与类目不一致",
+                     *         "product_id": "",
+                     *         "status": "failed",
+                     *         "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+                     *         "title": "便携折叠水杯 500ml"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -10985,6 +12472,22 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "code": 0,
+                     *       "input_schema": {
+                     *         "properties": {},
+                     *         "title": "GraphInput",
+                     *         "type": "object"
+                     *       },
+                     *       "msg": "",
+                     *       "output_schema": {
+                     *         "properties": {},
+                     *         "title": "GraphOutput",
+                     *         "type": "object"
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11005,6 +12508,36 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "backup_stale": false,
+                     *       "db": "connected",
+                     *       "last_backup_at": 1725996400,
+                     *       "message": "Service is running",
+                     *       "queue": {
+                     *         "completed": 120,
+                     *         "pending": 2,
+                     *         "running": 5
+                     *       },
+                     *       "status": "ok"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "db": "disconnected",
+                     *       "message": "db_error: OperationalError",
+                     *       "status": "degraded"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11027,6 +12560,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "balance": 12.5,
+                     *       "currency_code": "CNY",
+                     *       "ozon_client_id": "5381204",
+                     *       "progress_counter": 1,
+                     *       "user_id": "28"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11058,6 +12600,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "percentage": 38,
+                     *       "progress_counter": 5,
+                     *       "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "source": "checkpointer",
+                     *       "stages": {
+                     *         "auth": "done",
+                     *         "category_match": "done",
+                     *         "ingest": "done"
+                     *       },
+                     *       "total_nodes": 13
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11089,6 +12659,33 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+                     *       "ok": true,
+                     *       "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": {
+                     *         "status": "completed",
+                     *         "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *       },
+                     *       "error_code": "TASK_NOT_RESUBMITTABLE",
+                     *       "message": "任务状态 completed 不可重新提交，仅 rejected/failed 终态任务可重试",
+                     *       "ok": false
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11118,6 +12715,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "error_code": "",
+                     *       "error_message": "",
+                     *       "pricing_info": {
+                     *         "old_price": 305,
+                     *         "price": 254,
+                     *         "promo_price": 254
+                     *       },
+                     *       "product_id": "987654321",
+                     *       "purchase_url": "https://detail.1688.com/offer/123456789.html",
+                     *       "run_id": "e1f2a3b4c5d647e8",
+                     *       "stages": {
+                     *         "auth": "done",
+                     *         "category_match": "done",
+                     *         "ozon_upload": "done"
+                     *       },
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "upload_status": "success"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -11141,6 +12759,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    /**
+                     * @example event: message
+                     *     data: {"progress_counter": 3, "stages": {"category_match": "done"}}
+                     */
+                    "text/event-stream": unknown;
                 };
             };
         };
@@ -11160,6 +12783,13 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "message": "Task submitted to queue (user: 28, balance: 12.5)",
+                     *       "ok": true,
+                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11182,6 +12812,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": 1726000000,
+                     *       "result": {
+                     *         "output": {}
+                     *       },
+                     *       "status": "succeeded",
+                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
+                     *     }
+                     */
                     "application/json": {
                         [key: string]: unknown;
                     };
@@ -11213,6 +12853,20 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "statistics": {
+                     *         "avg_duration_seconds": 210.55,
+                     *         "cancelled": 0,
+                     *         "completed": 120,
+                     *         "failed": 3,
+                     *         "pending": 2,
+                     *         "running": 5,
+                     *         "total": 130
+                     *       },
+                     *       "status": "success"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11235,6 +12889,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-11T08:00:00+00:00",
+                     *       "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                     *       "max_retries": 3,
+                     *       "priority": 0,
+                     *       "progress": {
+                     *         "percent": 61,
+                     *         "stage": "image_generation",
+                     *         "stages_completed": [
+                     *           "auth",
+                     *           "ingest",
+                     *           "category_match",
+                     *           "pricing",
+                     *           "attributes",
+                     *           "description",
+                     *           "image_generation"
+                     *         ],
+                     *         "stages_remaining": [
+                     *           "prepare_ozon_upload",
+                     *           "ozon_validate",
+                     *           "check_quota",
+                     *           "ozon_upload",
+                     *           "ozon_status",
+                     *           "learning_record"
+                     *         ]
+                     *       },
+                     *       "retry_count": 0,
+                     *       "started_at": "2026-09-11T08:01:00+00:00",
+                     *       "status": "running",
+                     *       "tenant_id": "28",
+                     *       "timeout_seconds": 1800,
+                     *       "updated_at": "2026-09-11T08:02:30+00:00"
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };
@@ -11282,6 +12971,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "choices": [
+                     *         {
+                     *           "finish_reason": "stop",
+                     *           "index": 0,
+                     *           "message": {
+                     *             "content": "Пример ответа ассистента.",
+                     *             "role": "assistant"
+                     *           }
+                     *         }
+                     *       ],
+                     *       "created": 1726000000,
+                     *       "id": "chatcmpl-e1f2a3b4c5d647e8",
+                     *       "model": "deepseek-v4-flash",
+                     *       "object": "chat.completion",
+                     *       "usage": {
+                     *         "completion_tokens": 64,
+                     *         "prompt_tokens": 128,
+                     *         "total_tokens": 192
+                     *       }
+                     *     }
+                     */
                     "application/json": unknown;
                 };
             };

@@ -359,23 +359,53 @@ def render_snapshot(spec: dict[str, Any]) -> str:
 
 # ── example-lint（A6 审计 §2.4：示例强制化，告警不阻断） ──────────
 
+# FastAPI 422 校验样板，非维护面 —— 所有带请求模型的操作都会自动生成
+# HTTPValidationError，ValidationError 是 Pydantic 兼容别名；要求给它们写示例
+# 只会制造永久红噪声（v0.75 example-lint strict 转正时豁免）。
+_FRAMEWORK_BOILERPLATE_SCHEMAS = {"HTTPValidationError", "ValidationError"}
+
 
 def lint_examples(spec: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
     """统计示例覆盖缺口（docs/audit/2026-09-11-repo-gov A6 §2.4 方案落地）。
 
     三份名单（纯只读，不修改 spec、不进任何产物）：
       1. components.schemas 中无 ``example``/``examples`` 的 schema 名
-         （Pydantic ``model_config = _examples({...})`` 注入后即体现为这两键）；
-      2. 声明了 requestBody 但解引用后无示例的操作（"METHOD path"）；
-      3. 200/201 响应 schema 解引用后无示例的操作。
+         （Pydantic ``model_config = _examples({...})`` 注入后即体现为这两键；
+         FastAPI 自动样板（``_FRAMEWORK_BOILERPLATE_SCHEMAS``）豁免）；
+      2. 声明了 requestBody 但无示例的操作（"METHOD path"）；
+      3. 200/201 响应无示例的操作。
+
+    v0.75 覆盖判定（三级，主会话收口修正——lint 此前只认 schema 层示例，
+    会把 B4 先例确立的「路由级 mediatype example」误判为缺失）：
+      a. mediatype 层 ``example``/``examples``（responses/requestBody content 下，
+         B4 的 45 操作与 v075 路由级示例全部落在这层）；
+      b. schema 层（解引用 $ref 后）；
+      c. 数组包装 ``{"type":"array","items":{"$ref":…}}``：item schema 解引用后
+         带示例即视为覆盖（列表端点的示例语义由 item schema 承载）。
 
     返回 (无示例 schema 名单, 请求体无示例操作, 响应无示例操作)。
     """
     components: dict[str, Any] = spec.get("components", {}).get("schemas", {})
     missing_schemas = sorted(
         name for name, sc in components.items()
-        if isinstance(sc, dict) and not (sc.get("examples") or "example" in sc)
+        if isinstance(sc, dict)
+        and name not in _FRAMEWORK_BOILERPLATE_SCHEMAS
+        and not (sc.get("examples") or "example" in sc)
     )
+
+    def _has_example(mt: dict[str, Any]) -> bool:
+        """单 mediatype 条目的三级覆盖判定（docstring a/b/c）。"""
+        if mt.get("examples") or "example" in mt:
+            return True
+        resolved = resolve(mt.get("schema"), components)
+        if isinstance(resolved, dict) and (resolved.get("examples") or "example" in resolved):
+            return True
+        items = resolved.get("items") if isinstance(resolved, dict) else None
+        if isinstance(items, dict):
+            ritems = resolve(items, components)
+            if isinstance(ritems, dict) and (ritems.get("examples") or "example" in ritems):
+                return True
+        return False
 
     no_req_example: list[str] = []
     no_resp_example: list[str] = []
@@ -388,15 +418,11 @@ def lint_examples(spec: dict[str, Any]) -> tuple[list[str], list[str], list[str]
             label = f"{method.upper()} {raw_path}"
             body = op.get("requestBody")
             if body:
-                mschema = next(iter(body.get("content", {}).values()), {}).get("schema")
-                resolved = resolve(mschema, components)
-                if not (resolved.get("examples") or "example" in resolved):
+                if not any(_has_example(mt) for mt in body.get("content", {}).values()):
                     no_req_example.append(label)
             ok = (op.get("responses") or {}).get("200") or (op.get("responses") or {}).get("201")
             if ok:
-                rschema = next(iter(ok.get("content", {}).values()), {}).get("schema")
-                resolved = resolve(rschema, components)
-                if not (resolved.get("examples") or "example" in resolved):
+                if not any(_has_example(mt) for mt in ok.get("content", {}).values()):
                     no_resp_example.append(label)
     return missing_schemas, no_req_example, no_resp_example
 
@@ -404,8 +430,10 @@ def lint_examples(spec: dict[str, Any]) -> tuple[list[str], list[str], list[str]
 def report_example_lint(spec: dict[str, Any], strict: bool = False) -> int:
     """把 lint_examples 结果打到 stderr（绝不进产物，--check 字节比对不受影响）。
 
-    strict=True（--fail-on-missing-examples）时 schema 缺示例返回退出码 2，
-    供后续渐进收紧 CI 门禁用（A6 §2.4 第 4 点：先警告后阻断）。
+    strict=True（--fail-on-missing-examples）时三份名单（schema 缺示例 /
+    requestBody 缺示例 / 200-201 响应缺示例）任一非空即返回退出码 2 ——
+    v0.75 门禁转正（此前 strict 只看 schema 名单）。非 strict 保持现状
+    （只告警不阻断）。
     """
     import sys as _sys
 
@@ -415,7 +443,7 @@ def report_example_lint(spec: dict[str, Any], strict: bool = False) -> int:
     pct = (with_example * 100 // total) if total else 100
     print(
         f"[example-lint] 示例覆盖：{with_example}/{total} schema 带示例（{pct}%）；"
-        f"{len(missing)} schema 无示例（告警不阻断）",
+        f"{len(missing)} schema 无示例（{'strict 门禁' if strict else '告警不阻断'}）",
         file=_sys.stderr,
     )
     if no_req:
@@ -423,11 +451,20 @@ def report_example_lint(spec: dict[str, Any], strict: bool = False) -> int:
         for label in no_req[:10]:
             print(f"  - {label}", file=_sys.stderr)
     if no_resp:
-        print(f"[example-lint] 200/201 响应无示例的操作 {len(no_resp)} 个", file=_sys.stderr)
+        # strict 转正后 no_resp 也参与阻断，明细前 30 行防刷屏
+        print(f"[example-lint] 200/201 响应无示例的操作 {len(no_resp)} 个（前 30）：", file=_sys.stderr)
+        for label in no_resp[:30]:
+            print(f"  - {label}", file=_sys.stderr)
+        if len(no_resp) > 30:
+            print(f"  ...（其余 {len(no_resp) - 30} 条截断）", file=_sys.stderr)
     if missing:
         print(f"[example-lint] 无示例 schema：{', '.join(missing)}", file=_sys.stderr)
-    if strict and missing:
-        print(f"[example-lint] --fail-on-missing-examples：{len(missing)} 个 schema 缺示例 → exit 2", file=_sys.stderr)
+    if strict and (missing or no_req or no_resp):
+        print(
+            f"[example-lint] --fail-on-missing-examples："
+            f"{len(missing)} schema / {len(no_req)} 请求体 / {len(no_resp)} 响应缺示例 → exit 2",
+            file=_sys.stderr,
+        )
         return 2
     return 0
 
@@ -450,7 +487,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--check", action="store_true", help="只比对不写入，漂移则 exit 1")
     ap.add_argument(
         "--fail-on-missing-examples", action="store_true",
-        help="example-lint 发现无示例 schema 时 exit 2（渐进收紧 CI 门禁用；默认只告警）",
+        help="example-lint 三份名单（无示例 schema / requestBody 无示例 / 200-201 响应无示例）"
+             "任一非空即 exit 2（v0.75 strict 门禁转正；默认只告警）",
     )
     args = ap.parse_args(argv)
 

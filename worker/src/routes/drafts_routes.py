@@ -42,6 +42,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/drafts", tags=["drafts"])
 
+# 响应示例（openapi_extra 路由级补——裸 dict/CSV 响应无 response_model）；
+# 须定义在所有装饰器之前（装饰在 import 期求值）。
+_BATCH_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "submitted": ["3f9c2a10-8f7e-4a6b-9c3d-1e2f3a4b5c6d"],
+    "skipped": [{"draft_id": "5a6b7c8d-1111-2222-3333-444455556666",
+                 "reason": "已在上架中"}],
+    "failed": [{"draft_id": "99999999-aaaa-bbbb-cccc-dddddddddddd",
+                "reason": "该草稿缺少有效货源链接"}],
+}}}}}}
+_IMPORT_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "created": 8, "failed": 1,
+    "errors": [{"row": 4, "error": "title 不能为空"}],
+}}}}}}
+_EXPORT_OK_EXTRA = {"responses": {"200": {"content": {"text/csv": {"example":
+    "title,item_id,images,purchase_cost,purchase_url,price,stock,supplier,"
+    "weight,length,width,height\n"
+    "便携折叠水杯 500ml,812345678901,"
+    "https://cbu01.alicdn.com/img/ibank/O1CN01example.jpg,8.5,"
+    "https://detail.1688.com/offer/812345678901.html,,100,"
+    "义乌市xx日用品有限公司,120,15,9,6\n"}}}}}
+
 
 async def _authenticate(request: Request) -> str:
     """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。"""
@@ -80,7 +101,7 @@ async def list_drafts(request: Request, batch: Optional[str] = None):
     return draft_service.list_drafts(tenant_id, batch=(batch or "").strip() or None)
 
 
-@router.get("/export")
+@router.get("/export", openapi_extra=_EXPORT_OK_EXTRA)
 async def export_drafts(request: Request):
     """PRD M5(P2): 采集箱导出 CSV(租户隔离,UTF-8 BOM 兼容 Excel)。"""
     import datetime as _dt
@@ -170,7 +191,8 @@ async def resubmit_draft(draft_id: str, request: Request):
 @router.post("/batch-submit",
              # 手拆 raw Request：补批量提交请求体声明（ids≤50 + 共用凭证）。
              openapi_extra={"requestBody": {"required": True, "content": {
-                 "application/json": {"schema": DraftBatchSubmitRequest.model_json_schema()}}}})
+                 "application/json": {"schema": DraftBatchSubmitRequest.model_json_schema()}}},
+                 **_BATCH_OK_EXTRA})
 async def batch_submit_drafts(request: Request):
     """批量提交草稿(≤50):逐条进行中守卫;返回 submitted/skipped/failed 明细。"""
     tenant_id = await _authenticate(request)
@@ -201,7 +223,8 @@ async def batch_submit_drafts(request: Request):
              openapi_extra={"requestBody": {"required": True, "content": {
                  "application/json": {"schema": DraftBatchImportRequest.model_json_schema()},
                  "text/csv": {"schema": {"type": "string"}},
-             }}})
+             }},
+                 **_IMPORT_OK_EXTRA})
 async def import_drafts_csv(request: Request):
     """PRD M5b(P2): CSV/JSON 批量导入采集箱(竞品对标)。
 

@@ -59,7 +59,43 @@ def _auth_rate_limit(request: Request) -> dict:
     return scope
 
 
-@router.get("/market-overview")
+# 响应示例（openapi_extra 路由级补——聚合端点均返回裸 dict，见各 handler）
+_MARKET_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "total_gmv": 152340.5, "total_orders": 1206, "total_products": 348,
+    "total_discovery_runs": 27, "bestseller_count": 5000, "scope": "tenant",
+}}}}}}
+_CATEGORIES_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{"category": "宠物饮水机", "run_count": 6, "total_products": 240}],
+    "scope": "tenant",
+}}}}}}
+_HOT_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{
+        "query": "органайзер для косметики", "count": 1520, "ca": 0.8,
+        "avg_ca_rub": 1250.5, "avg_count_items": 310.2, "items_views": 45600.0,
+        "uniq_queries_wca": 118, "uniq_sellers": 128.0,
+    }],
+    "scope": "global",
+}}}}}}
+_TREND_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{"date": "2026-09-10", "gmv": 21540.0, "orders": 168}],
+}}}}}}
+_WTS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "found": True, "data": {"items": []},
+}}}}}}
+_SYNC_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "accepted": 10, "skipped": 2,
+}}}}}}
+_SKU_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "metrics": [{
+        "sku": "123456789", "sales_payload": {"orders": 42}, "variant_payload": None,
+        "category_dc": 17027532, "category_tp": 9165596, "category_name_zh": "汽车香薰",
+        "needs_sales_sync": False, "needs_variant_sync": True,
+        "updated_at": "2026-09-11T06:00:00+00:00",
+    }],
+}}}}}}
+
+
+@router.get("/market-overview", openapi_extra=_MARKET_OK_EXTRA)
 async def http_market_overview(request: Request):
     """聚合市场概览:用户看自己店铺,admin 看全平台;热销品数保持全局共享目录。"""
     scope = _auth_rate_limit(request)
@@ -116,7 +152,7 @@ async def http_market_overview(request: Request):
     return result
 
 
-@router.get("/categories")
+@router.get("/categories", openapi_extra=_CATEGORIES_OK_EXTRA)
 async def http_categories(request: Request):
     """按类目聚合 discovery_runs 的选品次数和产品数(用户只看自己,admin 全局)。
 
@@ -154,7 +190,7 @@ async def http_categories(request: Request):
     return {"items": items, "scope": "global" if scope["is_admin"] else "tenant"}
 
 
-@router.get("/hot-queries")
+@router.get("/hot-queries", openapi_extra=_HOT_OK_EXTRA)
 async def http_hot_queries(request: Request):
     """热门蓝海关键词:仅 admin(PRD:蓝海数据管理端独享)。"""
     scope = _auth_rate_limit(request)
@@ -201,7 +237,7 @@ async def http_hot_queries(request: Request):
     return {"items": items, "scope": "global" if scope["is_admin"] else "tenant"}
 
 
-@router.get("/sales-trend")
+@router.get("/sales-trend", openapi_extra=_TREND_OK_EXTRA)
 async def http_sales_trend(request: Request):
     """销售趋势:用户看自己店铺,admin 看全平台。"""
     scope = _auth_rate_limit(request)
@@ -255,7 +291,7 @@ from services import ozon_session_service as _ozon_session_service
 from utils import ozon_session_client as _ozon_session_client
 
 
-@router.get("/what-to-sell")
+@router.get("/what-to-sell", openapi_extra=_WTS_OK_EXTRA)
 async def http_what_to_sell(request: Request):
     """GET /api/v1/analytics/what-to-sell?credential_id=&sku=&limit= → {found, data}。"""
     scope = _auth_rate_limit(request)
@@ -322,8 +358,13 @@ async def http_what_to_sell(request: Request):
 # "routes.analytics_routes.upsert_seller_sync_items" 打的是模块属性）。
 # 只存指标不回显内部异常（对齐 analytics 端点安全纪律）。
 
-@router.post("/seller-sync", openapi_extra={"requestBody": {"required": True, "content": {
-    "application/json": {"schema": SellerSyncIn.model_json_schema()}}}})
+@router.post("/seller-sync", openapi_extra={
+    # 请求体声明（v0.70 批次 C5 先例）+ 响应示例（upsert_seller_sync_items 计数）
+    "requestBody": {"required": True, "content": {
+        "application/json": {"schema": SellerSyncIn.model_json_schema()}}},
+    "responses": {"200": {"content": {
+        "application/json": {"example": {"accepted": 10, "skipped": 2}}}}},
+})
 async def http_seller_sync(request: Request):
     """POST /api/v1/analytics/seller-sync —— 贡献收包（goldminer ≤12/批）。
 
@@ -360,7 +401,7 @@ async def http_seller_sync(request: Request):
         session.close()
 
 
-@router.get("/sku-metrics")
+@router.get("/sku-metrics", openapi_extra=_SKU_OK_EXTRA)
 async def http_sku_metrics(request: Request, skus: str = ""):
     """GET /api/v1/analytics/sku-metrics?skus=1,2 → {metrics: [...]}（读侧指标+补采指令，≤50/查）。
 

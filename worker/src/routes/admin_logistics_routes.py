@@ -12,6 +12,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from api.schemas import _examples
 from services import admin_service, logistics_service
 
 router = APIRouter(prefix="/admin/logistics", tags=["admin"])
@@ -34,6 +35,24 @@ async def _authenticate_admin(request: Request) -> str:
 
 class LogisticsRateRow(BaseModel):
     """单条费率行（服务返回结构，供文档/校验用）。"""
+    # 示例取自 assets/china_scoring_freight.xlsx「中国 rFBS」真实首行（RETS Express Extra Small）；
+    # created_at 导入链不写、恒 NULL。
+    model_config = _examples({
+        "id": 1,
+        "scoring_group": "Extra Small",
+        "service_level": "Express",
+        "tpl_provider": "RETS",
+        "delivery_method": "RETS Express Extra Small",
+        "base_cost": 3.12,
+        "per_gram_rate": 0.0468,
+        "weight_min": 1,
+        "weight_max": 500,
+        "sum_limit_cm": 90,
+        "longest_limit_cm": 60,
+        "charge_type": "actual",
+        "vol_weight_divisor": 0,
+        "created_at": None,
+    })
     id: int
     scoring_group: str
     service_level: str
@@ -73,6 +92,11 @@ class LogisticsImportIn(BaseModel):
 
 class LogisticsImportResult(BaseModel):
     """导入结果：inserted/updated 计数 + 逐行错误。"""
+    model_config = _examples({
+        "imported": 12,
+        "updated": 3,
+        "errors": [{"row": 5, "error": "weight_min 不能大于 weight_max"}],
+    })
     imported: int
     updated: int
     errors: list[dict[str, Any]] = Field(default_factory=list)
@@ -83,7 +107,23 @@ class LogisticsImportResult(BaseModel):
 # ──────────────────────────────────────────────
 
 
-@router.get("/rates", response_model=dict)
+# 响应示例（openapi_extra 路由级补；行结构 = logistics_service._row_to_dict，
+# 与下方 LogisticsRateRow 的 _examples 同源取 Excel「中国 rFBS」真实首行）
+_RATES_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "total": 1,
+    "items": [{
+        "id": 1, "scoring_group": "Extra Small", "service_level": "Express",
+        "tpl_provider": "RETS", "delivery_method": "RETS Express Extra Small",
+        "base_cost": 3.12, "per_gram_rate": 0.0468,
+        "weight_min": 1, "weight_max": 500,
+        "sum_limit_cm": 90, "longest_limit_cm": 60,
+        "charge_type": "actual", "vol_weight_divisor": 0,
+        "created_at": None,
+    }],
+}}}}}}
+
+
+@router.get("/rates", response_model=dict, openapi_extra=_RATES_OK_EXTRA)
 async def admin_logistics_list_rates(request: Request, limit: int = 50, offset: int = 0):
     """费率列表（limit ≤ 200，offset ≥ 0）。"""
     await _authenticate_admin(request)

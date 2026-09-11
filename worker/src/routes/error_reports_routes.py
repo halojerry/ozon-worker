@@ -42,7 +42,38 @@ router = APIRouter(tags=["error-reports"])
 root_router = APIRouter(tags=["error-reports"])
 
 
-@router.post("/error_reports", tags=["error-reports"])
+# 响应示例（openapi_extra 路由级补；结构 = error_report_service / forensics_service 返回值）
+_REPORT_CREATE_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "status": "ok",
+    "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+    "created_at": "2026-09-11T08:30:00+00:00",
+    "tasks_attached": 2,
+}}}}}}
+_REPORT_LIST_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "total": 1,
+    "reports": [{
+        "report_id": "9b6f1a2c-3d4e-4f50-8a71-bcdef0123456",
+        "title": "批量 10 单报「标题与类目不一致」",
+        "severity": "high", "category": "listing", "status": "new",
+        "created_at": "2026-09-11T08:30:00+00:00", "enriched": True,
+    }],
+}}}}}}
+_FORENSICS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "task": {
+        "task_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+        "status": "failed",
+        "error_message": "LOCAL_TITLE_CATEGORY_MISMATCH: 标题与类目不一致",
+        "created_at": "2026-09-11T06:00:00+00:00",
+        "completed_at": "2026-09-11T06:04:31+00:00",
+        "product_id": "", "title": "便携折叠水杯 500ml",
+    },
+    "listing_result": None,
+    "category_match_log": [],
+    "attr_match_log": [],
+}}}}}}
+
+
+@router.post("/error_reports", tags=["error-reports"], openapi_extra=_REPORT_CREATE_OK_EXTRA)
 async def v1_create_error_report(
     request: Request, tenant_id: str = Depends(get_tenant)
 ):
@@ -72,7 +103,7 @@ async def v1_create_error_report(
     return {"status": "ok", **out}
 
 
-@router.get("/error_reports", tags=["error-reports"])
+@router.get("/error_reports", tags=["error-reports"], openapi_extra=_REPORT_LIST_OK_EXTRA)
 async def v1_list_error_reports(
     request: Request, tenant_id: str = Depends(get_tenant_no_rate_limit)
 ):
@@ -111,7 +142,7 @@ def _task_forensics(task_id: str, tenant_id: str) -> dict:
     return out
 
 
-@router.get("/forensics/task/{task_id}", tags=["error-reports"])
+@router.get("/forensics/task/{task_id}", tags=["error-reports"], openapi_extra=_FORENSICS_OK_EXTRA)
 async def v1_task_forensics(
     task_id: str, tenant_id: str = Depends(get_tenant)
 ):
@@ -126,7 +157,8 @@ async def v1_task_forensics(
     return _task_forensics(task_id, tenant_id)
 
 
-@root_router.get("/forensics/task/{task_id}", tags=["error-reports"])
+@root_router.get("/forensics/task/{task_id}", tags=["error-reports"],
+                 openapi_extra=_FORENSICS_OK_EXTRA)
 async def task_forensics_legacy_path(
     task_id: str, tenant_id: str = Depends(get_tenant)
 ):

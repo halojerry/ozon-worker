@@ -80,7 +80,41 @@ async def list_orders(
         limit=limit, offset=offset, since_days=since_days)
 
 
-@router.post("/batch/labels")
+# 响应示例（openapi_extra 路由级补；结构 = order_service 各返回值）
+_BATCH_LABELS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "ok": True,
+    "items": [{"posting_number": "23456789-0010-3",
+               "content_type": "application/pdf",
+               "label_base64": "JVBERi0xLjQKJ..."}],
+    "failed": [],
+}}}}}}
+_BATCH_SHIP_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "ok": True,
+    "shipped": ["23456789-0010-3", "23456789-0011-2"],
+    "failed": [{"posting_number": "23456789-0012-1", "error": "面单未生成"}],
+}}}}}}
+_TEMPLATES_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": [{
+    "key": "passport", "name": "催护照",
+    "text": "Здравствуйте! Товар, который вы покупаете: [货件编号] ([商品名称]), "
+            "Вы еще не заполнили паспорт, поторопитесь заполнить паспортные данные "
+            "и я организую доставку в кратчайшие сроки!",
+}]}}}}}
+_SEND_MSG_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "ok": True, "posting_number": "23456789-0010-3",
+    "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    "message": "Здравствуйте! Ваш заказ отправлен.",
+}}}}}}
+_MSGS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"example": {
+    "items": [{
+        "posting_number": "23456789-0010-3", "template_key": "passport",
+        "message": "Здравствуйте! …", "chat_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        "status": "sent", "error": "", "created_at": "2026-09-11T07:40:00",
+    }],
+    "total": 1, "limit": 50, "offset": 0,
+}}}}}}
+
+
+@router.post("/batch/labels", openapi_extra=_BATCH_LABELS_OK_EXTRA)
 async def batch_labels(request: Request):
     """P1-3 批量面单：{posting_numbers: [...], credential_id?} → items + failed（失败隔离）。"""
     tenant_id = await _authenticate(request)
@@ -89,7 +123,7 @@ async def batch_labels(request: Request):
         tenant_id, body.get("posting_numbers") or [], credential_id=body.get("credential_id"))
 
 
-@router.post("/batch/ship")
+@router.post("/batch/ship", openapi_extra=_BATCH_SHIP_OK_EXTRA)
 async def batch_ship(request: Request):
     """P1-3 批量备货：{posting_numbers: [...], credential_id?} → shipped + failed（失败隔离）。"""
     tenant_id = await _authenticate(request)
@@ -144,13 +178,13 @@ async def cancel_order(posting_number: str, request: Request):
         tenant_id, posting_number, reason_id, credential_id=body.get("credential_id"))
 
 
-@router.get("/message-templates")
+@router.get("/message-templates", openapi_extra=_TEMPLATES_OK_EXTRA)
 async def message_templates(request: Request):
     tenant_id = await _authenticate(request)
     return order_service.get_message_templates()
 
 
-@router.post("/{posting_number}/message")
+@router.post("/{posting_number}/message", openapi_extra=_SEND_MSG_OK_EXTRA)
 async def send_message(posting_number: str, request: Request):
     tenant_id = await _authenticate(request)
     body = await request.json()
@@ -162,7 +196,7 @@ async def send_message(posting_number: str, request: Request):
     )
 
 
-@router.get("/messages")
+@router.get("/messages", openapi_extra=_MSGS_OK_EXTRA)
 async def list_messages(request: Request, limit: int = 50, offset: int = 0):
     tenant_id = await _authenticate(request)
     return order_service.list_order_messages(tenant_id, limit=limit, offset=offset)

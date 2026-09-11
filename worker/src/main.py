@@ -766,7 +766,11 @@ v1 = APIRouter(prefix="/api/v1", tags=["v1"])
 openai_handler = OpenAIChatHandler(service)
 
 
-@app.post("/async_run")
+@app.post("/async_run", responses={
+    200: {"content": {"application/json": {"example": {
+        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
+        "status": "queued",
+    }}}}})
 async def http_async_run(request: Request) -> dict:
     """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。"""
     logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
@@ -830,7 +834,14 @@ async def http_async_run(request: Request) -> dict:
                             detail=f"async-task storage unavailable: {e}")
 
 
-@app.get("/task/{task_id}")
+@app.get("/task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
+        "status": "succeeded",
+        "result": {"output": {}},
+        "error": None,
+        "created_at": 1726000000.0,
+    }}}}})
 async def http_get_task(task_id: str) -> dict:
     """[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。"""
     logger.warning("⚠️ /task/{task_id} 已弃用，请使用 GET /task_status/{task_id}")
@@ -845,7 +856,21 @@ async def http_get_task(task_id: str) -> dict:
 
 
 HEADER_X_RUN_ID = "x-run-id"
-@app.post("/run")
+
+
+@app.post("/run", responses={
+    200: {"content": {"application/json": {"example": {
+        # GraphOutput 终态（成功路径，节选）+ run_id（handler 注入）
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "product_id": "987654321",
+        "purchase_url": "https://detail.1688.com/offer/123456789.html",
+        "upload_status": "success",
+        "pricing_info": {"price": 254.0, "old_price": 305.0, "promo_price": 254.0},
+        "stages": {"auth": "done", "category_match": "done", "ozon_upload": "done"},
+        "error_message": "",
+        "error_code": "",
+        "run_id": "e1f2a3b4c5d647e8",
+    }}}}})
 async def http_run(request: Request) -> Dict[str, Any]:
     global result
     raw_body = await request.body()
@@ -957,7 +982,11 @@ def _register_task(run_id: str, task: asyncio.Task):
     service.running_tasks[run_id] = task
 
 
-@app.post("/stream_run")
+@app.post("/stream_run", responses={
+    200: {"content": {"text/event-stream": {"example":
+        # SSE 逐帧：event 固定 message，data 为节点/Agent 产物 JSON（节选一帧）
+        "event: message\ndata: {\"progress_counter\": 3, \"stages\": {\"category_match\": \"done\"}}\n\n",
+    }}}})
 async def http_stream_run(request: Request):
     raw_body = await request.body()
     try:
@@ -1018,7 +1047,13 @@ async def http_stream_run(request: Request):
     response = StreamingResponse(stream_generator, media_type="text/event-stream")
     return response
 
-@app.post("/cancel/{run_id}")
+@app.post("/cancel/{run_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # service.cancel_run 三态：success / already_completed / not_found
+        "status": "success",
+        "run_id": "e1f2a3b4c5d647e8",
+        "message": "Cancellation signal sent, task will be cancelled at next await point",
+    }}}}})
 async def http_cancel(run_id: str, request: Request):
     """
     取消指定run_id的执行
@@ -1033,7 +1068,15 @@ async def http_cancel(run_id: str, request: Request):
     return result
 
 
-@app.post(path="/node_run/{node_id}")
+@app.post(path="/node_run/{node_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # 单节点直跑返回该节点 Output model 的 dict（此处以 auth 节点 AuthOutput 为例）
+        "progress_counter": 1,
+        "user_id": "28",
+        "balance": 12.5,
+        "currency_code": "CNY",
+        "ozon_client_id": "5381204",
+    }}}}})
 async def http_node_run(node_id: str, request: Request):
     raw_body = await request.body()
     try:
@@ -1082,7 +1125,20 @@ async def http_node_run(node_id: str, request: Request):
         pass
 
 
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", responses={
+    200: {"content": {"application/json": {"example": {
+        # OpenAI Chat Completions 兼容透传（上游模型响应原样回传，此处为通用形态）
+        "id": "chatcmpl-e1f2a3b4c5d647e8",
+        "object": "chat.completion",
+        "created": 1726000000,
+        "model": "deepseek-v4-flash",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "Пример ответа ассистента."},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192},
+    }}}}})
 async def openai_chat_completions(request: Request):
     """OpenAI Chat Completions API 兼容接口"""
     raw_body = await request.body()
@@ -1308,7 +1364,17 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
         await asyncio.sleep(interval_seconds)
 
 
-@app.get("/health")
+@app.get("/health", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "ok",
+        "message": "Service is running",
+        "db": "connected",
+        "queue": {"pending": 2, "running": 5, "completed": 120},
+        "last_backup_at": 1725996400.0,
+        "backup_stale": False,
+    }}}}, 503: {"content": {"application/json": {"example": {
+        "status": "degraded", "message": "db_error: OperationalError", "db": "disconnected",
+    }}}}})
 async def health_check():
     try:
         from sqlalchemy import text
@@ -1358,7 +1424,17 @@ async def health_check():
         )
 
 
-@app.get("/api/v1/store/health")
+@app.get("/api/v1/store/health", responses={
+    200: {"content": {"application/json": {"example": {
+        # status ∈ ok/warning/critical/error/unknown（缺凭证=unknown）
+        "status": "ok",
+        "total_usage": 9900,
+        "total_limit": 10000,
+        "remaining": 100,
+        "daily_usage": 40,
+        "daily_limit": 200,
+        "daily_remaining": 160,
+    }}}}})
 def store_health(client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
 
@@ -1646,7 +1722,18 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
     }
 
 
-@app.get("/progress/{run_id}")
+@app.get("/progress/{run_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        # source=checkpointer（实时）或 memory_or_pg（任务完成后/重启后回退）
+        "run_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "source": "checkpointer",
+        "progress_counter": 5,
+        "total_nodes": 13,
+        "percentage": 38,
+        "stages": {"auth": "done", "ingest": "done", "category_match": "done"},
+    }}}}, 404: {"content": {"application/json": {"example": {
+        "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    }}}}})
 async def http_progress(run_id: str):
     """查询工作流执行进度。
 
@@ -1792,7 +1879,12 @@ def _write_direct_submission_row(task_id: str, tenant_id: str, ozon_client_id: s
         )
 
 
-@app.post("/submit_task")
+@app.post("/submit_task", responses={
+    200: {"content": {"application/json": {"example": {
+        "ok": True,
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "message": "Task submitted to queue (user: 28, balance: 12.5)",
+    }}}}})
 async def http_submit_task(request: Request):
     """
     提交任务到Supabase云端队列（方案2：验证token + 提交到队列，不立即执行拓扑）
@@ -2068,7 +2160,27 @@ def _task_status_guard(request: Request, task_row: dict) -> None:
 
 
 @app.get("/task_status/{task_id}", responses={
-    401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
+    200: {"content": {"application/json": {"example": {
+        # ozon_product_tasks 行 + 终态归位后的 progress（v0.19）
+        "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "tenant_id": "28",
+        "status": "running",
+        "priority": 0,
+        "result": None,
+        "error_message": None,
+        "retry_count": 0,
+        "max_retries": 3,
+        "created_at": "2026-09-11T08:00:00+00:00",
+        "updated_at": "2026-09-11T08:02:30+00:00",
+        "started_at": "2026-09-11T08:01:00+00:00",
+        "completed_at": None,
+        "timeout_seconds": 1800,
+        "progress": {"stage": "image_generation", "percent": 61,
+                     "stages_completed": ["auth", "ingest", "category_match",
+                                          "pricing", "attributes", "description", "image_generation"],
+                     "stages_remaining": ["prepare_ozon_upload", "ozon_validate",
+                                          "check_quota", "ozon_upload", "ozon_status", "learning_record"]},
+    }}}}, 401: {"model": ErrorBody}, 404: {"model": ErrorBody}})
 async def http_task_status(task_id: str, request: Request):
     """
     查询任务状态（含进度信息）
@@ -2123,7 +2235,17 @@ async def http_task_status(task_id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
 
 
-@app.post("/cancel_task/{task_id}")
+@app.post("/cancel_task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "success",
+        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "message": "Task cancelled successfully",
+    }}}}, 409: {"content": {"application/json": {"example": {
+        # 不可取消（非 pending/处理异常）→ TASK_NOT_CANCELLABLE 统一错误信封
+        "ok": False,
+        "error_code": "TASK_NOT_CANCELLABLE",
+        "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
+    }}}}})
 async def http_cancel_task(task_id: str):
     """
     取消任务（仅pending状态的任务可取消）
@@ -2157,7 +2279,17 @@ async def http_cancel_task(task_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
 
 
-@app.post("/resubmit_task/{task_id}")
+@app.post("/resubmit_task/{task_id}", responses={
+    200: {"content": {"application/json": {"example": {
+        "ok": True,
+        "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+    }}}}, 409: {"content": {"application/json": {"example": {
+        "ok": False,
+        "error_code": "TASK_NOT_RESUBMITTABLE",
+        "message": "任务状态 completed 不可重新提交，仅 rejected/failed 终态任务可重试",
+        "detail": {"task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "status": "completed"},
+    }}}}})
 async def http_resubmit_task(task_id: str, request: Request):
     """重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。
 
@@ -2251,7 +2383,14 @@ async def http_resubmit_task(task_id: str, request: Request):
         )
 
 
-@app.get("/task_statistics")
+@app.get("/task_statistics", responses={
+    200: {"content": {"application/json": {"example": {
+        "status": "success",
+        "statistics": {
+            "total": 130, "pending": 2, "running": 5, "completed": 120,
+            "failed": 3, "cancelled": 0, "avg_duration_seconds": 210.55,
+        },
+    }}}}})
 async def http_task_statistics(request: Request):
     """
     获取任务统计信息
@@ -2280,12 +2419,33 @@ async def http_task_statistics(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to get task statistics: {str(e)}")
 
 
-@app.get(path="/graph_parameter")
+@app.get(path="/graph_parameter", responses={
+    200: {"content": {"application/json": {"example": {
+        # GraphInput/GraphOutput 的 JSON Schema（service.graph_inout_schema，此处节选）
+        "input_schema": {"title": "GraphInput", "type": "object", "properties": {}},
+        "output_schema": {"title": "GraphOutput", "type": "object", "properties": {}},
+        "code": 0,
+        "msg": "",
+    }}}}})
 async def http_graph_inout_parameter(request: Request):
     return service.graph_inout_schema()
 
 
-@app.post("/api/v1/logistics/quote")
+@app.post("/api/v1/logistics/quote", responses={
+    200: {"content": {"application/json": {"example": {
+        # quote_logistics 明细（utils/logistics_quote.py）：RETS/Standard 费率表命中
+        "tpl_provider": "RETS",
+        "service_level": "Standard",
+        "scoring_group": "A",
+        "base_cost": 6.0,
+        "per_gram_rate": 0.004,
+        "billable_weight": 500.0,
+        "weight": 480.0,
+        "dims_cm": [20.0, 15.0, 10.0],
+        "fallback_chain": [],
+        "logistics_cost_cny": 8.0,
+        "channel": "RETS_Standard_A",
+    }}}}})
 async def logistics_quote(request: Request):
     """物流运费报价端点（v0.29.x, skill 选品利润估算用）。
 
@@ -2682,7 +2842,20 @@ async def v1_discovery_report_run(request: Request):
     return await _handle_analytics_report(request, "discovery_runs")
 
 
-@v1.get("/analytics/bestsellers", tags=["analytics"])
+@v1.get("/analytics/bestsellers", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "sku_or_id": "1680357214",
+            "brand": "Thermos",
+            "category_path": "Дом и сад / Термосы",
+            "ordering_amount": 1284500.0,
+            "ordering_count": 412,
+            "avg_price_rub": 3117.7,
+            "contributed_by_token_id": "test-token-123",
+        }],
+        "total": 1, "limit": 50, "offset": 0,
+    }}}},
+})
 async def v1_analytics_list_bestsellers(request: Request):
     """T4b.1 榜单浏览：读 skill 上报的 ozon-bestsellers（全局共享，含贡献者列）。
 
@@ -2722,7 +2895,20 @@ async def v1_analytics_list_bestsellers(request: Request):
     )
 
 
-@v1.get("/discovery/runs", tags=["analytics"])
+@v1.get("/discovery/runs", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "id": "0192b1f0-9c3f-7f2e-8b1a-3d4e5f6a7b8c",
+            "keyword": "宠物饮水机",
+            "filters": {"min_margin": 0.25},
+            "candidates": 23,
+            "created_at": "2026-09-11T10:24:31",
+            "contributed_by_token_id": "test-token-123",
+            "contributed_by_fp": "a1b2c3d4e5f60718",
+        }],
+        "total": 1, "limit": 50, "offset": 0,
+    }}}},
+})
 async def v1_discovery_list_runs(request: Request):
     """discover 选品结果历史读取（W4b.2）：全局共享（A 可见 B 的归档，含贡献者标注）。
 
@@ -2773,7 +2959,12 @@ async def v1_discovery_list_runs(request: Request):
     return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
 
 
-@v1.get("/mappings/lookup", tags=["analytics"])
+@v1.get("/mappings/lookup", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "mappings": [{"dc": "91936", "tp": "91540", "confidence": 0.85}],
+    }}}},
+})
 async def v1_mappings_lookup(request: Request):
     """类目映射查询（W11）：skill 端按关键词查已学习 Ozon 类目映射。
 
@@ -2824,8 +3015,26 @@ async def v1_mappings_lookup(request: Request):
 # found=False+reason（前端提示，不破坏页面）。字典值按单属性按需（?attr_id=，
 # 下拉打开时拉，翻页≤3 页），首屏保持 1 次 API。
 
-@app.get("/categories/search", tags=["analytics"])
-@app.get("/api/v1/categories/search", tags=["analytics"])
+@app.get("/categories/search", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "description_category_id": "91936",
+            "type_id": "91938",
+            "node_name": "Автомобильный компрессор",
+            "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+            "similarity": 0.87,
+        }],
+    }}}}})
+@app.get("/api/v1/categories/search", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "items": [{
+            "description_category_id": "91936",
+            "type_id": "91938",
+            "node_name": "Автомобильный компрессор",
+            "category_path": "Авто и мото / Автоинструменты / Автомобильный компрессор",
+            "similarity": 0.87,
+        }],
+    }}}}})
 async def v1_categories_search(request: Request):
     """类目树搜索（ZH_HANS）：?q=关键词&limit=20 → 候选 {dc, tp, node_name, category_path}。
 
@@ -2859,8 +3068,37 @@ async def v1_categories_search(request: Request):
     } for r in rows]}
 
 
-@app.get("/categories/attributes", tags=["analytics"])
-@app.get("/api/v1/categories/attributes", tags=["analytics"])
+@app.get("/categories/attributes", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        # schema 模式（?dc=&tp=）；?attr_id= 时 values 为顶层键
+        "found": True,
+        "cached": True,
+        "fetched": False,
+        "attributes": [{
+            "id": 4180,
+            "name": "Тип",
+            "required": True,
+            "type": "String",
+            "dictionary_id": 0,
+            "is_collection": False,
+            "max_value_count": 1,
+        }],
+    }}}}})
+@app.get("/api/v1/categories/attributes", tags=["analytics"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "cached": True,
+        "fetched": False,
+        "attributes": [{
+            "id": 4180,
+            "name": "Тип",
+            "required": True,
+            "type": "String",
+            "dictionary_id": 0,
+            "is_collection": False,
+            "max_value_count": 1,
+        }],
+    }}}}})
 async def v1_categories_attributes(request: Request):
     """类目属性 schema + 字典值（缓存优先，未命中按需拉取回写）。
 
@@ -2986,8 +3224,21 @@ async def v1_categories_attributes(request: Request):
 # 读 category_commission 缓存表（全局共享，无 tenant 隔离——类目佣金是平台级知识）。
 # 鉴权与 analytics 读端点一致（Bearer token → _verify_analytics_token + rate_limiter）。
 
-@app.get("/commissions/lookup", tags=["commissions"])
-@app.get("/api/v1/commissions/lookup", tags=["commissions"])
+@app.get("/commissions/lookup", tags=["commissions"], responses={
+    200: {"content": {"application/json": {"example": {
+        # 未命中 → {"found": false}
+        "found": True,
+        "fbs": {"leq_1500": 0.16, "leq_5000": 0.12, "gt_5000": 0.10},
+        "fbo": {"leq_1500": 0.14, "leq_5000": 0.11, "gt_5000": 0.09},
+        "source": "prices_api",
+    }}}}})
+@app.get("/api/v1/commissions/lookup", tags=["commissions"], responses={
+    200: {"content": {"application/json": {"example": {
+        "found": True,
+        "fbs": {"leq_1500": 0.16, "leq_5000": 0.12, "gt_5000": 0.10},
+        "fbo": {"leq_1500": 0.14, "leq_5000": 0.11, "gt_5000": 0.09},
+        "source": "prices_api",
+    }}}}})
 async def http_commissions_lookup(request: Request):
     """类目佣金查询：按 description_category_id 查 category_commission 缓存表。
 

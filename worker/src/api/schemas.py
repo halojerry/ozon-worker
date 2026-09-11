@@ -107,8 +107,16 @@ class TaskStatus(str, Enum):
     PENDING_MODERATION = "pending_moderation"  # T14: 在线商品改图重传后重新审核中
 
     # 注意：枚举类不能挂 model_config/_examples——Python Enum 会把普通类属性变成
-    # 假成员（实测 model_config 被收编为 TaskStatus.model_config），example-lint
-    # 对此 schema 的缺示例告警属预期豁免。
+    # 假成员（实测 model_config 被收编为 TaskStatus.model_config）。example 的注入
+    # 走下方 __get_pydantic_json_schema__ 钩子（方法是 Enum 允许的非成员属性），
+    # example-lint 据此把本 schema 计入「带示例」。
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """给枚举的 JSON schema 注入 example（Enum 挂不了 model_config/_examples）。"""
+        json_schema = handler(core_schema)
+        json_schema["example"] = cls.RUNNING.value
+        return json_schema
 
 
 class TaskStatusResponse(BaseModel):
