@@ -1237,6 +1237,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                                 dictionary_value_id=int(chosen[0].get("id") or 0) if chosen else 0,
                                 confidence=1.0, should_fill=True,
                                 candidates=hits[:10],
+                                tenant_id=str(getattr(state, "user_id", "") or ""),
                             )
                         except Exception:
                             pass
@@ -1304,6 +1305,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                             source_value=_raw2, status="matched",
                             match_layer="synonym", dictionary_value_id=_res2.dictionary_value_id,
                             confidence=1.0, should_fill=True, candidates=_found2[:10],
+                            tenant_id=str(getattr(state, "user_id", "") or ""),
                         )
                     except Exception:
                         pass
@@ -1321,6 +1323,7 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                                     source_value=_bypass_skip_src, status=_bypass_skip_status,
                                     match_layer="zh_direct_search", should_fill=True,
                                     candidates=_bypass_skip_cands[:10],
+                                    tenant_id=str(getattr(state, "user_id", "") or ""),
                                 )
                         except Exception:
                             pass
@@ -1392,6 +1395,7 @@ def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = "
                         attr_id=aid, attr_name=str(attr.get("name") or ""),
                         source_value="", status="no_infer", match_layer="vision",
                         dictionary_value_id=0, confidence=0.0, should_fill=True,
+                        tenant_id=str(getattr(state, "user_id", "") or ""),
                     )
                 except Exception:
                     pass

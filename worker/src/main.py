@@ -1178,6 +1178,45 @@ def _maybe_refresh_fx() -> None:
         _LAST_FX_REFRESH = time.time()
 
 
+# ✅ v0.75 C2（BL-25 Phase 1-2 漏项）: langgraph checkpoint 三表清理序——
+# thread_id == ozon_product_tasks.id（task_processor.py:970 configurable
+# {"thread_id": task_id}），任务行 30 天归档删除后三表行永久孤儿。
+# 本地 PG information_schema 探针实证三表无外键；顺序 checkpoints →
+# checkpoint_blobs → checkpoint_writes（语义父表先删）。
+# ⚠️ memory.checkpoint_migrations 是 langgraph 自有版本表，绝不清理。
+_CHECKPOINT_PURGE_TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
+
+
+def _purge_checkpoints(conn, task_ids) -> int:
+    """v0.75 C2: 按 thread_id 清 memory.checkpoints 三表（删任务行**前**调用）。
+
+    Args:
+        conn: SQLAlchemy Connection（调用方事务内，随外层 commit 提交）
+        task_ids: 将删任务 uuid 文本列表（与任务 DELETE 同 WHERE 收集）
+
+    Returns:
+        三表删除总行数；task_ids 空 → 0（零 execute）。
+
+    ANY(:ids) bind 传 Python list[str]——psycopg2 自动数组化（勿手拼 IN 字面量）。
+    一次性存量孤儿清理见 worker/scripts/cleanup_checkpoints.py。
+    """
+    if not task_ids:
+        return 0
+    from sqlalchemy import text
+    total = 0
+    for _table in _CHECKPOINT_PURGE_TABLES:
+        res = conn.execute(
+            text(f"DELETE FROM memory.{_table} WHERE thread_id = ANY(:ids)"),
+            {"ids": list(task_ids)},
+        )
+        total += int(res.rowcount or 0)
+    logger.debug(
+        f"checkpoint purge: {total} rows across {len(task_ids)} tasks "
+        f"({_CHECKPOINT_PURGE_TABLES})"
+    )
+    return total
+
+
 async def _periodic_task_cleanup(interval_seconds: int = 60):
     """定期清理僵尸任务：重置卡死的 running 任务，清理过期 completed 任务"""
     await asyncio.sleep(30)  # 启动后等 30 秒再开始
@@ -1206,6 +1245,15 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                 )).rowcount
                 # 归档 30 天前的 completed 任务（结果已留存 listing_result_log，见
                 # utils/listing_result_log.py——v0.67 起每任务一行事实留存，物理删不再丢数据）
+                # ✅ v0.75 C2: 删任务行**前**先收集将删 id → 清 checkpoint 三表
+                # （thread_id==task_id，删除谓词与任务 DELETE 同 WHERE；空列表跳过）。
+                _due_task_ids = [
+                    str(row[0]) for row in conn.execute(text(
+                        "SELECT id::text FROM ozon_product_tasks "
+                        "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
+                    )).fetchall()
+                ]
+                _purge_checkpoints(conn, _due_task_ids)
                 r2 = conn.execute(text(
                     "DELETE FROM ozon_product_tasks "
                     "WHERE status='completed' AND updated_at < NOW() - INTERVAL '30 days'"
@@ -1866,7 +1914,15 @@ async def http_submit_task(request: Request):
             )
         
         # ✅ Step3: 提交任务到队列（使用user_id作为tenant_id）
-        priority = 0  # ✅ 固定为0（所有用户平等优先级，直到建立VIP体系）
+        # ✅ v0.75 C7: priority 开放（BL-25 Phase 2-5）——读请求体可选 priority
+        # （顶层 body，与 timeout_seconds/max_retries 同位同读法）。缺省/非数字 → 0
+        # （容错与该端点其余数值字段一致，不 422 不 500）；越界 clamp [0,100]
+        # （对齐本端点 docstring 口径）。认领 SQL 零改动（task_processor
+        # ORDER BY priority DESC, created_at ASC 已就绪）。
+        try:
+            priority = min(100, max(0, int(body.get("priority", 0) or 0)))
+        except (TypeError, ValueError):
+            priority = 0
         timeout_seconds = body.get("timeout_seconds", 1800)
         max_retries = body.get("max_retries", 3)
 

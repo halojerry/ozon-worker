@@ -373,6 +373,9 @@ class CategoryMatchLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # v0.75 C3 补列（repo-gov audit tenant）：租户归属（state.user_id，与任务行
+    # tenant_id 同口径）。历史行 NULL 待 init_data.migrate_repo_gov_v075 按任务表回填。
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     source_title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # ✅ v0.67 P1-6: 1688 货源链接（draft.purchase_url）——审计行可溯源到具体货源卡
     source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -406,6 +409,9 @@ class AttrMatchLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     task_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # v0.75 C3 补列（repo-gov audit tenant）：租户归属（state.user_id）。历史行 NULL
+    # 待 init_data.migrate_repo_gov_v075 按任务表回填（CategoryMatchLog 同构）。
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     attr_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     attr_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

@@ -71,6 +71,7 @@ class SubmitTaskRequest(BaseModel):
         "envelope": _ENVELOPE_EXAMPLE,
         "timeout_seconds": 1800,
         "max_retries": 3,
+        "priority": 0,
     })
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id")
@@ -78,6 +79,9 @@ class SubmitTaskRequest(BaseModel):
     envelope: dict[str, Any] = Field(..., description="产品数据信封 {draft, source, extensions}")
     timeout_seconds: int = Field(1800, description="任务超时时间（秒），默认 30 分钟")
     max_retries: int = Field(3, description="最大重试次数，默认 3")
+    # v0.75 C7: priority 开放（BL-25 Phase 2-5）——端点读取口 clamp [0,100]，
+    # 缺省/非数字当 0（容错不 422，与 timeout_seconds/max_retries 同风格）。
+    priority: int = Field(0, description="任务优先级 0-100（缺省 0；越界由端点 clamp，非数字当 0）")
 
 
 class SubmitTaskResponse(BaseModel):

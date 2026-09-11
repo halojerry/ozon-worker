@@ -4149,14 +4149,17 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
             _source_url = str((_d if isinstance(_d, dict) else {}).get("purchase_url") or "")[:500]
         except Exception:
             _source_url = ""
+        # ✅ v0.75 C3: 租户归属（state.user_id）——assemble 节点吃 GlobalState（user_id
+        # 已声明，langgraph 不过滤）；空落 NULL（老任务/直跑兼容），不猜不派生。
+        _tenant_id = str(getattr(state, "user_id", "") or "").strip()[:50] or None
         conn = _pg.connect(_gdu())
         try:
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO category_match_log (task_id, source_title, source_category, source_url,
                     source_keywords,
-                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    matched_description_category_id, matched_type_id, match_layer, confidence, candidates_json, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
             """, (
                 task_id, (title or "")[:500], (source_category or "")[:500],
                 _source_url or None,
@@ -4168,6 +4171,7 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
                     "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
                     "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
                 } for c in (candidates or [])[:15]], ensure_ascii=False),
+                _tenant_id,
             ))
             conn.commit()
         finally:

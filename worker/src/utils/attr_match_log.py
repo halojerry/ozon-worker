@@ -9,6 +9,8 @@
 - 非致命：DB 不可用/写入失败 → warning 返回，绝不阻塞管线
 - task_id 为空 → 跳过（同 category_match_log._log_match_attempt）
 - source_value 截断 500、candidates_json 截断 15 条
+- tenant_id（v0.75 C3）：值源 state.user_id（langgraph Input 需声明，见
+  PrepareOzonUploadInput.user_id）；空值落 NULL（老任务兼容），不猜不派生
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ def log_attr_match(
     source: str = "",
     should_fill: bool = True,
     candidates: Optional[List[dict]] = None,
+    tenant_id: str = "",
 ) -> None:
     """写入 attr_match_log 一行（非致命，失败仅 warning）。
 
@@ -46,6 +49,7 @@ def log_attr_match(
         source: provenance（learned_approved/fetch_back_corrected/...）
         should_fill: 是否应填（False=系统生成/强制默认，不计入填满率分母）
         candidates: 存活候选（截断 15 条）
+        tenant_id: 租户归属（state.user_id；空落 NULL，v0.75 C3）
     """
     if not task_id:
         _logger.debug("attr_match_log skip: task_id empty")
@@ -59,8 +63,8 @@ def log_attr_match(
             cur.execute("""
                 INSERT INTO attr_match_log (task_id, attr_id, attr_name, source_value,
                     candidate_count, status, match_layer, confidence,
-                    dictionary_value_id, source, should_fill, candidates_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    dictionary_value_id, source, should_fill, candidates_json, tenant_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
             """, (
                 task_id,
                 int(attr_id or 0),
@@ -77,6 +81,7 @@ def log_attr_match(
                     "id": c.get("id") or c.get("dictionary_value_id") or 0,
                     "value": str(c.get("value") or "")[:100],
                 } for c in (candidates or [])[:15]], ensure_ascii=False),
+                (str(tenant_id or "").strip()[:50] or None),
             ))
             conn.commit()
         finally:
