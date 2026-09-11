@@ -581,7 +581,9 @@ _SENTRY_INITIALIZED = False
 # 本就是设计为暴露的（SDK 初始化必需），硬编码是标准做法；上报内容仅异常
 # 堆栈 + 非敏感 tags，绝不含 token/ak/api_key/client_id 凭证。
 # 高级用户可用 settings.json `sentry_dsn` 覆盖（如自建 Sentry）。
-DEFAULT_SENTRY_DSN = "https://***REMOVED***@o4511410803441664.ingest.us.sentry.io/4511432541339648"
+# （repo-gov 历史重写曾将此 DSN 打码——Sentry DSN 是公开客户端标识符（官方文档口径，
+# 与 service_role 型密钥不同），在库设计决策见 docs/audit/2026-09-11-repo-gov/，2026-09-11 恢复。）
+DEFAULT_SENTRY_DSN = "https://a2491a4381126cbb40068fae5e79aee6@o4511410803441664.ingest.us.sentry.io/4511432541339648"
 
 
 def _skill_version_tag() -> str:
