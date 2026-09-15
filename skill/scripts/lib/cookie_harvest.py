@@ -682,6 +682,7 @@ def _harvest_firefox() -> dict[str, Any]:
         # tmp 拷贝防锁（v0.69 既有模式：与 Chromium 一致走拷贝而非直读源库）
         with tempfile.TemporaryDirectory(prefix="cookie_harvest_ff_") as tmpdir:
             tmp_db = Path(tmpdir) / "cookies.sqlite"
+            conn = None
             try:
                 shutil.copy2(db, tmp_db)
                 # B1 #3：-wal/-shm sidecar 一并拷（对齐 Chromium 拷贝集）——
@@ -695,10 +696,16 @@ def _harvest_firefox() -> dict[str, Any]:
                     "SELECT host, name, value, path, expiry, isSecure, isHttpOnly "
                     "FROM moz_cookies"
                 ).fetchall()
-                conn.close()
             except Exception as exc:
                 logger.debug("读 Firefox %s 失败: %s", db, exc)
                 continue
+            finally:
+                # conn 任何路径都关闭——Windows 文件锁下句柄存活会让
+                # TemporaryDirectory 清理抛 PermissionError，把「单 profile 跳过」
+                # 升级成整源 error（探针 _query_copy_rows 同构先例；浏览器运行中
+                # 的损坏库/撕裂 WAL 正是主场景）
+                if conn is not None:
+                    conn.close()
         for host, name, value, path, expiry, secure, httponly in rows:
             c = _cookie_dict(host, name, value, path,
                              float(expiry or 0), secure, httponly)

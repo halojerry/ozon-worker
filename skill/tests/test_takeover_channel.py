@@ -554,6 +554,52 @@ class TestB1Items:
         monkeypatch.setenv("APPDATA", str(appdata))
         assert ch._harvest_firefox()["status"] == "ok"
 
+    def test_b1_i1_firefox_conn_closed_on_execute_error(self, monkeypatch, tmp_path):
+        """终审 I-1：execute 异常（损坏库/撕裂 WAL，浏览器运行中正是主场景）时
+        conn 也必须关——Windows 文件锁下句柄存活会让 TemporaryDirectory 清理抛
+        PermissionError 冲出 _harvest_firefox，把「单 profile 跳过」升级成整源
+        error（探针 _query_copy_rows 同构先例的对称修复）。"""
+        _set_platform(monkeypatch, "win32")
+        appdata = tmp_path / "ad"
+        root = appdata / "Mozilla" / "Firefox"
+        bad = root / "Profiles" / "bad.default"
+        good = root / "Profiles" / "good.default"
+        bad.mkdir(parents=True)
+        good.mkdir(parents=True)
+        _make_firefox_db(bad / "cookies.sqlite")
+        _make_firefox_db(good / "cookies.sqlite")
+        (root / "profiles.ini").write_text(
+            "[InstallX]\nDefault=Profiles/bad.default\n"
+            "[Profile0]\nPath=Profiles/bad.default\n"
+            "[Profile1]\nPath=Profiles/good.default\n",
+            encoding="utf-8")
+        monkeypatch.setenv("APPDATA", str(appdata))
+        closed: list[bool] = []
+        real_connect = sqlite3.connect
+
+        class _BoomConn:
+            def execute(self, *args, **kwargs):
+                raise sqlite3.DatabaseError("file is not a database")
+
+            def close(self):
+                closed.append(True)
+
+        calls = {"n": 0}
+
+        def fake_connect(path, *args, **kwargs):
+            # connect 收到的是临时副本路径（不含源 profile 名），按调用序号命中：
+            # ini Install Default 排第一（bad）——该顺序已由 profiles.ini 优先级用例锁定
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _BoomConn()
+            return real_connect(path, *args, **kwargs)
+        monkeypatch.setattr(ch.sqlite3, "connect", fake_connect)
+        r = ch._harvest_firefox()
+        assert calls["n"] == 2, "坏坏去重后恰扫 bad+good 两库"
+        assert closed == [True], "execute 炸掉后 conn 仍被 finally 关闭"
+        assert r["status"] == "ok", "坏 profile 只跳过，好 profile 照常出 cookie"
+        assert {c["name"] for c in r["cookies"]} == {"cookie2"}
+
     def test_b1_4_parse_inline_cookie_prefix_per_chunk(self):
         """#4 多行请求头粘贴：非首行的 Cookie: 前缀不再解析出垃圾对。"""
         assert ch.parse_cookie_header("Cookie: a=1\nCookie: b=2") == \
@@ -571,19 +617,25 @@ class TestB1Items:
 
 
 def test_takeover_never_imports_decryption_apis():
-    """红线：接管通道实现零解密调用——AST 层禁 ctypes/win32crypt/cryptography
-    import 与 CryptUnprotect/CryptProtect 调用（注释可提红线，代码不得触）。"""
+    """红线：接管通道实现零解密调用——AST 层禁 ctypes/win32crypt/cryptography/
+    comtypes/win32com（IElevator COM 伪装的现实 Python 路径）import 与
+    CryptUnprotect/CryptProtect 调用（注释可提红线，代码不得触）；
+    生产侧 cookie_harvest 与诊断侧 probe_win_cookies 一并纳入扫描。"""
     import ast
-    tree = ast.parse(Path(ch.__file__).read_text(encoding="utf-8"))
-    banned_modules = {"ctypes", "win32crypt", "cryptography"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for a in node.names:
-                assert a.name.split(".")[0] not in banned_modules, a.name
-        elif isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] not in banned_modules, \
-                node.module
-        elif isinstance(node, ast.Call):
-            fn = node.func
-            name = getattr(fn, "attr", None) or getattr(fn, "id", "")
-            assert "CryptUnprotect" not in name and "CryptProtect" not in name, name
+    import scripts.probe_win_cookies as probe_mod
+    banned_modules = {"ctypes", "win32crypt", "cryptography", "comtypes",
+                      "win32com"}
+    for mod in (ch, probe_mod):
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    assert a.name.split(".")[0] not in banned_modules, a.name
+            elif isinstance(node, ast.ImportFrom):
+                assert (node.module or "").split(".")[0] not in banned_modules, \
+                    node.module
+            elif isinstance(node, ast.Call):
+                fn = node.func
+                name = getattr(fn, "attr", None) or getattr(fn, "id", "")
+                assert "CryptUnprotect" not in name and "CryptProtect" not in name, \
+                    name
