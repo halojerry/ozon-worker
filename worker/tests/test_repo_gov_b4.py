@@ -114,9 +114,20 @@ class _FakeProcessor:
         self.outcome = outcome
         self.calls: list[str] = []
 
+    async def fetch_task_owner(self, task_id: str):
+        # T6(api-H2) 起 cancel_task 先查归属再鉴权；归属桩恒给 pending 行
+        return {"tenant_id": "t1", "status": "pending"}
+
     async def cancel_task(self, task_id: str) -> bool:
         self.calls.append(task_id)
         return self.outcome
+
+
+def _cancel_request():
+    """starlette Request 替身（无 Bearer；鉴权由 TASK_STATUS_AUTH=0 应急门放行）。"""
+    from starlette.requests import Request
+    return Request({"type": "http", "method": "POST", "path": "/cancel_task/x",
+                    "headers": [], "query_string": b""})
 
 
 def test_cancel_task_not_cancellable_returns_409(monkeypatch):
@@ -125,7 +136,8 @@ def test_cancel_task_not_cancellable_returns_409(monkeypatch):
     main_mod = _import_main()
     fake = _FakeProcessor(outcome=False)  # 非 pending（终态/运行中）
     monkeypatch.setattr(main_mod, "task_processor", fake)
-    res = asyncio.run(main_mod.http_cancel_task("task-abc"))
+    monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # T6(api-H2) 起端点带鉴权闸，本组只验取消业务逻辑
+    res = asyncio.run(main_mod.http_cancel_task("task-abc", _cancel_request()))
     assert isinstance(res, JSONResponse), "不可取消应返回 error_response(JSONResponse)"
     assert res.status_code == 409
     import json as _json
@@ -139,7 +151,8 @@ def test_cancel_task_pending_still_succeeds(monkeypatch):
     main_mod = _import_main()
     fake = _FakeProcessor(outcome=True)
     monkeypatch.setattr(main_mod, "task_processor", fake)
-    res = asyncio.run(main_mod.http_cancel_task("task-xyz"))
+    monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # 同上：鉴权语义由 test_cancel_auth_v076 锁定
+    res = asyncio.run(main_mod.http_cancel_task("task-xyz", _cancel_request()))
     assert isinstance(res, dict), "可取消路径保持原 dict 契约"
     assert res["status"] == "success"
     assert res["task_id"] == "task-xyz"

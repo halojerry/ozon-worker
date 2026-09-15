@@ -6591,7 +6591,7 @@
     },
     "/api/v1/cancel_task/{task_id}": {
       "post": {
-        "description": "取消待处理的任务。",
+        "description": "取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。",
         "operationId": "v1_cancel_task_api_v1_cancel_task__task_id__post",
         "parameters": [
           {
@@ -6614,6 +6614,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -12055,7 +12065,7 @@
     },
     "/cancel_task/{task_id}": {
       "post": {
-        "description": "取消任务（仅pending状态的任务可取消）\n\nReturns:\n    取消结果",
+        "description": "取消任务（仅pending状态的任务可取消）\n\nT6(api-H2): 补 Bearer 鉴权 + 租户校验（语义与 task_status v0.73 同源，\n复用 ``_task_status_guard``：TASK_STATUS_AUTH=0 应急关 / 无 Bearer 401 /\n跨租户 404 \"task not found\" 不泄漏存在性 / 老数据无租户宽容放行）。\n修复前匿名持有 task uuid 即可跨租户取消任意 pending 任务（安全探针实证）。\n\nReturns:\n    取消结果",
         "operationId": "http_cancel_task_cancel_task__task_id__post",
         "parameters": [
           {
@@ -12081,6 +12091,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "409": {
             "content": {

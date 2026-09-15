@@ -2158,7 +2158,8 @@ def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body:
 
 
 def _task_status_guard(request: Request, task_row: dict) -> None:
-    """GET /task_status 鉴权 + 租户校验（v0.73 安全收口）。
+    """鉴权 + 租户校验（v0.73 为 GET /task_status 收口；v0.76 T6(api-H2) 起
+    cancel_task 同源复用——语义完全一致，见下）。
 
     此前该端点（旧路径 + /api/v1 别名）完全无鉴权——任何拿到 task uuid 的人
     可读全量任务数据（tenant_id / 采购链接 / 定价成本）。规则：
@@ -2280,25 +2281,39 @@ async def http_task_status(task_id: str, request: Request):
         "status": "success",
         "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         "message": "Task cancelled successfully",
-    }}}}, 409: {"content": {"application/json": {"example": {
+    }}}}, 401: {"model": ErrorBody}, 404: {"model": ErrorBody},
+    409: {"content": {"application/json": {"example": {
         # 不可取消（非 pending/处理异常）→ TASK_NOT_CANCELLABLE 统一错误信封
         "ok": False,
         "error_code": "TASK_NOT_CANCELLABLE",
         "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
     }}}}})
-async def http_cancel_task(task_id: str):
+async def http_cancel_task(task_id: str, request: Request):
     """
     取消任务（仅pending状态的任务可取消）
-    
+
+    T6(api-H2): 补 Bearer 鉴权 + 租户校验（语义与 task_status v0.73 同源，
+    复用 ``_task_status_guard``：TASK_STATUS_AUTH=0 应急关 / 无 Bearer 401 /
+    跨租户 404 "task not found" 不泄漏存在性 / 老数据无租户宽容放行）。
+    修复前匿名持有 task uuid 即可跨租户取消任意 pending 任务（安全探针实证）。
+
     Returns:
         取消结果
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
-    
+
     try:
+        # ✅ T6(api-H2): 先查归属（不存在 → 404，与 task_status 同序），再
+        # 鉴权 + 租户校验，放行后才执行取消。HTTPException 由下面的
+        # except HTTPException 直通，不被兜底 except 吞成 500。
+        task_row = await task_processor.fetch_task_owner(task_id)
+        if not task_row:
+            raise HTTPException(status_code=404, detail="task not found")
+        _task_status_guard(request, task_row)
+
         success = await task_processor.cancel_task(task_id)
-        
+
         if success:
             return {
                 "status": "success",
@@ -2313,7 +2328,9 @@ async def http_cancel_task(task_id: str):
                 WorkerErrorCode.TASK_NOT_CANCELLABLE,
                 f"Task {task_id} cannot be cancelled (may not in pending status)",
             )
-            
+
+    except HTTPException:
+        raise  # T6: 401/404/租户 404 直通（同 http_task_status v0.73 处理）
     except Exception as e:
         # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
         logger.exception(e)
@@ -2603,10 +2620,10 @@ async def v1_task_status(task_id: str, request: Request):
 
 
 @v1.post("/cancel_task/{task_id}", response_model=CancelTaskResponse, tags=["task"],
-         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
-async def v1_cancel_task(task_id: str):
-    """取消待处理的任务。"""
-    return await http_cancel_task(task_id)
+         responses={401: {"model": ErrorBody}, 404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+async def v1_cancel_task(task_id: str, request: Request):
+    """取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。"""
+    return await http_cancel_task(task_id, request)
 
 
 @v1.post("/resubmit_task/{task_id}", response_model=SubmitTaskResponse, tags=["task"],

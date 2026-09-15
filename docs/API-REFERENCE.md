@@ -1154,7 +1154,7 @@ Http Cancel — 取消指定run_id的执行
 ## cancel_task
 
 ### `POST /api/v1/cancel_task/{task_id}`
-V1 Cancel Task — 取消待处理的任务。
+V1 Cancel Task — 取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
 > 兼容别名：`POST /cancel_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -1168,6 +1168,7 @@ V1 Cancel Task — 取消待处理的任务。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [CancelTaskResponse](#schema-canceltaskresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
