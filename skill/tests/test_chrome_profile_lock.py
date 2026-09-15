@@ -84,7 +84,7 @@ def test_ensure_chrome_cdp_lock_timeout_graceful():
     """锁获取超时 → ensure_chrome_cdp 返回 (False, 提示) 而非抛异常。"""
     tmp = tempfile.mkdtemp(prefix="lock_e_")
     with mock.patch("scripts.lib.chrome_launcher._try_acquire_lock", return_value=None), \
-         mock.patch("scripts.lib.chrome_launcher._is_cdp_available", return_value=False), \
+         mock.patch("scripts.lib.chrome_launcher._probe_cdp_state", return_value="refused"), \
          mock.patch("scripts.lib.chrome_launcher._find_chrome_executable", return_value="/usr/bin/fake-chrome"):
         ok, msg = cl.ensure_chrome_cdp(port=9299, profile_dir=tmp)
     assert ok is False
@@ -101,7 +101,7 @@ def test_ensure_chrome_cdp_uses_per_profile_lock():
         return None
 
     with mock.patch("scripts.lib.chrome_launcher._try_acquire_lock", side_effect=fake_acquire), \
-         mock.patch("scripts.lib.chrome_launcher._is_cdp_available", return_value=False), \
+         mock.patch("scripts.lib.chrome_launcher._probe_cdp_state", return_value="refused"), \
          mock.patch("scripts.lib.chrome_launcher._find_chrome_executable", return_value="/usr/bin/fake-chrome"):
         cl.ensure_chrome_cdp(port=9299, profile_dir=tmp)
     assert captured["path"] == cl._profile_lock_path(Path(tmp))

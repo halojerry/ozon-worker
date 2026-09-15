@@ -184,7 +184,11 @@ def test_read_binarycookies_synthetic(tmp_path):
     assert cookies[0]["domain"] == ".1688.com"
 
 
-def test_harvest_safari_missing_file():
+def test_harvest_safari_missing_file(monkeypatch):
+    """darwin 下 Cookies.binarycookies 文件缺失 → not_installed（本测试原意）。
+    平台确定性（CI 修复）：safari 非 darwin 走 per-source 闸报 unsupported_source
+    （B-T1 语义），不强制平台时 Linux 宿主会看到闸分支而非文件缺失分支。"""
+    monkeypatch.setattr(ch, "sys", types.SimpleNamespace(platform="darwin"))
     with mock.patch.object(ch, "SAFARI_COOKIES", "/nonexistent/x.binarycookies"):
         r = ch._harvest_safari()
     assert r["status"] == "not_installed"
@@ -251,11 +255,23 @@ def test_inject_cookies_empty():
 # ═══════════ 6. 编排 + readiness 自动兜底 ═══════════
 
 
-def test_harvest_all_platform_guard(monkeypatch):
+def test_harvest_all_win32_per_source_gate(monkeypatch):
+    """v1 重构（B-T1）：整机 darwin 闸废除 → win32 走 per-source 报告，
+    platform 字段=实际平台名。B-T4 起 Windows Chromium 默认走副本接管通道——
+    这里用 kill-switch（SKILL_DISABLE_TAKEOVER=1）锁定闸语义本身（hermetic，
+    真实 Windows 测试机上不真启浏览器）；接管默认路由见 test_takeover_channel.py。"""
     monkeypatch.setattr(ch, "sys", types.SimpleNamespace(platform="win32"))
+    monkeypatch.setenv("SKILL_DISABLE_TAKEOVER", "1")
     report = ch.harvest_all()
-    assert report["platform"] == "unsupported"
-    assert report["total"] == 0
+    assert report["platform"] == "win32"
+    assert report["sources"]["chrome"]["status"] == "unsupported_source"
+    assert report["sources"]["edge"]["status"] == "unsupported_source"
+    assert report["sources"]["brave"]["status"] == "unsupported_source"
+    assert report["sources"]["safari"]["status"] == "unsupported_source"
+    # firefox：无 APPDATA（macOS 测试环境）→ 根目录解析为 None → not_installed
+    monkeypatch.delenv("APPDATA", raising=False)
+    report = ch.harvest_all(sources=["firefox"])
+    assert report["sources"]["firefox"]["status"] == "not_installed"
 
 
 def test_harvest_all_unknown_sources_skipped():

@@ -19,15 +19,15 @@ import subprocess
 import time
 from pathlib import Path
 
+from scripts.lib import lock_utils
 from scripts.lib.utils import safe_unlink
 
-# Cross-platform file locking
-if platform.system() == 'Windows':
-    import msvcrt
-    _LOCK_NBEX = 0x00000002  # _LK_NBLCK: 非阻塞尝试（循环控制等待时机）
-    _LOCK_UN = 0x00000000
-else:
-    import fcntl
+# ── Chrome profile 并发锁（T1 提炼，fix/skill-concurrency-v1）──
+# 原双 OS 实现已提炼为通用模块 scripts/lib/lock_utils.py（单一事实源，同一份
+# 实现同时服务 cli.py 重命令串行闸 heavy_cdp.lock）；此处保留原函数名做薄转发，
+# 零调用方破坏。锁语义详见 lock_utils 模块头注释。
+_try_acquire_lock = lock_utils.try_acquire
+_release_lock = lock_utils.release
 
 logger = logging.getLogger(__name__)
 
@@ -163,17 +163,49 @@ def _find_chrome_executable() -> str | None:
     return None
 
 
-def _is_cdp_available(port: int = CDP_PORT) -> bool:
-    """检测 CDP 端口是否可用"""
+def _probe_cdp_state(port: int = CDP_PORT, tcp_timeout: float = 1.0) -> str:
+    """三态探测 CDP 端口："up" / "refused" / "busy"（fix/skill-concurrency-v1 批1 T2）。
+
+    来龙去脉（竞态 #1 互杀）：原 _is_cdp_available 单次 HTTP 3s 超时、任何异常
+    → False——Chrome 短暂繁忙（另一进程正在用 CDP，HTTP 慢/没应答）被误判
+    「CDP 不可用」→ ensure_chrome_cdp 发现 Chrome 进程存在 → 杀掉重启，把别的
+    进程正在用的 Chrome 杀了。三态把「端口确实没人听」（可安全 kill+重启）与
+    「端口有人但没应答」（绝不杀）区分开：
+
+    - "refused": TCP connect 被拒（ConnectionRefusedError；Windows 的 WinError
+      10061 在 CPython 同映射为该异常）→ 端口确实没人听；
+    - "busy": TCP 通但 /json/version HTTP 超时/失败/非 CDP 内容 → 有进程占着
+      端口但没应答（正在忙 / 非 CDP 服务），保守按繁忙处理；
+    - "up": HTTP 200 且含 "Browser" → CDP 可用。
+    """
+    import socket
     import urllib.request
+    try:
+        sock = socket.create_connection((CDP_HOST, port), timeout=tcp_timeout)
+    except ConnectionRefusedError:
+        return "refused"
+    except OSError:
+        # 超时/网络不可达等：无法确认「没人听」，绝不按 refused 处理（防误杀）
+        return "busy"
+    try:
+        sock.close()
+    except OSError:
+        pass
     try:
         url = f"http://{CDP_HOST}:{port}/json/version"
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
-            return "Browser" in data
+            if "Browser" in data:
+                return "up"
     except Exception:
-        return False
+        pass
+    return "busy"
+
+
+def _is_cdp_available(port: int = CDP_PORT) -> bool:
+    """检测 CDP 端口是否可用（bool 薄封装 == "up"，既有调用方零改动；三态语义见 _probe_cdp_state）"""
+    return _probe_cdp_state(port) == "up"
 
 
 def _find_chrome_processes() -> list[dict]:
@@ -344,50 +376,8 @@ def _profile_lock_path(profile_dir: Path) -> Path:
     return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / f".profile-{name}.lock"
 
 
-def _try_acquire_lock(lock_path: Path, timeout: float = 30.0) -> int | None:
-    """阻塞获取排他锁, 最长等待 timeout 秒。
-
-    成功 → 返回打开的锁文件 fd; 超时/失败 → None（调用方降级, 不抛异常）。
-    进程退出时 OS 自动释放锁, 锁文件残留无害。
-    """
-    try:
-        fd = open(lock_path, "w")
-    except OSError:
-        return None
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            if platform.system() == "Windows":
-                msvcrt.locking(fd.fileno(), _LOCK_NBEX, 1)
-            else:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd
-        except (OSError, BlockingIOError):
-            if time.monotonic() >= deadline:
-                try:
-                    fd.close()
-                except OSError:
-                    pass
-                return None
-            time.sleep(0.1)
-
-
-def _release_lock(fd) -> None:
-    """释放锁并关闭 fd。失败静默（OS 在进程退出时兜底释放）。"""
-    if fd is None:
-        return
-    try:
-        if platform.system() == "Windows":
-            fd.seek(0)
-            msvcrt.locking(fd.fileno(), _LOCK_UN, 1)
-        else:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        fd.close()
-    except Exception:
-        pass
+# _try_acquire_lock / _release_lock 双 OS 实现已上移 lock_utils.py（见文件头
+# 薄转发赋值），此处只保留 _profile_lock_path 这一本模块特有的路径逻辑。
 
 
 # ── 主入口 ──
@@ -452,10 +442,28 @@ def ensure_chrome_cdp(
     try:
         # Double-check CDP after acquiring lock — another process may have launched Chrome
         # ⚠️ v0.28.3: 同初始检查, 不再因 allow-origins 误判杀重启
-        if _is_cdp_available(port):
+        # ⚠️ T2 (fix/skill-concurrency-v1): 三态探测替代 bool——互杀竞态根治。
+        # busy（端口有人听但没应答，典型=另一进程正在用 CDP）→ 重试 3 次 × 2s，
+        # 仍 busy 按「CDP 已就绪（繁忙）」成功返回，**绝不杀**；仅 refused
+        # （端口确实没人听）才允许落到下方 kill+重启路径。
+        state = _probe_cdp_state(port)
+        if state == "up":
             return True, f"Chrome CDP 就绪 (port {port}, 其他进程已启动)"
+        if state == "busy":
+            for _ in range(3):
+                time.sleep(2)
+                state = _probe_cdp_state(port)
+                if state == "up":
+                    return True, f"Chrome CDP 就绪 (port {port}, 繁忙恢复)"
+                if state == "refused":
+                    break  # 等待期间端口空了出来 → 走下方 refused 路径
+            else:
+                return True, (
+                    f"CDP 已就绪（繁忙，port {port}）——按就绪返回，"
+                    "绝不杀可能正被其他进程使用的 Chrome"
+                )
 
-        # 3. 检查是否有 Chrome 在运行（无 CDP）
+        # 3. 检查是否有 Chrome 在运行（无 CDP）——仅 refused（端口确认无人听）到此
         existing = _find_chrome_processes()
         if existing:
             if auto_restart:

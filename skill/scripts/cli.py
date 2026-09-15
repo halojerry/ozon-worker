@@ -19,7 +19,9 @@ batch_test               批量处理 URL 列表
 Exit codes (graph): 0=成功（含 --no-submit/--to-box 入箱）；
 1=鉴权/环境/参数错误；2=产品数据校验失败（ProductValidationError）；
 3=提交失败（含 worker 409 DUPLICATE_SUBMIT 重复提交、反爬/源失效前置拦截、
---min-density 密度拦截）。
+--min-density 密度拦截）；4=重采集串行闸被占（discover/discover-multi/
+discover-task/graph/follow/seller 六命令互斥，已有同类命令运行中；
+--wait 排队等待 / --force 强制并行）。
 """
 
 from __future__ import annotations
@@ -351,6 +353,150 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 重命令串行闸（fix/skill-concurrency-v1 批1 T1，方案 §A3）
+# ═══════════════════════════════════════════════════════════════════════════
+# 动因：多 discover/多受闸命令并发进程互踩共享资源（同一工具 Chrome profile 的
+# CDP 单实例、aibuy token 刷新 claim、discovery 状态文件），竞态整类爆发。
+# 解法：跨进程文件锁（data/locks/heavy_cdp.lock，锁实现见 scripts/lib/lock_utils.py）
+# 在 CLI dispatch 层（cmd_* 入口装饰器）一次性获取——**先于一切重资源**
+# （Chrome 启动/CDP/网络）生效。
+#
+# 闸范围（与 MCP `_HEAVY_KINDS` 对齐）：discover / discover-multi / discover-task /
+# graph / follow / seller。**有意不进闸**：queries（主通道 cookie 直调免 Chrome）、
+# image_search（aibuy 主通道免 Chrome）、check / import-cookies（轻量）。
+#
+# 退出码 4 = 闸被占（顺延 2=session-sync 拒传、3=提交失败的既有惯例）。
+# 缺省 fail-fast；`--wait` 排队（每 30s 心跳）；`--force` 跳闸（可能互踩，慎用）。
+
+from datetime import datetime, timezone  # noqa: E402
+
+from scripts._const import DATA_DIR  # noqa: E402
+from scripts.lib import lock_utils  # noqa: E402
+
+HEAVY_LOCK_PATH = DATA_DIR / "locks" / "heavy_cdp.lock"
+_HEAVY_WAIT_HEARTBEAT_SECONDS = 30  # --wait 排队心跳间隔
+
+# 模块级持有标志：flock 同进程异 fd 互斥（见 lock_utils 头注释），闸只在真实
+# CLI 入口拿一次；进程内嵌套调用（_gate_held 已置位）直接放行，防自死锁。
+_gate_held = False
+
+
+def _write_gate_holder_info(fd, cmd_name: str) -> None:
+    """拿到闸后把 {pid, cmd, started_at} 写入锁文件（供后来者报错展示占用方）。"""
+    lock_utils.write_holder_info(fd, json.dumps({
+        "pid": os.getpid(),
+        "cmd": cmd_name,
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }, ensure_ascii=False))
+
+
+def read_lock_holder(lock_path: Path) -> str:
+    """人话化占用方描述：「discover (PID 123，已运行 3.2 分钟)」；读不到如实降级。"""
+    raw = lock_utils.read_holder_info(lock_path)
+    if not raw:
+        return "未知占用者（锁文件无占用方信息）"
+    try:
+        info = json.loads(raw)
+        pid = info.get("pid", "?")
+        cmd = info.get("cmd", "?")
+        elapsed = ""
+        started = info.get("started_at")
+        if started:
+            try:
+                secs = max(0.0, (datetime.now(timezone.utc)
+                                 - datetime.fromisoformat(str(started))).total_seconds())
+                elapsed = f"，已运行 {secs / 60:.1f} 分钟" if secs >= 90 else f"，已运行 {secs:.0f} 秒"
+            except (ValueError, TypeError):
+                # A1 审查 M3：started_at 形态不可控（非时间字符串/奇异类型）一律
+                # 降级为无时长展示——TypeError 防御未来 fromisoformat 入参形态变化。
+                pass
+        return f"{cmd} (PID {pid}{elapsed})"
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return f"未知占用者（锁文件内容不可解析: {raw[:80]!r}）"
+
+
+def _acquire_heavy_lock_waiting(cmd_name: str):
+    """--wait 排队获取：阻塞直至拿到锁，每 30s 打一行心跳（当前占用方信息）。
+
+    ⚠️ 泳道A 终审 I-1：循环内每拍固定 sleep(1) 兜底——try_acquire 对持久性
+    open 失败（目录被删/权限翻转等运行期环境劣化）会**立即**返回 None（在
+    等待 deadline 之前，内部无 sleep），无兜底则心跳 print 后紧凑下一轮 →
+    无限刷 stderr + CPU 空转。正常争用路径 try_acquire 内部已阻塞 ~30s，
+    此 1s 拍只是让心跳周期从 30s 变 ~31s，无可感知影响。
+    """
+    while True:
+        fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=_HEAVY_WAIT_HEARTBEAT_SECONDS)
+        if fd is not None:
+            return fd
+        print(f"⏳ 重采集闸仍被占（{read_lock_holder(HEAVY_LOCK_PATH)}），继续排队等待…"
+              f"（Ctrl-C 退出）", file=sys.stderr, flush=True)
+        time.sleep(1)  # I-1 兜底：持久性 open 失败时防无节流紧凑空转
+
+
+def _heavy_gate(func):
+    """重命令串行闸装饰器：挂在 cmd_* 入口，先于命令体（即先于一切重资源）拿锁。
+
+    - 缺省 fail-fast：单次非阻塞尝试，被占 → stderr 人话（占用方 + 出路提示）→ exit 4；
+    - args.wait=True → 排队等待（心跳）；args.force=True / _gate_held → 直接放行；
+    - 命令结束（含异常）finally 释放闸并复位 _gate_held；进程被 kill 由 OS 兜底放锁。
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(args: argparse.Namespace) -> int:
+        global _gate_held
+        if _gate_held or getattr(args, "force", False):
+            return func(args)
+        cmd_name = getattr(args, "command", None) or func.__name__
+        # 锁目录惰性创建——首装/全新 data/ 下 locks/ 不存在时 open("a+") 会
+        # OSError → try_acquire None → 闸误报「被占」exit 4 拦死所有重命令。
+        # ⚠️ A1 审查 M2：mkdir 失败要留痕——下方 fd None 时据此报「锁目录不可
+        # 创建」而非误导性的「闸被占」（用户去找根本不存在的占用方）。
+        mkdir_failed = False
+        try:
+            HEAVY_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            mkdir_failed = True  # 目录创建失败则锁必然拿不到 → 走下方 fail-fast（不静默放行）
+        # ⚠️ 泳道A 终审 I-1：mkdir 失败时不得进 --wait 排队——try_acquire 对
+        # 持久性 open 失败立即返回 None（内部无 sleep），排队循环会无限紧凑
+        # 刷 stderr；短路走下方「锁目录不可创建」快速失败。
+        if getattr(args, "wait", False) and not mkdir_failed:
+            fd = _acquire_heavy_lock_waiting(cmd_name)
+        else:
+            fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=0.0)
+        if fd is None:
+            if mkdir_failed:
+                print(f"❌ 重采集闸锁目录不可创建：{HEAVY_LOCK_PATH.parent}\n"
+                      f"   → 检查该目录的权限/磁盘（环境问题，非闸占用）；修复后重试，勿加 --force",
+                      file=sys.stderr, flush=True)
+                sys.exit(4)
+            holder = read_lock_holder(HEAVY_LOCK_PATH)
+            print(f"❌ 重采集串行闸被占：{holder}\n"
+                  f"   锁文件：{HEAVY_LOCK_PATH}\n"
+                  f"   → 加 --wait 排队等待，或 --force 强制并行（多进程会互踩 Chrome/缓存，慎用）",
+                  file=sys.stderr, flush=True)
+            sys.exit(4)
+        _gate_held = True
+        try:
+            _write_gate_holder_info(fd, cmd_name)
+            return func(args)
+        finally:
+            _gate_held = False
+            lock_utils.release(fd)
+
+    return wrapper
+
+
+def _add_heavy_gate_args(p: argparse.ArgumentParser) -> None:
+    """给 6 个重采集子命令统一挂 --wait/--force（闸出口，语义见 _heavy_gate）。"""
+    p.add_argument("--wait", action="store_true",
+                   help="重采集串行闸被占时排队等待（每 30s 心跳报占用方）而非快速失败")
+    p.add_argument("--force", action="store_true",
+                   help="跳过重采集串行闸强制并行（多进程会互踩 Chrome/缓存，慎用）")
+
+
+@_heavy_gate
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
@@ -1123,6 +1269,7 @@ def cmd_check(args) -> int:
     return 0 if all_ok else 1
 
 
+@_heavy_gate
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
@@ -1289,6 +1436,7 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
     return []
 
 
+@_heavy_gate
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.ozon_discovery import (
@@ -1899,6 +2047,7 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
     return candidates
 
 
+@_heavy_gate
 def cmd_discover_multi(args: argparse.Namespace) -> int:
     """Ozon 选品 · 多关键词并行（D7'）— N 关键词串行滚动 → 合并去重 → 单次并行分析。
 
@@ -2496,6 +2645,7 @@ def _route_discovery_export(candidates: list, filepath: str) -> str:
     return export_to_csv(candidates, filepath)
 
 
+@_heavy_gate
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -3024,6 +3174,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="D11: worker listing_templates 模板 ID（显式指定优先于默认模板）")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(gp)
     gp.set_defaults(func=cmd_graph)
 
     # image_search
@@ -3053,6 +3204,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
     fp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
@@ -3111,6 +3263,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(dp)
     dp.set_defaults(func=cmd_discover)
 
     dpm = sub.add_parser("discover-multi",
@@ -3152,6 +3305,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(dpm)
     dpm.set_defaults(func=cmd_discover_multi)
 
     # discover-task（漏斗 v2 Task 8b: 任务式全自动选品，无人值守）
@@ -3232,6 +3386,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="拓店裂变时间预算秒（仅 --expend-shop 生效；缺省 600）")
     dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
     dtp.add_argument("--export", default="", help="全量候选导出路径（.xlsx=Excel 选品簿，其余=CSV）")
+    _add_heavy_gate_args(dtp)
     dtp.set_defaults(func=cmd_discover_task)
 
 
@@ -3291,6 +3446,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sel.add_argument("--seller-id", required=True, help="Ozon 卖家 ID(跟卖列表透传的 seller_id)")
     sel.add_argument("--max-products", type=int, default=60, help="采集店铺产品数上限(默认 60)")
     sel.add_argument("--max-skus", type=int, default=30, help="运营分析 SKU 数上限(默认 30, 受 what_to_sell 限速)")
+    _add_heavy_gate_args(sel)
     sel.set_defaults(func=cmd_seller)
 
     # ── what-to-sell SPA 查询(v0.33.2, C4 step1)──
@@ -3318,14 +3474,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     clp.add_argument("--all", action="store_true", help="执行全部清理项")
     clp.set_defaults(func=cmd_cleanup)
 
-    # ── 跨浏览器 cookie 导入（v0.69，用户拍板：自动兜底 + 手动命令）──
+    # ── 跨浏览器 cookie 导入（v0.69；v1 起 per-source 平台闸 + Firefox 全平台 + --paste）──
     icp = sub.add_parser("import-cookies",
                          help="扫描本机浏览器 1688/Ozon 登录 cookie 导入工具 Chrome（免重复登录）")
     icp.add_argument("--sources", default="",
                      help="逗号分隔源（chrome,edge,brave,firefox,safari；默认全部）")
     icp.add_argument("--list-sources", action="store_true",
                      help="列出支持的浏览器源后退出")
+    icp.add_argument("--paste", action="store_true",
+                     help="跳过源扫描，从 stdin 读粘贴的 Cookie 头（k=v; k2=v2）手动注入"
+                          "（跨平台兜底；与 --sources 互斥）")
+    icp.add_argument("--site", choices=["1688", "ozon-seller"], default="",
+                     help="--paste 时显式指定落域（默认按 cookie 名指纹自动判定）")
+    icp.add_argument("--browser-profile", default="",
+                     help="Windows 接管通道指定源浏览器 profile（info_cache 显示名"
+                          "或目录名，如 Default / Profile 1；默认 Default）")
     icp.set_defaults(func=cmd_import_cookies)
+
+    # ── Windows cookie 只读探针（win-cookie-import v1 B-T0：源/加密形态/通道判定矩阵）──
+    pwp = sub.add_parser("probe-win-cookies",
+                         help="Windows cookie 只读探针：源浏览器/加密形态/通道判定矩阵"
+                              "（不解密、只读用户目录；生成诊断报告）")
+    pwp.add_argument("--takeover-test", action="store_true",
+                     help="附加副本接管可行性试验（默认关；最小复制集→临时目录→"
+                          "真实浏览器 headless CDP，结束自动清理）")
+    pwp.add_argument("--out", default="",
+                     help="报告 JSON 输出路径（默认 data/probe/win_cookies_<ts>.json）")
+    pwp.set_defaults(func=cmd_probe_win_cookies)
 
     return parser
 
@@ -3463,6 +3638,7 @@ def _silent_update_check(command: str) -> None:
         pass
 
 
+@_heavy_gate
 def cmd_seller(args: argparse.Namespace) -> int:
     """卖家店铺全产品运营分析(v0.29.x): 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。"""
     from scripts.lib.ozon_discovery import fetch_seller_analysis
@@ -4083,53 +4259,20 @@ _STATUS_LABELS = {
     "no_disk_access": "🛡 需「完全磁盘访问权限」（系统设置 → 隐私与安全性）",
     "parse_error": "⚠️ 解析失败（跳过）",
     "error": "⚠️ 读取异常（跳过）",
+    "unsupported_source": "⊘ 当前平台不支持此源",
+    # B-T4 Windows 接管通道状态（takeover_* 前缀）
+    "takeover_no_browser": "⊘ 未找到可接管的浏览器",
+    "takeover_failed": "⚠ 副本接管失败",
 }
 
 
-def cmd_import_cookies(args: argparse.Namespace) -> int:
-    """跨浏览器 cookie 导入（v0.69）：扫描本机浏览器已有的 1688/Ozon 登录 cookie
-    → 注入工具 Chrome → 用现有登录检测验证。
-
-    解决「日常浏览器明明登录过，工具窗口还要再登录一次」——工具 Chrome 是独立
-    profile（Chrome 130+ 禁止默认目录开调试端口），本命令把登录态搬进来。
-    失败自动回落人工登录流程：在工具 Chrome 打开 seller.ozon.ru / 1688.com 登录即可。
-    """
-    from scripts.lib import cookie_harvest
-
-    if getattr(args, "list_sources", False):
-        print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES) + "（仅 macOS）",
-              flush=True)
-        return 0
-    sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
-               if s.strip()]
-    print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
-          flush=True)
-    report = cookie_harvest.harvest_and_import(sources=sources or None)
-    scan = report.get("scan") or {}
-    if scan.get("platform") == "unsupported":
-        print(f"❌ {scan.get('message')}", flush=True)
-        return 1
-
-    total = 0
-    for name, r in (scan.get("sources") or {}).items():
-        status = r.get("status", "error")
-        n = len(r.get("cookies") or [])
-        total += n
-        print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
-              f"{f'（{n} 条）' if n else ''}", flush=True)
-
-    if not total:
-        print("\n未发现可导入的登录 cookie。请在工具 Chrome 登录一次"
-              "（seller.ozon.ru / 1688.com），登录态会常驻。", flush=True)
-        return 1
-
+def _finish_import_report(report: dict) -> int:
+    """打印注入+验证结果并给退出码（scan 与 --paste 两路共用）。"""
     injected = report.get("injected") or {}
-    if injected.get("ok"):
-        print(f"📥 已注入工具 Chrome: {injected.get('message')}", flush=True)
-    else:
+    if not injected.get("ok"):
         print(f"❌ 注入失败: {injected.get('message')}", flush=True)
         return 1
-
+    print(f"📥 已注入工具 Chrome: {injected.get('message')}", flush=True)
     verified = report.get("verified") or {}
     for domain, label in (("1688", "1688 登录"), ("seller", "seller 卖家后台")):
         mark = "✅" if verified.get(domain) else "—"
@@ -4140,6 +4283,91 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
     print("cookie 已注入但登录判据未命中（会话可能已过期/风控挑战）。"
           "请按原流程在工具 Chrome 登录。", flush=True)
     return 1
+
+
+def cmd_import_cookies(args: argparse.Namespace) -> int:
+    """跨浏览器 cookie 导入（v0.69；v1 起 per-source 平台可用性）：
+    扫描本机浏览器已有的 1688/Ozon 登录 cookie → 注入工具 Chrome → 用现有登录检测
+    验证；或 ``--paste`` 从 stdin 读手动粘贴的 Cookie 头（跨平台兜底，与扫描互斥）。
+
+    解决「日常浏览器明明登录过，工具窗口还要再登录一次」——工具 Chrome 是独立
+    profile（Chrome 130+ 禁止默认目录开调试端口），本命令把登录态搬进来。
+    失败自动回落人工登录流程：在工具 Chrome 打开 seller.ozon.ru / 1688.com 登录即可。
+    """
+    from scripts.lib import cookie_harvest
+
+    if getattr(args, "list_sources", False):
+        print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES)
+              + "（Firefox 全平台；Windows 的 Chrome/Edge/Brave 走副本接管通道；"
+                "Safari 仅 macOS）", flush=True)
+        return 0
+
+    if getattr(args, "paste", False):
+        # --paste 与源扫描互斥：给了 --paste 就跳过扫描
+        try:
+            is_tty = sys.stdin.isatty()
+        except Exception:
+            is_tty = False
+        if is_tty:
+            print("粘贴 Cookie 头（形如 k=v; k2=v2，可带 Cookie: 前缀），"
+                  "结束后 Ctrl-D（Windows: Ctrl-Z 回车）：", flush=True)
+        header = sys.stdin.read()
+        site = (getattr(args, "site", "") or "").strip() or None
+        report = cookie_harvest.paste_and_import(header, site=site)
+        if report.get("error"):
+            print(f"❌ {report['error']}", flush=True)
+            return 1
+        skipped = report.get("skipped") or 0
+        print(f"📋 解析 {len(report.get('cookies') or [])} 条 cookie → "
+              f"落域 {', '.join(report.get('sites') or [])}"
+              + (f"（跳过未识别 {skipped} 条）" if skipped else ""), flush=True)
+        return _finish_import_report(report)
+
+    sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
+               if s.strip()]
+    browser_profile = (getattr(args, "browser_profile", "") or "").strip() or None
+    print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
+          flush=True)
+    report = cookie_harvest.harvest_and_import(sources=sources or None,
+                                               browser_profile=browser_profile)
+    scan = report.get("scan") or {}
+    scan_sources = scan.get("sources") or {}
+
+    total = 0
+    for name, r in scan_sources.items():
+        status = r.get("status", "error")
+        n = len(r.get("cookies") or [])
+        total += n
+        print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
+              f"{f'（{n} 条）' if n else ''}", flush=True)
+        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给人听
+        if status.startswith("takeover") and r.get("message"):
+            print(f"           {r['message']}", flush=True)
+
+    if not total:
+        # per-source 闸（v1）：零 cookie 且扫到的源全部 unsupported → 人话提示出路
+        if scan_sources and all(r.get("status") == "unsupported_source"
+                                for r in scan_sources.values()):
+            print(f"\n❌ 当前平台（{scan.get('platform') or sys.platform}）暂不支持"
+                  f"这些浏览器源的自动解密: {', '.join(scan_sources)}", flush=True)
+            print("   可用替代：① 已登录的 Firefox 会被自动扫描；"
+                  "② `import-cookies --paste` 手动粘贴 Cookie 头。", flush=True)
+            return 1
+        print("\n未发现可导入的登录 cookie。请在工具 Chrome 登录一次"
+              "（seller.ozon.ru / 1688.com），登录态会常驻；"
+              "或用 `import-cookies --paste` 手动粘贴。", flush=True)
+        return 1
+
+    return _finish_import_report(report)
+
+
+def cmd_probe_win_cookies(args: argparse.Namespace) -> int:
+    """Windows cookie 只读探针（win-cookie-import v1 B-T0）——薄壳：
+    全部逻辑在 scripts/probe_win_cookies.py（只读红线/判定矩阵/takeover 试验
+    见该模块 docstring），此处只转发参数，不内联逻辑。"""
+    from scripts.probe_win_cookies import run_cli
+    return run_cli(takeover_test=bool(getattr(args, "takeover_test", False)),
+                   out=(getattr(args, "out", "") or "").strip() or None)
 
 
 def cmd_cleanup(args: argparse.Namespace) -> int:

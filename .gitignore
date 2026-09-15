@@ -77,8 +77,10 @@ skill/data/batch_results/
 skill/data/browser/
 skill/data/cache/
 skill/data/discovery/
+skill/data/locks/
 skill/data/ozon/
 skill/data/config/auth_cache.json
+skill/data/config/.aibuy_refresh_claim.json
 skill/data/1688_direct_urls.txt
 skill/data/ozon_follow_urls.txt
 skill/data/*.txt

@@ -44,6 +44,16 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（v0.76.0 — skill 并发竞态止血 + Windows cookie 导入三层通道）
+
+> 2026-09-16 发版（纯 skill 侧，worker 零改动；skill 测试 1342→1496）。两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案与 SDD 全程留痕 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`。**改 discover/并发链前先读该方案 §A 与 CHANGELOG 0.76.0**。
+
+- **重命令串行闸（改 skill CLI 前必读）**：discover/discover-multi/discover-task/graph/follow/seller 六命令 `@_heavy_gate` 跨进程互斥——锁 `skill/data/locks/heavy_cdp.lock`（新 `scripts/lib/lock_utils.py` 是全仓锁实现唯一事实源，chrome_launcher 薄转发）；被占 exit 4 + `--wait`/`--force`；`_gate_held` 防进程内嵌套自死锁；**batch_test 进程内直调不经闸**（发版说明勿写成受闸）。锁文件 holder 信息释放后不清属已知 defer。
+- **chrome_launcher 三态探活 `_probe_cdp_state`**：busy（TCP 通但 HTTP 慢）绝不杀 Chrome（重试 3×2s 后按就绪放行）；仅 refused（连接被拒）+进程存在才 kill 重启。改 ensure_chrome_cdp 前必读其注释。
+- **config_store 全部 RMW 已加文件锁**（settings.lock，10s fail-open）；aibuy claim 实体文件 `data/config/.aibuy_refresh_claim.json`（O_EXCL）——改 token/claim 链前读 PR #24 描述。
+- **Windows cookie 导入（零解密红线：DPAPI/IElevator/提权一行不许出现，AST 用例机器锁定）**：Firefox 源全平台 / Chromium 副本接管（**实验性，Windows 真机 gate 未做**，kill-switch `SKILL_DISABLE_TAKEOVER=1`）/ `--paste` 兜底；`probe-win-cookies` 只读探针；**macOS 行为零变化**。改 cookie_harvest 前读方案 §B。
+- **批 2（fix/skill-concurrency-hardening）未开工**：task_id 唯一化/导出防覆/tab 所有权/batch_test 锁/tmp 名唯一化/ak claim 对齐——登记 CHANGELOG 0.76.0 defer 节。
+
 ## 最近更新（v0.75.0 — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写）
 
 > 2026-09-11。**已发版物料就绪（VERSION 四源 0.75.0），tag 待实机 gate**。战役全景：Phase 0 工作树卫生 →
