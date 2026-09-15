@@ -11,7 +11,9 @@
 3. 可选 allowed_host_suffixes：hostname 精确或「.suffix」后缀匹配（绝不做子串 in，
    那会被 `?pad=alicdn.com` 垫片绕过——审计实证）。
 
-safe_fetch 手动跟随重定向（allow_redirects=False），每跳重新过 1-3 全套校验。
+safe_fetch 手动跟随重定向（allow_redirects=False），每跳重新过 1-3 全套校验；
+端点三元组（scheme+hostname+有效端口）任一变化的跳自动剥除 Authorization/Cookie
+headers 与 auth/cookies 参数（凭据绝不重放给跨端点跳）。
 """
 from __future__ import annotations
 
@@ -50,10 +52,12 @@ def _host_is_safe(host: str) -> bool:
         return False
     try:
         infos = socket.getaddrinfo(host, None)
-    except (OSError, UnicodeError):
+    except (OSError, UnicodeError, ValueError):
         # T13 评审：畸形 IDN（label>63 等）在 CPython 纯 Python 层 idna 编码即抛
         # UnicodeError——必须收口进 fail-closed（不解析成功 = 不放行），绝不让裸
         # 异常逃出 assert_safe_remote_url 的 UnsafeUrlError 契约。
+        # r2 并入 ValueError：Linux CPython 对 null 字节 host 抛
+        # ValueError("embedded null byte")，非 UnicodeError 子类。
         return False
     if not infos:
         return False
@@ -100,12 +104,23 @@ def _strip_hop_credentials(kwargs: dict) -> dict:
     return stripped
 
 
+def _endpoint_key(url: str) -> tuple:
+    """凭据剥离判定的端点三元组（r2：对齐 requests rebuild_auth 全口径）：
+    scheme + hostname + 有效端口（显式端口优先，缺省按 scheme 归一 http=80/https=443）——
+    http://host → https://host 的同 host 跨 scheme 跳同样判为跨端点、剥凭据。"""
+    parsed = urlparse(url)
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    return (parsed.scheme, parsed.hostname, port)
+
+
 def safe_fetch(url: str, method: str = "get", timeout: float = 10.0,
                max_redirects: int = 3, allowed_host_suffixes: Optional[Iterable[str]] = None,
                **kwargs) -> requests.Response:
-    """安全抓取：每跳（含重定向 Location）重新过全套校验；跨 host 跳剥除凭据。"""
+    """安全抓取：每跳（含重定向 Location）重新过全套校验；跨端点跳剥除凭据。"""
     current = str(url).strip()
-    current_host = urlparse(current).hostname
+    current_key = _endpoint_key(current)
     hop_kwargs = kwargs
     for hop in range(max_redirects + 1):
         assert_safe_remote_url(current, allowed_host_suffixes=allowed_host_suffixes)
@@ -117,11 +132,11 @@ def safe_fetch(url: str, method: str = "get", timeout: float = 10.0,
                 return resp
             from urllib.parse import urljoin
             current = urljoin(current, loc)
-            next_host = urlparse(current).hostname
-            if next_host != current_host:
+            next_key = _endpoint_key(current)
+            if next_key != current_key:
                 # T13 评审 Advisory：requests allow_redirects=True 的跨 host 凭据剥除语义，手动循环必须自己实现
                 hop_kwargs = _strip_hop_credentials(kwargs)
-            current_host = next_host
+            current_key = next_key
             continue
         return resp
     raise UnsafeUrlError(f"too many redirects (> {max_redirects})")

@@ -139,6 +139,41 @@ def test_redirect_same_host_keeps_credentials(monkeypatch):
     assert seen[1]["headers"]["Authorization"] == "Bearer keep"     # 同 host 不剥
 
 
+def test_redirect_scheme_change_strips_credentials(monkeypatch):
+    # 评审 r2 ①：同 host http→https 302——判定收紧为 (scheme, hostname, 有效端口)
+    # 三元组（对齐 requests rebuild_auth 全口径），跨 scheme 跳凭据必剥
+    import utils.secure_fetch as sf
+    _fake_dns(monkeypatch, {"stay.example": "93.184.216.34"})
+    seen = []
+
+    def fake_request(method, url, **kw):
+        seen.append({"url": url, "headers": dict(kw.get("headers") or {}), "kw": kw})
+        if url.endswith("/start"):
+            return _Resp(302, {"Location": "https://stay.example/secure"})
+        return _Resp(200, {})
+
+    monkeypatch.setattr(sf.requests, "request", fake_request)
+    sf.safe_fetch("http://stay.example/start",
+                  headers={"Authorization": "Bearer nope"})
+    assert len(seen) == 2
+    assert seen[1]["url"] == "https://stay.example/secure"
+    assert "Authorization" not in seen[1]["headers"]                # 跨 scheme 即剥
+
+
+def test_null_byte_host_fail_closed(monkeypatch):
+    # 评审 r2 ②：Linux CPython 对 null 字节 host 抛 ValueError("embedded null byte")，
+    # 非 UnicodeError 子类——except 需并 ValueError 收口为 UnsafeUrlError。
+    # 本机（macOS）getaddrinfo 对 null 字节不抛，monkeypatch 模拟 Linux 行为。
+    import utils.secure_fetch as sf
+
+    def _linux_getaddrinfo(host, port, *a, **k):
+        raise ValueError("embedded null byte")
+
+    monkeypatch.setattr(sf.socket, "getaddrinfo", _linux_getaddrinfo)
+    with pytest.raises(UnsafeUrlError):
+        assert_safe_remote_url("http://exa\x00mple.com/x")
+
+
 def test_malformed_idn_host_fail_closed():
     # T13 评审：非 ASCII 畸形 IDN（label>63）在 CPython 纯 Python 层 idna 编码即抛
     # UnicodeEncodeError（UnicodeError 子类，不出网）——必须收口为 UnsafeUrlError，
