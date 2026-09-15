@@ -2122,6 +2122,26 @@ async def http_submit_task(request: Request):
         raise HTTPException(status_code=500, detail="Failed to submit task")
 
 
+# T3(crypto-H1): payload 内可能出现凭证的键名集合（大小写不敏感匹配）。
+_PAYLOAD_SECRET_KEYS = frozenset({"token", "ozon_api_key", "api_key", "secret", "password", "client_secret"})
+
+
+def _redact_payload(payload):
+    """T3(crypto-H1): task_status 出口对 payload 做键名级凭证脱敏（深拷贝，不改原 dict）。
+    payload JSONB 存提交时 GraphInput 原文（顶层 token / ozon_api_key 明文），原样回显
+    即泄漏。覆盖顶层与任意嵌套 dict/list；非字符串值不动（键名命中但值是 dict/list
+    → 不替换、继续下钻）；顶层非 dict（None/list/str）原样透传。REST/MCP 同源生效
+    （MCP get_task_status 走本进程 REST 回调）。"""
+    def walk(obj):
+        if isinstance(obj, dict):
+            return {k: ("[REDACTED]" if str(k).lower() in _PAYLOAD_SECRET_KEYS and isinstance(v, str) else walk(v))
+                    for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [walk(x) for x in obj]
+        return obj
+    return walk(copy.deepcopy(payload))
+
+
 def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes,
                          extra: dict | None = None) -> None:
     """T2(crypto-C1): /run 系请求回执日志——绝不落 body 原文（含 token/ozon_api_key），
@@ -2238,6 +2258,12 @@ async def http_task_status(task_id: str, request: Request):
             progress = get_progress(task_id)
             if progress:
                 task_status["progress"] = progress
+
+        # ✅ T3(crypto-H1): payload 存提交时 GraphInput 原文（token/ozon_api_key 明文），
+        # 出口必须脱敏。旧路径（无 response_model）与 /api/v1 别名共用此组装点，
+        # 单点应用即双路径生效；非 dict payload 原样透传。
+        if isinstance(task_status.get("payload"), dict):
+            task_status["payload"] = _redact_payload(task_status["payload"])
 
         return task_status
 
