@@ -3414,7 +3414,8 @@ Http Get Task — [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端
 ## task_statistics
 
 ### `GET /api/v1/task_statistics`
-V1 Task Statistics — 获取任务统计信息。
+V1 Task Statistics — 获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+跨租户仅 admin——语义与旧路径同源）。
 > 兼容别名：`GET /task_statistics`（旧裸路径，语义相同）
 
 **响应**
@@ -3422,6 +3423,8 @@ V1 Task Statistics — 获取任务统计信息。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [TaskStatisticsResponse](#schema-taskstatisticsresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 403 | Forbidden | [ErrorBody](#schema-errorbody) |
 
 响应示例：
 

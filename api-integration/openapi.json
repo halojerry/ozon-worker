@@ -11243,7 +11243,7 @@
     },
     "/api/v1/task_statistics": {
       "get": {
-        "description": "获取任务统计信息。\n\n⚠️ v0.19.2: 旧路径返回 {\"status\",\"statistics\"} 包裹结构（无 response_model），\nv1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，\n否则字段对不上被 Pydantic 填默认值 → 统计恒 0。",
+        "description": "获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，\n跨租户仅 admin——语义与旧路径同源）。\n\n⚠️ v0.19.2: 旧路径返回 {\"status\",\"statistics\"} 包裹结构（无 response_model），\nv1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，\n否则字段对不上被 Pydantic 填默认值 → 统计恒 0。",
         "operationId": "v1_task_statistics_api_v1_task_statistics_get",
         "responses": {
           "200": {
@@ -11255,6 +11255,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "summary": "V1 Task Statistics",
@@ -12659,7 +12679,7 @@
     },
     "/task_statistics": {
       "get": {
-        "description": "获取任务统计信息\n\nArgs:\n    tenant_id: 租户ID（可选，不传则查询所有租户）\n\nReturns:\n    任务统计信息（总数、成功率、平均耗时等）",
+        "description": "获取任务统计信息\n\nT7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举\n任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。\n规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：\n- 无 Authorization Bearer → 401 \"Token is required\"。\n- Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。\n- query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。\n- ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），\n  否则 403 \"admin only\"。\n\nArgs:\n    tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）\n\nReturns:\n    任务统计信息（总数、成功率、平均耗时等）",
         "operationId": "http_task_statistics_task_statistics_get",
         "responses": {
           "200": {
@@ -12681,6 +12701,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "summary": "Http Task Statistics"

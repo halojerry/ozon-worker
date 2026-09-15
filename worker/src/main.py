@@ -27,6 +27,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
+from services.tenant_service import resolve_analytics_scope  # v0.76 T7(api-H3): task_statistics admin 判定（模块级 import，测试 patch main 命名空间；resolve_tenant 仍按 _task_status_guard 惯例函数内延迟 import）
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import (
     Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
@@ -2448,30 +2449,58 @@ async def http_resubmit_task(task_id: str, request: Request):
             "total": 130, "pending": 2, "running": 5, "completed": 120,
             "failed": 3, "cancelled": 0, "avg_duration_seconds": 210.55,
         },
-    }}}}})
+    }}}}, 401: {"model": ErrorBody}, 403: {"model": ErrorBody}})
 async def http_task_statistics(request: Request):
     """
     获取任务统计信息
-    
+
+    T7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举
+    任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。
+    规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：
+    - 无 Authorization Bearer → 401 "Token is required"。
+    - Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。
+    - query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。
+    - ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），
+      否则 403 "admin only"。
+
     Args:
-        tenant_id: 租户ID（可选，不传则查询所有租户）
-    
+        tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）
+
     Returns:
         任务统计信息（总数、成功率、平均耗时等）
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
-    
+
+    # ✅ T7(api-H3): 鉴权 + 租户强制（Bearer 提取与 _task_status_guard 同款；
+    # 共享 helper 收敛留待 Task 8，本任务先内联）。放在 try 外——401/403 是
+    # HTTPException，不会被下面的兜底 except 吞成 500（同 http_task_status 口径）。
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean)
+    from services.tenant_service import resolve_tenant
+    own_tenant = resolve_tenant(token)
+    q_tenant = request.query_params.get("tenant_id") or ""
+    tenant = own_tenant
+    if q_tenant and q_tenant != own_tenant:
+        scope = resolve_analytics_scope(token)
+        if not scope.get("is_admin"):
+            raise HTTPException(status_code=403, detail="admin only")
+        tenant = q_tenant
+
     try:
-        tenant_id = request.query_params.get("tenant_id")
-        
-        statistics = await task_processor.get_task_statistics(tenant_id)
-        
+        statistics = await task_processor.get_task_statistics(tenant)
+
         return {
             "status": "success",
             "statistics": statistics
         }
-        
+
+    except HTTPException:
+        raise  # T7: 401/403/租户语义 HTTPException 直通（同 http_task_status v0.73 处理）
     except Exception as e:
         # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
         logger.exception(e)
@@ -2633,9 +2662,11 @@ async def v1_resubmit_task(task_id: str, request: Request):
     return await http_resubmit_task(task_id, request)
 
 
-@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
+@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"],
+        responses={401: {"model": ErrorBody}, 403: {"model": ErrorBody}})
 async def v1_task_statistics(request: Request):
-    """获取任务统计信息。
+    """获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+    跨租户仅 admin——语义与旧路径同源）。
 
     ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
     v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
