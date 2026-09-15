@@ -22,8 +22,11 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import re
+import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -45,11 +48,16 @@ MTOP_APP_KEY = "12574478"
 AIBUY_TOKEN_KEY = "aibuy_mtop_token"
 # ⚠️ P0-2（2026-09-09 审计靶点一）：导航刷新跨进程冷却——1688 登录态失效后
 # 每次 aibuy 图搜都导航 www.1688.com + 轮询 8s，discover 一批 N 个候选导航
-# N 次。失败落 claim（settings.json），冷却内后续调用零导航直接降级 CDP/AK。
-AIBUY_REFRESH_CLAIM_KEY = "aibuy_refresh_claim"
+# N 次。失败落 claim 占位文件（`data/config/.aibuy_refresh_claim.json`，T3 改
+# O_CREAT|O_EXCL 原子建——旧 settings.json 两步占位是 TOCTOU），冷却内后续
+# 调用零导航直接降级 CDP/AK。
 # F-B02：mtop 运行时 token 错误（EXPIRED/ILLEGAL）标志——_mtop_request 置位，
 # search_by_image_aibuy 据此在结果为空时作废旧 token 走导航刷新（自动获取闭环）
+# ⚠️ T3 (fix/skill-concurrency-v1)：--match-concurrency>1 时多线程共用本模块，
+# 置位（_mark_mtop_token_error）/读清（_consume_mtop_token_error）必须持同一把
+# _MTOP_TOKEN_LOCK——无锁时读-清与并发置位交错会互相抹（丢刷新/重复刷新）。
 _MTOP_TOKEN_ERROR = {"hit": False}
+_MTOP_TOKEN_LOCK = threading.Lock()
 AIBUY_REFRESH_COOLDOWN_SECONDS = 600
 AIBUY_TOKEN_TTL_SECONDS = 6 * 3600  # 6h 后需重新从 Chrome 会话刷新
 _AIBUY_COOKIE_KEYS = ("_m_h5_tk", "_m_h5_tk_enc", "tfstk", "isg")
@@ -564,28 +572,89 @@ def _save_aibuy_token(cookies: dict[str, str]) -> None:
     set_setting(AIBUY_TOKEN_KEY, {**cookies, "saved_at": time.time()})
 
 
+def _aibuy_refresh_claim_path() -> Path:
+    """aibuy 导航刷新冷却占位文件路径（data/config/ 下，与 settings.json 同目录）。"""
+    from scripts._const import CONFIG_DIR
+    return Path(CONFIG_DIR) / ".aibuy_refresh_claim.json"
+
+
 def _try_claim_aibuy_refresh() -> bool:
-    """跨进程导航刷新冷却占位（settings.json 键）。
+    """跨进程导航刷新冷却占位：O_CREAT|O_EXCL 原子建文件。
 
-    已有未过期占位（含其他 CLI 进程刚试过）→ False。此前无冷却 + 每命令独立
-    进程，1688 登录态一失效每个 aibuy 调用各导航一次（审计靶点一放大器②③）。
+    结构照抄仓库正确先例 ak_1688_client._try_acquire_refresh_claim（同款注释
+    风格与 fail-open 口径）：已有未过期占位（含其他 CLI 进程刚试过）→ False；
+    过期/损坏占位 → 清除重建；占位机制自身故障 → True（降级无冷却，不阻塞
+    刷新）。建文件（open O_EXCL）是原子操作——双进程竞争恰一方成功。
+
+    来龙去脉（fix/skill-concurrency-v1 批1 T3，竞态 #4）：旧实现 get_setting
+    检查 → set_setting 占位两步非原子（TOCTOU）——双进程同时通过检查 → 双 tab
+    同时导航 1688。旧 settings 键 `aibuy_refresh_claim` 随之删除（冷却语义
+    瞬态，无迁移必要）。
     """
-    from scripts.lib.config_store import get_setting, set_setting
-
-    claim = get_setting(AIBUY_REFRESH_CLAIM_KEY) or {}
+    p = _aibuy_refresh_claim_path()
+    now = time.time()
     try:
-        if time.time() - float(claim.get("ts") or 0) < AIBUY_REFRESH_COOLDOWN_SECONDS:
+        if p.exists():
+            claimed_recently = False
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                claimed_recently = (
+                    now - float(data.get("ts", 0)) < AIBUY_REFRESH_COOLDOWN_SECONDS)
+            except Exception:
+                # 损坏/空占位按 mtime 判冷却——O_EXCL 建文件与写内容之间有窗口，
+                # 并发读者恰在此窗口读到空文件时**绝不能**当「损坏→过期」unlink
+                # （会抢掉别人的新鲜 claim → 双 tab 导航，T3 竞测实证）；
+                # 陈旧损坏文件照常过期重建（进程崩溃在写一半时自愈，不永久堵死）。
+                try:
+                    claimed_recently = (
+                        now - p.stat().st_mtime < AIBUY_REFRESH_COOLDOWN_SECONDS)
+                except OSError:
+                    claimed_recently = False
+            if claimed_recently:
+                return False
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        try:
+            fd = os.open(str(p), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            # unlink 与 open 之间被其他进程抢先占位 → 本进程未抢到（T3 原子化核心）
             return False
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": now, "pid": os.getpid()}))
+        return True
+    except FileExistsError:
+        return False
     except Exception:
-        pass  # 损坏占位按过期处理
-    set_setting(AIBUY_REFRESH_CLAIM_KEY, {"ts": time.time()})
-    return True
+        return True  # 占位机制故障 → 降级无冷却
 
 
 def _clear_aibuy_refresh_claim() -> None:
-    from scripts.lib.config_store import set_setting
+    """刷新成功清除占位（unlink；文件不存在/已删除 → 静默）。"""
+    try:
+        _aibuy_refresh_claim_path().unlink()
+    except OSError:
+        pass
 
-    set_setting(AIBUY_REFRESH_CLAIM_KEY, None)
+
+def _mark_mtop_token_error() -> None:
+    """置位 mtop token 错误标志（持 _MTOP_TOKEN_LOCK，线程安全）。"""
+    with _MTOP_TOKEN_LOCK:
+        _MTOP_TOKEN_ERROR["hit"] = True
+
+
+def _consume_mtop_token_error() -> bool:
+    """读并复位 mtop token 错误标志（读-清一体持锁，返回置位状态）。
+
+    ⚠️ 读-清必须原子（T3）：search_by_image_aibuy 的消费语义是「结果为空且
+    标志置位 → 复位 + 走导航刷新」——无锁时复位可与并发线程的置位交错互相抹
+    （丢刷新/重复刷新）。
+    """
+    with _MTOP_TOKEN_LOCK:
+        hit = _MTOP_TOKEN_ERROR["hit"]
+        _MTOP_TOKEN_ERROR["hit"] = False
+        return hit
 
 
 def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> dict[str, str]:
@@ -779,7 +848,7 @@ def _mtop_request(
                         ret2 = parsed2.get("ret") or []
                         if ret2 and "SUCCESS" not in str(ret2[0]):
                             logger.warning("aibuy mtop %s 重试仍失败: %s", api, ret2[0])
-                            _MTOP_TOKEN_ERROR["hit"] = True  # 通知上层走导航刷新
+                            _mark_mtop_token_error()  # 通知上层走导航刷新
                             return {}
                         return parsed2.get("data") or {}
                     except Exception as e:
@@ -788,7 +857,7 @@ def _mtop_request(
             else:
                 # EXPIRED/ILLEGAL 但响应未下发新 cookie（第二波真单实证：ILLEGAL
                 # 不带 Set-Cookie）——同样置位，让上层走导航刷新闭环
-                _MTOP_TOKEN_ERROR["hit"] = True
+                _mark_mtop_token_error()
             return {}
         return parsed.get("data") or {}
     except Exception as e:
@@ -943,12 +1012,12 @@ def search_by_image_aibuy(
     if token_cookies and token_cookies.get("_m_h5_tk", "") != _tk_before:
         _save_aibuy_token(token_cookies)
         logger.info("aibuy token 已自愈更新并回写缓存")
-    if not results and _MTOP_TOKEN_ERROR["hit"]:
+    if not results and _consume_mtop_token_error():
         # F-B02 自动获取闭环：mtop 报 token 错误（EXPIRED/ILLEGAL）且原地重签
         # 也没救回来（响应未下发新 cookie）→ 作废缓存坏 token，走 claim 门控
         # 导航刷新一次（600s 冷却防风暴），拿到新 token 重试；冷却内/刷新失败
         # 才降级 CDP。此前坏 token 卡在 settings 里每候选反复失败。
-        _MTOP_TOKEN_ERROR["hit"] = False
+        # ⚠️ T3: _consume_mtop_token_error 读-清一体持锁（短路与原 if+复位同语义）。
         logger.warning("aibuy token 错误未自愈，作废缓存并尝试导航刷新")
         from scripts.lib.config_store import set_setting
         set_setting(AIBUY_TOKEN_KEY, None)

@@ -9,6 +9,7 @@ No .env fallback. Single source of truth.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -18,7 +19,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from scripts._const import CONFIG_DIR, SKILL_ROOT
+from scripts._const import CONFIG_DIR, DATA_DIR, SKILL_ROOT
+from scripts.lib import lock_utils
 
 # Config file paths
 STORES_FILE = CONFIG_DIR / 'stores.json'
@@ -26,6 +28,43 @@ SETTINGS_FILE = CONFIG_DIR / 'settings.json'
 
 # Ensure config directory exists
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RMW 跨进程锁（fix/skill-concurrency-v1 批1 T4，竞态 #3 丢失更新）
+# ═══════════════════════════════════════════════════════════════════════════
+# 动因：set_setting/remove_setting/set_store/remove_store/set_default_store 全是
+# 无锁 读→改→写回——并发 CLI 进程各自持整份 JSON 改完写回，后写者**整文件覆盖**
+# 先写者（aibuy token / 1688 ak / mxou_token 互相抹的实证）。解法：A1 交付的
+# lock_utils.file_lock 包住 RMW 全段；stores.json 与 settings.json 共用一把
+# （都是毫秒级临界区，不值得分锁）。get_setting/get_store 等纯读**不加锁**
+# （_atomic_write_json 原子替换，读者永远读到完整旧版或完整新版）。
+SETTINGS_LOCK_PATH = DATA_DIR / 'locks' / 'settings.lock'
+_SETTINGS_LOCK_TIMEOUT = 10.0
+
+
+@contextlib.contextmanager
+def _rmw_lock(op: str):
+    """RMW 临界区上下文：yield 即进入（持锁或 fail-open 降级），退出自动放锁。
+
+    超时策略 fail-open（T4 拍板口径）：锁目录不可建 / 等待超时（10s）→ 告警
+    日志后照常执行——_atomic_write_json 保证不产生半截文件，极端争用下退化为
+    现状丢失更新，不新增故障面。
+    """
+    try:
+        SETTINGS_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.warning('settings 锁目录创建失败（%s），%s 降级无锁执行', e, op)
+        yield False
+        return
+    with lock_utils.file_lock(SETTINGS_LOCK_PATH, timeout=_SETTINGS_LOCK_TIMEOUT) as fd:
+        if fd is None:
+            logger.warning(
+                'settings 锁等待超时（%.0fs），%s 降级无锁执行'
+                '（极端争用下可能丢失更新）', _SETTINGS_LOCK_TIMEOUT, op)
+            yield False
+            return
+        yield True
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -145,72 +184,75 @@ def set_store(store_id: str, client_id: str, api_key: str,
               margin_floor: float | None = None, margin_anchor: float | None = None,
               variable_cost_rate: float | None = None, promo_variable_cost_rate: float | None = None,
               traffic_keywords: list[str] | None = None) -> dict[str, Any]:
-    """Upsert a store profile."""
-    data = _load_stores_file()
-    if "stores" not in data or not isinstance(data.get("stores"), dict):
-        data["stores"] = {}
+    """Upsert a store profile（RMW 全段持跨进程锁，见 _rmw_lock）。"""
+    with _rmw_lock('set_store'):
+        data = _load_stores_file()
+        if "stores" not in data or not isinstance(data.get("stores"), dict):
+            data["stores"] = {}
 
-    store = data["stores"].get(str(store_id), {})
-    if not isinstance(store, dict):
-        store = {}
+        store = data["stores"].get(str(store_id), {})
+        if not isinstance(store, dict):
+            store = {}
 
-    store["client_id"] = client_id
-    store["api_key"] = api_key
-    if currency:
-        store["currency"] = currency
-    if shipping_provider:
-        store["shipping_provider"] = shipping_provider
-    if shipping_service:
-        store["shipping_service"] = shipping_service
-    if margin_rate is not None:
-        store["margin_rate"] = margin_rate
-    if commission_rate is not None:
-        store["commission_rate"] = commission_rate
-    if fx_buffer is not None:
-        store["fx_buffer"] = fx_buffer
-    if margin_floor is not None:
-        store["margin_floor"] = margin_floor
-    if margin_anchor is not None:
-        store["margin_anchor"] = margin_anchor
-    if variable_cost_rate is not None:
-        store["variable_cost_rate"] = variable_cost_rate
-    if promo_variable_cost_rate is not None:
-        store["promo_variable_cost_rate"] = promo_variable_cost_rate
-    if traffic_keywords is not None:
-        store["traffic_keywords"] = traffic_keywords
+        store["client_id"] = client_id
+        store["api_key"] = api_key
+        if currency:
+            store["currency"] = currency
+        if shipping_provider:
+            store["shipping_provider"] = shipping_provider
+        if shipping_service:
+            store["shipping_service"] = shipping_service
+        if margin_rate is not None:
+            store["margin_rate"] = margin_rate
+        if commission_rate is not None:
+            store["commission_rate"] = commission_rate
+        if fx_buffer is not None:
+            store["fx_buffer"] = fx_buffer
+        if margin_floor is not None:
+            store["margin_floor"] = margin_floor
+        if margin_anchor is not None:
+            store["margin_anchor"] = margin_anchor
+        if variable_cost_rate is not None:
+            store["variable_cost_rate"] = variable_cost_rate
+        if promo_variable_cost_rate is not None:
+            store["promo_variable_cost_rate"] = promo_variable_cost_rate
+        if traffic_keywords is not None:
+            store["traffic_keywords"] = traffic_keywords
 
-    data["stores"][str(store_id)] = store
+        data["stores"][str(store_id)] = store
 
-    # Set as default if it's the first store
-    if not data.get("default") or len(data["stores"]) == 1:
-        data["default"] = str(store_id)
+        # Set as default if it's the first store
+        if not data.get("default") or len(data["stores"]) == 1:
+            data["default"] = str(store_id)
 
-    _save_stores_file(data)
-    return store
+        _save_stores_file(data)
+        return store
 
 
 def remove_store(store_id: str) -> bool:
-    """Remove a store. Returns True if removed."""
-    data = _load_stores_file()
-    stores = data.get("stores", {})
-    if str(store_id) in stores:
-        del stores[str(store_id)]
-        # Clear default if it was the removed store
-        if data.get("default") == str(store_id):
-            data["default"] = next(iter(stores), "") if stores else ""
-        _save_stores_file(data)
-        return True
-    return False
+    """Remove a store. Returns True if removed（RMW 全段持锁，见 _rmw_lock）。"""
+    with _rmw_lock('remove_store'):
+        data = _load_stores_file()
+        stores = data.get("stores", {})
+        if str(store_id) in stores:
+            del stores[str(store_id)]
+            # Clear default if it was the removed store
+            if data.get("default") == str(store_id):
+                data["default"] = next(iter(stores), "") if stores else ""
+            _save_stores_file(data)
+            return True
+        return False
 
 
 def set_default_store(store_id: str) -> bool:
-    """Set the default store. Returns True if set."""
-    data = _load_stores_file()
-    if str(store_id) in data.get("stores", {}):
-        data["default"] = str(store_id)
-        _save_stores_file(data)
-        return True
-    return False
+    """Set the default store. Returns True if set（RMW 全段持锁，见 _rmw_lock）。"""
+    with _rmw_lock('set_default_store'):
+        data = _load_stores_file()
+        if str(store_id) in data.get("stores", {}):
+            data["default"] = str(store_id)
+            _save_stores_file(data)
+            return True
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -238,20 +280,22 @@ def get_setting(key: str, default: Any = None) -> Any:
 
 
 def set_setting(key: str, value: Any) -> None:
-    """Set a setting value."""
-    data = _load_settings_file()
-    data[key] = value
-    _save_settings_file(data)
+    """Set a setting value（RMW 全段持跨进程锁，见 _rmw_lock）。"""
+    with _rmw_lock('set_setting'):
+        data = _load_settings_file()
+        data[key] = value
+        _save_settings_file(data)
 
 
 def remove_setting(key: str) -> bool:
-    """Remove a setting. Returns True if removed."""
-    data = _load_settings_file()
-    if key in data:
-        del data[key]
-        _save_settings_file(data)
-        return True
-    return False
+    """Remove a setting. Returns True if removed（RMW 全段持锁，见 _rmw_lock）。"""
+    with _rmw_lock('remove_setting'):
+        data = _load_settings_file()
+        if key in data:
+            del data[key]
+            _save_settings_file(data)
+            return True
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -320,17 +364,39 @@ def read_ak_store_file() -> str | None:
     return None
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """原子写文本文件：临时文件 + os.replace（T4，与 _atomic_write_json 同模式）。
+
+    os.replace 在**同目录**内是原子操作（tmp 与目标同目录保证同文件系统）；
+    Windows 上 os.replace 可能因文件锁失败 → 短等待重试一次。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(path.name + '.tmp')
+    tmp_path.write_text(text, encoding='utf-8')
+    try:
+        os.replace(tmp_path, path)
+    except OSError:
+        # Windows 文件锁重试（_atomic_write_json 同款）
+        time.sleep(0.05)
+        os.replace(tmp_path, path)
+
+
 def write_ak_store_file(ak: str) -> Path:
     """写 AK：首选位必写，并写穿「已存在」的旧读位（旧位不再遮蔽新值；
-    绝不新建旧位目录）。返回首选位路径。"""
+    绝不新建旧位目录）。返回首选位路径。
+
+    ⚠️ T4 (fix/skill-concurrency-v1)：写改原子（逐文件 tmp + os.replace）——
+    原直接 write_text，并发读者（read_ak_store_file）可能读到半截 JSON →
+    解析失败 → 401 → 无谓弹浏览器重取。它写多个候选位，逐文件各自 tmp+replace。
+    """
     primary = resolve_ak_store_path()
     payload = json.dumps({'ak': ak}, ensure_ascii=False, indent=2)
-    primary.write_text(payload, encoding='utf-8')
+    _atomic_write_text(primary, payload)
     for d in _ak_store_dirs()[3:]:
         p = d / AK_STORE_FILENAME
         if p.exists():
             try:
-                p.write_text(payload, encoding='utf-8')
+                _atomic_write_text(p, payload)
             except Exception:
                 continue
     return primary

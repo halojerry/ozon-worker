@@ -61,15 +61,17 @@
 
 | 资源 | 限制 | 影响 |
 |------|------|------|
-| Chrome CDP | 单实例（file lock，chrome_launcher.py:331） | graph / follow / image_search / probe 不可并行，必须串行 |
+| 重命令串行闸 | `discover` / `discover-multi` / `discover-task` / `graph` / `follow` / `seller` 六命令跨进程互斥（`data/locks/heavy_cdp.lock`） | 闸被占 **exit 4**（报错含占用命令/PID/已运行时长）；`--wait` 排队（每 30s 心跳）/ `--force` 强制并行（互踩 Chrome/缓存，慎用） |
+| Chrome CDP | 单实例（file lock，chrome_launcher.py）；探活三态（up/refused/busy）——繁忙（其他进程正在用）按就绪等待恢复，绝不杀；仅确认端口无人监听才杀带调试端口的实例重启 | graph / follow / image_search / probe 不可并行，必须串行 |
 | 1688 API | 有每分钟配额，高频调用触发验证码拦截（cloud_probe.py:2158） | 连续快速调用会被"验证码拦截" |
 | Worker 提交 | 可并行（队列消费） | 但建议间隔 2-3 秒避免突发 |
 | batch_test | 已内置 `--delay`（默认 3.0s，batch_test.py:327） | 无需手动控制间隔 |
 
 **批量操作规则**：
-- 用户要求批量上架多个链接时 → 使用 `batch_test`（内置串行 + 间隔），不自行并行多个 `graph`
-- 用户要求批量选品时 → 使用 `discover` 一次调用（内部批量），不并行多个 `discover`
-- 用户要求同时选品 + 上架时 → 先完成选品 → 再执行上架，不交叉并行
+- 用户要求批量上架多个链接时 → 使用 `batch_test`（内置串行 + 间隔），不自行并行多个 `graph`（并行也会被串行闸 exit 4 拦下）
+- 用户要求批量选品时 → 使用 `discover` 一次调用（内部批量），不并行多个 `discover`（串行闸直接拦）
+- 用户要求同时选品 + 上架时 → 先完成选品 → 再执行上架，不交叉并行（串行闸会排队，`--wait` 显式排队体验更好）
+- agent 见 exit 4 → 告知用户占用方信息并等它跑完（或 `--wait` 排队），**勿盲目 `--force`**
 
 ## 多店铺（P2-8）
 
@@ -100,6 +102,9 @@
 ## 管线 A：1688 上架（graph）
 
 **触发**：用户消息含 `1688.com` 链接，或管线 B 降级
+
+> ⚠️ 串行闸：graph 与 discover/discover-multi/discover-task/follow/seller 跨进程互斥，
+> 闸被占 exit 4（报错含占用方；`--wait` 排队 / `--force` 强制并行，详见「并发限制」）。
 
 ```bash
 python3 scripts/cli.py graph --url "https://detail.1688.com/offer/xxx.html" --store "主店铺"
@@ -134,6 +139,8 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-
 ## 管线 B：Ozon 跟卖（follow）
 
 **触发**：用户消息含 `ozon.ru` 商品链接
+
+> ⚠️ 串行闸：follow 与 graph/discover 族/seller 跨进程互斥，闸被占 exit 4（`--wait` 排队 / `--force` 强制并行）。
 
 ```bash
 python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --store "主店铺" --auto-submit
@@ -175,6 +182,9 @@ python3 scripts/cli.py follow --ozon-url "https://www.ozon.ru/product/xxx/" --st
 ## 管线 C：跟卖选品（discover，Discover v2）
 
 **触发**：用户说"有什么好产品可以跟卖"、"帮我找可以跟卖的"（无 URL）
+
+> ⚠️ 串行闸：本节全部命令（discover/--fission/discover-task/discover-multi）与 graph/follow/seller
+> 跨进程互斥，闸被占 exit 4（`--wait` 排队 / `--force` 强制并行）。
 
 ```bash
 # ① 有关键词：搜索 → 全量采集 → 表格展示 → 交互挑选 → 批量找货源
@@ -403,6 +413,8 @@ python3 scripts/cli.py query 550e8400-... --watch --timeout 1800
 ## 卖家店铺分析（seller）
 
 **触发**：跟卖选品时发现某卖家店铺整体强（竞品多/销量好），要"挖这个卖家整店"。
+
+> ⚠️ 串行闸：seller 与 graph/follow/discover 族跨进程互斥，闸被占 exit 4（`--wait` 排队 / `--force` 强制并行）。
 
 ```bash
 # 采集店铺产品 + 逐 SKU 拉运营指标（默认前 60 个产品、前 30 个 SKU 分析）

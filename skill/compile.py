@@ -105,6 +105,7 @@ AUX_FILES = [
     "scripts/lib/source_candidates.py",  # PRD M5b 货源匹配上报（skill→worker，fail-open）
     "scripts/lib/readiness.py",      # 管线就绪统一预检（漏斗 v2 收尾：缓存+预热+fail-fast）
     "scripts/lib/cookie_harvest.py",  # v0.69 跨浏览器 cookie 导入（OS 对抗性易碎，明文）
+    "scripts/lib/lock_utils.py",     # T1 跨平台文件锁（chrome_launcher/cli 重命令闸共用，stdlib 明文）
     "scripts/lib/match_scoring.py",  # v0.72.1 P0-4 货源匹配复合评分（纯函数，ozon_discovery 引用）
     "scripts/lib/metrics_pool_client.py",  # 数据池 skill 侧客户端（读-回馈闭环，fire-and-forget 明文）
     "scripts/capabilities/__init__.py",
