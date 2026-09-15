@@ -3474,14 +3474,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     clp.add_argument("--all", action="store_true", help="执行全部清理项")
     clp.set_defaults(func=cmd_cleanup)
 
-    # ── 跨浏览器 cookie 导入（v0.69，用户拍板：自动兜底 + 手动命令）──
+    # ── 跨浏览器 cookie 导入（v0.69；v1 起 per-source 平台闸 + Firefox 全平台 + --paste）──
     icp = sub.add_parser("import-cookies",
                          help="扫描本机浏览器 1688/Ozon 登录 cookie 导入工具 Chrome（免重复登录）")
     icp.add_argument("--sources", default="",
                      help="逗号分隔源（chrome,edge,brave,firefox,safari；默认全部）")
     icp.add_argument("--list-sources", action="store_true",
                      help="列出支持的浏览器源后退出")
+    icp.add_argument("--paste", action="store_true",
+                     help="跳过源扫描，从 stdin 读粘贴的 Cookie 头（k=v; k2=v2）手动注入"
+                          "（跨平台兜底；与 --sources 互斥）")
+    icp.add_argument("--site", choices=["1688", "ozon-seller"], default="",
+                     help="--paste 时显式指定落域（默认按 cookie 名指纹自动判定）")
+    icp.add_argument("--browser-profile", default="",
+                     help="Windows 接管通道指定源浏览器 profile（info_cache 显示名"
+                          "或目录名，如 Default / Profile 1；默认 Default）")
     icp.set_defaults(func=cmd_import_cookies)
+
+    # ── Windows cookie 只读探针（win-cookie-import v1 B-T0：源/加密形态/通道判定矩阵）──
+    pwp = sub.add_parser("probe-win-cookies",
+                         help="Windows cookie 只读探针：源浏览器/加密形态/通道判定矩阵"
+                              "（不解密、只读用户目录；生成诊断报告）")
+    pwp.add_argument("--takeover-test", action="store_true",
+                     help="附加副本接管可行性试验（默认关；最小复制集→临时目录→"
+                          "真实浏览器 headless CDP，结束自动清理）")
+    pwp.add_argument("--out", default="",
+                     help="报告 JSON 输出路径（默认 data/probe/win_cookies_<ts>.json）")
+    pwp.set_defaults(func=cmd_probe_win_cookies)
 
     return parser
 
@@ -4240,53 +4259,20 @@ _STATUS_LABELS = {
     "no_disk_access": "🛡 需「完全磁盘访问权限」（系统设置 → 隐私与安全性）",
     "parse_error": "⚠️ 解析失败（跳过）",
     "error": "⚠️ 读取异常（跳过）",
+    "unsupported_source": "⊘ 当前平台不支持此源",
+    # B-T4 Windows 接管通道状态（takeover_* 前缀）
+    "takeover_no_browser": "⊘ 未找到可接管的浏览器",
+    "takeover_failed": "⚠ 副本接管失败",
 }
 
 
-def cmd_import_cookies(args: argparse.Namespace) -> int:
-    """跨浏览器 cookie 导入（v0.69）：扫描本机浏览器已有的 1688/Ozon 登录 cookie
-    → 注入工具 Chrome → 用现有登录检测验证。
-
-    解决「日常浏览器明明登录过，工具窗口还要再登录一次」——工具 Chrome 是独立
-    profile（Chrome 130+ 禁止默认目录开调试端口），本命令把登录态搬进来。
-    失败自动回落人工登录流程：在工具 Chrome 打开 seller.ozon.ru / 1688.com 登录即可。
-    """
-    from scripts.lib import cookie_harvest
-
-    if getattr(args, "list_sources", False):
-        print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES) + "（仅 macOS）",
-              flush=True)
-        return 0
-    sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
-               if s.strip()]
-    print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
-          flush=True)
-    report = cookie_harvest.harvest_and_import(sources=sources or None)
-    scan = report.get("scan") or {}
-    if scan.get("platform") == "unsupported":
-        print(f"❌ {scan.get('message')}", flush=True)
-        return 1
-
-    total = 0
-    for name, r in (scan.get("sources") or {}).items():
-        status = r.get("status", "error")
-        n = len(r.get("cookies") or [])
-        total += n
-        print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
-              f"{f'（{n} 条）' if n else ''}", flush=True)
-
-    if not total:
-        print("\n未发现可导入的登录 cookie。请在工具 Chrome 登录一次"
-              "（seller.ozon.ru / 1688.com），登录态会常驻。", flush=True)
-        return 1
-
+def _finish_import_report(report: dict) -> int:
+    """打印注入+验证结果并给退出码（scan 与 --paste 两路共用）。"""
     injected = report.get("injected") or {}
-    if injected.get("ok"):
-        print(f"📥 已注入工具 Chrome: {injected.get('message')}", flush=True)
-    else:
+    if not injected.get("ok"):
         print(f"❌ 注入失败: {injected.get('message')}", flush=True)
         return 1
-
+    print(f"📥 已注入工具 Chrome: {injected.get('message')}", flush=True)
     verified = report.get("verified") or {}
     for domain, label in (("1688", "1688 登录"), ("seller", "seller 卖家后台")):
         mark = "✅" if verified.get(domain) else "—"
@@ -4297,6 +4283,91 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
     print("cookie 已注入但登录判据未命中（会话可能已过期/风控挑战）。"
           "请按原流程在工具 Chrome 登录。", flush=True)
     return 1
+
+
+def cmd_import_cookies(args: argparse.Namespace) -> int:
+    """跨浏览器 cookie 导入（v0.69；v1 起 per-source 平台可用性）：
+    扫描本机浏览器已有的 1688/Ozon 登录 cookie → 注入工具 Chrome → 用现有登录检测
+    验证；或 ``--paste`` 从 stdin 读手动粘贴的 Cookie 头（跨平台兜底，与扫描互斥）。
+
+    解决「日常浏览器明明登录过，工具窗口还要再登录一次」——工具 Chrome 是独立
+    profile（Chrome 130+ 禁止默认目录开调试端口），本命令把登录态搬进来。
+    失败自动回落人工登录流程：在工具 Chrome 打开 seller.ozon.ru / 1688.com 登录即可。
+    """
+    from scripts.lib import cookie_harvest
+
+    if getattr(args, "list_sources", False):
+        print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES)
+              + "（Firefox 全平台；Windows 的 Chrome/Edge/Brave 走副本接管通道；"
+                "Safari 仅 macOS）", flush=True)
+        return 0
+
+    if getattr(args, "paste", False):
+        # --paste 与源扫描互斥：给了 --paste 就跳过扫描
+        try:
+            is_tty = sys.stdin.isatty()
+        except Exception:
+            is_tty = False
+        if is_tty:
+            print("粘贴 Cookie 头（形如 k=v; k2=v2，可带 Cookie: 前缀），"
+                  "结束后 Ctrl-D（Windows: Ctrl-Z 回车）：", flush=True)
+        header = sys.stdin.read()
+        site = (getattr(args, "site", "") or "").strip() or None
+        report = cookie_harvest.paste_and_import(header, site=site)
+        if report.get("error"):
+            print(f"❌ {report['error']}", flush=True)
+            return 1
+        skipped = report.get("skipped") or 0
+        print(f"📋 解析 {len(report.get('cookies') or [])} 条 cookie → "
+              f"落域 {', '.join(report.get('sites') or [])}"
+              + (f"（跳过未识别 {skipped} 条）" if skipped else ""), flush=True)
+        return _finish_import_report(report)
+
+    sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
+               if s.strip()]
+    browser_profile = (getattr(args, "browser_profile", "") or "").strip() or None
+    print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
+          flush=True)
+    report = cookie_harvest.harvest_and_import(sources=sources or None,
+                                               browser_profile=browser_profile)
+    scan = report.get("scan") or {}
+    scan_sources = scan.get("sources") or {}
+
+    total = 0
+    for name, r in scan_sources.items():
+        status = r.get("status", "error")
+        n = len(r.get("cookies") or [])
+        total += n
+        print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
+              f"{f'（{n} 条）' if n else ''}", flush=True)
+        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给人听
+        if status.startswith("takeover") and r.get("message"):
+            print(f"           {r['message']}", flush=True)
+
+    if not total:
+        # per-source 闸（v1）：零 cookie 且扫到的源全部 unsupported → 人话提示出路
+        if scan_sources and all(r.get("status") == "unsupported_source"
+                                for r in scan_sources.values()):
+            print(f"\n❌ 当前平台（{scan.get('platform') or sys.platform}）暂不支持"
+                  f"这些浏览器源的自动解密: {', '.join(scan_sources)}", flush=True)
+            print("   可用替代：① 已登录的 Firefox 会被自动扫描；"
+                  "② `import-cookies --paste` 手动粘贴 Cookie 头。", flush=True)
+            return 1
+        print("\n未发现可导入的登录 cookie。请在工具 Chrome 登录一次"
+              "（seller.ozon.ru / 1688.com），登录态会常驻；"
+              "或用 `import-cookies --paste` 手动粘贴。", flush=True)
+        return 1
+
+    return _finish_import_report(report)
+
+
+def cmd_probe_win_cookies(args: argparse.Namespace) -> int:
+    """Windows cookie 只读探针（win-cookie-import v1 B-T0）——薄壳：
+    全部逻辑在 scripts/probe_win_cookies.py（只读红线/判定矩阵/takeover 试验
+    见该模块 docstring），此处只转发参数，不内联逻辑。"""
+    from scripts.probe_win_cookies import run_cli
+    return run_cli(takeover_test=bool(getattr(args, "takeover_test", False)),
+                   out=(getattr(args, "out", "") or "").strip() or None)
 
 
 def cmd_cleanup(args: argparse.Namespace) -> int:
