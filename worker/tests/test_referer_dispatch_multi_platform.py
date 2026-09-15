@@ -106,6 +106,7 @@ def test_failure_degradation_unchanged(monkeypatch):
 # 不加 Referer 仅裸 UA（行为同今日）。降级路径（非 200/异常）不因接线改变。
 
 import utils.cos_uploader as cos_uploader  # noqa: E402
+import utils.secure_fetch as secure_fetch  # noqa: E402
 from services import draft_image_mirror as mirror  # noqa: E402
 
 
@@ -118,9 +119,31 @@ def _fake_get_capture(calls, status=200):
     return fake_get
 
 
+def _fake_request_capture(calls, status=200):
+    """镜像链（v0.76 T14 起走 safe_fetch → requests.request）的假 HTTP。
+    假响应带 is_redirect 判定属性（safe_fetch 重定向判定要读）。"""
+    def fake_request(method, u, timeout=None, headers=None, **kw):
+        calls["headers"] = dict(headers or {})
+        if status != 200:
+            return SimpleNamespace(status_code=status, content=b"",
+                                   is_redirect=False, is_permanent_redirect=False)
+        return SimpleNamespace(status_code=200, content=b"img-bytes",
+                               is_redirect=False, is_permanent_redirect=False)
+    return fake_request
+
+
+def _fake_mirror_dns(monkeypatch):
+    # 镜像链现过 safe_fetch 的解析 IP 校验——测试域 fake 到公共 IP，杜绝真实 DNS 出站
+    monkeypatch.setattr(secure_fetch.socket, "getaddrinfo",
+                        lambda host, port=None, *a, **k:
+                        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+
+
 def _mirror_with(monkeypatch, url, status=200):
     calls = {}
-    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    _fake_mirror_dns(monkeypatch)
+    monkeypatch.setattr("utils.secure_fetch.requests.request",
+                        _fake_request_capture(calls, status))
     monkeypatch.setattr(
         mirror, "cos_upload_bytes",
         lambda content, key, content_type=None: f"https://cos.test/{key}")
