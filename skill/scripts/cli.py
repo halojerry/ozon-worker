@@ -19,7 +19,9 @@ batch_test               批量处理 URL 列表
 Exit codes (graph): 0=成功（含 --no-submit/--to-box 入箱）；
 1=鉴权/环境/参数错误；2=产品数据校验失败（ProductValidationError）；
 3=提交失败（含 worker 409 DUPLICATE_SUBMIT 重复提交、反爬/源失效前置拦截、
---min-density 密度拦截）。
+--min-density 密度拦截）；4=重采集串行闸被占（discover/discover-multi/
+discover-task/graph/follow/seller 六命令互斥，已有同类命令运行中；
+--wait 排队等待 / --force 强制并行）。
 """
 
 from __future__ import annotations
@@ -351,6 +353,129 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 重命令串行闸（fix/skill-concurrency-v1 批1 T1，方案 §A3）
+# ═══════════════════════════════════════════════════════════════════════════
+# 动因：多 discover/多受闸命令并发进程互踩共享资源（同一工具 Chrome profile 的
+# CDP 单实例、aibuy token 刷新 claim、discovery 状态文件），竞态整类爆发。
+# 解法：跨进程文件锁（data/locks/heavy_cdp.lock，锁实现见 scripts/lib/lock_utils.py）
+# 在 CLI dispatch 层（cmd_* 入口装饰器）一次性获取——**先于一切重资源**
+# （Chrome 启动/CDP/网络）生效。
+#
+# 闸范围（与 MCP `_HEAVY_KINDS` 对齐）：discover / discover-multi / discover-task /
+# graph / follow / seller。**有意不进闸**：queries（主通道 cookie 直调免 Chrome）、
+# image_search（aibuy 主通道免 Chrome）、check / import-cookies（轻量）。
+#
+# 退出码 4 = 闸被占（顺延 2=session-sync 拒传、3=提交失败的既有惯例）。
+# 缺省 fail-fast；`--wait` 排队（每 30s 心跳）；`--force` 跳闸（可能互踩，慎用）。
+
+from datetime import datetime, timezone  # noqa: E402
+
+from scripts._const import DATA_DIR  # noqa: E402
+from scripts.lib import lock_utils  # noqa: E402
+
+HEAVY_LOCK_PATH = DATA_DIR / "locks" / "heavy_cdp.lock"
+_HEAVY_WAIT_HEARTBEAT_SECONDS = 30  # --wait 排队心跳间隔
+
+# 模块级持有标志：flock 同进程异 fd 互斥（见 lock_utils 头注释），闸只在真实
+# CLI 入口拿一次；进程内嵌套调用（_gate_held 已置位）直接放行，防自死锁。
+_gate_held = False
+
+
+def _write_gate_holder_info(fd, cmd_name: str) -> None:
+    """拿到闸后把 {pid, cmd, started_at} 写入锁文件（供后来者报错展示占用方）。"""
+    lock_utils.write_holder_info(fd, json.dumps({
+        "pid": os.getpid(),
+        "cmd": cmd_name,
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }, ensure_ascii=False))
+
+
+def read_lock_holder(lock_path: Path) -> str:
+    """人话化占用方描述：「discover (PID 123，已运行 3.2 分钟)」；读不到如实降级。"""
+    raw = lock_utils.read_holder_info(lock_path)
+    if not raw:
+        return "未知占用者（锁文件无占用方信息）"
+    try:
+        info = json.loads(raw)
+        pid = info.get("pid", "?")
+        cmd = info.get("cmd", "?")
+        elapsed = ""
+        started = info.get("started_at")
+        if started:
+            try:
+                secs = max(0.0, (datetime.now(timezone.utc)
+                                 - datetime.fromisoformat(str(started))).total_seconds())
+                elapsed = f"，已运行 {secs / 60:.1f} 分钟" if secs >= 90 else f"，已运行 {secs:.0f} 秒"
+            except ValueError:
+                pass
+        return f"{cmd} (PID {pid}{elapsed})"
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return f"未知占用者（锁文件内容不可解析: {raw[:80]!r}）"
+
+
+def _acquire_heavy_lock_waiting(cmd_name: str):
+    """--wait 排队获取：阻塞直至拿到锁，每 30s 打一行心跳（当前占用方信息）。"""
+    while True:
+        fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=_HEAVY_WAIT_HEARTBEAT_SECONDS)
+        if fd is not None:
+            return fd
+        print(f"⏳ 重采集闸仍被占（{read_lock_holder(HEAVY_LOCK_PATH)}），继续排队等待…"
+              f"（Ctrl-C 退出）", file=sys.stderr, flush=True)
+
+
+def _heavy_gate(func):
+    """重命令串行闸装饰器：挂在 cmd_* 入口，先于命令体（即先于一切重资源）拿锁。
+
+    - 缺省 fail-fast：单次非阻塞尝试，被占 → stderr 人话（占用方 + 出路提示）→ exit 4；
+    - args.wait=True → 排队等待（心跳）；args.force=True / _gate_held → 直接放行；
+    - 命令结束（含异常）finally 释放闸并复位 _gate_held；进程被 kill 由 OS 兜底放锁。
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(args: argparse.Namespace) -> int:
+        global _gate_held
+        if _gate_held or getattr(args, "force", False):
+            return func(args)
+        cmd_name = getattr(args, "command", None) or func.__name__
+        # 锁目录惰性创建——首装/全新 data/ 下 locks/ 不存在时 open("a+") 会
+        # OSError → try_acquire None → 闸误报「被占」exit 4 拦死所有重命令。
+        try:
+            HEAVY_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # 目录创建失败则锁必然拿不到 → 走下方 fail-fast（不静默放行）
+        if getattr(args, "wait", False):
+            fd = _acquire_heavy_lock_waiting(cmd_name)
+        else:
+            fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=0.0)
+        if fd is None:
+            holder = read_lock_holder(HEAVY_LOCK_PATH)
+            print(f"❌ 重采集串行闸被占：{holder}\n"
+                  f"   锁文件：{HEAVY_LOCK_PATH}\n"
+                  f"   → 加 --wait 排队等待，或 --force 强制并行（多进程会互踩 Chrome/缓存，慎用）",
+                  file=sys.stderr, flush=True)
+            sys.exit(4)
+        _gate_held = True
+        try:
+            _write_gate_holder_info(fd, cmd_name)
+            return func(args)
+        finally:
+            _gate_held = False
+            lock_utils.release(fd)
+
+    return wrapper
+
+
+def _add_heavy_gate_args(p: argparse.ArgumentParser) -> None:
+    """给 6 个重采集子命令统一挂 --wait/--force（闸出口，语义见 _heavy_gate）。"""
+    p.add_argument("--wait", action="store_true",
+                   help="重采集串行闸被占时排队等待（每 30s 心跳报占用方）而非快速失败")
+    p.add_argument("--force", action="store_true",
+                   help="跳过重采集串行闸强制并行（多进程会互踩 Chrome/缓存，慎用）")
+
+
+@_heavy_gate
 def cmd_graph(args: argparse.Namespace) -> int:
     """组装 GraphInput envelope（1688 API + CDP → 完整请求）."""
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
@@ -1123,6 +1248,7 @@ def cmd_check(args) -> int:
     return 0 if all_ok else 1
 
 
+@_heavy_gate
 def cmd_follow(args) -> int:
     """跟卖 Ozon 商品: Ozon URL → import-by-sku → 1688搜索 → CDP探针 → 上架"""
     from scripts.lib.config_store import AuthError, preflight_check, print_setup_guide
@@ -1289,6 +1415,7 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
     return []
 
 
+@_heavy_gate
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.ozon_discovery import (
@@ -1899,6 +2026,7 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
     return candidates
 
 
+@_heavy_gate
 def cmd_discover_multi(args: argparse.Namespace) -> int:
     """Ozon 选品 · 多关键词并行（D7'）— N 关键词串行滚动 → 合并去重 → 单次并行分析。
 
@@ -2496,6 +2624,7 @@ def _route_discovery_export(candidates: list, filepath: str) -> str:
     return export_to_csv(candidates, filepath)
 
 
+@_heavy_gate
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -3024,6 +3153,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="D11: worker listing_templates 模板 ID（显式指定优先于默认模板）")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(gp)
     gp.set_defaults(func=cmd_graph)
 
     # image_search
@@ -3053,6 +3183,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
     fp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 
     dp = sub.add_parser("discover", help="Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）")
@@ -3111,6 +3242,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(dp)
     dp.set_defaults(func=cmd_discover)
 
     dpm = sub.add_parser("discover-multi",
@@ -3152,6 +3284,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    _add_heavy_gate_args(dpm)
     dpm.set_defaults(func=cmd_discover_multi)
 
     # discover-task（漏斗 v2 Task 8b: 任务式全自动选品，无人值守）
@@ -3232,6 +3365,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="拓店裂变时间预算秒（仅 --expend-shop 生效；缺省 600）")
     dtp.add_argument("--no-analytics", action="store_true", help="跳过 seller 运营指标富化")
     dtp.add_argument("--export", default="", help="全量候选导出路径（.xlsx=Excel 选品簿，其余=CSV）")
+    _add_heavy_gate_args(dtp)
     dtp.set_defaults(func=cmd_discover_task)
 
 
@@ -3291,6 +3425,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     sel.add_argument("--seller-id", required=True, help="Ozon 卖家 ID(跟卖列表透传的 seller_id)")
     sel.add_argument("--max-products", type=int, default=60, help="采集店铺产品数上限(默认 60)")
     sel.add_argument("--max-skus", type=int, default=30, help="运营分析 SKU 数上限(默认 30, 受 what_to_sell 限速)")
+    _add_heavy_gate_args(sel)
     sel.set_defaults(func=cmd_seller)
 
     # ── what-to-sell SPA 查询(v0.33.2, C4 step1)──
@@ -3463,6 +3598,7 @@ def _silent_update_check(command: str) -> None:
         pass
 
 
+@_heavy_gate
 def cmd_seller(args: argparse.Namespace) -> int:
     """卖家店铺全产品运营分析(v0.29.x): 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。"""
     from scripts.lib.ozon_discovery import fetch_seller_analysis

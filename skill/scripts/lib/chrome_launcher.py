@@ -19,15 +19,15 @@ import subprocess
 import time
 from pathlib import Path
 
+from scripts.lib import lock_utils
 from scripts.lib.utils import safe_unlink
 
-# Cross-platform file locking
-if platform.system() == 'Windows':
-    import msvcrt
-    _LOCK_NBEX = 0x00000002  # _LK_NBLCK: 非阻塞尝试（循环控制等待时机）
-    _LOCK_UN = 0x00000000
-else:
-    import fcntl
+# ── Chrome profile 并发锁（T1 提炼，fix/skill-concurrency-v1）──
+# 原双 OS 实现已提炼为通用模块 scripts/lib/lock_utils.py（单一事实源，同一份
+# 实现同时服务 cli.py 重命令串行闸 heavy_cdp.lock）；此处保留原函数名做薄转发，
+# 零调用方破坏。锁语义详见 lock_utils 模块头注释。
+_try_acquire_lock = lock_utils.try_acquire
+_release_lock = lock_utils.release
 
 logger = logging.getLogger(__name__)
 
@@ -344,50 +344,8 @@ def _profile_lock_path(profile_dir: Path) -> Path:
     return Path(__file__).resolve().parent.parent.parent / "data" / "browser" / f".profile-{name}.lock"
 
 
-def _try_acquire_lock(lock_path: Path, timeout: float = 30.0) -> int | None:
-    """阻塞获取排他锁, 最长等待 timeout 秒。
-
-    成功 → 返回打开的锁文件 fd; 超时/失败 → None（调用方降级, 不抛异常）。
-    进程退出时 OS 自动释放锁, 锁文件残留无害。
-    """
-    try:
-        fd = open(lock_path, "w")
-    except OSError:
-        return None
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            if platform.system() == "Windows":
-                msvcrt.locking(fd.fileno(), _LOCK_NBEX, 1)
-            else:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd
-        except (OSError, BlockingIOError):
-            if time.monotonic() >= deadline:
-                try:
-                    fd.close()
-                except OSError:
-                    pass
-                return None
-            time.sleep(0.1)
-
-
-def _release_lock(fd) -> None:
-    """释放锁并关闭 fd。失败静默（OS 在进程退出时兜底释放）。"""
-    if fd is None:
-        return
-    try:
-        if platform.system() == "Windows":
-            fd.seek(0)
-            msvcrt.locking(fd.fileno(), _LOCK_UN, 1)
-        else:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        fd.close()
-    except Exception:
-        pass
+# _try_acquire_lock / _release_lock 双 OS 实现已上移 lock_utils.py（见文件头
+# 薄转发赋值），此处只保留 _profile_lock_path 这一本模块特有的路径逻辑。
 
 
 # ── 主入口 ──
