@@ -60,3 +60,18 @@ def _pool_query_off_by_default(request, monkeypatch):
 
     monkeypatch.setattr(mpc, "query_sku_metrics", lambda skus, **kwargs: None)
     yield
+
+
+# T3（fix/skill-concurrency-v1）起 aibuy 导航刷新 claim 从 settings.json 键改为
+# 真实占位文件 data/config/.aibuy_refresh_claim.json——测试若不隔离会把文件落进
+# 开发机真实 data/config/（工作区污染），且 600s 冷却跨测试串扰（前一个用例的
+# claim 拦掉后一个用例的导航刷新分支）。全量把 CONFIG_DIR 指到 tmp：本仓库唯一
+# 运行时动态读 scripts._const.CONFIG_DIR 的就是 claim 路径派生（settings.json/
+# stores.json 路径在 config_store import 时绑定，不受影响）；各用例显式
+# monkeypatch 可覆盖（同一 function-scoped monkeypatch 实例，内层 setattr 胜出）。
+@pytest.fixture(autouse=True)
+def _aibuy_refresh_claim_isolated(tmp_path, monkeypatch):
+    import scripts._const
+
+    monkeypatch.setattr(scripts._const, "CONFIG_DIR", tmp_path)
+    yield

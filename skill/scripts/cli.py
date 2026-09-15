@@ -407,7 +407,9 @@ def read_lock_holder(lock_path: Path) -> str:
                 secs = max(0.0, (datetime.now(timezone.utc)
                                  - datetime.fromisoformat(str(started))).total_seconds())
                 elapsed = f"，已运行 {secs / 60:.1f} 分钟" if secs >= 90 else f"，已运行 {secs:.0f} 秒"
-            except ValueError:
+            except (ValueError, TypeError):
+                # A1 审查 M3：started_at 形态不可控（非时间字符串/奇异类型）一律
+                # 降级为无时长展示——TypeError 防御未来 fromisoformat 入参形态变化。
                 pass
         return f"{cmd} (PID {pid}{elapsed})"
     except (json.JSONDecodeError, TypeError, AttributeError):
@@ -441,15 +443,23 @@ def _heavy_gate(func):
         cmd_name = getattr(args, "command", None) or func.__name__
         # 锁目录惰性创建——首装/全新 data/ 下 locks/ 不存在时 open("a+") 会
         # OSError → try_acquire None → 闸误报「被占」exit 4 拦死所有重命令。
+        # ⚠️ A1 审查 M2：mkdir 失败要留痕——下方 fd None 时据此报「锁目录不可
+        # 创建」而非误导性的「闸被占」（用户去找根本不存在的占用方）。
+        mkdir_failed = False
         try:
             HEAVY_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
-            pass  # 目录创建失败则锁必然拿不到 → 走下方 fail-fast（不静默放行）
+            mkdir_failed = True  # 目录创建失败则锁必然拿不到 → 走下方 fail-fast（不静默放行）
         if getattr(args, "wait", False):
             fd = _acquire_heavy_lock_waiting(cmd_name)
         else:
             fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=0.0)
         if fd is None:
+            if mkdir_failed:
+                print(f"❌ 重采集闸锁目录不可创建：{HEAVY_LOCK_PATH.parent}\n"
+                      f"   → 检查该目录的权限/磁盘（环境问题，非闸占用）；修复后重试，勿加 --force",
+                      file=sys.stderr, flush=True)
+                sys.exit(4)
             holder = read_lock_holder(HEAVY_LOCK_PATH)
             print(f"❌ 重采集串行闸被占：{holder}\n"
                   f"   锁文件：{HEAVY_LOCK_PATH}\n"

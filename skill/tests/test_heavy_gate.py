@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import subprocess
 import sys
 import time
@@ -160,6 +160,18 @@ class TestLockUtils:
         assert "discover" in shown and "42" in shown
         p.write_text("not-json", encoding="utf-8")
         assert "not-json" in cli.read_lock_holder(p), "脏数据 → 如实降级展示原文"
+
+    def test_read_lock_holder_weird_started_at_types(self, tmp_path):
+        """A1 审查 M3：started_at 形态不可控（dict/list/数字）→ 内层 except 含
+        TypeError/ValueError，任何脏 started_at 都不得抛、时长降级为空。"""
+        import json as _json
+        p = tmp_path / "w.lock"
+        for bad in ({"x": 1}, ["l"], 12345, "not-a-date", 3.14):
+            p.write_text(_json.dumps({"pid": 1, "cmd": "c", "started_at": bad}),
+                         encoding="utf-8")
+            out = cli.read_lock_holder(p)
+            assert out.startswith("c (PID 1") and "已运行" not in out, \
+                f"脏 started_at {bad!r} 必须降级为无时长展示，实际: {out!r}"
 
 
 # ── ② Windows msvcrt 分支（非 Windows 平台 mock 调用路径） ──────────────────
@@ -306,6 +318,25 @@ class TestHeavyGate:
         assert fake_cmd(_fake_args()) == 0, "锁目录缺失时闸必须照常放行（惰性建目录）"
         assert ran and deep.exists()
 
+    def test_gate_mkdir_failure_reports_env_problem_not_holder(self, tmp_path, monkeypatch,
+                                                              capsys):
+        """A1 审查 M2：锁目录不可创建（父路径是文件）→ 报「锁目录不可创建」，
+        绝不误导为「闸被占」（用户去找根本不存在的占用方）。"""
+        blocker = tmp_path / "afile"
+        blocker.write_text("not a dir", encoding="utf-8")
+        monkeypatch.setattr(cli, "HEAVY_LOCK_PATH", blocker / "locks" / "heavy_cdp.lock")
+
+        @cli._heavy_gate
+        def fake_cmd(args):
+            raise AssertionError("目录建不出来时不得进入命令体")
+
+        with pytest.raises(SystemExit) as ei:
+            fake_cmd(_fake_args())
+        assert ei.value.code == 4
+        err = capsys.readouterr().err
+        assert "锁目录不可创建" in err, f"必须如实报环境问题，实际: {err!r}"
+        assert "闸被占" not in err, "不得误报为闸被占"
+
     def test_gate_held_flag_nested_passthrough(self, gate_lock):
         """进程内已持闸（_gate_held）→ 嵌套调用直接放行（防 flock 自死锁）。"""
         proc = _spawn_holder(gate_lock, hold_seconds=4)
@@ -337,6 +368,9 @@ class TestSubprocessIntegration:
 
         cmd_seller 的闸（装饰器）先于 fetch_seller_analysis 执行——不会拉起
         Chrome/网络，是最快退出的受闸命令路径。
+        ⚠️ 前提（A1 审查 M4）：本用例写**真实** data/locks/heavy_cdp.lock——
+        若开发机恰有受闸命令（discover/graph/follow/seller…）在跑，本用例会
+        假失败（它才是真占用方）。重跑前确认无受闸命令即可。
         """
         real_lock = cli.HEAVY_LOCK_PATH
         real_lock.parent.mkdir(parents=True, exist_ok=True)
@@ -361,6 +395,49 @@ class TestSubprocessIntegration:
             assert victim.returncode == 4, \
                 f"受闸命令须 exit 4，实际 {victim.returncode}；stderr={victim.stderr!r}"
             assert "integration-holder" in victim.stderr, \
+                f"报错须含占用方信息；stderr={victim.stderr!r}"
+            assert "--wait" in victim.stderr and "--force" in victim.stderr
+        finally:
+            holder.terminate()
+            holder.wait(timeout=5)
+
+    def test_gated_cli_main_exit4_under_real_lock(self):
+        """A1 审查 M1：经 cli.main() 真实路径（argparse 全链）的 exit 4 集成用例。
+
+        与上方 cmd_seller 直调版的差别：main() 走 build_arg_parser().parse_args()
+        → _preflight_runtime → _silent_update_check → args.func(=装饰后 cmd) 全链，
+        闸语义在完整 CLI 入口上验证。子进程设 SKILL_AUTO_UPDATE=0（简报口径），
+        并在子进程内旁路 updater.check_update——源码布局下 0 档恰走 check_update
+        真网络（5s 超时），stub 掉保证测试零网络。
+        ⚠️ 前提（M4）：写真实 data/locks/heavy_cdp.lock——开发机恰有受闸命令在跑
+        会假失败，重跑前确认无受闸命令。
+        """
+        real_lock = cli.HEAVY_LOCK_PATH
+        real_lock.parent.mkdir(parents=True, exist_ok=True)
+        holder = _spawn_holder(real_lock, hold_seconds=10, holder="main-path-holder")
+        try:
+            _wait_lock_taken(real_lock, holder)
+            victim = subprocess.run(
+                [
+                    sys.executable, "-c",
+                    "import sys; sys.path.insert(0, {root!r}); "
+                    "sys.argv = ['cli.py', 'seller', '--seller-id', '123']; "
+                    "from scripts.lib import updater; "
+                    "updater.check_update = lambda *a, **k: None; "  # 零网络
+                    "from scripts import cli; "
+                    "sys.exit(cli.main())".format(
+                        root=str(Path(__file__).resolve().parent.parent)
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={**os.environ, "SKILL_AUTO_UPDATE": "0"},
+            )
+            assert victim.returncode == 4, \
+                f"经 cli.main() 的受闸命令须 exit 4，实际 {victim.returncode}；" \
+                f"stderr={victim.stderr!r}"
+            assert "main-path-holder" in victim.stderr, \
                 f"报错须含占用方信息；stderr={victim.stderr!r}"
             assert "--wait" in victim.stderr and "--force" in victim.stderr
         finally:

@@ -62,7 +62,7 @@
 | 资源 | 限制 | 影响 |
 |------|------|------|
 | 重命令串行闸 | `discover` / `discover-multi` / `discover-task` / `graph` / `follow` / `seller` 六命令跨进程互斥（`data/locks/heavy_cdp.lock`） | 闸被占 **exit 4**（报错含占用命令/PID/已运行时长）；`--wait` 排队（每 30s 心跳）/ `--force` 强制并行（互踩 Chrome/缓存，慎用） |
-| Chrome CDP | 单实例（file lock，chrome_launcher.py） | graph / follow / image_search / probe 不可并行，必须串行 |
+| Chrome CDP | 单实例（file lock，chrome_launcher.py）；探活三态（up/refused/busy）——繁忙（其他进程正在用）按就绪等待恢复，绝不杀；仅确认端口无人监听才杀带调试端口的实例重启 | graph / follow / image_search / probe 不可并行，必须串行 |
 | 1688 API | 有每分钟配额，高频调用触发验证码拦截（cloud_probe.py:2158） | 连续快速调用会被"验证码拦截" |
 | Worker 提交 | 可并行（队列消费） | 但建议间隔 2-3 秒避免突发 |
 | batch_test | 已内置 `--delay`（默认 3.0s，batch_test.py:327） | 无需手动控制间隔 |
