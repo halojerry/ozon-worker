@@ -1424,7 +1424,8 @@ async def health_check():
 
 @app.get("/api/v1/store/health", responses={
     200: {"content": {"application/json": {"example": {
-        # status ∈ ok/warning/critical/error/unknown（缺凭证=unknown）
+        # T9(api-M3) 起 status ∈ ok/warning/critical/unknown（缺凭证=unknown）；
+        # 上游失败一律 502 固定文案，200 体不再有 error 形态
         "status": "ok",
         "total_usage": 9900,
         "total_limit": 10000,
@@ -1432,11 +1433,24 @@ async def health_check():
         "daily_usage": 40,
         "daily_limit": 200,
         "daily_remaining": 160,
+    }}}},
+    401: {"model": ErrorBody},
+    502: {"content": {"application/json": {"example": {
+        # T9(api-M3): 上游失败只回固定文案，Ozon 原文只进日志
+        "detail": "upstream store health check failed",
     }}}}})
-def store_health(client_id: str = None, api_key: str = None):
+def store_health(request: Request, client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
 
-    Query params (可选):
+    T9(api-M3): Bearer 必填（``_require_bearer``，无 Bearer 401 "Token is
+    required"）——此前完全无鉴权，匿名可拿任意店铺凭证探测 Ozon 店铺配额/
+    存在性。凭证取值：优先 ``X-Ozon-Client-Id`` / ``X-Ozon-Api-Key`` header，
+    缺省回落 query（**query 传凭证已弃用**——query 会进反代/访问日志留痕面，
+    仅为存量调用方向后兼容保留）。上游失败（意外异常或 Ozon error）→ 502
+    固定文案，原文只进 logger——此前 ``message: str(e)`` / Ozon error 原文
+    直接进 200 响应体，上游内部细节泄漏给客户端。
+
+    凭证（header 或 query）:
     - client_id: Ozon Client-Id
     - api_key: Ozon Api-Key
 
@@ -1445,12 +1459,20 @@ def store_health(client_id: str = None, api_key: str = None):
     F-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源
     解析/限流/重试，移除裸 requests.post 直连。
     """
+    _require_bearer(request)
+    client_id = request.headers.get("X-Ozon-Client-Id") or client_id or ""
+    api_key = request.headers.get("X-Ozon-Api-Key") or api_key or ""
     if not client_id or not api_key:
         return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
     try:
         quota = ozon_check_quota(client_id=client_id, api_key=api_key, timeout=10)
         if quota.get("error"):
-            return {"status": "error", "message": f"Ozon API error: {quota['error']}"}
+            # T9(api-M3): Ozon 错误原文不回显（此前 f"Ozon API error: {quota['error']}"
+            # 直接进响应体）——固定文案 + 原文截断进日志
+            logger.warning("store/health upstream fail: %s",
+                           str(quota["error"])[:120])
+            raise HTTPException(status_code=502,
+                                detail="upstream store health check failed")
         total_used = int(quota.get("total_used", 0) or 0)
         total_limit = int(quota.get("total_limit", 0) or 0)
         daily_used = int(quota.get("daily_used", 0) or 0)
@@ -1467,8 +1489,13 @@ def store_health(client_id: str = None, api_key: str = None):
             "total_usage": total_used, "total_limit": total_limit, "remaining": remaining,
             "daily_usage": daily_used, "daily_limit": daily_limit, "daily_remaining": daily_remaining,
         }
+    except HTTPException:
+        raise  # 401/502 原样透传，不被兜底吞掉
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # T9(api-M3): 异常文本绝不进响应（此前 200 体 {"status":"error",
+        # "message": str(e)} 会把连接串等内部细节泄漏给客户端）
+        logger.warning("store/health upstream fail: %s", str(e)[:120])
+        raise HTTPException(status_code=502, detail="upstream store health check failed")
 
 
 def _extract_token_from_body(body_text: str) -> str:

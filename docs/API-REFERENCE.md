@@ -3101,7 +3101,9 @@ Store Health — 查询 Ozon 店铺配额健康状态。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+| 502 | Bad Gateway | — |
 
 ## stores
 

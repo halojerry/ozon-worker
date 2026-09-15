@@ -10285,7 +10285,7 @@
     },
     "/api/v1/store/health": {
       "get": {
-        "description": "查询 Ozon 店铺配额健康状态。\n\nQuery params (可选):\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，\n不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。\nF-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源\n解析/限流/重试，移除裸 requests.post 直连。",
+        "description": "查询 Ozon 店铺配额健康状态。\n\nT9(api-M3): Bearer 必填（``_require_bearer``，无 Bearer 401 \"Token is\nrequired\"）——此前完全无鉴权，匿名可拿任意店铺凭证探测 Ozon 店铺配额/\n存在性。凭证取值：优先 ``X-Ozon-Client-Id`` / ``X-Ozon-Api-Key`` header，\n缺省回落 query（**query 传凭证已弃用**——query 会进反代/访问日志留痕面，\n仅为存量调用方向后兼容保留）。上游失败（意外异常或 Ozon error）→ 502\n固定文案，原文只进 logger——此前 ``message: str(e)`` / Ozon error 原文\n直接进 200 响应体，上游内部细节泄漏给客户端。\n\n凭证（header 或 query）:\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，\n不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。\nF-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源\n解析/限流/重试，移除裸 requests.post 直连。",
         "operationId": "store_health_api_v1_store_health_get",
         "parameters": [
           {
@@ -10325,6 +10325,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -10334,6 +10344,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "upstream store health check failed"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "summary": "Store Health"
