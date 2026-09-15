@@ -1581,7 +1581,7 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
         ):
             try:
                 _trows = supabase.table("tokens").select(
-                    "user_id, unlimited_quota, status"
+                    "user_id, unlimited_quota"
                 ).eq("key", raw_key).is_("deleted_at", "null").limit(1).execute()
                 if _trows.data:
                     _row = _trows.data[0]
