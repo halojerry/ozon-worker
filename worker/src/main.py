@@ -782,7 +782,9 @@ async def http_async_run(request: Request) -> dict:
     try:
         deadline_sec = parse_deadline_sec(request.headers)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # T2(api-M1 补): 固定语义文案，异常细节只进日志
+        logger.warning("Invalid deadline header on /async_run: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid deadline header")
 
     # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id。
     # 优先用上游 x-run-id；没传就生成 UUID。
@@ -829,8 +831,10 @@ async def http_async_run(request: Request) -> dict:
             ctx=ctx,
         )
     except AsyncTaskStorageError as e:
+        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
+        logger.warning("async-task storage unavailable: %s", e)
         raise HTTPException(status_code=503,
-                            detail=f"async-task storage unavailable: {e}")
+                            detail="async-task storage temporarily unavailable")
 
 
 @app.get("/task/{task_id}", responses={
@@ -847,8 +851,10 @@ async def http_get_task(task_id: str) -> dict:
     try:
         row = await async_runtime.get(task_id)
     except AsyncTaskStorageError as e:
+        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
+        logger.warning("async-task storage unavailable: %s", e)
         raise HTTPException(status_code=503,
-                            detail=f"async-task storage unavailable: {e}")
+                            detail="async-task storage temporarily unavailable")
     if row is None:
         raise HTTPException(status_code=404, detail="task not found")
     return row
@@ -1004,7 +1010,8 @@ async def http_stream_run(request: Request):
     request_context.set(ctx)
     run_id = ctx.run_id
     is_agent = graph_helper.is_agent_proj()
-    _log_request_receipt("/stream_run", run_id, request, raw_body)
+    _log_request_receipt("/stream_run", run_id, request, raw_body,
+                         extra={"is_agent_project": is_agent})
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
@@ -2115,14 +2122,19 @@ async def http_submit_task(request: Request):
         raise HTTPException(status_code=500, detail="Failed to submit task")
 
 
-def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes) -> None:
+def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes,
+                         extra: dict | None = None) -> None:
     """T2(crypto-C1): /run 系请求回执日志——绝不落 body 原文（含 token/ozon_api_key），
-    只落端点/run_id/query 键名列表/字节数。"""
+    只落端点/run_id/query 键名列表/字节数。extra: 附加诊断键值对（k=v 空格拼接；None 省略）。"""
     try:
         qkeys = ",".join(sorted(request.query_params.keys())) if request.query_params else "-"
     except Exception:
         qkeys = "-"
-    logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} body_bytes={len(raw_body)}")
+    extra_part = ""
+    if extra:
+        extra_part = " " + " ".join(f"{k}={v}" for k, v in extra.items())
+    logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} "
+                f"body_bytes={len(raw_body)}{extra_part}")
 
 
 def _task_status_guard(request: Request, task_row: dict) -> None:
@@ -2232,8 +2244,9 @@ async def http_task_status(task_id: str, request: Request):
     except HTTPException:
         raise  # v0.73: 404/401/租户 404 直通（此前被吞成 500，与 v1 docs 的 404 约定不符）
     except Exception as e:
-        logger.error(f"Get task status error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to get task status")
 
 
 @app.post("/cancel_task/{task_id}", responses={
@@ -2276,8 +2289,9 @@ async def http_cancel_task(task_id: str):
             )
             
     except Exception as e:
-        logger.error(f"Cancel task error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to cancel task")
 
 
 @app.post("/resubmit_task/{task_id}", responses={
@@ -2416,8 +2430,9 @@ async def http_task_statistics(request: Request):
         }
         
     except Exception as e:
-        logger.error(f"Get task statistics error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get task statistics: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to get task statistics")
 
 
 @app.get(path="/graph_parameter", responses={
@@ -2533,9 +2548,11 @@ async def v1_health():
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return HealthResponse(status="ok", message="Service is running", db="connected")
-    except Exception as e:
+    except Exception:
+        # T2(api-M1 补): str(e) 可能携带连接串等内部信息，只进日志；status/db 语义字段保留
+        logger.exception("health check failed")
         raise HTTPException(status_code=503, detail={
-            "status": "degraded", "message": str(e), "db": "disconnected"
+            "status": "degraded", "message": "service temporarily unavailable", "db": "disconnected"
         })
 
 
@@ -3068,7 +3085,9 @@ async def v1_categories_search(request: Request):
         rows = get_category_query().search_nodes(
             q_text, top_k=top_k, node_type="type", language="ZH_HANS")
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"category tree unavailable: {exc}")
+        # T2(api-M1 补): 503 固定文案，异常细节只进日志
+        logger.warning("category tree unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="category tree temporarily unavailable")
     return {"items": [{
         "description_category_id": str(r.get("description_category_id", "") or ""),
         "type_id": str(r.get("type_id", "") or ""),
@@ -3175,7 +3194,9 @@ async def v1_categories_attributes(request: Request):
                 int(attr_id), int(dc), int(tp), _client_id, _api_key,
             )
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"attribute values unavailable: {exc}")
+            # T2(api-M1 补): 503 固定文案，异常细节只进日志
+            logger.warning("attribute values unavailable: %s", exc)
+            raise HTTPException(status_code=503, detail="attribute values temporarily unavailable")
         return {
             "found": bool(res.get("found")),
             "cached": bool(res.get("cached")),
@@ -3191,7 +3212,9 @@ async def v1_categories_attributes(request: Request):
             get_attributes_with_lazy_fetch, int(dc), int(tp), _client_id, _api_key,
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"attribute cache unavailable: {exc}")
+        # T2(api-M1 补): 503 固定文案，异常细节只进日志
+        logger.warning("attribute cache unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="attribute cache temporarily unavailable")
     if not res.get("found"):
         out_fail = {"found": False, "cached": False, "attributes": []}
         if res.get("reason"):

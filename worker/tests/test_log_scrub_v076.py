@@ -5,11 +5,10 @@ from fastapi.testclient import TestClient
 
 def test_run_receipt_log_has_no_body(monkeypatch, caplog):
     from main import _log_request_receipt
-    rec = logging.LogRecord("x", logging.INFO, __file__, 1, "stub", None, None)
     monkeypatch.setattr(logging.Logger, "handle", lambda self, r: None)
     captured = {}
     monkeypatch.setattr(logging.Logger, "info", lambda self, msg, *a, **k: captured.update(msg=msg))
-    import asyncio
+
     class FakeReq:  # query_params 误打误撞只用于摘要
         query_params = {}
     body = b'{"token":"sk-secret123","ozon_api_key":"AK-xyz"}'  # brief 写 49，实为 48 字节——按字面量实算
@@ -42,3 +41,62 @@ def test_stream_run_and_node_run_400_no_body_echo(client_factory=None):
         assert r.status_code == 400, url
         assert "sk-leaky-key" not in r.text, url
         assert "Traceback" not in r.text, url
+
+
+def test_receipt_log_extra_field(monkeypatch):
+    """补①：extra 诊断键值对以 k=v 拼进日志行；不传则形态与基线一致。"""
+    from main import _log_request_receipt
+    monkeypatch.setattr(logging.Logger, "handle", lambda self, r: None)
+    captured = {}
+    monkeypatch.setattr(logging.Logger, "info", lambda self, msg, *a, **k: captured.update(msg=msg))
+
+    class FakeReq:
+        query_params = {}
+
+    _log_request_receipt("/stream_run", "rid-2", FakeReq(), b"{}",
+                         extra={"is_agent_project": True})
+    assert "is_agent_project=True" in captured["msg"]
+    _log_request_receipt("/run", "rid-3", FakeReq(), b"{}")
+    assert captured["msg"].endswith("body_bytes=2")
+    assert "is_agent_project" not in captured["msg"]
+
+
+def test_async_storage_503_no_exception_text(monkeypatch):
+    """补②：/async_run 与 /task/{id} 的 503 不回显 AsyncTaskStorageError 原文。"""
+    import main as main_mod
+    from main import app
+    from runtime.async_tasks import AsyncTaskStorageError
+    client = TestClient(app, raise_server_exceptions=False)
+
+    class _FakeRuntime:
+        async def submit(self, **kwargs):
+            raise AsyncTaskStorageError("secret-bucket-internal")
+
+        async def get(self, task_id):
+            raise AsyncTaskStorageError("secret-bucket-internal")
+
+    monkeypatch.setattr(main_mod, "async_runtime", _FakeRuntime())
+    # 无 lifespan 时 async_task_config 是 stub（缺 RECURSION_LIMIT），补上避免无关 500
+    monkeypatch.setattr(main_mod.async_task_config, "RECURSION_LIMIT", 25, raising=False)
+    r = client.post("/async_run", content=b'{"foo": "bar"}',
+                    headers={"Content-Type": "application/json"})
+    assert r.status_code == 503
+    assert "secret-bucket-internal" not in r.text
+    r2 = client.get("/task/tid-1")
+    assert r2.status_code == 503
+    assert "secret-bucket-internal" not in r2.text
+
+
+def test_health_503_no_exception_text(monkeypatch):
+    """补②：/health 503 的 message 不回显 str(e)（可能含连接串），degraded 语义保留。"""
+    from main import app
+    client = TestClient(app, raise_server_exceptions=False)
+
+    def _boom():
+        raise RuntimeError("postgres://user:pass@internal-host:5432/ozon")
+
+    monkeypatch.setattr("storage.database.db.get_engine", _boom)
+    r = client.get("/api/v1/health")
+    assert r.status_code == 503
+    assert "internal-host" not in r.text
+    assert "degraded" in r.text
