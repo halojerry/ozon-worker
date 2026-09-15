@@ -778,7 +778,7 @@ async def http_async_run(request: Request) -> dict:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_async_run: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
     try:
         deadline_sec = parse_deadline_sec(request.headers)
     except ValueError as e:
@@ -816,7 +816,6 @@ async def http_async_run(request: Request) -> dict:
                 detail={
                     "error_code": error_response["error_code"],
                     "error_message": error_response["error_message"],
-                    "stack_trace": extract_core_stack(),
                 },
             )
 
@@ -876,10 +875,10 @@ async def http_run(request: Request) -> Dict[str, Any]:
     raw_body = await request.body()
     try:
         body_text = raw_body.decode("utf-8")
-    except Exception as e:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400,
-                            detail=f"Invalid JSON format: {body_text}, traceback: {traceback.format_exc()}, error: {e}")
+    except Exception:
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback（曾把 token 明文打进 detail）
+        logger.warning("Invalid JSON body on %s: %s", "/run", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
@@ -892,12 +891,7 @@ async def http_run(request: Request) -> Dict[str, Any]:
     run_id = ctx.run_id
     request_context.set(ctx)
 
-    logger.info(
-        f"Received request for /run: "
-        f"run_id={run_id}, "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}"
-    )
+    _log_request_receipt("/run", run_id, request, raw_body)
 
     try:
         payload = await request.json()
@@ -949,7 +943,7 @@ async def http_run(request: Request) -> Dict[str, Any]:
 
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format, {extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     except asyncio.CancelledError:
         logger.info(f"Request cancelled for run_id: {run_id}")
@@ -963,12 +957,13 @@ async def http_run(request: Request) -> Dict[str, Any]:
             f"Unexpected error in http_run: [{error_response['error_code']}] {error_response['error_message']}, "
             f"traceback: {traceback.format_exc()}", exc_info=True
         )
+        # T2(api-M1): stack_trace 移出响应 detail（此前整段 traceback 回显给客户端），只进日志
+        logger.error("run failed stack: %s", extract_core_stack())
         raise HTTPException(
             status_code=500,
             detail={
                 "error_code": error_response["error_code"],
                 "error_message": error_response["error_message"],
-                "stack_trace": extract_core_stack(),
             }
         )
     finally:
@@ -991,10 +986,10 @@ async def http_stream_run(request: Request):
     raw_body = await request.body()
     try:
         body_text = raw_body.decode("utf-8")
-    except Exception as e:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400,
-                            detail=f"Invalid JSON format: {body_text}, traceback: {extract_core_stack()}, error: {e}")
+    except Exception:
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback
+        logger.warning("Invalid JSON body on %s: %s", "/stream_run", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
@@ -1009,18 +1004,12 @@ async def http_stream_run(request: Request):
     request_context.set(ctx)
     run_id = ctx.run_id
     is_agent = graph_helper.is_agent_proj()
-    logger.info(
-        f"Received request for /stream_run: "
-        f"run_id={run_id}, "
-        f"is_agent_project={is_agent}, "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}"
-    )
+    _log_request_receipt("/stream_run", run_id, request, raw_body)
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_stream_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format:{extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     if is_agent:
         stream_generator = agent_stream_handler(
@@ -1082,30 +1071,30 @@ async def http_node_run(node_id: str, request: Request):
     try:
         body_text = raw_body.decode("utf-8")
     except UnicodeDecodeError:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {body_text}")
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文
+        logger.warning("Invalid JSON body on %s: %s", f"/node_run/{node_id}", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
 
     ctx = new_context(method="node_run", headers=request.headers)
     request_context.set(ctx)
-    logger.info(
-        f"Received request for /node_run/{node_id}: "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}",
-    )
+    run_id = ctx.run_id
+    _log_request_receipt(f"/node_run/{node_id}", run_id, request, raw_body)
 
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_node_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format:{extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
     try:
         return await service.run_node(node_id, payload, ctx)
     except KeyError:
+        # T2(api-M1): traceback 移出 404 detail，只进日志
+        logger.warning("node_run 404 stack: %s", extract_core_stack()[-500:])
         raise HTTPException(status_code=404,
-                            detail=f"node_id '{node_id}' not found or input miss required fields, traceback: {extract_core_stack()}")
+                            detail=f"node_id '{node_id}' not found or input miss required fields")
     except Exception as e:
         # 使用错误分类器获取错误信息
         error_response = service.error_classifier.get_error_response(e, {"node_name": node_id})
@@ -1113,12 +1102,13 @@ async def http_node_run(node_id: str, request: Request):
             f"Unexpected error in http_node_run: [{error_response['error_code']}] {error_response['error_message']}, "
             f"traceback: {traceback.format_exc()}", exc_info=True
         )
+        # T2(api-M1): stack_trace 移出响应 detail，只进日志
+        logger.error("node_run failed stack: %s", extract_core_stack())
         raise HTTPException(
             status_code=500,
             detail={
                 "error_code": error_response["error_code"],
                 "error_message": error_response["error_message"],
-                "stack_trace": extract_core_stack(),
             }
         )
     finally:
@@ -2120,8 +2110,19 @@ async def http_submit_task(request: Request):
     except HTTPException:
         raise  # 直接抛出HTTP异常
     except Exception as e:
-        logger.error(f"Submit task error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}")
+        # T2(api-M1): 500 detail 固定文案（str(e) 可能携带内部信息），异常细节只进日志
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail="Failed to submit task")
+
+
+def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes) -> None:
+    """T2(crypto-C1): /run 系请求回执日志——绝不落 body 原文（含 token/ozon_api_key），
+    只落端点/run_id/query 键名列表/字节数。"""
+    try:
+        qkeys = ",".join(sorted(request.query_params.keys())) if request.query_params else "-"
+    except Exception:
+        qkeys = "-"
+    logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} body_bytes={len(raw_body)}")
 
 
 def _task_status_guard(request: Request, task_row: dict) -> None:
