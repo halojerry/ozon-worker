@@ -337,6 +337,44 @@ class TestHeavyGate:
         assert "锁目录不可创建" in err, f"必须如实报环境问题，实际: {err!r}"
         assert "闸被占" not in err, "不得误报为闸被占"
 
+    def test_gate_wait_with_uncreatable_lock_dir_exits_promptly(self, tmp_path):
+        """泳道A 终审 I-1：--wait + 锁目录不可创建 → 有限时间 exit 4 报环境问题。
+
+        回归背景：args.wait=True 原先先于 mkdir_failed 消费进入排队循环；而
+        try_acquire 里 open("a+") 对持久性 OSError **立即**返回 None（在等待
+        deadline 之前，内部无 sleep）→ 心跳 print → 紧凑下一轮 → 无限刷 stderr
+        + CPU 空转。修复后 --wait 遇 mkdir 失败必须短路走「锁目录不可创建」
+        快速失败。子进程承载（timeout=15）：坏代码下 run 超时抛 TimeoutExpired
+        即红，不会挂死测试会话。
+        """
+        blocker = tmp_path / "afile"
+        blocker.write_text("not a dir", encoding="utf-8")
+        t0 = time.monotonic()
+        victim = subprocess.run(
+            [
+                sys.executable, "-c",
+                "import sys; sys.path.insert(0, {root!r}); "
+                "from pathlib import Path; "
+                "from scripts import cli; "
+                "cli.HEAVY_LOCK_PATH = Path({lock!r}); "  # 父路径是文件 → mkdir 恒失败
+                "p = cli.build_arg_parser(); "
+                "args = p.parse_args(['seller', '--seller-id', '1', '--wait']); "
+                "sys.exit(cli.cmd_seller(args))".format(
+                    root=str(Path(__file__).resolve().parent.parent),
+                    lock=str(blocker / "locks" / "heavy_cdp.lock"),
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        elapsed = time.monotonic() - t0
+        assert victim.returncode == 4, \
+            f"--wait + 锁目录不可创建须快速 exit 4，实际 {victim.returncode}；stderr={victim.stderr[-300:]!r}"
+        assert "锁目录不可创建" in victim.stderr, \
+            f"必须报环境问题语义；stderr={victim.stderr[-300:]!r}"
+        assert elapsed < 15, f"必须在有限时间退出（实测 {elapsed:.1f}s），不得无限循环刷屏"
+
     def test_gate_held_flag_nested_passthrough(self, gate_lock):
         """进程内已持闸（_gate_held）→ 嵌套调用直接放行（防 flock 自死锁）。"""
         proc = _spawn_holder(gate_lock, hold_seconds=4)

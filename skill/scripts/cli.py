@@ -417,13 +417,21 @@ def read_lock_holder(lock_path: Path) -> str:
 
 
 def _acquire_heavy_lock_waiting(cmd_name: str):
-    """--wait 排队获取：阻塞直至拿到锁，每 30s 打一行心跳（当前占用方信息）。"""
+    """--wait 排队获取：阻塞直至拿到锁，每 30s 打一行心跳（当前占用方信息）。
+
+    ⚠️ 泳道A 终审 I-1：循环内每拍固定 sleep(1) 兜底——try_acquire 对持久性
+    open 失败（目录被删/权限翻转等运行期环境劣化）会**立即**返回 None（在
+    等待 deadline 之前，内部无 sleep），无兜底则心跳 print 后紧凑下一轮 →
+    无限刷 stderr + CPU 空转。正常争用路径 try_acquire 内部已阻塞 ~30s，
+    此 1s 拍只是让心跳周期从 30s 变 ~31s，无可感知影响。
+    """
     while True:
         fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=_HEAVY_WAIT_HEARTBEAT_SECONDS)
         if fd is not None:
             return fd
         print(f"⏳ 重采集闸仍被占（{read_lock_holder(HEAVY_LOCK_PATH)}），继续排队等待…"
               f"（Ctrl-C 退出）", file=sys.stderr, flush=True)
+        time.sleep(1)  # I-1 兜底：持久性 open 失败时防无节流紧凑空转
 
 
 def _heavy_gate(func):
@@ -450,7 +458,10 @@ def _heavy_gate(func):
             HEAVY_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
             mkdir_failed = True  # 目录创建失败则锁必然拿不到 → 走下方 fail-fast（不静默放行）
-        if getattr(args, "wait", False):
+        # ⚠️ 泳道A 终审 I-1：mkdir 失败时不得进 --wait 排队——try_acquire 对
+        # 持久性 open 失败立即返回 None（内部无 sleep），排队循环会无限紧凑
+        # 刷 stderr；短路走下方「锁目录不可创建」快速失败。
+        if getattr(args, "wait", False) and not mkdir_failed:
             fd = _acquire_heavy_lock_waiting(cmd_name)
         else:
             fd = lock_utils.try_acquire(HEAVY_LOCK_PATH, timeout=0.0)
