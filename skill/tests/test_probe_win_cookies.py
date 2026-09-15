@@ -378,6 +378,46 @@ class TestPrefixStats:
         assert stats["target_cookies"] is None
         assert stats["error"]
 
+    def test_uri_connect_failure_falls_back_and_keeps_uri_kwarg(self, monkeypatch,
+                                                                tmp_path):
+        """Critical 回归锁定：标准 sqlite3 构建（含 Windows python.org 官方构建）
+        不显式 uri=True 不解释 URI——整串当字面文件名，connect 处就抛
+        OperationalError。①第一拍 connect 必须显式带 uri=True kwargs；
+        ②connect 异常必须收进 try 落到第二拍非 ro 兜底（绝不逃逸），函数成功返回。"""
+        db = tmp_path / "Cookies"
+        _make_chromium_cookies_db(db, [("login.1688.com", "cookie2", "v10", "")])
+        real_connect = sqlite3.connect
+        calls: list[tuple] = []
+
+        def fake_connect(*args, **kwargs):
+            calls.append((args, kwargs))
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("unable to open database file")
+            return real_connect(*args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", fake_connect)
+        rows = pw._query_copy_rows(db, "SELECT host_key FROM cookies", ())
+        assert [r[0] for r in rows] == ["login.1688.com"], "兜底拍成功返回数据"
+        (first_args, first_kwargs), (second_args, second_kwargs) = calls[0], calls[1]
+        assert first_args[0].startswith("file:") and "mode=ro" in first_args[0]
+        assert first_kwargs.get("uri") is True, "第一拍必须显式 uri=True（否则标准构建不解释 URI）"
+        assert not second_args[0].startswith("file:"), "第二拍为非 ro 普通路径兜底"
+        assert second_kwargs == {}
+
+    def test_connect_error_at_both_attempts_raises_not_escapes(self, monkeypatch,
+                                                               tmp_path):
+        """两拍 connect 全炸 → 收敛成 error 行（不逃逸、无句柄泄漏）。"""
+        db = tmp_path / "Cookies"
+        _make_chromium_cookies_db(db, [("login.1688.com", "cookie2", "v10", "")])
+
+        def always_fail(*args, **kwargs):
+            raise sqlite3.OperationalError("unable to open database file")
+
+        monkeypatch.setattr(sqlite3, "connect", always_fail)
+        s = pw._sample_prefix_distribution(db)
+        assert s["error"] and "unable to open database file" in s["error"]
+        assert s["target_rows"] == 0
+
 
 # ═══════════ ③ 目标域过滤正确 ═══════════
 

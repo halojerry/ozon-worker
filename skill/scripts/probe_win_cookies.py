@@ -264,18 +264,29 @@ def _copy_cookies_db(db: Path, tmp_db: Path) -> None:
 def _query_copy_rows(tmp_db: Path, sql: str, params: tuple) -> list[tuple]:
     """查临时目录里的 Cookies 副本。conn 任何路径都关闭——Windows 文件锁下
     句柄存活会让 TemporaryDirectory 清理抛 PermissionError，把「逐项独立失败」
-    升级成探针整体异常。先 ro 打开；WAL 未 checkpoint 的副本 ro 读会报
-    SQLITE_READONLY（恢复需写 -shm）→ 降级非 ro 重查一次（副本在我们临时目录，
-    不触用户源库红线；B1 cookie_harvest 先例即非 ro 打开副本让 sqlite 回放）。"""
+    升级成探针整体异常。先 ro URI 打开（**必须显式 uri=True**：标准 sqlite3
+    构建含 Windows python.org 官方构建，不显式带参不解释 URI，整串当字面
+    文件名，Windows 上含冒号/目录不存在 → connect 处就抛 OperationalError）；
+    WAL 未 checkpoint 的副本 ro 读会报 SQLITE_READONLY（恢复需写 -shm）→
+    降级非 ro 普通路径重查（副本在我们临时目录，不触用户源库红线；B1
+    cookie_harvest 先例即非 ro 打开副本让 sqlite 回放）。⚠️ connect 也必须
+    收进 try：任何 connect 异常都落下一拍兜底，绝不逃逸（否则非 ro 兜底
+    永远走不到，探针核心逐项全 error）。"""
     last: Exception = RuntimeError("unreachable")
-    for uri in (f"file:{tmp_db}?mode=ro", str(tmp_db)):
-        conn = sqlite3.connect(uri)
+    attempts = (
+        (f"file:{tmp_db}?mode=ro", {"uri": True}),
+        (str(tmp_db), {}),
+    )
+    for path, kwargs in attempts:
+        conn = None
         try:
+            conn = sqlite3.connect(path, **kwargs)
             return conn.execute(sql, params).fetchall()
         except sqlite3.Error as exc:
             last = exc
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
     raise last
 
 
