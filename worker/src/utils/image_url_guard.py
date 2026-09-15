@@ -19,12 +19,22 @@ from __future__ import annotations
 
 import re
 from typing import Iterable, List
+from urllib.parse import urlparse
 
 # 缩略/转换后缀：搜索兜底串图特征（cbu01.alicdn.com/..._!!sellerId-0-cib.310x310.jpg
 # 或 ..._460x460q100.jpg —— 尺寸段以 . 或 _ 与主体分隔）
 # 批1 起尺寸段放宽到两位（\d{2,4}）：淘宝/pdd 缩略后缀 `_60x60`/`.jpg_50x50.jpg`
 # 形态旧 \d{3,4} 拦不住；只收紧不放宽，既有拒绝面零回归。
 _THUMBNAIL_PATTERN = re.compile(r"[._]\d{2,4}x\d{2,4}")
+
+# 货源图床白名单域（E1 转存/生图参考唯一放行面）。cos_uploader.salvage_original_images
+# 把它传给 safe_fetch 的 allowed_host_suffixes 作第二道闸（重定向跳转域复核）——
+# 增删域改这里一处即可，两处消费同步生效。
+IMAGE_HOST_SUFFIXES = (
+    "alicdn.com", "1688.com",
+    "taobaocdn.com",
+    "pddpic.com", "yangkeduo.com", "pinduoduo.com",
+)
 
 
 def is_product_image_candidate(url: object) -> bool:
@@ -40,11 +50,13 @@ def is_product_image_candidate(url: object) -> bool:
         return False
     # 白名单：1688 alicdn 图床（1688.com 覆盖 img.1688.com 等自有域）
     # + 批1 新平台图床：淘宝系 taobaocdn / 拼多多 pddpic·yangkeduo·pinduoduo
-    if not any(dom in lowered for dom in (
-        "alicdn.com", "1688.com",
-        "taobaocdn.com",
-        "pddpic.com", "yangkeduo.com", "pinduoduo.com",
-    )):
+    # T15(inj-H1): 白名单按 hostname 精确/后缀匹配——子串 in 会被 query 垫片
+    # 绕过（审计实证 `http://127.0.0.1:8080/?pad=alicdn.com` 直通旧白名单）。
+    try:
+        host = (urlparse(lowered).hostname or "").lower()
+    except ValueError:
+        return False
+    if not any(host == d or host.endswith("." + d) for d in IMAGE_HOST_SUFFIXES):
         return False
     # 拒缩略/转换后缀
     if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
