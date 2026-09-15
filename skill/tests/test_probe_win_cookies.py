@@ -211,6 +211,26 @@ class TestReportStructure:
             "组件目录不是 profile，被 info_cache 过滤"
         assert set(dirs) == {"Default", "Profile 1", "Profile 2"}, "补录未登记带库目录"
 
+    def test_info_cache_registered_system_guest_skipped(self, monkeypatch, tmp_path):
+        """现代 Chrome（M114+）会把 System/Guest Profile 也登记进
+        profile.info_cache——仍必须跳过，绝不因登记在册当用户 profile 列出。"""
+        tree = _make_fake_tree(tmp_path)
+        (tree["user_data"] / "Local State").write_text(json.dumps({
+            "profile": {"info_cache": {
+                "Default": {"name": "person 1"},
+                "Profile 1": {"name": "work"},
+                "System Profile": {"name": "System Profile"},
+                "Guest Profile": {"name": "Guest Profile"},
+            }}}), encoding="utf-8")
+        for name in ("System Profile", "Guest Profile"):
+            (tree["user_data"] / name).mkdir(exist_ok=True)
+        _patch_resolvers(monkeypatch, tree)
+        report = pw.collect_report()
+        dirs = {p["dir"] for p in report["sources"]["chrome"]["profiles"]}
+        assert dirs == {"Default", "Profile 1"}, "登记在册的 System/Guest 不进清单"
+        assert set(report["sources"]["chrome"]["profiles_skipped"]) == \
+            {"System Profile", "Guest Profile"}
+
     def test_no_sources_installed_exit_zero(self, monkeypatch, tmp_path, capsys):
         """「无源浏览器」是合法结果：exit 0，报告如实记录。"""
         monkeypatch.setattr(pw, "sys", types.SimpleNamespace(platform="win32"))
@@ -318,6 +338,45 @@ class TestPrefixStats:
         s = pw._sample_prefix_distribution(db)
         assert s["target_rows"] == 200
         assert s["other_rows"] == 50
+
+    def test_corrupt_cookies_db_error_line_not_crash(self, tmp_path):
+        """损坏库：逐项独立失败——error 行返回、不 raise；sqlite 句柄任何路径
+        都关闭（否则 Windows 文件锁下 TemporaryDirectory 清理 PermissionError
+        会顶掉 error 行并把探针整体打成 exit 1）。"""
+        db = tmp_path / "Cookies"
+        db.write_bytes(b"this is not a sqlite database at all" * 20)
+        s = pw._sample_prefix_distribution(db)
+        assert s["error"], "损坏库记 error 行"
+        assert s["target_rows"] == 0
+
+    def test_wal_pending_rows_recovered(self, tmp_path):
+        """主场景（浏览器运行中、WAL 未 checkpoint）：拷 db+wal(-shm) 后，
+        wal 里未 checkpoint 的行必须能回放读出（ro 读 WAL 副本报
+        SQLITE_READONLY 时降级非 ro——B1 cookie_harvest 先例）。"""
+        db = tmp_path / "Cookies"
+        writer = sqlite3.connect(str(db))
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute(
+            "CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, "
+            "encrypted_value BLOB, path TEXT, expires_utc INTEGER, "
+            "is_secure INTEGER, is_httponly INTEGER)")
+        writer.execute("INSERT INTO cookies (host_key) VALUES (?)",
+                       ("login.1688.com",))
+        writer.commit()
+        # writer 保持打开（wal 未 checkpoint），探针此时拷库读取
+        s = pw._sample_prefix_distribution(db)
+        writer.close()
+        assert s["error"] is None
+        assert s["target_rows"] == 1, "wal 中未 checkpoint 的行也要被统计到"
+
+    def test_firefox_corrupt_db_error_recorded(self, tmp_path):
+        """Firefox 损坏库同语义：error 行 + target_cookies=None，不 raise。"""
+        prof = tmp_path / "prof"
+        prof.mkdir()
+        (prof / "cookies.sqlite").write_bytes(b"garbage" * 20)
+        stats = pw._firefox_profile_stats(prof)
+        assert stats["target_cookies"] is None
+        assert stats["error"]
 
 
 # ═══════════ ③ 目标域过滤正确 ═══════════
@@ -444,7 +503,10 @@ class TestTakeoverBranch:
         assert not cdp_called.called, "CDP 未起不读 cookie"
         assert proc.terminated
         assert r["cleaned"] is True
-        assert not (base / "probe_takeover_00000000_000000").exists()
+        udd = [a for a in launched["cmd"]
+               if a.startswith("--user-data-dir=")][0]
+        assert not Path(udd.split("=", 1)[1]).exists(), \
+            "从启动 argv 解析的真实 workdir 已被 finally 清理"
 
     def test_takeover_no_browser_executable(self, monkeypatch, tmp_path):
         monkeypatch.setattr(pw.chrome_launcher, "_find_chrome_executable",

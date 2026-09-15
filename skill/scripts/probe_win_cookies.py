@@ -201,7 +201,15 @@ def _chromium_profiles(user_data: Path) -> tuple[list[dict], list[str]]:
         if name.lower() in PROFILE_SKIP_NAMES:
             skipped.append(name)
     if info_cache:
-        names = [str(n) for n in info_cache if str(n) in entries]
+        names = []
+        for n in info_cache:
+            name = str(n)
+            # ⚠️ 现代 Chrome（M114+）会把 System/Guest Profile 也登记进
+            # info_cache——与简报/兜底扫描同口径跳过，绝不因登记在册就当
+            # 用户 profile 列出。
+            if name not in entries or name.lower() in PROFILE_SKIP_NAMES:
+                continue
+            names.append(name)
         for name in names:
             kept.append(_row(name))
         for name in entries:  # 未登记但带 Cookies 库 → 补录
@@ -253,6 +261,24 @@ def _copy_cookies_db(db: Path, tmp_db: Path) -> None:
             shutil.copy2(src, Path(str(tmp_db) + side))
 
 
+def _query_copy_rows(tmp_db: Path, sql: str, params: tuple) -> list[tuple]:
+    """查临时目录里的 Cookies 副本。conn 任何路径都关闭——Windows 文件锁下
+    句柄存活会让 TemporaryDirectory 清理抛 PermissionError，把「逐项独立失败」
+    升级成探针整体异常。先 ro 打开；WAL 未 checkpoint 的副本 ro 读会报
+    SQLITE_READONLY（恢复需写 -shm）→ 降级非 ro 重查一次（副本在我们临时目录，
+    不触用户源库红线；B1 cookie_harvest 先例即非 ro 打开副本让 sqlite 回放）。"""
+    last: Exception = RuntimeError("unreachable")
+    for uri in (f"file:{tmp_db}?mode=ro", str(tmp_db)):
+        conn = sqlite3.connect(uri)
+        try:
+            return conn.execute(sql, params).fetchall()
+        except sqlite3.Error as exc:
+            last = exc
+        finally:
+            conn.close()
+    raise last
+
+
 def _sample_prefix_distribution(db: Path) -> dict:
     """抽 ≤200 目标域 + ≤50 非目标域行，统计 encrypted_value 前缀分布。
 
@@ -267,14 +293,14 @@ def _sample_prefix_distribution(db: Path) -> dict:
         tmp_db = Path(tmpdir) / "Cookies"
         try:
             _copy_cookies_db(db, tmp_db)
-            conn = sqlite3.connect(f"file:{tmp_db}?mode=ro", uri=True)
-            target = conn.execute(
+            target = _query_copy_rows(
+                tmp_db,
                 f"SELECT encrypted_value, value FROM cookies WHERE {where} LIMIT ?",
-                (SAMPLE_TARGET_LIMIT,)).fetchall()
-            others = conn.execute(
+                (SAMPLE_TARGET_LIMIT,))
+            others = _query_copy_rows(
+                tmp_db,
                 f"SELECT encrypted_value, value FROM cookies WHERE NOT {where} "
-                "LIMIT ?", (SAMPLE_OTHER_LIMIT,)).fetchall()
-            conn.close()
+                "LIMIT ?", (SAMPLE_OTHER_LIMIT,))
         except Exception as exc:
             fail["error"] = f"读 Cookies 库失败: {type(exc).__name__}: {exc}"
             return fail
@@ -310,9 +336,8 @@ def _firefox_profile_stats(profile: Path) -> dict:
         tmp_db = Path(tmpdir) / "cookies.sqlite"
         try:
             shutil.copy2(profile / "cookies.sqlite", tmp_db)
-            conn = sqlite3.connect(f"file:{tmp_db}?mode=ro", uri=True)
-            rows = conn.execute("SELECT host, expiry FROM moz_cookies").fetchall()
-            conn.close()
+            rows = _query_copy_rows(tmp_db,
+                                    "SELECT host, expiry FROM moz_cookies", ())
         except Exception as exc:
             stats["error"] = f"读 cookies.sqlite 失败: {type(exc).__name__}: {exc}"
             stats["target_cookies"] = None
