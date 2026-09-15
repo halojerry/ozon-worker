@@ -3332,6 +3332,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="--paste 时显式指定落域（默认按 cookie 名指纹自动判定）")
     icp.set_defaults(func=cmd_import_cookies)
 
+    # ── Windows cookie 只读探针（win-cookie-import v1 B-T0：源/加密形态/通道判定矩阵）──
+    pwp = sub.add_parser("probe-win-cookies",
+                         help="Windows cookie 只读探针：源浏览器/加密形态/通道判定矩阵"
+                              "（不解密、只读用户目录；生成诊断报告）")
+    pwp.add_argument("--takeover-test", action="store_true",
+                     help="附加副本接管可行性试验（默认关；最小复制集→临时目录→"
+                          "真实浏览器 headless CDP，结束自动清理）")
+    pwp.add_argument("--out", default="",
+                     help="报告 JSON 输出路径（默认 data/probe/win_cookies_<ts>.json）")
+    pwp.set_defaults(func=cmd_probe_win_cookies)
+
     return parser
 
 
@@ -4179,6 +4190,15 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
         return 1
 
     return _finish_import_report(report)
+
+
+def cmd_probe_win_cookies(args: argparse.Namespace) -> int:
+    """Windows cookie 只读探针（win-cookie-import v1 B-T0）——薄壳：
+    全部逻辑在 scripts/probe_win_cookies.py（只读红线/判定矩阵/takeover 试验
+    见该模块 docstring），此处只转发参数，不内联逻辑。"""
+    from scripts.probe_win_cookies import run_cli
+    return run_cli(takeover_test=bool(getattr(args, "takeover_test", False)),
+                   out=(getattr(args, "out", "") or "").strip() or None)
 
 
 def cmd_cleanup(args: argparse.Namespace) -> int:

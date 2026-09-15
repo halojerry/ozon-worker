@@ -49,6 +49,10 @@ COMPILE_FILES = [
 COPY_FILES = [
     "scripts/cli.py",
     "scripts/batch_test.py",
+    # ⚠️ probe_win_cookies.py 明文（win-cookie-import v1 B-T0）：独立诊断入口
+    # 脚本（batch_test.py 同款先例），stdlib + 仓内明文模块（cookie_harvest/
+    # chrome_launcher），无需编译保护；只读红线代码保持可审计明文。
+    "scripts/probe_win_cookies.py",
     # ⚠️ runtime_probe.py 明文（v0.31 PR-A）：它是「错误解释器下运行的第一个文件」
     # （检测 Python 版本/扫描 PATH/re-exec）。编译产物是 py312 ABI —— 在 3.11 下
     # 自己就崩，自动发现失去全部意义。必须纯 stdlib 明文。

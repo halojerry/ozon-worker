@@ -48,6 +48,8 @@ python3 scripts/cli.py import-cookies --paste    # 手动粘贴 Cookie 头（跨
 ```
 Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。Windows：Firefox 源与
 `--paste` 可用；Chromium 源（Chrome/Edge/Brave）走接管通道（后续版本）；
+先跑 `python3 scripts/cli.py probe-win-cookies` 生成只读诊断报告
+（源浏览器/加密形态/通道判定矩阵；`--takeover-test` 附加副本接管可行性试验）；
 `SKILL_DISABLE_COOKIE_HARVEST=1` 关闭自动兜底。
  seller 登录检测 v0.69 起为**纯 cookie 罐静默读取（零导航）**——未登录不再反复弹
 seller.ozon.ru 页面；登录页仅在明确等待登录时打开一次，中途关页不会被弹回。

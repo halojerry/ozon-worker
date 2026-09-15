@@ -83,6 +83,7 @@ description: >
 | `discover-multi` | 多关键词批量选品 | `--keywords a,b,c [--max-each] [--min-margin]` | 同 discover（逐词跑） | 多词横向对比选品 |
 | `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段] [--to-box\|--auto-submit 二选一]` | 耗 1688 搜索配额；出口 flag 触发逐个信封+提交 | 按词找货（`--rules "ai"` 一键预设） |
 | `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态（`--paste` 手动粘贴 Cookie 头兜底） | 无 | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底；Firefox 源全平台可用，Chromium/Safari 仅 macOS） |
+| `probe-win-cookies` | Windows cookie 只读探针（源浏览器/加密形态/通道判定矩阵，不解密） | `[--takeover-test] [--out]` | 写 `data/probe/win_cookies_<ts>.json` 诊断报告 | Windows 上排查 cookie 导入通道 / 接管通道定稿依据 |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
 | `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |
