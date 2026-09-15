@@ -2254,6 +2254,8 @@ Logistics Quote — 物流运费报价端点（v0.29.x, skill 选品利润估算
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 429 | Too Many Requests | [ErrorBody](#schema-errorbody) |
 
 ## mappings
 

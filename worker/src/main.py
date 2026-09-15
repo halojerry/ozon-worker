@@ -2586,7 +2586,8 @@ async def http_graph_inout_parameter(request: Request):
         "fallback_chain": [],
         "logistics_cost_cny": 8.0,
         "channel": "RETS_Standard_A",
-    }}}}})
+    }}}},  # 200 示例收口（example/json/content/200 四层）
+    401: {"model": ErrorBody}, 429: {"model": ErrorBody}})
 async def logistics_quote(request: Request):
     """物流运费报价端点（v0.29.x, skill 选品利润估算用）。
 
@@ -2594,13 +2595,21 @@ async def logistics_quote(request: Request):
            tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
     - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
       否则默认 RETS/Standard。
-    - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
+    - T10(api-M4): Authorization Bearer **必填**（``_require_bearer``）——
+      此前 token 走 body 可选字段，缺省直接跳过鉴权（匿名可拉费率表、可打满
+      带 Ozon 凭证的 3PL 探测），且无 rate limit；现 ``logistics:{clean_token}``
+      独立限流键（不与提交限流额度互挤），超限 429。
+    - body token 保留向后兼容（有值仍校验，语义同 auth_verify）。
 
     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
 
     v0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。
     """
+    clean_token = _require_bearer(request)  # T10(api-M4): 匿名拉费率面收口
+    allowed, _ = rate_limiter.check(f"logistics:{clean_token}")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="rate limited")
     try:
         body = await request.json()
     except Exception:
