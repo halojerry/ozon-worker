@@ -25,8 +25,6 @@ import types
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import scripts.lib.cookie_harvest as ch  # noqa: E402
@@ -81,7 +79,10 @@ def _fake_win_firefox(monkeypatch, tmp_path: Path) -> Path:
 
 class TestPerSourceGate:
     def test_win32_chromium_unsupported_source(self, monkeypatch):
+        """B-T4 起 win32 Chromium 默认走接管通道；kill-switch 下回闸语义
+        （hermetic：真实 Windows 测试机不真启浏览器）。"""
         _set_platform(monkeypatch, "win32")
+        monkeypatch.setenv("SKILL_DISABLE_TAKEOVER", "1")
         for src in ("chrome", "edge", "brave"):
             r = ch._harvest_chromium(src)
             assert r["status"] == "unsupported_source", src
@@ -109,8 +110,10 @@ class TestPerSourceGate:
         assert names == {"cookie2"}, "外域被过滤"
 
     def test_win32_harvest_all_matrix(self, monkeypatch, tmp_path):
-        """整机闸废除：win32 下 chromium/safari unsupported、firefox 照常扫描。"""
+        """整机闸废除：win32 下 firefox 照常扫描；chromium/safari 在 kill-switch
+        下报 unsupported_source（接管默认路由的 mock 覆盖见 test_takeover_channel）。"""
         _set_platform(monkeypatch, "win32")
+        monkeypatch.setenv("SKILL_DISABLE_TAKEOVER", "1")
         _fake_win_firefox(monkeypatch, tmp_path)
         report = ch.harvest_all()
         st = {n: r["status"] for n, r in report["sources"].items()}
@@ -207,16 +210,22 @@ class TestFirefoxRootAndProfilesIni:
         assert prof in ch._firefox_profile_dirs(root)
 
     def test_harvest_only_profiles_with_cookies_db(self, monkeypatch, tmp_path):
-        """profiles.ini 指向的目录没有 cookies.sqlite → 跳过，不报错。"""
+        """profiles.ini 指向的目录没有 cookies.sqlite → 跳过，不报错。
+        （B1 #2 修正：原 fixture 首行 Default= 裸键在任何 section 之前，
+        configparser 抛 MissingSectionHeaderError 走了损坏兜底路径——修正为
+        合法 ini，覆盖「ini 解析成功但无 cookies.sqlite」的预期路径。）"""
         _set_platform(monkeypatch, "win32")
         appdata = tmp_path / "ad"
         root = appdata / "Mozilla" / "Firefox"
         empty = root / "Profiles" / "empty.default"
         empty.mkdir(parents=True)
         (root / "profiles.ini").write_text(
-            "Default=Profiles/empty.default\n[Profile0]\nPath=Profiles/empty.default\n",
+            "[InstallX]\nDefault=Profiles/empty.default\n"
+            "[Profile0]\nPath=Profiles/empty.default\n",
             encoding="utf-8")
         monkeypatch.setenv("APPDATA", str(appdata))
+        assert ch._firefox_profile_dirs(root) == [empty], \
+            "ini 解析成功（损坏 ini 会走 rglob 兜底且此处解析不出该目录）"
         r = ch._harvest_firefox()
         assert r["status"] == "not_installed", "有 profile 无目标 cookie=按既有语义"
         assert r["cookies"] == []
@@ -447,8 +456,10 @@ class TestPasteCliWiring:
         assert "--site" in out
 
     def test_cli_all_sources_unsupported_human_message(self, monkeypatch, capsys):
-        """win32 全源 unsupported 且零 cookie → 人话提示（含 --paste 出路）。"""
+        """win32 全源零 cookie → 人话提示（含 --paste 出路）。
+        kill-switch 让 chromium 源停在不支持态，测试 hermetic（不真启接管）。"""
         _set_platform(monkeypatch, "win32")
+        monkeypatch.setenv("SKILL_DISABLE_TAKEOVER", "1")
         monkeypatch.delenv("APPDATA", raising=False)
         rc = self._run(["import-cookies"])
         assert rc == 1

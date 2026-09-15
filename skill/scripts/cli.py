@@ -3330,6 +3330,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                           "（跨平台兜底；与 --sources 互斥）")
     icp.add_argument("--site", choices=["1688", "ozon-seller"], default="",
                      help="--paste 时显式指定落域（默认按 cookie 名指纹自动判定）")
+    icp.add_argument("--browser-profile", default="",
+                     help="Windows 接管通道指定源浏览器 profile（info_cache 显示名"
+                          "或目录名，如 Default / Profile 1；默认 Default）")
     icp.set_defaults(func=cmd_import_cookies)
 
     # ── Windows cookie 只读探针（win-cookie-import v1 B-T0：源/加密形态/通道判定矩阵）──
@@ -4100,6 +4103,9 @@ _STATUS_LABELS = {
     "parse_error": "⚠️ 解析失败（跳过）",
     "error": "⚠️ 读取异常（跳过）",
     "unsupported_source": "⊘ 当前平台不支持此源",
+    # B-T4 Windows 接管通道状态（takeover_* 前缀）
+    "takeover_no_browser": "⊘ 未找到可接管的浏览器",
+    "takeover_failed": "⚠ 副本接管失败",
 }
 
 
@@ -4135,7 +4141,8 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
 
     if getattr(args, "list_sources", False):
         print("可用源: " + ", ".join(cookie_harvest.ALL_SOURCES)
-              + "（Firefox 全平台；chrome/edge/brave/safari 仅 macOS）", flush=True)
+              + "（Firefox 全平台；Windows 的 Chrome/Edge/Brave 走副本接管通道；"
+                "Safari 仅 macOS）", flush=True)
         return 0
 
     if getattr(args, "paste", False):
@@ -4161,9 +4168,11 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
 
     sources = [s.strip() for s in (getattr(args, "sources", "") or "").split(",")
                if s.strip()]
+    browser_profile = (getattr(args, "browser_profile", "") or "").strip() or None
     print("🔎 扫描本机浏览器 cookie（仅 1688.com / ozon.ru / ozone.ru 域）...",
           flush=True)
-    report = cookie_harvest.harvest_and_import(sources=sources or None)
+    report = cookie_harvest.harvest_and_import(sources=sources or None,
+                                               browser_profile=browser_profile)
     scan = report.get("scan") or {}
     scan_sources = scan.get("sources") or {}
 
@@ -4174,6 +4183,9 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
         total += n
         print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
               f"{f'（{n} 条）' if n else ''}", flush=True)
+        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给人听
+        if status.startswith("takeover") and r.get("message"):
+            print(f"           {r['message']}", flush=True)
 
     if not total:
         # per-source 闸（v1）：零 cookie 且扫到的源全部 unsupported → 人话提示出路

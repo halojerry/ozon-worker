@@ -53,7 +53,8 @@ description: >
 >    看进度 → 完成后 `job_result` 取结果（graph 的 worker_task_ids 可直接喂 `query` 查云任务）；
 >    **会话关闭任务照跑**，重开会话 `job_list` 找回
 > ⑮ 免登录：1688/Ozon seller 未登录时 readiness 自动从本机其他浏览器导入 cookie
->    （每小时最多一次）；也可手动 `import-cookies` 导入，失败再走人工登录
+>    （每小时最多一次）；也可手动 `import-cookies` 导入，失败再走人工登录。
+>    Windows 三层通道（Firefox 源 / Chromium 副本接管 / `--paste` 兜底）见 `references/env-setup.md`
 > ⑯ **双出口纪律**：所有选品管线（1688 词搜/图搜、Ozon 选品/跟卖/任务式）都有两个出口——
 >    `--to-box` 入采集箱（可逆，WebUI 认领后再上架）与 `--auto-submit` 直接上架
 >    （真实创建商品）。**用户没说走哪条就先问**；入箱可自动执行，直接上架必须确认
@@ -82,8 +83,8 @@ description: >
 | `discover-task` | 任务式全自动目标驱动选品（无人值守） | `--keyword/--url [--target-count 达标数] [--max-scan 300] [--filter-profile ai] [--filters JSON规则文件（区间/品牌/价格/发货模式，FBS 含 rFBS，子串匹配，与库内口径一致，同名键覆盖 ai 默认）] [--base-filter] [--min-price/--max-price/--brand-filter] [--match-limit =目标×3] [--to-box\|--auto-submit 二选一] [--dry-run] [--resume] [--expend-shop N 拓店（--url 须商品页种子，竞品卖家评级优先（评分≥4 展开；跟卖 widget 评分稀疏，无达标评级则不限）按价排序一跳店铺展开，预算 max(N×4,60)，与 --keyword 互斥）]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；`--auto-submit` 直上管线（必须确认）；状态落 `data/discovery/tasks/`；粗筛池耗尽未达标会如实报缺口 | "自动采集/无人值守/任务式跑 N 个" / "以这个商品为种子拓店" |
 | `discover-multi` | 多关键词批量选品 | `--keywords a,b,c [--max-each] [--min-margin]` | 同 discover（逐词跑） | 多词横向对比选品 |
 | `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段] [--to-box\|--auto-submit 二选一]` | 耗 1688 搜索配额；出口 flag 触发逐个信封+提交 | 按词找货（`--rules "ai"` 一键预设） |
-| `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态（`--paste` 手动粘贴 Cookie 头兜底） | 无 | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底；Firefox 源全平台可用，Chromium/Safari 仅 macOS） |
-| `probe-win-cookies` | Windows cookie 只读探针（源浏览器/加密形态/通道判定矩阵，不解密） | `[--takeover-test] [--out]` | 写 `data/probe/win_cookies_<ts>.json` 诊断报告 | Windows 上排查 cookie 导入通道 / 接管通道定稿依据 |
+| `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态（`--paste` 手动粘贴 Cookie 头兜底） | `[--sources] [--site] [--browser-profile]` | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底）；Firefox 源全平台可用；Windows 的 Chrome/Edge/Brave 走副本接管通道（零解密，失败降级提示 `--paste`；`SKILL_DISABLE_TAKEOVER=1` 关闭；`--browser-profile` 选源 profile）；Safari 仅 macOS |
+| `probe-win-cookies` | Windows cookie 只读探针（源浏览器/加密形态/通道判定矩阵，不解密） | `[--takeover-test] [--out]` | 写 `data/probe/win_cookies_<ts>.json` 诊断报告 | Windows 上 cookie 导入三层通道排障（先跑它出诊断，再决定 Firefox/接管/--paste） |
 | `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
 | `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
 | `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |

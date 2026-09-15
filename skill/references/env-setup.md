@@ -46,10 +46,22 @@ python3 scripts/cli.py import-cookies            # 扫描全部源 → 注入 �
 python3 scripts/cli.py import-cookies --list-sources
 python3 scripts/cli.py import-cookies --paste    # 手动粘贴 Cookie 头（跨平台兜底）
 ```
-Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。Windows：Firefox 源与
-`--paste` 可用；Chromium 源（Chrome/Edge/Brave）走接管通道（后续版本）；
-先跑 `python3 scripts/cli.py probe-win-cookies` 生成只读诊断报告
-（源浏览器/加密形态/通道判定矩阵；`--takeover-test` 附加副本接管可行性试验）；
+Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。
+
+**Windows 三层通道**（win-cookie-import v1 起，按优先级自动降级）：
+1. **Firefox 源**：cookies.sqlite 明文直读（自动扫描，profiles.ini 解析，含
+   `-wal/-shm` 最新态）——零前提，装了 Firefox 即可用。
+2. **Chromium 接管（Chrome/Edge/Brave 主通道）**：副本目录 CDP 接管——把
+   `Local State` + Cookies 最小复制集拷到临时目录，用真实浏览器以非默认
+   `--user-data-dir` 启动（**Chrome 自己解密，工具零解密代码/零提权**），
+   CDP 读出目标域 cookie 后注入并清理。`--browser-profile <名>` 指定源
+   profile（info_cache 显示名或目录名，如 `Default` / `Profile 1`，默认
+   `Default`）；失败自动降级并提示 `--paste`。`SKILL_DISABLE_TAKEOVER=1`
+   关闭接管通道（回退不支持态）。
+3. **`--paste` 手动兜底**：`import-cookies --paste` 粘贴 Cookie 头（跨平台）。
+
+排障先跑 `python3 scripts/cli.py probe-win-cookies` 生成只读诊断报告
+（源浏览器/加密形态/通道判定矩阵；`--takeover-test` 附加副本接管可行性试验）。
 `SKILL_DISABLE_COOKIE_HARVEST=1` 关闭自动兜底。
  seller 登录检测 v0.69 起为**纯 cookie 罐静默读取（零导航）**——未登录不再反复弹
 seller.ozon.ru 页面；登录页仅在明确等待登录时打开一次，中途关页不会被弹回。

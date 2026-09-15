@@ -19,8 +19,11 @@ Chrome 130+ 禁止在用户默认数据目录开 remote debugging），用户日
 
 Windows（feat/win-cookie-import-v1 起 per-source 可用性模型）：
 - Chrome/Edge/Brave：Chrome 127+ app-bound 加密不做第三方解密（红线：IElevator COM
-  伪装 / SYSTEM 提权 = infostealer 手法，AV 必报）——返回 unsupported_source，
-  Windows 主通道是副本目录接管（后续版本）。
+  伪装 / SYSTEM 提权 = infostealer 手法，AV 必报）——Windows 主通道是**副本目录
+  CDP 接管**（B-T4，`_harvest_chromium_via_takeover`）：最小复制集拷到临时目录 →
+  真实浏览器 exe 以非默认 --user-data-dir 启动（Chrome 自己经 elevation service
+  解密 v20，本模块零解密代码/零提权）→ CDP 读明文 → 域过滤注入。
+  kill-switch：SKILL_DISABLE_TAKEOVER=1 回退 unsupported_source（逃生门）。
 - Firefox：cookies.sqlite 明文（stdlib sqlite3），路径 per-platform
   （%APPDATA%\\Mozilla\\Firefox / ~/.mozilla/firefox，profiles.ini 解析）——全平台可用。
 - Safari：仅 macOS（Cookies.binarycookies）。
@@ -40,16 +43,20 @@ Windows（feat/win-cookie-import-v1 起 per-source 可用性模型）：
 from __future__ import annotations
 
 import configparser
+import json
 import logging
 import os
 import re
 import shutil
+import signal
+import socket
 import sqlite3
 import struct
 import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -241,15 +248,23 @@ def _read_chromium_db(db_path: Path, key: bytes) -> list[dict]:
     return cookies
 
 
-def _harvest_chromium(source: str) -> dict[str, Any]:
+def _harvest_chromium(source: str, profile_dir_name: str = "Default") -> dict[str, Any]:
+    if sys.platform == "win32":
+        # B-T4：Windows 主通道 = 副本目录 CDP 接管（解密主体是 Chrome 自己，
+        # 本模块零解密代码/零提权；见 _harvest_chromium_via_takeover）。
+        if os.environ.get("SKILL_DISABLE_TAKEOVER"):
+            # kill-switch 逃生门：接管通道整体关闭，回退 per-source 闸语义
+            return {"source": source, "status": "unsupported_source",
+                    "message": "接管通道已被 SKILL_DISABLE_TAKEOVER 关闭"
+                               "（可用 --paste 手动粘贴 Cookie 头）",
+                    "cookies": []}
+        return _harvest_chromium_via_takeover(source, profile_dir_name)
     if sys.platform != "darwin":
-        # B-T1 per-source 平台闸（原整机 darwin 闸下沉）：Windows Chromium 127+
-        # app-bound 加密不做第三方解密（红线：IElevator COM 伪装 / SYSTEM 提权解密
-        # 是 infostealer 手法，AV 必报）；Linux Keyring/KWallet 亦未实现。
-        # Windows 主通道是副本目录接管（后续版本），手动兜底走 --paste。
+        # B-T1 per-source 平台闸：Linux Keyring/KWallet 亦未实现（Windows 走上面
+        # 接管通道）；手动兜底走 --paste。
         return {"source": source, "status": "unsupported_source",
                 "message": "当前平台暂不支持 Chromium 系源自动解密"
-                           "（Windows 接管通道后续版本提供；可用 --paste 手动粘贴）",
+                           "（可用 --paste 手动粘贴 Cookie 头）",
                 "cookies": []}
     cfg = CHROMIUM_BROWSERS[source]
     base = Path(os.path.expanduser(cfg["base"]))
@@ -264,6 +279,327 @@ def _harvest_chromium(source: str) -> dict[str, Any]:
     for db in dbs:
         cookies.extend(_read_chromium_db(db, key))
     return {"source": source, "status": "ok", "cookies": cookies}
+
+
+# ═══════════ Windows 副本目录 CDP 接管通道（B-T4，win32 Chromium 主通道）═══════════
+#
+# 原理（方案 §B2 W-B）：Chrome 127+ app-bound 的 DPAPI blob 不绑数据目录位置——
+# 把 `Local State` + 目标 profile 的 `Network/Cookies*`（含 -wal/-shm）最小复制集拷到
+# 临时目录，用**真实浏览器 exe** 以 `--user-data-dir=<临时非默认目录>` 启动（Chrome
+# 自己经 elevation service 解密 v20，本模块零解密代码/零提权），CDP 读明文 cookie
+# → 过滤目标域 → 走现有 inject_cookies 注入。Chrome 136 起「默认用户目录禁 remote
+# debugging」被非默认临时目录天然规避。
+#
+# 红线（改本节前必读）：
+# - 零解密：绝不出现 DPAPI/CryptUnprotectData/IElevator/ctypes win32 调用——
+#   解密主体永远是浏览器进程自己；
+# - 不写用户浏览器目录：源侧只读拷贝，一切写入只发生在我们的临时目录；
+# - cookie 明文不落日志：异常 message 只带异常类型名，不带 CDP 返回内容；
+# - 动态端口 bind 0 取号，绝不占 9222 主工具实例；
+# - finally 清理全路径兜底：浏览器进程（含子进程树）+ 临时目录，任何失败不 raise。
+
+TAKEOVER_PORT_BANNED = 9222   # 主工具实例端口，接管通道绝不占用
+TAKEOVER_CDP_WAIT_S = 20.0    # 单形态（headless/有头）CDP 就绪等待上限
+
+# exe 候选（自持轻量表，参照 chrome_launcher._find_chrome_executable 与 B2 探针写法；
+# 与探针的单一事实源纪律不要求跨诊断/生产两域强行合并）。接管要用**同一浏览器**的
+# exe 解自己浏览器的 app-bound 数据，故按源逐个找，不跨浏览器兜底。
+TAKEOVER_EXE_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "chrome": ("Google/Chrome/Application/chrome.exe",),
+    "edge": ("Microsoft/Edge/Application/msedge.exe",),
+    "brave": ("BraveSoftware/Brave-Browser/Application/brave.exe",),
+}
+TAKEOVER_EXE_BASE_ENVS = ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")
+
+# 源 User Data 根（%LOCALAPPDATA% 相对路径；与 B2 探针 CHROMIUM_USER_DATA_REL 同口径）
+TAKEOVER_USER_DATA_REL: dict[str, tuple[str, ...]] = {
+    "chrome": ("Google", "Chrome", "User Data"),
+    "edge": ("Microsoft", "Edge", "User Data"),
+    "brave": ("BraveSoftware", "Brave-Browser", "User Data"),
+}
+
+# 接管临时目录根（<skill>/data/tmp；与探针 data/tmp 同区，cleanup --temp 可清）
+_DATA_TMP = Path(__file__).resolve().parent.parent.parent / "data" / "tmp"
+
+
+def _takeover_fail(browser: str, message: str) -> dict[str, Any]:
+    """接管失败统一出口（不 raise，调用方降级提示 --paste）。"""
+    return {"source": browser, "status": "takeover_failed",
+            "message": message, "cookies": []}
+
+
+def _takeover_find_exe(browser: str) -> str | None:
+    """Windows 下找该浏览器的真实 exe；找不到 → None（调用方报 takeover_no_browser）。"""
+    rels = TAKEOVER_EXE_CANDIDATES.get(browser)
+    if not rels:
+        return None
+    for env in TAKEOVER_EXE_BASE_ENVS:
+        base = os.environ.get(env)
+        if not base:
+            continue
+        for rel in rels:
+            candidate = Path(base).joinpath(*rel.split("/"))
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _takeover_user_data_root(browser: str) -> Path | None:
+    """源 User Data 根（%LOCALAPPDATA% 标准路径）；LOCALAPPDATA 缺失 → None。"""
+    rel = TAKEOVER_USER_DATA_REL.get(browser)
+    if not rel:
+        return None
+    local = os.environ.get("LOCALAPPDATA")
+    if not local:
+        return None
+    return Path(local).joinpath(*rel)
+
+
+def _takeover_profiles(user_data: Path) -> list[dict[str, str]]:
+    """枚举源 User Data 下的用户 profile（口径与 B2 探针一致：名字过滤排除
+    System/Guest）。Local State 的 profile.info_cache 优先（User Data 下的
+    组件目录——Crashpad 等——不是 profile）；info_cache 缺失/为空兜底扫目录。"""
+    info_cache: dict = {}
+    local_state = user_data / "Local State"
+    if local_state.is_file():
+        try:
+            data = json.loads(local_state.read_text(encoding="utf-8"))
+            info_cache = (data.get("profile") or {}).get("info_cache") or {}
+        except Exception as exc:
+            logger.debug("takeover Local State 解析失败: %s", type(exc).__name__)
+    profiles: list[dict[str, str]] = []
+    if info_cache:
+        for name, meta in info_cache.items():
+            name = str(name)
+            if name.lower() in ("system profile", "guest profile"):
+                continue
+            display = ""
+            if isinstance(meta, dict):
+                display = str(meta.get("name") or "")
+            profiles.append({"dir": name, "display_name": display})
+        return profiles
+    if user_data.is_dir():
+        for entry in sorted(user_data.iterdir()):
+            if not entry.is_dir():
+                continue
+            if entry.name.lower() in ("system profile", "guest profile"):
+                continue
+            profiles.append({"dir": entry.name, "display_name": ""})
+    return profiles
+
+
+def _takeover_resolve_profile(user_data: Path, wanted: str | None) -> str:
+    """--browser-profile 值（info_cache 显示名或目录名，均可）→ profile 目录名。
+    空/None → Default；目录名直取（含磁盘存在性）；显示名经 info_cache 解析；
+    未知名原样透传（复制步骤自然失败成 takeover_failed，用户名拼写错误可见）。"""
+    wanted = (wanted or "").strip()
+    if not wanted:
+        return "Default"
+    if (user_data / wanted).is_dir():
+        return wanted
+    for p in _takeover_profiles(user_data):
+        if p["dir"].lower() == wanted.lower():
+            return p["dir"]
+    for p in _takeover_profiles(user_data):
+        if wanted.lower() == (p["display_name"] or "").lower() and p["display_name"]:
+            return p["dir"]
+    return wanted
+
+
+def _takeover_new_workdir() -> Path:
+    """接管临时目录：data/tmp/takeover_<ts>_<pid>/（同秒同 pid 重跑加 ns 后缀防撞）。"""
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    wd = _DATA_TMP / f"takeover_{ts}_{os.getpid()}"
+    if wd.exists():
+        wd = _DATA_TMP / f"takeover_{ts}_{os.getpid()}_{time.time_ns() % 10 ** 6}"
+    wd.mkdir(parents=True)
+    return wd
+
+
+def _takeover_copy_minimal_set(user_data: Path, profile: str,
+                               workdir: Path) -> None:
+    """最小复制集：Local State + <profile>/Cookies（含 -wal/-shm，存在才拷）。
+    红线：源侧只读，一切写入只落 workdir。缺 Local State 或 Cookies → raise
+    （调用方统一转 takeover_failed）。"""
+    if not (user_data / "Local State").is_file():
+        raise FileNotFoundError("Local State 缺失")
+    src_profile = user_data / profile
+    if (src_profile / "Network" / "Cookies").is_file():
+        db_rel = Path("Network") / "Cookies"
+    elif (src_profile / "Cookies").is_file():
+        db_rel = Path("Cookies")  # 旧版布局兜底
+    else:
+        raise FileNotFoundError(f"源 profile 无 Cookies 库: {profile}")
+    dst = workdir / profile / db_rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(user_data / "Local State", workdir / "Local State")
+    shutil.copy2(src_profile / db_rel, dst)
+    for side in ("-wal", "-shm"):
+        sidecar = Path(str(src_profile / db_rel) + side)
+        if sidecar.is_file():
+            shutil.copy2(sidecar, Path(str(dst) + side))
+
+
+def _takeover_dynamic_port() -> int:
+    """动态端口（bind 0 让 OS 分配），避开主工具实例 9222。"""
+    for _ in range(20):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if port != TAKEOVER_PORT_BANNED:
+            return port
+    raise RuntimeError("动态端口分配失败")
+
+
+def _takeover_wait_cdp(port: int, timeout_s: float = TAKEOVER_CDP_WAIT_S) -> bool:
+    """CDP ``/json/version`` 探活（stdlib urllib）。"""
+    deadline = time.monotonic() + timeout_s
+    url = f"http://127.0.0.1:{port}/json/version"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                if "Browser" in json.loads(resp.read()):
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def _cdp_read_all_cookies(port: int) -> list[dict]:
+    """CDP 读全量明文 cookie（Chrome 自己解密出的；Storage.getCookies 优先，
+    Network.getAllCookies 兜底）。红线：返回值只在内存流转，绝不落日志。"""
+    from scripts.lib.cdp_client import CdpConnection
+    conn = CdpConnection(f"http://127.0.0.1:{port}")
+    tab = conn.new_tab("about:blank")
+    try:
+        for method in ("Storage.getCookies", "Network.getAllCookies"):
+            try:
+                msg_id = tab._send(method, {})
+                resp = tab._recv_until_id(msg_id, timeout=15) or {}
+            except Exception:
+                continue
+            if resp.get("error"):
+                continue
+            return list(((resp.get("result") or {}).get("cookies")) or [])
+        return []
+    finally:
+        try:
+            tab.close()
+        except Exception:
+            pass
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _cdp_cookie_to_dict(c: dict) -> dict | None:
+    """CDP cookie → _cookie_dict 同口径（域过滤/过期与 session 排除），另带
+    控制字符防御（与 _read_chromium_db 出口同防线——CDP 必拒控制字符）。"""
+    name = str(c.get("name") or "")
+    value = str(c.get("value") or "")
+    if any(ord(ch_) < 0x20 for ch_ in name + value):
+        return None
+    return _cookie_dict(str(c.get("domain") or ""), name, value,
+                        str(c.get("path") or ""),
+                        float(c.get("expires") or 0),
+                        bool(c.get("secure")), bool(c.get("httpOnly")))
+
+
+def _popen_takeover_browser(cmd: list[str]) -> subprocess.Popen:
+    """启动接管浏览器（Windows CREATE_NEW_PROCESS_GROUP / posix 独立会话，探针先例）。
+    独立函数便于测试 mock（绝不真启浏览器）。"""
+    kwargs: dict[str, Any] = {"stdout": subprocess.DEVNULL,
+                              "stderr": subprocess.DEVNULL}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(cmd, **kwargs)
+
+
+def _takeover_kill_proc(proc: subprocess.Popen) -> None:
+    """关接管浏览器进程（含子进程树：Windows taskkill /T，posix 进程组）。
+    只关本通道 Popen 启的进程，绝不碰用户浏览器进程。"""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=10)
+        elif proc.poll() is None:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception:
+        pass
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def _harvest_chromium_via_takeover(browser: str,
+                                   profile_dir_name: str = "Default") -> dict[str, Any]:
+    """Windows Chromium 源主通道：副本目录 CDP 接管（返回契约与 _harvest_chromium
+    同：{source, status, cookies}）。
+
+    状态：ok / takeover_no_browser（exe 缺失）/ takeover_failed（其余一切失败，
+    message 指路 --paste）。任何失败不 raise。
+    ⚠️ Windows 真机行为（headless=new 能否起 CDP/最小集是否充分）属发版 gate
+    （方案 B5），本实现按双形态（headless 失败去 headless 重试一次）防御。
+    """
+    paste_hint = "可用 --paste 手动粘贴 Cookie 头"
+    exe = _takeover_find_exe(browser)
+    if not exe:
+        return {"source": browser, "status": "takeover_no_browser",
+                "message": f"未找到 {browser} 可执行文件，无法接管；{paste_hint}",
+                "cookies": []}
+    user_data = _takeover_user_data_root(browser)
+    if user_data is None or not user_data.is_dir():
+        return _takeover_fail(browser, f"{browser} 用户数据目录不存在"
+                                       f"（可能未安装/未使用）；{paste_hint}")
+    workdir: Path | None = None
+    proc: subprocess.Popen | None = None
+    try:
+        profile = _takeover_resolve_profile(user_data, profile_dir_name)
+        workdir = _takeover_new_workdir()
+        _takeover_copy_minimal_set(user_data, profile, workdir)
+        port = _takeover_dynamic_port()
+        # 双形态启动：headless=new 失败 → 同参数去 headless 再试一次（B2 探针
+        # 真机回传前的兜底；headless 下部分版本 elevator 行为有差异）
+        for headless in (True, False):
+            cmd = [exe,
+                   f"--user-data-dir={workdir}",
+                   f"--remote-debugging-port={port}",
+                   f"--profile-directory={profile}",
+                   "--no-first-run",
+                   "--no-default-browser-check"]
+            if headless:
+                cmd.append("--headless=new")
+            proc = _popen_takeover_browser(cmd)
+            if _takeover_wait_cdp(port, TAKEOVER_CDP_WAIT_S):
+                break
+            _takeover_kill_proc(proc)
+            proc = None
+        if proc is None:
+            return _takeover_fail(browser, "接管浏览器 CDP 未就绪"
+                                           "（headless/有头两形态均超时）；"
+                                           f"{paste_hint}")
+        raw = _cdp_read_all_cookies(port)
+        cookies = [c for c in (_cdp_cookie_to_dict(x) for x in raw) if c]
+        return {"source": browser, "status": "ok", "cookies": cookies}
+    except Exception as exc:
+        # 明文红线：message 只带异常类型名，绝不带 CDP 内容/cookie 值
+        logger.debug("takeover %s 失败: %s", browser, type(exc).__name__)
+        return _takeover_fail(browser, f"接管通道失败（{type(exc).__name__}）；"
+                                       f"{paste_hint}")
+    finally:
+        if proc is not None:
+            _takeover_kill_proc(proc)
+        if workdir is not None:
+            shutil.rmtree(workdir, ignore_errors=True)
 
 
 # ═══════════ Firefox ═══════════
@@ -348,6 +684,12 @@ def _harvest_firefox() -> dict[str, Any]:
             tmp_db = Path(tmpdir) / "cookies.sqlite"
             try:
                 shutil.copy2(db, tmp_db)
+                # B1 #3：-wal/-shm sidecar 一并拷（对齐 Chromium 拷贝集）——
+                # 刚登录未 checkpoint 的最新登录态在 WAL 里，漏拷读的是旧态
+                for side in ("-wal", "-shm"):
+                    sidecar = Path(str(db) + side)
+                    if sidecar.is_file():
+                        shutil.copy2(sidecar, Path(str(tmp_db) + side))
                 conn = sqlite3.connect(str(tmp_db))
                 rows = conn.execute(
                     "SELECT host, name, value, path, expiry, isSecure, isHttpOnly "
@@ -438,19 +780,26 @@ def _harvest_safari() -> dict[str, Any]:
 # ═══════════ 编排：扫描 → 注入 → 验证 ═══════════
 
 
-def harvest_all(sources: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+def harvest_all(sources: list[str] | tuple[str, ...] | None = None,
+                browser_profile: str | None = None) -> dict[str, Any]:
     """扫描全部/指定源。返回 {sources: {name: {status, cookies}}, total, platform}。
 
     平台可用性为 per-source（B-T1）：平台不支持的源返回 unsupported_source，
-    不再整批拒绝——Windows/Linux 上 Firefox 源照常可用，Chromium 系/Safari
+    不再整批拒绝——Windows/Linux 上 Firefox 源照常可用，Safari/Linux Chromium
     返回 unsupported_source（信息在各源 message 字段）。
+    B-T4 起 Windows Chromium 源走副本目录 CDP 接管（状态 takeover_* 前缀），
+    ``browser_profile``（CLI --browser-profile，info_cache 显示名或目录名）透传
+    给接管通道，缺省 Default。
     platform 字段 = 实际平台名（sys.platform），仅供诊断展示（不再有 "unsupported"）。
     """
     wanted = tuple(sources) if sources else ALL_SOURCES
     harvesters = {
-        "chrome": lambda: _harvest_chromium("chrome"),
-        "edge": lambda: _harvest_chromium("edge"),
-        "brave": lambda: _harvest_chromium("brave"),
+        "chrome": lambda: _harvest_chromium(
+            "chrome", profile_dir_name=browser_profile or "Default"),
+        "edge": lambda: _harvest_chromium(
+            "edge", profile_dir_name=browser_profile or "Default"),
+        "brave": lambda: _harvest_chromium(
+            "brave", profile_dir_name=browser_profile or "Default"),
         "firefox": _harvest_firefox,
         "safari": _harvest_safari,
     }
@@ -542,9 +891,10 @@ def verify_after_import(cdp_url: str = CDP_URL) -> dict[str, bool]:
 
 
 def harvest_and_import(cdp_url: str = CDP_URL,
-                       sources: list[str] | None = None) -> dict[str, Any]:
+                       sources: list[str] | None = None,
+                       browser_profile: str | None = None) -> dict[str, Any]:
     """一键：扫描 → 注入 → 验证。返回完整报告（CLI 打印 / readiness 消费用）。"""
-    scan = harvest_all(sources)
+    scan = harvest_all(sources, browser_profile=browser_profile)
     report: dict[str, Any] = {"scan": scan, "injected": None, "verified": None}
     cookies = [c for r in scan.get("sources", {}).values()
                for c in (r.get("cookies") or [])]
@@ -572,9 +922,10 @@ PASTE_SITE_DOMAINS = {"1688": ".1688.com", "ozon-seller": ".ozon.ru"}
 
 
 def parse_cookie_header(text: str) -> list[tuple[str, str]]:
-    """容错解析粘贴的 Cookie 头：剥可选 ``Cookie:`` 前缀（大小写不敏感）、
-    按 ``;``/换行切分、剥首尾空白，拆 ``k=v`` 对（v 可含 ``=``）。
-    空/无 ``=`` 的碎片跳过。⚠️ 明文红线：解析失败不回显、不落日志。"""
+    """容错解析粘贴的 Cookie 头：剥可选 ``Cookie:`` 前缀（大小写不敏感，整串首处
+    与每个分号/换行后的 chunk 各剥一次——多行请求头粘贴时非首行的 ``Cookie: a=1``
+    不再解析出垃圾对）、按 ``;``/换行切分、剥首尾空白，拆 ``k=v`` 对（v 可含
+    ``=``）。空/无 ``=`` 的碎片跳过。⚠️ 明文红线：解析失败不回显、不落日志。"""
     text = (text or "").strip()
     if not text:
         return []
@@ -584,6 +935,10 @@ def parse_cookie_header(text: str) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for chunk in re.split(r"[;\r\n]+", text):
         chunk = chunk.strip()
+        # B1 #4：行内 ``Cookie:`` 前缀再剥一次（多行请求头粘贴非首行场景）
+        m_inline = re.match(r"(?is)^cookie\s*:\s*", chunk)
+        if m_inline:
+            chunk = chunk[m_inline.end():].strip()
         if not chunk or "=" not in chunk:
             continue
         name, _, value = chunk.partition("=")

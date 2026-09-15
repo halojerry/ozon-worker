@@ -253,8 +253,11 @@ def test_inject_cookies_empty():
 
 def test_harvest_all_win32_per_source_gate(monkeypatch):
     """v1 重构（B-T1）：整机 darwin 闸废除 → win32 走 per-source 报告，
-    chromium/safari=unsupported_source，platform 字段=实际平台名。"""
+    platform 字段=实际平台名。B-T4 起 Windows Chromium 默认走副本接管通道——
+    这里用 kill-switch（SKILL_DISABLE_TAKEOVER=1）锁定闸语义本身（hermetic，
+    真实 Windows 测试机上不真启浏览器）；接管默认路由见 test_takeover_channel.py。"""
     monkeypatch.setattr(ch, "sys", types.SimpleNamespace(platform="win32"))
+    monkeypatch.setenv("SKILL_DISABLE_TAKEOVER", "1")
     report = ch.harvest_all()
     assert report["platform"] == "win32"
     assert report["sources"]["chrome"]["status"] == "unsupported_source"

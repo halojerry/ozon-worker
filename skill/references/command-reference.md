@@ -496,10 +496,14 @@ python3 scripts/cli.py probe --url "https://detail.1688.com/offer/xxx.html" --ti
 # 环境检查 + 自动启动 Chrome + 凭证验证（首次使用/排错，env-setup.md）
 python3 scripts/cli.py check
 
-# 跨浏览器 cookie 导入（v0.69）：扫描本机 Chrome/Edge/Brave/Firefox 的 1688/Ozon
-# 登录 cookie → 注入工具 Chrome → 验证。readiness 未登录时也会自动兜底（冷却 1h）
+# 跨浏览器 cookie 导入（v0.69；v1 Windows 化）：扫描本机 Chrome/Edge/Brave/Firefox
+# 的 1688/Ozon 登录 cookie → 注入工具 Chrome → 验证。readiness 未登录时也会自动
+# 兜底（冷却 1h）。Windows 三层通道：Firefox 直读 / Chrome/Edge/Brave 副本接管
+# （零解密，失败降级提示 --paste）/ --paste 手动兜底；排障先跑 probe-win-cookies
 python3 scripts/cli.py import-cookies
 python3 scripts/cli.py import-cookies --sources chrome,firefox   # 指定源
+python3 scripts/cli.py import-cookies --browser-profile "Profile 1"  # Windows 接管指定源 profile（info_cache 显示名或目录名，默认 Default）
+python3 scripts/cli.py import-cookies --paste                    # 手动粘贴 Cookie 头（跨平台兜底；--site 1688|ozon-seller 显式落域）
 ```
 
 ## settings.json 可调参数
