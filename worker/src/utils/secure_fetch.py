@@ -50,7 +50,10 @@ def _host_is_safe(host: str) -> bool:
         return False
     try:
         infos = socket.getaddrinfo(host, None)
-    except OSError:
+    except (OSError, UnicodeError):
+        # T13 评审：畸形 IDN（label>63 等）在 CPython 纯 Python 层 idna 编码即抛
+        # UnicodeError——必须收口进 fail-closed（不解析成功 = 不放行），绝不让裸
+        # 异常逃出 assert_safe_remote_url 的 UnsafeUrlError 契约。
         return False
     if not infos:
         return False
@@ -81,21 +84,44 @@ def assert_safe_remote_url(url: str, allowed_host_suffixes: Optional[Iterable[st
         raise UnsafeUrlError(f"host resolves to blocked address: {hostname}")
 
 
+_CREDENTIAL_HEADER_NAMES = frozenset(("authorization", "cookie"))
+
+
+def _strip_hop_credentials(kwargs: dict) -> dict:
+    """返回剥除凭据后的 kwargs 副本（headers 大小写不敏感删 Authorization/Cookie；
+    auth/cookies 请求参数直接删）。只对跨 host 跳调用，同 host 跳保持原样。"""
+    stripped = dict(kwargs)
+    headers = stripped.get("headers")
+    if headers:
+        stripped["headers"] = {k: v for k, v in dict(headers).items()
+                               if str(k).lower() not in _CREDENTIAL_HEADER_NAMES}
+    stripped.pop("auth", None)
+    stripped.pop("cookies", None)
+    return stripped
+
+
 def safe_fetch(url: str, method: str = "get", timeout: float = 10.0,
                max_redirects: int = 3, allowed_host_suffixes: Optional[Iterable[str]] = None,
                **kwargs) -> requests.Response:
-    """安全抓取：每跳（含重定向 Location）重新过全套校验。"""
+    """安全抓取：每跳（含重定向 Location）重新过全套校验；跨 host 跳剥除凭据。"""
     current = str(url).strip()
+    current_host = urlparse(current).hostname
+    hop_kwargs = kwargs
     for hop in range(max_redirects + 1):
         assert_safe_remote_url(current, allowed_host_suffixes=allowed_host_suffixes)
         resp = requests.request(method.upper(), current, timeout=timeout,
-                                allow_redirects=False, **kwargs)
+                                allow_redirects=False, **hop_kwargs)
         if resp.is_redirect or resp.is_permanent_redirect:
             loc = resp.headers.get("Location", "")
             if not loc:
                 return resp
             from urllib.parse import urljoin
             current = urljoin(current, loc)
+            next_host = urlparse(current).hostname
+            if next_host != current_host:
+                # T13 评审 Advisory：requests allow_redirects=True 的跨 host 凭据剥除语义，手动循环必须自己实现
+                hop_kwargs = _strip_hop_credentials(kwargs)
+            current_host = next_host
             continue
         return resp
     raise UnsafeUrlError(f"too many redirects (> {max_redirects})")
