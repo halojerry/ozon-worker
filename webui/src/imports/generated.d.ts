@@ -7675,7 +7675,7 @@ export interface operations {
                      *           "avg_price_rub": 3117.7,
                      *           "brand": "Thermos",
                      *           "category_path": "Дом и сад / Термосы",
-                     *           "contributed_by_token_id": "test-token-123",
+                     *           "contributed_by_fp": "a1b2c3d4",
                      *           "ordering_amount": 1284500,
                      *           "ordering_count": 412,
                      *           "sku_or_id": "1680357214"
@@ -8566,8 +8566,7 @@ export interface operations {
                      *       "items": [
                      *         {
                      *           "candidates": 23,
-                     *           "contributed_by_fp": "a1b2c3d4e5f60718",
-                     *           "contributed_by_token_id": "test-token-123",
+                     *           "contributed_by_fp": "a1b2c3d4",
                      *           "created_at": "2026-09-11T10:24:31",
                      *           "filters": {
                      *             "min_margin": 0.25

@@ -46,7 +46,7 @@ export default function DiscoveryPanel() {
       keyword: r.keyword,
       candidates: Array.isArray(r.candidates) ? r.candidates.length : 0,
       created_at: r.created_at ?? "",
-      contributor: r.contributed_by_token_id ?? "",
+      contributor: r.contributed_by_fp ?? "",
     }))
     if (!rows.length) return
     const header = Object.keys(rows[0]).join(",")
@@ -163,7 +163,7 @@ export default function DiscoveryPanel() {
                     <b>{r.keyword}</b>
                     <span>{Array.isArray(r.candidates) ? r.candidates.length : 0}</span>
                     <time>{formatDateTime(r.created_at)}</time>
-                    <span>{r.contributed_by_token_id ? r.contributed_by_token_id.slice(0, 8) + "…" : "—"}</span>
+                    <span>{r.contributed_by_fp ? r.contributed_by_fp + "…" : "—"}</span>
                     <span className="row-links">
                       <button onClick={() => setDetail(r)}>查看候选</button>
                       <button onClick={() => exportCandidates(r)}>导出</button>

@@ -2851,7 +2851,7 @@ async def v1_discovery_report_run(request: Request):
             "ordering_amount": 1284500.0,
             "ordering_count": 412,
             "avg_price_rub": 3117.7,
-            "contributed_by_token_id": "test-token-123",
+            "contributed_by_fp": "a1b2c3d4",
         }],
         "total": 1, "limit": 50, "offset": 0,
     }}}},
@@ -2895,6 +2895,26 @@ async def v1_analytics_list_bestsellers(request: Request):
     )
 
 
+def _fetch_discovery_runs_rows(*, limit: int, offset: int):
+    """discovery/runs 行查询封装（v0.76 T1 抽出以便测试 monkeypatch 钉住脱敏行为）。
+
+    SQL 主体从原 v1_discovery_list_runs 内联处平移，零语义变更。返回 (rows, total)。
+    SELECT 保留 tenant_id 明文列（r[5]）供 Python 内算指纹用——明文绝不进响应 dict
+    （v0.76 api-C1：读侧只发 contributed_by_fp）。
+    """
+    from sqlalchemy import text
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
+            "FROM discovery_runs "
+            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        ), {"limit": limit, "offset": offset}).fetchall()
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM discovery_runs"
+        )).scalar()
+    return rows, int(total or 0)
+
+
 @v1.get("/discovery/runs", tags=["analytics"], responses={
     200: {"content": {"application/json": {"example": {
         "items": [{
@@ -2903,8 +2923,7 @@ async def v1_analytics_list_bestsellers(request: Request):
             "filters": {"min_margin": 0.25},
             "candidates": 23,
             "created_at": "2026-09-11T10:24:31",
-            "contributed_by_token_id": "test-token-123",
-            "contributed_by_fp": "a1b2c3d4e5f60718",
+            "contributed_by_fp": "a1b2c3d4",
         }],
         "total": 1, "limit": 50, "offset": 0,
     }}}},
@@ -2932,16 +2951,7 @@ async def v1_discovery_list_runs(request: Request):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    from sqlalchemy import text
-    with get_engine().connect() as conn:
-        rows = conn.execute(text(
-            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
-            "FROM discovery_runs "
-            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
-        ), {"limit": limit, "offset": offset}).fetchall()
-        total = conn.execute(text(
-            "SELECT COUNT(*) FROM discovery_runs"
-        )).scalar()
+    rows, total = _fetch_discovery_runs_rows(limit=limit, offset=offset)
 
     from services.tenant_service import token_fingerprint
     items = [{
@@ -2950,13 +2960,12 @@ async def v1_discovery_list_runs(request: Request):
         "filters": r[2],
         "candidates": r[3],
         "created_at": r[4].isoformat() if r[4] is not None else None,
-        # A8 F6 展示脱敏：贡献者列新增 fp 前 8 位（明文 contributed_by_token_id
-        # 灰度期保留——webui/既有消费方逐步切换；读时从 tenant_id 现算与写侧
-        # token_fingerprint 同源等值，明文列删除后切换为读 token_fp 列）。
-        "contributed_by_token_id": str(r[5] or ""),
+        # A8 F6 展示脱敏：贡献者只回指纹前 8 位。
+        # v0.76 安全修复(api-C1): "contributed_by_token_id" 明文键已删除——读侧只发 fp
+        #（读时从 tenant_id 现算与写侧 token_fingerprint 同源等值；DB 明文列保留，defer 退役）。
         "contributed_by_fp": token_fingerprint(str(r[5] or ""))[:8],
     } for r in rows]
-    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset}
 
 
 @v1.get("/mappings/lookup", tags=["analytics"], responses={
