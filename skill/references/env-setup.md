@@ -44,9 +44,11 @@ python3 scripts/cli.py check
 ```bash
 python3 scripts/cli.py import-cookies            # 扫描全部源 → 注入 → 验证
 python3 scripts/cli.py import-cookies --list-sources
+python3 scripts/cli.py import-cookies --paste    # 手动粘贴 Cookie 头（跨平台兜底）
 ```
-Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。Windows 暂不支持
-（Chrome 127+ app-bound 加密）；`SKILL_DISABLE_COOKIE_HARVEST=1` 关闭自动兜底。
+Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。Windows：Firefox 源与
+`--paste` 可用；Chromium 源（Chrome/Edge/Brave）走接管通道（后续版本）；
+`SKILL_DISABLE_COOKIE_HARVEST=1` 关闭自动兜底。
  seller 登录检测 v0.69 起为**纯 cookie 罐静默读取（零导航）**——未登录不再反复弹
 seller.ozon.ru 页面；登录页仅在明确等待登录时打开一次，中途关页不会被弹回。
 

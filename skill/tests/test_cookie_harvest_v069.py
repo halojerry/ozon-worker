@@ -251,11 +251,20 @@ def test_inject_cookies_empty():
 # ═══════════ 6. 编排 + readiness 自动兜底 ═══════════
 
 
-def test_harvest_all_platform_guard(monkeypatch):
+def test_harvest_all_win32_per_source_gate(monkeypatch):
+    """v1 重构（B-T1）：整机 darwin 闸废除 → win32 走 per-source 报告，
+    chromium/safari=unsupported_source，platform 字段=实际平台名。"""
     monkeypatch.setattr(ch, "sys", types.SimpleNamespace(platform="win32"))
     report = ch.harvest_all()
-    assert report["platform"] == "unsupported"
-    assert report["total"] == 0
+    assert report["platform"] == "win32"
+    assert report["sources"]["chrome"]["status"] == "unsupported_source"
+    assert report["sources"]["edge"]["status"] == "unsupported_source"
+    assert report["sources"]["brave"]["status"] == "unsupported_source"
+    assert report["sources"]["safari"]["status"] == "unsupported_source"
+    # firefox：无 APPDATA（macOS 测试环境）→ 根目录解析为 None → not_installed
+    monkeypatch.delenv("APPDATA", raising=False)
+    report = ch.harvest_all(sources=["firefox"])
+    assert report["sources"]["firefox"]["status"] == "not_installed"
 
 
 def test_harvest_all_unknown_sources_skipped():
