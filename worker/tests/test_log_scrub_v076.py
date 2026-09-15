@@ -18,7 +18,7 @@ def test_run_receipt_log_has_no_body(monkeypatch, caplog):
     assert f"body_bytes={len(body)}" in captured["msg"]
 
 
-def test_invalid_json_detail_has_no_body_echo(client_factory=None):
+def test_invalid_json_detail_has_no_body_echo():
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
     # brief 原文 body 是合法 UTF-8 但残缺 JSON——会先被 _extract_token_from_body 判空 token
@@ -31,7 +31,7 @@ def test_invalid_json_detail_has_no_body_echo(client_factory=None):
     assert "Traceback" not in r.text
 
 
-def test_stream_run_and_node_run_400_no_body_echo(client_factory=None):
+def test_stream_run_and_node_run_400_no_body_echo():
     """同形态泄漏点 /stream_run（原 997）/node_run（原 1086）一并锁定。"""
     from main import app
     client = TestClient(app, raise_server_exceptions=False)
