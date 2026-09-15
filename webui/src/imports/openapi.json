@@ -12430,7 +12430,7 @@
     },
     "/progress/{run_id}": {
       "get": {
-        "description": "查询工作流执行进度。\n\n优先从 LangGraph checkpointer 读取实时 state，\n降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。",
+        "description": "查询工作流执行进度。\n\nv0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，\n匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，\n语义见 helper docstring。\n\n优先从 LangGraph checkpointer 读取实时 state，\n降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。",
         "operationId": "http_progress_progress__run_id__get",
         "parameters": [
           {
@@ -12463,6 +12463,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {

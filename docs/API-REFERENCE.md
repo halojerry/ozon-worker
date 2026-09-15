@@ -2967,6 +2967,7 @@ Http Progress — 查询工作流执行进度。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 

@@ -1731,13 +1731,18 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
         "stages": {"auth": "done", "ingest": "done", "category_match": "done"},
     }}}}, 404: {"content": {"application/json": {"example": {
         "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    }}}}})
-async def http_progress(run_id: str):
+    }}}}, 401: {"model": ErrorBody}})
+async def http_progress(run_id: str, request: Request):
     """查询工作流执行进度。
+
+    v0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，
+    匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，
+    语义见 helper docstring。
 
     优先从 LangGraph checkpointer 读取实时 state，
     降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
     """
+    _ = _require_bearer(request)
     # 1. 尝试 LangGraph checkpointer（实时 running state）
     if async_graph is not None:
         checkpointer = get_memory_saver()
@@ -2158,6 +2163,31 @@ def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body:
                 f"body_bytes={len(raw_body)}{extra_part}")
 
 
+def _require_bearer(request: Request) -> str:
+    """T8(api-M2): Bearer 提取 + 有效性校验共享入口（/progress 已接入；
+    task_statistics 的内联已收敛至此；后续 read-only 端点同款复用）。
+
+    规则：
+    - 无 Authorization Bearer → 401 "Token is required"（与 forensics /
+      ``_task_status_guard`` 同文案）。
+    - Bearer 剥 ``sk-`` 前缀一层后走 ``_verify_analytics_token`` 有效性校验，
+      其 401/503 原样透传（本函数不吞不换）。
+    - 返回 clean token（无 sk- 前缀）。⚠️ 调用方后续若做租户解析可直传本返回值
+      ——``resolve_tenant`` 内部自剥 sk-（``_clean_token``），raw/clean 等价。
+
+    ⚠️ 应急门语义见 ``_task_status_guard``（env ``TASK_STATUS_AUTH``）——那是
+    task_status/cancel_task 专用的应急开关；本 helper **无独立开关**，接入端点
+    如需应急放行走端点级回退（镜像回滚或临时 try 包裹），勿混用 TASK_STATUS_AUTH。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean)
+    return clean
+
+
 def _task_status_guard(request: Request, task_row: dict) -> None:
     """鉴权 + 租户校验（v0.73 为 GET /task_status 收口；v0.76 T6(api-H2) 起
     cancel_task 同源复用——语义完全一致，见下）。
@@ -2472,21 +2502,17 @@ async def http_task_statistics(request: Request):
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
 
-    # ✅ T7(api-H3): 鉴权 + 租户强制（Bearer 提取与 _task_status_guard 同款；
-    # 共享 helper 收敛留待 Task 8，本任务先内联）。放在 try 外——401/403 是
-    # HTTPException，不会被下面的兜底 except 吞成 500（同 http_task_status 口径）。
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean)
+    # ✅ T8(api-M2): 鉴权收敛到 ``_require_bearer``（T7 内联三行 → 共享 helper；
+    # resolve_tenant 内部自剥 sk-，helper 返回的 clean token 直传等价）。仍在
+    # try 外——401/403 是 HTTPException，不会被下面的兜底 except 吞成 500
+    # （同 http_task_status 口径）。
+    own_token = _require_bearer(request)
     from services.tenant_service import resolve_tenant
-    own_tenant = resolve_tenant(token)
+    own_tenant = resolve_tenant(own_token)
     q_tenant = request.query_params.get("tenant_id") or ""
     tenant = own_tenant
     if q_tenant and q_tenant != own_tenant:
-        scope = resolve_analytics_scope(token)
+        scope = resolve_analytics_scope(own_token)
         if not scope.get("is_admin"):
             raise HTTPException(status_code=403, detail="admin only")
         tenant = q_tenant
