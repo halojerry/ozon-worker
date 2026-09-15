@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.76.0] — skill 并发竞态止血 + Windows cookie 导入三层通道（2026-09-16）
+
+> 两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`（SDD 全程：任务级审查×5 + 分支终审×2 + 修复轮×5 全部关环）。**纯 skill 侧发版——worker 零改动**（worker 基线 2649 不变）；skill 测试 **1342→1496**（+154）。实机冒烟（macOS）：串行闸并发拦截 exit 4 ✓ / 单跑零误拦 ✓ / 真实 discover 采集 3 候选 ✓（免登录 cookie 导入真链路顺带实证；采集偶发 0 产品为合并前同在的间歇性反爬窗口，控制组 A/B 复验排除回归）。
+
+### ⚠️ 升级必读（行为变更）
+- **重采集命令跨进程串行闸**：discover / discover-multi / discover-task / graph / follow / seller 六命令同机并发，第二个会 **exit 4** 明确失败（此前是默默互踩：互杀 Chrome/抢 tab/配置整文件丢失更新）。报错含占用方 PID/已运行时长，出路 `--wait`（排队，30s 心跳）或 `--force`（强制并行，慎用）。**batch_test 进程内链路不经闸（行为不变）**；`import-cookies --paste` 等轻命令不受影响。
+- **Chrome 繁忙不再被误杀**：CDP 探活三态化（up/busy/refused）——仅端口确实无人监听（连接被拒）才允许 kill+重启；另一进程正在用 Chrome 时短暂繁忙按就绪放行，绝不杀。
+- aibuy 刷新冷却占位从 settings.json 键迁到 `data/config/.aibuy_refresh_claim.json`（O_CREAT\|O_EXCL 真原子，防双进程双导航）；旧键自动失效无需清理。
+- settings.json / stores.json 读-改-写加跨进程文件锁（`data/locks/settings.lock`，10s 超时 fail-open 保持旧行为）——并发写不再互相抹 key。
+
+### 新功能：Windows 1688/Ozon cookie 导入三层通道
+**零解密红线**：不用 DPAPI/IElevator/提权（探针与 AST 测试用例双重锁定）；cookie 明文不落日志；不写用户浏览器目录。
+1. **Firefox 源（全平台）**：profiles.ini 解析（Install 段优先/损坏兜底）+ `-wal/-shm` 最新态补拷 + sqlite 连接异常路径 finally 关闭（Windows 文件锁下不再放大成整源失败）。
+2. **Chromium 副本目录 CDP 接管（Windows 主通道，⚠️ 实验性——未经 Windows 真机验证，真机 gate 后转正）**：最小复制集（`Local State` + profile `Network/Cookies*`）→ 临时目录 → 真实浏览器以非默认 `--user-data-dir` 自行解密 v20 → CDP 读明文注入；headless=new 失败自动有头重试；动态端口绝不占 9222；finally 进程树+临时目录清理；`--browser-profile` 指定源 profile；kill-switch `SKILL_DISABLE_TAKEOVER=1`；失败自动降级提示 `--paste`。
+3. **`--paste` 手动粘贴（跨平台兜底）**：stdin 读 Cookie 头（多行/前缀容错），cookie 名指纹判域（1688 / seller.ozon.ru），识别不了提示 `--site` 显式指定。
+
+配套：per-source 平台闸重构（整机 darwin 闸删除，各源自报 unsupported_source；**macOS 行为逐字不变**）；新只读探针 `probe-win-cookies`（源枚举 / v10-v20 加密形态判定矩阵 / `--takeover-test` 接管可行性试验，产出 JSON 报告）。
+
+### 修复
+- `--wait` + 锁目录不可创建时的无节流死循环（终审抓获，短路快速失败）；探针 `sqlite3.connect` 丢 `uri=True` 的平台差异 Critical（标准构建/Windows 必炸，审查轮实证修复）；Firefox ini fixture 走错解析路径等测试面问题。
+
+### 已知问题 / defer（批 2 = `fix/skill-concurrency-hardening`，未开工）
+- 数据面加固：discover-task `task_id` 秒级命名+非原子写、导出固定名互覆、CDP tab 所有权（borrowed tab 误远程关）、batch_test resume 锁、config_store/cache 原子写 tmp 名唯一化、`ak_1688_client` claim 同款 create-write 窗口、锁文件 holder 信息释放后不清（报错展示陈旧占用方）。
+- Windows 真机 gate（B5）：接管通道按实验性随版；真机跑 `probe-win-cookies --takeover-test` + `import-cookies` 全链一次后转正。
+- pounding-mcp `import_cookies` 未映射 `--browser-profile`（缺省兼容，随 MCP 参数差分核查批补）。
+
 ## [0.75.0] — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写（2026-09-11）
 
 > 战役：Phase 0 工作树卫生 → A1-A9 九份只读审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**（21 组密钥全历史出库，仓库 241MB→89MB，59 tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）。部署加固第一批（PR #20，I/O 雪崩防线）同车发出。测试基线 worker 2377→2649 / skill →1342。

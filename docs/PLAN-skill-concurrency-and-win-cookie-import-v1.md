@@ -7,7 +7,7 @@
 >
 > 实施建议分三个 Tier A 分支（见 §三、§六批次表）；本文是方案定稿，实施前按 WORKFLOW 规范开 worktree。
 >
-> **实施状态（2026-09-15）**：批 1（fix/skill-concurrency-v1，T1-T4）已合入 dev——PR #24（CI 12 绿）；批 3（feat/win-cookie-import-v1，B-T0~T5）已合入 dev——PR #25（CI 12 绿，含 CI 平台确定性修复批）；SDD 全程：任务级审查×5 + 分支终审×2 + 修复轮×5 全部关环，skill 测试基线 1342→1439。**批 2（fix/skill-concurrency-hardening，T5-T10）未开工**——基于已合入的批 1 续作；各任务审查登记的 defer 项见下文各节与 PR #24/#25 描述。**Windows 真机 gate（B5）待做**：真机跑 `probe-win-cookies --takeover-test` 回传报告 + import-cookies 全链一次。
+> **实施状态（2026-09-16，v0.76.0 已发版）**：批 1（PR #24）与批 3（PR #25）均 CI 12 绿合入 dev 并随 v0.76.0 发版（dev→main PR + tag v0.76.0）；skill 测试基线 1342→1496。**Windows 真机 gate（B5）未做**（发版时只有 mac 环境）——接管通道按**实验性**口径随版（kill-switch `SKILL_DISABLE_TAKEOVER=1`、失败降级 `--paste`），真机跑 `probe-win-cookies --takeover-test` + `import-cookies` 全链一次后转正。**批 2（fix/skill-concurrency-hardening，T5-T10）未开工**——基于已合入的批 1 续作，defer 项清单见 CHANGELOG 0.76.0。实机冒烟（macOS）：闸并发拦截 exit 4 ✓ / 单跑零误拦 ✓ / 真实采集 3 候选 ✓（采集偶发 0 产品经控制组 A/B 复验判定为合并前同在的间歇性反爬窗口，非回归）。
 
 ---
 
