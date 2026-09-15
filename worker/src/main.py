@@ -1065,6 +1065,27 @@ async def http_cancel(run_id: str, request: Request):
     return result
 
 
+# T12(api-H1): 有持久化副作用的节点禁止经 /node_run 触发——learning_record 会以
+# 调用方可控的 moderation_status/user_id 写全局共享 category_mapping（W11），
+# 属跨租户投毒面。新增有状态节点时必须同步维护本清单。
+# 入列评估（2026-09-16 全 25 主图节点逐个核查 DB 写/外部持久写）：
+#   - learning_record: 写全局 category_mapping + category_commission（均 W11 跨租户共享）
+#     + product_index/product_cost/source_candidates/web_category_path → 投毒面本体
+#   - assemble_ozon_product: INSERT category_match_log + attribute/dictionary 缓存回写（共享缓存）
+#   - prepare_ozon_upload: INSERT attr_match_log（审计写）
+#   - ozon_upload: Ozon /v3/product/import 外部持久写，绕过 validate/quota 闸
+#   - validation_retry_wrapper: 整个重试子图（含 reupload → Ozon 写）
+#   放行：auth/ingest/follow_sell_import/pricing（纯转换+只读查证）、LLM/生图 12 节点
+#   （计算型）、ozon_validate/check_quota/ozon_status/fetch_back（只读外部）。
+_NODE_RUN_DENIED = frozenset({
+    "learning_record",
+    "assemble_ozon_product",
+    "prepare_ozon_upload",
+    "ozon_upload",
+    "validation_retry_wrapper",
+})
+
+
 @app.post(path="/node_run/{node_id}", responses={
     200: {"content": {"application/json": {"example": {
         # 单节点直跑返回该节点 Output model 的 dict（此处以 auth 节点 AuthOutput 为例）
@@ -1085,6 +1106,10 @@ async def http_node_run(node_id: str, request: Request):
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
+
+    # T12(api-H1): 有状态节点黑名单——403 早于 body 深度处理与任何图执行
+    if node_id in _NODE_RUN_DENIED:
+        raise HTTPException(status_code=403, detail=f"node '{node_id}' is stateful and not runnable via /node_run")
 
     ctx = new_context(method="node_run", headers=request.headers)
     request_context.set(ctx)
