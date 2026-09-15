@@ -184,7 +184,11 @@ def test_read_binarycookies_synthetic(tmp_path):
     assert cookies[0]["domain"] == ".1688.com"
 
 
-def test_harvest_safari_missing_file():
+def test_harvest_safari_missing_file(monkeypatch):
+    """darwin 下 Cookies.binarycookies 文件缺失 → not_installed（本测试原意）。
+    平台确定性（CI 修复）：safari 非 darwin 走 per-source 闸报 unsupported_source
+    （B-T1 语义），不强制平台时 Linux 宿主会看到闸分支而非文件缺失分支。"""
+    monkeypatch.setattr(ch, "sys", types.SimpleNamespace(platform="darwin"))
     with mock.patch.object(ch, "SAFARI_COOKIES", "/nonexistent/x.binarycookies"):
         r = ch._harvest_safari()
     assert r["status"] == "not_installed"

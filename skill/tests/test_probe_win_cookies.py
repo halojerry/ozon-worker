@@ -478,6 +478,12 @@ class TestTakeoverBranch:
             launched["cmd"] = cmd
             return proc
 
+        # 平台确定性（CI 修复）：exe 查找强制命中——python:3.12-slim Linux 无
+        # Chrome，chrome_launcher 真实查找返回 None 会让 run_takeover_test 提前
+        # 早退（「未找到浏览器可执行文件」），launch/CDP/清理链的 mock 全部落空。
+        # 本类用例语义是「exe 已就位后的启动/读数/清理链」，与宿主是否装浏览器无关。
+        monkeypatch.setattr(pw.chrome_launcher, "_find_chrome_executable",
+                            lambda: "/fake/chrome.exe")
         monkeypatch.setattr(pw, "_popen_browser", fake_popen)
         monkeypatch.setattr(pw, "_wait_cdp", lambda port, timeout_s=30: cdp_up)
         monkeypatch.setattr(pw, "_cdp_all_cookies",
@@ -569,6 +575,10 @@ class TestTakeoverBranch:
 
         def boom(cmd):
             raise OSError("spawn failed")
+        # 平台确定性（CI 修复）：同 _patch_launch_chain——exe 查找强制命中，
+        # 否则无浏览器宿主（CI Linux）在 Popen 之前就早退，测不到启动异常路径
+        monkeypatch.setattr(pw.chrome_launcher, "_find_chrome_executable",
+                            lambda: "/fake/chrome.exe")
         monkeypatch.setattr(pw, "_popen_browser", boom)
         r = pw.run_takeover_test(
             {"source": "chrome", "profile": "Default",
