@@ -475,6 +475,12 @@ def _warn_if_multi_worker() -> None:
             )
 
 
+def _revive_failed_enabled() -> bool:
+    """T19(race-M4): 部署重启默认不复活 failed 任务（retry_count 归零会烧用户额度重复上架）。
+    应急恢复旧行为：SKIP_FAILED_REVIVE=0。"""
+    return os.environ.get("SKIP_FAILED_REVIVE", "").strip() == "0"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
@@ -527,10 +533,11 @@ async def lifespan(app: FastAPI):
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
     # ⚠️ v0.30.0:
     #   SKIP_ZOMBIE_RECOVERY=1 — 跳过全部恢复（本地/测试环境必开，防止旧 failed 任务复活真实上架）
-    #   SKIP_FAILED_REVIVE=1   — 只跳过 failed→pending 复活，保留 running→pending 恢复（云端推荐：
-    #                            部署重启时已失败任务不再重复上架，但中断任务仍可恢复）
+    # ⚠️ T19(race-M4) 语义翻转：failed 复活默认**关闭**——部署重启不再把 retry_count<max 的
+    #   failed 重置回 pending（retry_count 归零=对用户无人同意的重新上架，烧生图/上传额度）。
+    #   应急恢复旧行为：SKIP_FAILED_REVIVE=0 — failed→pending 复活（running 恢复不受影响）。
     _skip_all = os.getenv("SKIP_ZOMBIE_RECOVERY", "0") == "1"
-    _skip_failed = os.getenv("SKIP_FAILED_REVIVE", "0") == "1"
+    _skip_failed = not _revive_failed_enabled()
     if _skip_all:
         logger.info("🧹 跳过全部僵尸任务恢复（SKIP_ZOMBIE_RECOVERY=1）")
     else:
@@ -553,7 +560,8 @@ async def lifespan(app: FastAPI):
                      "completed_at=NOW(), updated_at=NOW() "
                      "WHERE status='running' AND retry_count >= max_retries")
                 ).rowcount
-                # 2. 重置可重试的 failed 任务（SKIP_FAILED_REVIVE=1 时跳过——防止部署重启复活旧任务重复上架）
+                # 2. 重置可重试的 failed 任务（T19 默认跳过——防部署重启复活旧任务重复上架；
+                #    仅 SKIP_FAILED_REVIVE=0 显式恢复旧行为）
                 zombie_failed = 0
                 if not _skip_failed:
                     zombie_failed = sess.execute(
@@ -561,7 +569,7 @@ async def lifespan(app: FastAPI):
                     ).rowcount
                 sess.commit()
                 if zombie_running or zombie_running_failed or zombie_failed:
-                    logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending{'（SKIP_FAILED_REVIVE 跳过复活）' if _skip_failed and zombie_failed == 0 else ''}")
+                    logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending{'（failed 默认不复活；SKIP_FAILED_REVIVE=0 恢复旧行为）' if _skip_failed else ''}")
                     # v0.29.2 监控: 启动时任务重跑/恢复上报 Sentry(带数量)
                     try:
                         from utils.sentry_setup import capture_task_event
