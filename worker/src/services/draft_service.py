@@ -24,6 +24,7 @@ from api.schemas import DraftPatch
 from services import credential_service, product_index_service
 from storage.database.db import get_engine
 from utils.csv_safety import neutralize_csv_cell
+from utils.draft_sanity import validate_draft_sanity
 from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
@@ -162,13 +163,17 @@ def _assert_no_api_key(payload: Any) -> None:
 
 
 def _validate_draft_fields(envelope: dict) -> None:
-    """create 阶段字段弱校验：只拦严重残缺，不替代 submit 真防线。
+    """create 阶段字段弱校验：只拦严重残缺，不替代 submit 入队前的真防线。
 
-    真防线在 submit 的 validate_draft_sanity（draft_sanity.py）——weight<=0 且无
-    competitor_weight_g → 拒；dimensions 三边全<=0 且无 competitor_dimensions_mm → 拒。
-    create 只做两件事：
-    - title 缺失（严重、无法修复）→ 400，把残缺尽早暴露给用户；
-    - weight/dimensions 全零且无竞品兜底 → logger.warning（不阻断，攒进采集箱再修）。
+    两道闸分工（v0.76 勘误：本注释此前称「真防线在 submit 的
+    validate_draft_sanity」与事实相反——该防线当时只挂在 submit_task 路径，
+    draft 提交路径从未调用；终审 Fix-1 已把闸补进 submit_draft 入队前）：
+    - create（本函数）：title 缺失 → 400（严重、无法修复，尽早暴露）；
+      weight/dimensions 全零且无竞品兜底 → 仅 logger.warning 不阻断（攒进
+      采集箱再修）。
+    - submit（submit_draft 入队前）：validate_draft_sanity（draft_sanity.py）
+      硬拦——weight<=0 且无 competitor_weight_g → 拒；dimensions 三边全<=0
+      且无 competitor_dimensions_mm → 拒；非跟卖 purchase_cost<=0 → 拒。
     """
     draft = envelope.get("draft") or {}
     if not isinstance(draft, dict):
@@ -871,6 +876,22 @@ async def submit_draft(
         tenant_id, payload_envelope, template_id, is_update=bool(update_product_id),
         credential_id=client_id,
     )
+
+    # v0.76 终审 Fix-1: 入队前 sanity 闸——此前 submit_task 路径（main.py）有
+    # validate_draft_sanity，而本函数（submit/resubmit/batch-submit/定时上架
+    # 四路消费方）入队前零检查 → weight=0 / cost<=0 信封绕过 T27 闸进管线。
+    # 注意 _apply_listing_template 返回副本，payload_ext 可能已失效 → 按
+    # main.py:2036 参数形态从最终 payload_envelope 重取。语义是「拒绝」不是
+    # 「改写」：不违反「采集箱即权威禁自主重配」红线（那约束的是改写用户
+    # 可见内容）；拒单让用户回采集箱修正数据，所见即所得不被破坏。
+    sanity_err = validate_draft_sanity(
+        payload_envelope.get("draft"), payload_envelope.get("extensions") or {})
+    if sanity_err:
+        logger.warning("❌ 草稿信封数据异常被拒 draft=%s: %s", draft_id, sanity_err)
+        raise HTTPException(
+            status_code=400,
+            detail=f"信封数据异常: {sanity_err}",
+        )
 
     graph_payload = {
         "token": token,
