@@ -2176,7 +2176,7 @@ async def http_submit_task(request: Request):
         raise  # 直接抛出HTTP异常
     except Exception as e:
         # T2(api-M1): 500 detail 固定文案（str(e) 可能携带内部信息），异常细节只进日志
-        logger.exception(e)
+        logger.exception("提交任务失败")
         raise HTTPException(status_code=500, detail="Failed to submit task")
 
 
@@ -2355,7 +2355,7 @@ async def http_task_status(task_id: str, request: Request):
         raise  # v0.73: 404/401/租户 404 直通（此前被吞成 500，与 v1 docs 的 404 约定不符）
     except Exception as e:
         # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
-        logger.exception(e)
+        logger.exception("查询任务状态失败")
         raise HTTPException(status_code=500, detail="Failed to get task status")
 
 
@@ -2416,7 +2416,7 @@ async def http_cancel_task(task_id: str, request: Request):
         raise  # T6: 401/404/租户 404 直通（同 http_task_status v0.73 处理）
     except Exception as e:
         # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
-        logger.exception(e)
+        logger.exception("取消任务失败")
         raise HTTPException(status_code=500, detail="Failed to cancel task")
 
 
@@ -2581,7 +2581,7 @@ async def http_task_statistics(request: Request):
         raise  # T7: 401/403/租户语义 HTTPException 直通（同 http_task_status v0.73 处理）
     except Exception as e:
         # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
-        logger.exception(e)
+        logger.exception("查询任务统计失败")
         raise HTTPException(status_code=500, detail="Failed to get task statistics")
 
 
