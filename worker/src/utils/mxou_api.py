@@ -21,8 +21,9 @@ GRSAI_API_URL = "https://grsai.dakka.com.cn/v1/api/result"
 GRSAI_API_KEY = os.getenv("GRSAI_API_KEY", "")
 
 # 默认生图模型和降级模型
-# v0.77: 主模型切 gpt-image-2.5（上游模型更新；生产以 config/imagegen.json 热加载为准，
-# 此处代码默认值随发版对齐——config 缺键时兜底到 2.5，行为一致）
+# v0.77: 主模型切 gpt-image-2.5（上游模型更新）。注意分工：本常量是 API 调用缺省 model 参数；
+# 节点级模型选择走 image_models.get_image_model（imagegen.json 热加载），其配置缺失/损坏的
+# 兜底是 image_models.DEFAULT_NODE_MODEL（gpt-image-2，按方案保持不动）——两条回退路径勿混写。
 PRIMARY_IMAGE_MODEL = "gpt-image-2.5"
 FALLBACK_IMAGE_MODEL = "nano-banana-fast"
 # v0.60: 第三级降级 — fast 真失败后再降 nano-banana-2-lite（MXOU 2026-08 新增，
