@@ -44,6 +44,15 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（开发中 — Windows 真机反馈 4 项：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性）
+
+> 分支 `fix/win-field-feedback-v1`（未发版）。动因：v0.76.0 Windows 真机实测 4 问题（reports 53857013/0b999d17/75b24068/22e45744，取证见用户回传 issues-for-official.md + win-cookie-takeover-fix.md）。纯 skill 侧，测试 1496→1519。
+
+- **改 `updater.py` 前必读（数据丢失事故链）**：①备份只含「包内同名条目」——`_is_preserved` 保 `data/` + 全部点开头条目（`.1688-AK`/`.workbuddy`），本地独有文件从不进备份、回滚也碰不到；②**启动时残留备份一律不回滚**（旧逻辑被 Windows 静默清理失败 + 过期快照组合出「8 月旧快照覆盖根目录」数据丢失；overlay 全量自愈，启动回滚只有风险）——回滚只保留给本次更新失败路径；③清理失败改 `.stale-<ts>`（同秒递增防撞）+ 双失败 fail-closed + 包内文件级落地自检。
+- **改 cookie_harvest 接管通道前必读（真机双缺陷已修）**：①启动参数必含 `--remote-allow-origins=*`（Chrome 111+ WS 握手 Origin 校验，漏参=探活过但握手 403 假就绪）；②源 Cookies 被运行中浏览器独占锁定（WinError 32，设计前提级）——`_is_locked` 前置探测 + 未显式 `--browser-profile` 自动改用可读 profile（`profile_dir_name` None 透传保语义，`harvest_all` 不再折叠成 "Default"）+ 显式/无替代给退出指引；异常文案三分流固定文案（明文红线不变；macOS 零变化）。
+- **check 的 seller 判定已两段**：cookie 判过再跑 `probe_seller_session_alive`（what_to_sell v3 只看状态码；死会话如实报并置 all_ok；探针零副作用不触发直调短路）——改 check/登录判定链前先看 cli.py §4.5 与 ozon_seller_analytics 探针注释。
+- defer：token 分钟级寿命根治三候选仍待拍板（v0.74 遗留）；`--wait-chrome-exit` 轮询；关 Chrome 后源库可读性真机验证。
+
 ## 最近更新（v0.76.0 — skill 并发竞态止血 + Windows cookie 导入三层通道）
 
 > 2026-09-16 发版（纯 skill 侧，worker 零改动；skill 测试 1342→1496）。两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案与 SDD 全程留痕 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`。**改 discover/并发链前先读该方案 §A 与 CHANGELOG 0.76.0**。
