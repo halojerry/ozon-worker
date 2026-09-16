@@ -2957,7 +2957,21 @@ def _build_items_deterministically(
     variant_list: list[dict[str, Any]] = variants if is_multi else [{}]
     
     items: list[dict[str, Any]] = []
-    
+
+    # ── 图片白名单（fix/image-ref-cos-whitelist-v1 批2补强：builder 同闸）──
+    # 「payload 只进本方 COS 图」的 builder 侧一半：镜像未跑/失败时 draft.images
+    # 仍是 1688 裸 alicdn 原图（Ozon 抓不到外链），builder 直填会绕过下游补位闸
+    # 直达 payload（2026-09-16 原图上卡事故批2）。子集算一次全变体共享；
+    # 任何被闸掉的图（全外链或混合中的外链）warning 带来源 key 前缀便于取证。
+    _all_images = images or []
+    _cos_images = [u for u in _all_images if is_cos_url(u)][:15]
+    _dropped_images = [u for u in _all_images if not is_cos_url(u)]
+    if _dropped_images:
+        logger.warning(
+            "   ⚠️ draft 图含非本方 COS 托管图，不进 items（Ozon 抓不到外链）: 来源 key 前缀=%s",
+            _image_source_key_prefixes(_dropped_images),
+        )
+
     for idx, variant in enumerate(variant_list):
         # 确定 offer_id
         if is_multi:
@@ -2984,8 +2998,8 @@ def _build_items_deterministically(
             "width": dimensions.get("width", 100),
             "height": dimensions.get("height", 50),
             "weight": weight_grams,
-            "images": (images or [])[:15],
-            "primary_image": images[0] if images else "",
+            "images": _cos_images,
+            "primary_image": _cos_images[0] if _cos_images else "",
             "complex_attributes": [],
             "images360": [],
             "pdf_list": [],
