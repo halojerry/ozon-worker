@@ -19,6 +19,7 @@ from typing import List, Optional
 
 from utils import image_url_guard
 from utils.image_url_processor import _referer_for_url
+from utils.secure_fetch import safe_fetch  # v0.76 T15 接线；T16(controller) 上提到模块顶部（评审 N1）
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,6 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             # 宽 except 是刻意的（T14 carried 同款）：safe_fetch 对畸形端口可抛
             # 裸 ValueError（fail-closed 但类型不保证），UnsafeUrlError/ValueError
             # 一并落 warn 降级跳过该图，绝不放行内网。
-            from utils.secure_fetch import safe_fetch
             resp = safe_fetch(url.strip(), timeout=15, headers=headers,
                               allowed_host_suffixes=image_url_guard.IMAGE_HOST_SUFFIXES)
             if resp.status_code != 200 or not resp.content:

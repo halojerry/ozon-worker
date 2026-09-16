@@ -11,6 +11,7 @@ from graphs.state import OzonValidateInput, OzonValidateOutput
 # ✅ v0.69 Wave3: 数值属性清洗唯一入口 + 尺寸契约硬边界（唯一事实源，与 normalizer 同源）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
 from utils.cos_uploader import is_cos_url
+from utils.secure_fetch import safe_fetch
 from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
@@ -573,8 +574,12 @@ def ozon_validate_node(
                 if not url:
                     continue
                 try:
-                    import requests as req
-                    head_resp = req.head(url, timeout=5, allow_redirects=True)
+                    # v0.76 T16(inj-H2)：裸 requests.head → safe_fetch——URL 源自
+                    # 信封 item.images/primary_image（用户可控），解析到内网/保留段、
+                    # 非 http(s)、重定向跳内网即 UnsafeUrlError，绝不发起内网请求。
+                    # UnsafeUrlError/ValueError 落下方既有 except 分支：降级 warning
+                    # 不拦截（探测失败≠图片失效，语义与超时/DNS 失败一致）。
+                    head_resp = safe_fetch(url, method="head", timeout=5)
                     if head_resp.status_code >= 400:
                         failed_urls.append(url[:60])
                     else:
