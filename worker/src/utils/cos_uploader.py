@@ -8,6 +8,11 @@
   COS_PUBLIC_DOMAIN(可选, 默认 https://{bucket}.cos.{region}.myqcloud.com)
 
 ⚠️ 未配置 COS 时所有函数优雅降级(返回 None/[]), 不阻断主流程。
+
+⚠️ is_cos_url 唯一实现已迁 utils/image_url_guard（fix/image-ref-cos-whitelist-v1，
+本模块已依赖 image_url_guard，反向定义会成环）；此处仅模块级 re-export，
+既有消费方（draft_service / ozon_validate_node / validation_retry_loop /
+draft_image_mirror 的 `from utils.cos_uploader import is_cos_url`）零改动——防漂移。
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ import os
 from typing import List, Optional
 
 from utils import image_url_guard
+from utils.image_url_guard import is_cos_url  # 模块级 re-export（防漂移；F401 已在 ruff.toml 全局 ignore）
 from utils.image_url_processor import _referer_for_url
 
 logger = logging.getLogger(__name__)
@@ -36,22 +42,6 @@ def cos_enabled() -> bool:
     """是否配置了 COS 凭证。"""
     sid, skey, bucket, _ = _cos_env()
     return bool(sid and skey and bucket)
-
-
-def is_cos_url(url: object) -> bool:
-    """判断 URL 是否已托管在本方 COS（幂等判定的唯一共享实现）。
-
-    v0.69 declined IMAGE_ERROR 根因修复的共享件：submit 镜像闸（draft_service）、
-    validate 全外链硬拦（ozon_validate_node）、retry pictures/import 取图
-    （validation_retry_loop）三处同源判定，禁止各自内联（防漂移）。
-    覆盖 区域域名 cos.{region}.myqcloud.com 与全球加速 cos.accelerate.myqcloud.com。
-    """
-    if not isinstance(url, str):
-        return True
-    lowered = url.strip().lower()
-    if not lowered:
-        return True
-    return ".myqcloud.com" in lowered or "cos." in lowered
 
 
 def _get_client():
@@ -124,6 +114,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
     """下载原始图(1688 alicdn) → 转存 COS → 返回可访问 URL 列表。
 
     - 未配置 COS / 下载失败(404/超时) / 参考图(竞品图+1688缩略图) → 跳过
+    - 已托管本方 COS 的 URL → 直通原样收下（免二次下载-转存，计入 saved/max_n）
     - 全部失败 → [] (调用方保持原有警告路径)
     """
     saved: List[str] = []
@@ -137,6 +128,13 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
         if _is_reference_image(url):
             # fix/image-ref-pollution: 拒绝原因可观测（串图取证靠这条日志）
             logger.warning("E1 跳过非合格商品图（非alicdn原图或缩略/竞品图）: %s", url)
+            continue
+        if is_cos_url(url):
+            # fix/image-ref-cos-whitelist-v1 批2 改动4（计划 T4）：镜像草稿场景输入可能
+            # 已是本方 COS 托管图 → 直通原样收下，免同桶二次下载-转存。
+            # 置于 _is_reference_image 之后：缩略/.webp 恒拒对 COS 域照常生效
+            # （镜像 key 带 _310x310 之类后缀照样拒）。
+            saved.append(url.strip())
             continue
         try:
             # 批5 gate 前置（A4，跨平台货源 v1）：Referer 按图床域分派
