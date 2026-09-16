@@ -124,12 +124,13 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
     """下载原始图(1688 alicdn) → 转存 COS → 返回可访问 URL 列表。
 
     - 未配置 COS / 下载失败(404/超时) / 参考图(竞品图+1688缩略图) → 跳过
+    - v0.76 T15: 下载统一走 utils.secure_fetch.safe_fetch——解析到内网/保留段、
+      重定向跳白名单外域、畸形端口的 URL 同样按失败降级跳过该图
     - 全部失败 → [] (调用方保持原有警告路径)
     """
     saved: List[str] = []
     if not original_images or not cos_enabled():
         return saved
-    import requests
 
     for url in original_images:
         if len(saved) >= max_n:
@@ -147,7 +148,16 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             referer = _referer_for_url(url.strip())
             if referer:
                 headers["Referer"] = referer
-            resp = requests.get(url.strip(), timeout=15, headers=headers)
+            # v0.76 T15(controller)：裸 requests.get → safe_fetch。guard 白名单
+            # 只约束首跳 URL 的 hostname，这里补解析 IP 校验（白名单域仍可能被
+            # 内网 DNS 指向）与逐跳复核；allowed_host_suffixes 双保险——重定向
+            # 跳转域同样锁死图床白名单，防 302 跳公网外域后字节入 COS。
+            # 宽 except 是刻意的（T14 carried 同款）：safe_fetch 对畸形端口可抛
+            # 裸 ValueError（fail-closed 但类型不保证），UnsafeUrlError/ValueError
+            # 一并落 warn 降级跳过该图，绝不放行内网。
+            from utils.secure_fetch import safe_fetch
+            resp = safe_fetch(url.strip(), timeout=15, headers=headers,
+                              allowed_host_suffixes=image_url_guard.IMAGE_HOST_SUFFIXES)
             if resp.status_code != 200 or not resp.content:
                 logger.warning("E1 原始图下载失败(HTTP %s): %s", resp.status_code, url)
                 continue
@@ -155,7 +165,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             if purl:
                 saved.append(purl)
         except Exception as e:
-            logger.warning("E1 原始图转存失败: %s (%s)", url, e)
+            logger.warning("E1 原始图转存失败(%s: %s): %s", type(e).__name__, e, url)
     if saved:
         logger.info("✅ E1 原始图转存成功 %d 张(共尝试 %d)", len(saved), len(original_images))
     return saved

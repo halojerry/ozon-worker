@@ -111,6 +111,8 @@ from services import draft_image_mirror as mirror  # noqa: E402
 
 
 def _fake_get_capture(calls, status=200):
+    """v0.76 T15 起 salvage 链走 safe_fetch（requests.request），此助手仅供
+    纯 requests.get 旧链测试（_download_with）复用。"""
     def fake_get(u, timeout=None, headers=None):
         calls["headers"] = dict(headers or {})
         if status != 200:
@@ -152,8 +154,16 @@ def _mirror_with(monkeypatch, url, status=200):
 
 
 def _salvage_with(monkeypatch, urls, status=200):
+    """salvage 链（v0.76 T15 起走 safe_fetch → sf.requests.request）的假 HTTP。
+    旧 `requests.get` 补丁已死——safe_fetch 发 requests.request 且先做解析 IP
+    校验，故 fake DNS 到公共 IP 杜绝真实出站（对齐 T14 镜像链手法）；
+    假响应带 is_redirect 判定属性（safe_fetch 重定向判定要读）。"""
     calls = {}
-    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    monkeypatch.setattr(secure_fetch.socket, "getaddrinfo",
+                        lambda host, port=None, *a, **k:
+                        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+    monkeypatch.setattr("utils.secure_fetch.requests.request",
+                        _fake_request_capture(calls, status))
     monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
     monkeypatch.setattr(
         cos_uploader, "cos_upload_bytes",
@@ -201,9 +211,16 @@ class TestLiveChainSalvageReferer:
         """salvage 链「裸 UA 无 Referer」结构性不可达：可下载域=image_url_guard
         白名单（alicdn/1688/taobaocdn/pddpic/yangkeduo/pinduoduo），恰为
         _referer_for_url 规则域的子集——非白名单域在 _is_reference_image 即跳过、
-        根本不发起下载（外域 URL 不产生任何请求）。"""
-        calls = {}
-        monkeypatch.setattr("requests.get", _fake_get_capture(calls))
+        根本不发起下载（外域 URL 不产生任何请求）。v0.76 T15 后断言升级为
+        requests 层零触达哨兵（get/request 双入口，对齐 T14 手法）。"""
+        called = {"n": 0}
+
+        def _touch(*a, **k):
+            called["n"] += 1
+            raise AssertionError("network touched: non-whitelisted domain reached fetch")
+
+        monkeypatch.setattr("requests.get", _touch)
+        monkeypatch.setattr(secure_fetch.requests, "request", _touch)
         monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
         monkeypatch.setattr(
             cos_uploader, "cos_upload_bytes",
@@ -211,4 +228,4 @@ class TestLiveChainSalvageReferer:
         out = cos_uploader.salvage_original_images(
             ["https://cdn.example.com/x.jpg"])
         assert out == []
-        assert "headers" not in calls  # 外域未发起下载（无裸 UA 请求）
+        assert called["n"] == 0  # 外域未发起下载（无裸 UA 请求）
