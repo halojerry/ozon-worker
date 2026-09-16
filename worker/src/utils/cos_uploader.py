@@ -114,6 +114,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
     """下载原始图(1688 alicdn) → 转存 COS → 返回可访问 URL 列表。
 
     - 未配置 COS / 下载失败(404/超时) / 参考图(竞品图+1688缩略图) → 跳过
+    - 已托管本方 COS 的 URL → 直通原样收下（免二次下载-转存，计入 saved/max_n）
     - 全部失败 → [] (调用方保持原有警告路径)
     """
     saved: List[str] = []
@@ -127,6 +128,13 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
         if _is_reference_image(url):
             # fix/image-ref-pollution: 拒绝原因可观测（串图取证靠这条日志）
             logger.warning("E1 跳过非合格商品图（非alicdn原图或缩略/竞品图）: %s", url)
+            continue
+        if is_cos_url(url):
+            # fix/image-ref-cos-whitelist-v1 批3（计划 T4）：镜像草稿场景输入可能
+            # 已是本方 COS 托管图 → 直通原样收下，免同桶二次下载-转存。
+            # 置于 _is_reference_image 之后：缩略/.webp 恒拒对 COS 域照常生效
+            # （镜像 key 带 _310x310 之类后缀照样拒）。
+            saved.append(url.strip())
             continue
         try:
             # 批5 gate 前置（A4，跨平台货源 v1）：Referer 按图床域分派
