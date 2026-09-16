@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from services.tenant_service import token_fingerprint
 from storage.database.db import get_engine
+from utils.like_escape import escape_like
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +64,12 @@ def list_bestsellers(
     where: list[str] = []
     params: dict = {"limit": limit, "offset": offset}
     if category:
-        where.append("category_path ILIKE :cat")
-        params["cat"] = f"%{category}%"
+        # v0.76 inj-L1: category/brand 是请求 query 参数，%/_ 转义为字面量 + ESCAPE 声明
+        where.append("category_path ILIKE :cat ESCAPE '\\'")
+        params["cat"] = f"%{escape_like(category)}%"
     if brand:
-        where.append("brand ILIKE :brand")
-        params["brand"] = f"%{brand}%"
+        where.append("brand ILIKE :brand ESCAPE '\\'")
+        params["brand"] = f"%{escape_like(brand)}%"
     if min_sales is not None:
         where.append("ordering_count >= :min_sales")
         params["min_sales"] = min_sales
