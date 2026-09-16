@@ -10030,7 +10030,7 @@
     },
     "/api/v1/resubmit_task/{task_id}": {
       "post": {
-        "description": "重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。",
+        "description": "重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。",
         "operationId": "v1_resubmit_task_api_v1_resubmit_task__task_id__post",
         "parameters": [
           {
@@ -10053,6 +10053,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Payment Required"
           },
           "404": {
             "content": {
@@ -12540,7 +12550,7 @@
     },
     "/resubmit_task/{task_id}": {
       "post": {
-        "description": "重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。\n\n仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +\nextensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。\n\n⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），\n校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。",
+        "description": "重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。\n\n仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +\nextensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。\n\n⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），\n校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。\n\n⚠️ race-L1（v0.76 Task 26）：与 submit_task 同款两段——入队前\n_check_mxou_balance 余额预检（欠费 → 402，重提交重跑生图/LLM 同样烧额度）；\n入队 IntegrityError（并发撞部分唯一索引）→ 干净 409 DUPLICATE_SUBMIT\n（此前冒泡成 500）。",
         "operationId": "http_resubmit_task_resubmit_task__task_id__post",
         "parameters": [
           {
@@ -12566,6 +12576,18 @@
               }
             },
             "description": "Successful Response"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error_code": "INSUFFICIENT_BALANCE",
+                  "message": "MXOU 余额不足 (current: -5.0). 请充值",
+                  "ok": false
+                }
+              }
+            },
+            "description": "Payment Required"
           },
           "409": {
             "content": {

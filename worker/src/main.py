@@ -2452,6 +2452,10 @@ async def http_cancel_task(task_id: str, request: Request):
         "ok": True,
         "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
         "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+    }}}}, 402: {"content": {"application/json": {"example": {
+        "ok": False,
+        "error_code": "INSUFFICIENT_BALANCE",
+        "message": "MXOU 余额不足 (current: -5.0). 请充值",
     }}}}, 409: {"content": {"application/json": {"example": {
         "ok": False,
         "error_code": "TASK_NOT_RESUBMITTABLE",
@@ -2466,6 +2470,11 @@ async def http_resubmit_task(task_id: str, request: Request):
 
     ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
     校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
+
+    ⚠️ race-L1（v0.76 Task 26）：与 submit_task 同款两段——入队前
+    _check_mxou_balance 余额预检（欠费 → 402，重提交重跑生图/LLM 同样烧额度）；
+    入队 IntegrityError（并发撞部分唯一索引）→ 干净 409 DUPLICATE_SUBMIT
+    （此前冒泡成 500）。
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
@@ -2497,6 +2506,26 @@ async def http_resubmit_task(task_id: str, request: Request):
                 detail={"task_id": task_id, "status": status},
             )
 
+        # race-L1（v0.76 Task 26）: 余额预检对齐 submit_task——重提交重跑生图/LLM
+        # 同样烧 MXOU 额度，欠费 token 不得借重提交绕过 402。在鉴权+归属+状态
+        # 校验之后、入队之前执行；key 剥 sk- 前缀 + user_id=caller 租户，与
+        # submit_task 同参形态。402 文案逐字同款（含 v0.64.1 B3 来源标识）。
+        _balance_key = token[3:] if token.startswith("sk-") else token
+        balance, has_quota = _check_mxou_balance({"key": _balance_key, "user_id": caller_user_id})
+        if not has_quota:
+            if isinstance(balance, (int, float)) and balance < 0:
+                _msg = f"MXOU 余额不足 (current: {balance}). 请充值"
+            else:
+                _src = _balance_source_label({"key": _balance_key, "user_id": caller_user_id}, balance)
+                _msg = (
+                    f"MXOU 余额不足 (current: {balance}). 请充值 "
+                    f"(source: {_src}, raw_balance: {balance})"
+                )
+            return error_response(
+                WorkerErrorCode.INSUFFICIENT_BALANCE,
+                _msg,
+            )
+
         # 深拷贝原载荷（避免改到 DB 返回的原始 dict），注入重提交标记
         payload = copy.deepcopy(task_status.get("payload") or {})
         payload["parent_task_id"] = task_id
@@ -2523,14 +2552,26 @@ async def http_resubmit_task(task_id: str, request: Request):
             f"{tenant_id}:{product_id}"
         ) if product_id else ""
 
-        new_task_id = await task_processor.submit_task(
-            tenant_id=tenant_id,
-            payload=payload,
-            priority=0,
-            timeout_seconds=int(task_status.get("timeout_seconds") or 1800),
-            max_retries=int(task_status.get("max_retries") or 3),
-            sku_key=sku_key,
-        )
+        # F-C06 同款（race-L1，v0.76 Task 26）: 去重 SELECT 与 INSERT 之间的并发
+        # 窗口由部分唯一索引 uq_ozon_product_tasks_tenant_sku 兜底——重提交撞索引
+        # 映射为与 submit_task 同款的干净 409（此前 IntegrityError 冒泡进通用
+        # except → 500，客户端重试放大窗口）。
+        try:
+            new_task_id = await task_processor.submit_task(
+                tenant_id=tenant_id,
+                payload=payload,
+                priority=0,
+                timeout_seconds=int(task_status.get("timeout_seconds") or 1800),
+                max_retries=int(task_status.get("max_retries") or 3),
+                sku_key=sku_key,
+            )
+        except IntegrityError:
+            log_task_event("duplicate_submit_blocked", task_id=task_id, user_id=tenant_id,
+                           sku_key=sku_key, status="unique_index")
+            return error_response(
+                WorkerErrorCode.DUPLICATE_SUBMIT,
+                "该商品已在提交队列（并发提交命中唯一约束），请勿重复提交",
+            )
 
         log_task_event("resubmitted", task_id=new_task_id, user_id=tenant_id,
                        parent_task_id=task_id, from_status=status)
@@ -2770,9 +2811,9 @@ async def v1_cancel_task(task_id: str, request: Request):
 
 
 @v1.post("/resubmit_task/{task_id}", response_model=SubmitTaskResponse, tags=["task"],
-         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+         responses={402: {"model": ErrorBody}, 404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
 async def v1_resubmit_task(task_id: str, request: Request):
-    """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。"""
+    """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。"""
     return await http_resubmit_task(task_id, request)
 
 

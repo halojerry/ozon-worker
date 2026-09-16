@@ -2976,7 +2976,7 @@ Http Progress — 查询工作流执行进度。
 ## resubmit_task
 
 ### `POST /api/v1/resubmit_task/{task_id}`
-V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
+V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。
 > 兼容别名：`POST /resubmit_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -2990,6 +2990,7 @@ V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [SubmitTaskResponse](#schema-submittaskresponse) |
+| 402 | Payment Required | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
