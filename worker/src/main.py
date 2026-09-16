@@ -1076,6 +1076,15 @@ async def http_cancel(run_id: str, request: Request):
     使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
     LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
     """
+    # v0.76 终审 Fix-4: 鉴权门——/run /stream_run /node_run /v1/chat/completions
+    # 都有 _authenticate_token，唯独本端点从无鉴权（知道 run_id 可取消他人在跑
+    # 任务）。与 /run 系一致从 body JSON 取 token（空 body → 无 token → 401）。
+    raw_body = await request.body()
+    try:
+        body_text = raw_body.decode("utf-8")
+    except Exception:
+        body_text = ""
+    _authenticate_token(_extract_token_from_body(body_text))
     ctx = new_context(method="cancel", headers=request.headers)
     request_context.set(ctx)
     logger.info(f"Received cancel request for run_id: {run_id}")

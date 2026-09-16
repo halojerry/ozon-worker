@@ -67,6 +67,10 @@ def _call_chat(body: dict):
     return asyncio.run(main_mod.openai_chat_completions(FakeRequest(body)))
 
 
+def _call_cancel(body: dict):
+    return asyncio.run(main_mod.http_cancel("some-run-id", FakeRequest(body)))
+
+
 # ============================================================
 # 1. _authenticate_token 直接单测（真实逻辑，mock Supabase）
 # ============================================================
@@ -103,7 +107,8 @@ def test_authenticate_token_valid_returns_user_id():
     (_call_stream, {"no_token": True}),
     (_call_node, {"no_token": True}),
     (_call_chat, {"no_token": True}),
-], ids=["run", "stream_run", "node_run", "chat"])
+    (_call_cancel, {"no_token": True}),
+], ids=["run", "stream_run", "node_run", "chat", "cancel"])
 def test_auth_gate_missing_token_401(call, body):
     with pytest.raises(HTTPException) as exc:
         call(body)
@@ -115,7 +120,8 @@ def test_auth_gate_missing_token_401(call, body):
     (_call_stream, {"token": ""}),
     (_call_node, {"token": ""}),
     (_call_chat, {"token": ""}),
-], ids=["run", "stream_run", "node_run", "chat"])
+    (_call_cancel, {"token": ""}),
+], ids=["run", "stream_run", "node_run", "chat", "cancel"])
 def test_auth_gate_empty_token_401(call, body):
     with pytest.raises(HTTPException) as exc:
         call(body)
@@ -186,3 +192,18 @@ def test_auth_gate_chat_valid_token_passes():
          patch.object(main_mod.openai_handler, "handle", side_effect=fake_handle, create=True):
         result = _call_chat({"token": "sk-tok123", "messages": [{"role": "user", "content": "hi"}]})
     assert result["choices"][0]["message"]["content"] == "hi"
+
+
+# ============================================================
+# 4. /cancel/{run_id}（v0.76 终审 Fix-4：此前完全无鉴权，知道 run_id
+#    可取消他人在跑任务；/run 系唯独它裸奔）
+# ============================================================
+
+def test_auth_gate_cancel_valid_token_passes():
+    with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
+         patch("main.get_supabase_client", return_value=_valid_supabase()), \
+         patch("main.new_context", side_effect=_fake_new_context), \
+         patch.object(main_mod.service, "cancel_run", return_value={"status": "success"}) as fake_cancel:
+        result = _call_cancel({"token": "sk-tok123"})
+    assert result["status"] == "success"
+    assert fake_cancel.call_args[0][0] == "some-run-id"
