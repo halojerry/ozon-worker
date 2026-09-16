@@ -15,7 +15,7 @@ jobs:
     name: Version Four-Source Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Assert version sources match tag
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: version-check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set version
         id: version
@@ -79,17 +79,17 @@ jobs:
           echo "version=$TAG" >> $GITHUB_OUTPUT
           echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       # v0.29.1: login → build-push(gha 缓存 — pip/基础镜像层跨发版复用)
       - name: Login to GHCR
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build & Push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: worker/Dockerfile
@@ -111,7 +111,7 @@ jobs:
     needs: deploy
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Generate changelog
         id: changelog
@@ -127,7 +127,7 @@ jobs:
           fi
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
@@ -150,14 +150,14 @@ jobs:
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set version
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Setup Bun (WebUI 前端构建)
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
@@ -193,9 +193,17 @@ jobs:
           COS_REGION: ${{ secrets.COS_REGION }}
 
       - name: Install coscli
+        env:
+          # T30(cicd-M4): coscli 二进制 sha256 pin（2026-09-16 人工一次性下载
+          # coscli-linux-amd64 算得，14,212,085 bytes）。官方不发布校验值，升级
+          # coscli 时必须重新下载重算并同步本值（同值用于 build-skill.yml /
+          # skill-distribute.yml，三处须一致）。
+          COSCLI_SHA256: "a07de5ba2800147a700ed29036b0c76a4229088cee68e1682d0eae19b638a915"
         run: |
           curl -L --fail --retry 3 --retry-delay 2 -o coscli \
             https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          [ -s coscli ] || { echo "::error::coscli 下载为空"; exit 1; }
+          echo "${COSCLI_SHA256}  coscli" | sha256sum -c -
           chmod 755 coscli
           ./coscli --version
 
