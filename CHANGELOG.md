@@ -1,5 +1,20 @@
 # Changelog
 
+## [开发中] — Windows 真机反馈 4 项修复：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性（未发版）
+
+> 分支 `fix/win-field-feedback-v1`。动因：v0.76.0 Windows 真机实测 4 问题（reports：53857013 / 0b999d17 / 75b24068 / 22e45744，取证与复现脚本见用户回传 `issues-for-official.md` + `win-cookie-takeover-fix.md`）。纯 skill 侧，测试 **1496→1519**（+23）。
+
+### 修复（按严重度）
+- **[high] update 升级数据丢失（report 53857013）三防线**：①本地独有条目根本不进备份——只备份「包内同名条目」，全部点开头条目（`.1688-AK`/`.workbuddy` 等）+ `data/` 永不触碰（事故根因：本地目录被搬进 `_update_backup` → Windows 下备份清理失败被 `ignore_errors` 静默吞 → 残留 8 月过期快照 → 下次更新误判「上次中断」把旧快照回滚覆盖根目录，最新内容进回收站）；②**废除启动时残留备份回滚**（overlay 全量包重跑即自愈，「启动回滚」只有数据丢失风险没有收益——回滚语义只保留给本次更新的失败路径，且备份现在只含包内条目，回滚碰不到本地文件）；③备份清理失败不静默：rmtree 失败改名为 `_update_backup.stale-<ts>`（同秒多次递增防撞），删除+改名双失败 fail-closed 中止并指路手动删除；另加包内文件级**落地自检**（覆盖截断 → 回滚，不带病宣告 ok）。
+- **[high] import-cookies 副本接管：源 Cookies 独占锁（report 0b999d17）**：Windows 实测 Chrome 对使用中 profile 的 Cookies 库持独占句柄（任何共享模式 WinError 32，设计前提不成立）。复制改 `_copy_shared` 流式（错误可分类）+ `_is_locked` 前置探测；命中锁：**未显式 `--browser-profile` 自动改用未占用 profile**（`profile_dir_name` 全链 None 透传保「未显式指定」语义，输出注明改用）；显式指定/无替代 → 「完全退出 Chrome（含托盘）」明确指引；异常文案分流（锁 / WS 握手 / 其他），固定文案不带任何内容（明文红线不变）。**macOS/Linux 行为零变化**。
+- **[medium] import-cookies 接管漏 `--remote-allow-origins=*`（report 75b24068）**：Chrome 111+ 对 CDP WebSocket 升级做 Origin 白名单校验而 HTTP 探活端点不校验——漏参 = 「探活通过 → 握手 403」假就绪。补参（与主实例 chrome_launcher 同参），真机对照实验实证。
+- **[medium] check seller 假阳性（report 22e45744）**：cookie 判定（sc_company_id 存在）≠ 会话活（token 分钟级寿命/用后轮换，v0.74 已实证）。cookie 判过后再跑 `probe_seller_session_alive` 最小真实探针（what_to_sell v3，只看状态码：200/400=活 / 401=token 失效 / 403=鉴权拒或风控 / 其余=无法判定），死会话如实报「会话已失效 + 刷新指引」并置 `all_ok`；探针零副作用（不触发直调短路标记、响应体不进返回值不落日志）。`import-cookies` ok 态 message 也打印（锁降级改用 profile 的说明对用户可见）。
+
+### 已知问题 / defer
+- 「`__Secure-access_token` 分钟级寿命」的根治方案（refresh_token 续期 / 同步后秒级消费 / 数据面留在浏览器上下文）仍待拍板（v0.74 遗留三候选）；本批 check 探针只解决「假阳性可见性」。
+- 完全退出 Chrome 后使用中 profile 的 Cookies 是否可读未实测（按未占用 profile 全可读推断应可读）——Windows 真机 gate 项。
+- `--wait-chrome-exit <秒>` 轮询等待浏览器退出（修复文档可选增强，未做）。
+
 ## [0.76.0] — skill 并发竞态止血 + Windows cookie 导入三层通道（2026-09-16）
 
 > 两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`（SDD 全程：任务级审查×5 + 分支终审×2 + 修复轮×5 全部关环）。**纯 skill 侧发版——worker 零改动**（worker 基线 2649 不变）；skill 测试 **1342→1496**（+154）。实机冒烟（macOS）：串行闸并发拦截 exit 4 ✓ / 单跑零误拦 ✓ / 真实 discover 采集 3 候选 ✓（免登录 cookie 导入真链路顺带实证；采集偶发 0 产品为合并前同在的间歇性反爬窗口，控制组 A/B 复验排除回归）。

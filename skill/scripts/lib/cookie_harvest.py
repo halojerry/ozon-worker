@@ -248,7 +248,11 @@ def _read_chromium_db(db_path: Path, key: bytes) -> list[dict]:
     return cookies
 
 
-def _harvest_chromium(source: str, profile_dir_name: str = "Default") -> dict[str, Any]:
+def _harvest_chromium(source: str,
+                      profile_dir_name: str | None = None) -> dict[str, Any]:
+    """profile_dir_name=None = 未显式指定（win32 接管层解析为 Default，并保留
+    「未显式指定」语义供 ISSUE-2 锁降级判定——显式指定命中锁时绝不静默换
+    profile，只给退出指引）。darwin 路径不消费该参数（行为零变化）。"""
     if sys.platform == "win32":
         # B-T4：Windows 主通道 = 副本目录 CDP 接管（解密主体是 Chrome 自己，
         # 本模块零解密代码/零提权；见 _harvest_chromium_via_takeover）。
@@ -294,9 +298,19 @@ def _harvest_chromium(source: str, profile_dir_name: str = "Default") -> dict[st
 # - 零解密：绝不出现 DPAPI/CryptUnprotectData/IElevator/ctypes win32 调用——
 #   解密主体永远是浏览器进程自己；
 # - 不写用户浏览器目录：源侧只读拷贝，一切写入只发生在我们的临时目录；
-# - cookie 明文不落日志：异常 message 只带异常类型名，不带 CDP 返回内容；
+# - cookie 明文不落日志：异常 message 只带异常类型名/固定文案，不带 CDP 返回内容；
 # - 动态端口 bind 0 取号，绝不占 9222 主工具实例；
 # - finally 清理全路径兜底：浏览器进程（含子进程树）+ 临时目录，任何失败不 raise。
+#
+# ⚠️ Windows 真机实测两缺陷（reports 75b24068 / 0b999d17，v0.76.0 后修复）：
+# - 启动副本浏览器必须带 --remote-allow-origins=*（Chrome 111+ 对 CDP 的
+#   WebSocket 升级做 Origin 白名单校验而 HTTP /json/version 不校验——只探 HTTP
+#   会「假就绪」后握手 403；chrome_launcher 主实例同参数先例 :482）；
+# - 运行中的浏览器对其**使用中 profile** 的 Cookies 库持独占句柄（CreateFileW
+#   任何共享模式含 FILE_SHARE_DELETE / BACKUP_SEMANTICS 均 WinError 32，
+#   robocopy /B 与 sqlite immutable 同样打不开；未占用 profile 完全可读）——
+#   复制前先 _is_locked 探测，命中锁：未显式 --browser-profile 时自动改用
+#   其他可读 profile，显式指定或无替代时给「退出浏览器」明确指引。
 
 TAKEOVER_PORT_BANNED = 9222   # 主工具实例端口，接管通道绝不占用
 TAKEOVER_CDP_WAIT_S = 20.0    # 单形态（headless/有头）CDP 就绪等待上限
@@ -326,6 +340,63 @@ def _takeover_fail(browser: str, message: str) -> dict[str, Any]:
     """接管失败统一出口（不 raise，调用方降级提示 --paste）。"""
     return {"source": browser, "status": "takeover_failed",
             "message": message, "cookies": []}
+
+
+class TakeoverSourceLocked(RuntimeError):
+    """源 profile 的 Cookies 库被运行中的浏览器独占锁定（Windows WinError 32）。
+
+    实测锁语义矩阵（reports/0b999d17）：Chrome 对**使用中 profile** 的
+    Cookies/-journal 持独占句柄，任何共享模式（含 FILE_SHARE_DELETE 与
+    FILE_FLAG_BACKUP_SEMANTICS）、robocopy /B、sqlite immutable 均打不开；
+    未占用 profile 完全可读（锁随 profile 实例存在）。args[0] = profile
+    目录名（非敏感，用户可见）。"""
+
+
+def _is_locked(path: Path) -> bool:
+    """文件被独占锁定探测（只读 open 一次，不写不删）。
+
+    WinError 32（Windows 占用）/ errno 13·11（EACCES/EAGAIN 同因）→ True；
+    不存在等非锁类 OSError → False（调用方按缺失处理）。"""
+    try:
+        with open(path, "rb"):
+            return False
+    except PermissionError as exc:
+        return getattr(exc, "winerror", None) == 32 or exc.errno in (13, 11)
+    except OSError:
+        return False
+
+
+def _copy_shared(src: Path, dst: Path) -> None:
+    """流式复制（不经 shutil.copy2/CopyFile2：Windows 独占锁下 CopyFile2 不带
+    共享模式且错误不可分类；open 流式失败类型干净，调用方经 _is_locked 分流）。
+    锁定文件的打开照样失败——本函数的价值是错误可分类，不是绕锁（绕不了）。"""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with open(src, "rb") as fin, open(dst, "wb") as fout:
+        shutil.copyfileobj(fin, fout, length=1 << 20)
+
+
+def _takeover_cookies_db(profile_dir: Path) -> Path | None:
+    """profile 目录 → Cookies 库路径（新布局 Network/Cookies 优先，旧布局兜底）。"""
+    if (profile_dir / "Network" / "Cookies").is_file():
+        return profile_dir / "Network" / "Cookies"
+    if (profile_dir / "Cookies").is_file():
+        return profile_dir / "Cookies"
+    return None
+
+
+def _pick_readable_profile(user_data: Path, exclude: str) -> str | None:
+    """枚举其他 profile，挑第一个 Cookies 存在且可读（未被占用）的目录名。
+
+    仅在用户未显式 --browser-profile 时用于自动降级（真机实测未占用 profile
+    完全可读）；无替代 → None。目录不存在/无库的候选自然跳过。"""
+    for p in _takeover_profiles(user_data):
+        d = p["dir"]
+        if d == exclude:
+            continue
+        db = _takeover_cookies_db(user_data / d)
+        if db is not None and not _is_locked(db):
+            return d
+    return None
 
 
 def _takeover_find_exe(browser: str) -> str | None:
@@ -419,25 +490,27 @@ def _takeover_new_workdir() -> Path:
 def _takeover_copy_minimal_set(user_data: Path, profile: str,
                                workdir: Path) -> None:
     """最小复制集：Local State + <profile>/Cookies（含 -wal/-shm，存在才拷）。
-    红线：源侧只读，一切写入只落 workdir。缺 Local State 或 Cookies → raise
-    （调用方统一转 takeover_failed）。"""
+    红线：源侧只读，一切写入只落 workdir。缺 Local State 或 Cookies →
+    FileNotFoundError；Cookies（或 sidecar）被运行中浏览器独占锁定 →
+    TakeoverSourceLocked（调用方降级：自动换可读 profile 或给明确指引）。"""
     if not (user_data / "Local State").is_file():
         raise FileNotFoundError("Local State 缺失")
     src_profile = user_data / profile
-    if (src_profile / "Network" / "Cookies").is_file():
-        db_rel = Path("Network") / "Cookies"
-    elif (src_profile / "Cookies").is_file():
-        db_rel = Path("Cookies")  # 旧版布局兜底
-    else:
+    db = _takeover_cookies_db(src_profile)
+    if db is None:
         raise FileNotFoundError(f"源 profile 无 Cookies 库: {profile}")
-    dst = workdir / profile / db_rel
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(user_data / "Local State", workdir / "Local State")
-    shutil.copy2(src_profile / db_rel, dst)
-    for side in ("-wal", "-shm"):
-        sidecar = Path(str(src_profile / db_rel) + side)
-        if sidecar.is_file():
-            shutil.copy2(sidecar, Path(str(dst) + side))
+    dst = workdir / profile / db.relative_to(src_profile)
+    try:
+        _copy_shared(user_data / "Local State", workdir / "Local State")
+        _copy_shared(db, dst)
+        for side in ("-wal", "-shm"):
+            sidecar = Path(str(db) + side)
+            if sidecar.is_file():
+                _copy_shared(sidecar, Path(str(dst) + side))
+    except PermissionError as exc:
+        if _is_locked(db):
+            raise TakeoverSourceLocked(profile) from exc
+        raise
 
 
 def _takeover_dynamic_port() -> int:
@@ -541,13 +614,15 @@ def _takeover_kill_proc(proc: subprocess.Popen) -> None:
 
 
 def _harvest_chromium_via_takeover(browser: str,
-                                   profile_dir_name: str = "Default") -> dict[str, Any]:
+                                   profile_dir_name: str | None = None) -> dict[str, Any]:
     """Windows Chromium 源主通道：副本目录 CDP 接管（返回契约与 _harvest_chromium
     同：{source, status, cookies}）。
 
     状态：ok / takeover_no_browser（exe 缺失）/ takeover_failed（其余一切失败，
     message 指路 --paste）。任何失败不 raise。
-    ⚠️ Windows 真机行为（headless=new 能否起 CDP/最小集是否充分）属发版 gate
+    ⚠️ ISSUE-2（report 0b999d17）：源 profile 的 Cookies 被运行中浏览器独占锁定
+    时——未显式 --browser-profile 自动改用可读 profile（message 注明改用）；
+    显式指定或无替代 → 「退出浏览器」明确指引。headless 真机行为属发版 gate
     （方案 B5），本实现按双形态（headless 失败去 headless 重试一次）防御。
     """
     paste_hint = "可用 --paste 手动粘贴 Cookie 头"
@@ -560,12 +635,34 @@ def _harvest_chromium_via_takeover(browser: str,
     if user_data is None or not user_data.is_dir():
         return _takeover_fail(browser, f"{browser} 用户数据目录不存在"
                                        f"（可能未安装/未使用）；{paste_hint}")
+
+    def _locked_fail(prof: str) -> dict[str, Any]:
+        return _takeover_fail(
+            browser,
+            f"源 profile「{prof}」的 Cookies 正被运行中的浏览器独占锁定；"
+            f"请完全退出 {browser}（含托盘/后台进程）后重试；{paste_hint}")
+
     workdir: Path | None = None
     proc: subprocess.Popen | None = None
     try:
+        explicit = bool((profile_dir_name or "").strip())
         profile = _takeover_resolve_profile(user_data, profile_dir_name)
         workdir = _takeover_new_workdir()
-        _takeover_copy_minimal_set(user_data, profile, workdir)
+        subst_note = ""
+        try:
+            _takeover_copy_minimal_set(user_data, profile, workdir)
+        except TakeoverSourceLocked:
+            # ISSUE-2：源库被独占锁——未显式指定 profile 时自动改用可读者
+            alt = "" if explicit else _pick_readable_profile(user_data, profile)
+            if not alt:
+                return _locked_fail(profile)
+            subst_note = (f"（「{profile}」正被浏览器占用，"
+                          f"已改用未占用的「{alt}」）")
+            profile = alt
+            try:
+                _takeover_copy_minimal_set(user_data, profile, workdir)
+            except TakeoverSourceLocked:
+                return _locked_fail(profile)  # 竞态：替代者恰在被占用窗口
         port = _takeover_dynamic_port()
         # 双形态启动：headless=new 失败 → 同参数去 headless 再试一次（B2 探针
         # 真机回传前的兜底；headless 下部分版本 elevator 行为有差异）
@@ -575,7 +672,11 @@ def _harvest_chromium_via_takeover(browser: str,
                    f"--remote-debugging-port={port}",
                    f"--profile-directory={profile}",
                    "--no-first-run",
-                   "--no-default-browser-check"]
+                   "--no-default-browser-check",
+                   # ISSUE-3（report 75b24068）：Chrome 111+ 对 CDP WebSocket
+                   # 升级做 Origin 白名单校验（HTTP 探活端点不校验）——漏参即
+                   # 「探活通过→握手 403」假就绪。与主实例 chrome_launcher 同参。
+                   "--remote-allow-origins=*"]
             if headless:
                 cmd.append("--headless=new")
             proc = _popen_takeover_browser(cmd)
@@ -589,12 +690,21 @@ def _harvest_chromium_via_takeover(browser: str,
                                            f"{paste_hint}")
         raw = _cdp_read_all_cookies(port)
         cookies = [c for c in (_cdp_cookie_to_dict(x) for x in raw) if c]
-        return {"source": browser, "status": "ok", "cookies": cookies}
+        result: dict[str, Any] = {"source": browser, "status": "ok",
+                                  "cookies": cookies}
+        if subst_note:
+            result["message"] = (subst_note
+                                 + "该 profile 若未登录 1688/Ozon 则无 cookie 可搬")
+        return result
     except Exception as exc:
-        # 明文红线：message 只带异常类型名，绝不带 CDP 内容/cookie 值
+        # 明文红线：message 只带异常类型名/固定文案，绝不带 CDP 内容/cookie 值
         logger.debug("takeover %s 失败: %s", browser, type(exc).__name__)
-        return _takeover_fail(browser, f"接管通道失败（{type(exc).__name__}）；"
-                                       f"{paste_hint}")
+        if type(exc).__name__ == "WebSocketBadStatusException":
+            msg = ("接管通道失败：CDP WebSocket 握手被拒（Origin 校验）——"
+                   "检查接管浏览器启动参数")
+        else:
+            msg = f"接管通道失败（{type(exc).__name__}）"
+        return _takeover_fail(browser, f"{msg}；{paste_hint}")
     finally:
         if proc is not None:
             _takeover_kill_proc(proc)
@@ -796,17 +906,18 @@ def harvest_all(sources: list[str] | tuple[str, ...] | None = None,
     返回 unsupported_source（信息在各源 message 字段）。
     B-T4 起 Windows Chromium 源走副本目录 CDP 接管（状态 takeover_* 前缀），
     ``browser_profile``（CLI --browser-profile，info_cache 显示名或目录名）透传
-    给接管通道，缺省 Default。
+    给接管通道；缺省 None = 未显式指定（接管通道解析为 Default，且 ISSUE-2
+    锁降级自动换 profile 仅在未显式指定时生效）。
     platform 字段 = 实际平台名（sys.platform），仅供诊断展示（不再有 "unsupported"）。
     """
     wanted = tuple(sources) if sources else ALL_SOURCES
     harvesters = {
-        "chrome": lambda: _harvest_chromium(
-            "chrome", profile_dir_name=browser_profile or "Default"),
-        "edge": lambda: _harvest_chromium(
-            "edge", profile_dir_name=browser_profile or "Default"),
-        "brave": lambda: _harvest_chromium(
-            "brave", profile_dir_name=browser_profile or "Default"),
+        "chrome": lambda: _harvest_chromium("chrome",
+                                            profile_dir_name=browser_profile),
+        "edge": lambda: _harvest_chromium("edge",
+                                          profile_dir_name=browser_profile),
+        "brave": lambda: _harvest_chromium("brave",
+                                           profile_dir_name=browser_profile),
         "firefox": _harvest_firefox,
         "safari": _harvest_safari,
     }
