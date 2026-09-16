@@ -37,14 +37,14 @@
 5. **SKIP_FAILED_REVIVE 语义翻转：部署重启默认不复活 failed 任务**（重试走采集箱 resubmit；旧行为曾每次发版对用户发起无人同意的重新上架）；恢复旧行为显式设 `SKIP_FAILED_REVIVE=0`。running→pending 中断恢复不受影响。
 6. **8902 任务网关需 Bearer token**（env `POUNDING_TASKS_TOKEN` 优先；未设则启动时随机生成并向 stderr 打一行 `TASKS_TOKEN=<t>`）；CORS `*` 已移除；params 白名单与 body 上限。
 7. **drafts resubmit 新增 402（低余额预检）/409（并发重复提交）语义**。
-8. **ILIKE 搜索 `%`/`_` 从通配变字面**（bestsellers/queries/seo 搜索词；`utils/like_escape.escape_like` 唯一入口）。
+8. **ILIKE 搜索 `%`/`_` 从通配变字面**（bestsellers/queries/seo 搜索词；`utils/like_escape.escape_like` 唯一入口）。修复波补接类目链：`ozon_category_query` 的 `_fetch_rows_like`/`_search_fallback` 全部 9 处（L1 主通道/回退通道）——search_kw/标题 jieba token 含 `%`/`_` 按字面匹配，不再当通配符牵引错类目。
 9. **图片抓取链 SSRF 收口**：内网地址拒绝、抓不到保持外链；重定向跟随上限 30→3（`utils/secure_fetch.safe_fetch` 唯一入口；镜像链/E1 转存/validate 探测全部接线）。
 10. **CSV 导出公式中和**（`=` `+` `-` `@` `\t` `\r` 开头加 `'` 前缀；worker+webui 同口径）。
 11. drafts CSV 导出/镜像链/validate 探测等内部行为收口（对正常流量零感知）。
 12. **CI 加固**：actions 全量 pin commit SHA、gitleaks 全树扫描修复后真正生效（**首跑可能翻出新结果——属修复生效非回归**）、coscli 下载带 sha256 校验。
 13. **COS 升级链签名机制上线**（升级包/缓存 JSON 的 manifest minisign 强制验签，指定版本回滚与缓存下载封死无校验路径；skill updater 同语义，公钥未配置前 warn 放行）——**启用前置待办 7 项**（minisign keypair 生成/公钥入库 `deploy/cos-update.pub`/CI secret `COS_UPDATE_SIGN_KEY`/`MINISIGN_SHA256` 补算/build-skill.yml 同款签名/服务器预置 pub+verify 脚本/`updater.py PROD_PUBKEY` 填入）见 `docs/PLAN-security-remediation-v1.md` Task 32 与 task-32-report.md（SDD 台账）合并前待办清单；**缓存带外重传/重导后必须 `bash deploy/sign_cache_hashes.sh` 重签 manifest**，否则升级时缓存 sha256 对不上被跳过（懒加载兜底不阻断，但「部署即全量」失效一轮）。
 
-配套（行为不变面）：主密钥 KDF 升级 PBKDF2-600k（v2 信封，存量 v1 密文零迁移继续可解；legacy 解密保持 v1 原规则）；备份上传默认拒明文 dump（须先 gpg 加密，逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）；500/503 异常文本残留清零、task_status 出口递归脱敏凭证、Sentry 关栈帧局部变量、模板默认切换并发 409 不 500、采购成本非正数提交闸、限流器字典有界化、删除死代码 `utils/file/file.py`（任意路径读原语）；test/e2e compose PG 绑 127.0.0.1。
+配套（行为不变面）：主密钥 KDF 升级 PBKDF2-600k（v2 信封，存量 v1 密文零迁移继续可解；legacy 解密保持 v1 原规则）；备份上传默认拒明文 dump——设 `PG_BACKUP_PASSPHRASE`（env/`deploy/.env`，勿注入 postgres 容器）时上传脚本宿主侧 gpg 现场加密成 `.gpg` 再传（bucket 只进密文，明文留本地盘 14 天保留不变），明文跳过/加密失败/上传失败写 `backup_heartbeat` false、有新上传写 true（消「跳过 exit 0 零心跳」静默断链，`/health` 链路可观测），逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1` 不变；500/503 异常文本残留清零、task_status 出口递归脱敏凭证、Sentry 关栈帧局部变量、模板默认切换并发 409 不 500、采购成本非正数提交闸、限流器字典有界化、删除死代码 `utils/file/file.py`（任意路径读原语）；test/e2e compose PG 绑 127.0.0.1。
 
 ## [0.75.0] — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写（2026-09-11）
 

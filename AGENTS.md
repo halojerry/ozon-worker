@@ -890,7 +890,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 存储：内存优先，`_persist_progress` 2s 节流回写 PG `ozon_product_tasks.progress` 列——Worker 重启后
 `task_status` 回退读 PG，仍能拿到最近一次进度（不再是「重启即丢」）。
 
-鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
+鉴权: `submit_task`/`auth_verify` 的 `token` 字段在请求体中（非 header）；其余读/操作端点（cancel_task、task_statistics、progress、store/health、logistics/quote 等）自 v0.76 安全批起一律 header `Authorization: Bearer`——无 Bearer 一律 401（完整鉴权矩阵见 `docs/API-OVERVIEW.md`）。校验统一走 Supabase `tokens` 表。
 限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
 并发: 最多 50 个任务同时执行（`MAX_CONCURRENT` 可配置）。
 
