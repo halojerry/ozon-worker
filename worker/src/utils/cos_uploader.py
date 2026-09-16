@@ -130,7 +130,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             logger.warning("E1 跳过非合格商品图（非alicdn原图或缩略/竞品图）: %s", url)
             continue
         if is_cos_url(url):
-            # fix/image-ref-cos-whitelist-v1 批3（计划 T4）：镜像草稿场景输入可能
+            # fix/image-ref-cos-whitelist-v1 批2 改动4（计划 T4）：镜像草稿场景输入可能
             # 已是本方 COS 托管图 → 直通原样收下，免同桶二次下载-转存。
             # 置于 _is_reference_image 之后：缩略/.webp 恒拒对 COS 域照常生效
             # （镜像 key 带 _310x310 之类后缀照样拒）。

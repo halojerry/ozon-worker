@@ -2964,8 +2964,8 @@ def _build_items_deterministically(
     # 直达 payload（2026-09-16 原图上卡事故批2）。子集算一次全变体共享；
     # 任何被闸掉的图（全外链或混合中的外链）warning 带来源 key 前缀便于取证。
     _all_images = images or []
-    _cos_images = [u for u in _all_images if is_cos_url(u)][:15]
-    _dropped_images = [u for u in _all_images if not is_cos_url(u)]
+    _cos_images = [u for u in _all_images if _is_cos_hosted_str(u)][:15]
+    _dropped_images = [u for u in _all_images if not _is_cos_hosted_str(u)]
     if _dropped_images:
         logger.warning(
             "   ⚠️ draft 图含非本方 COS 托管图，不进 items（Ozon 抓不到外链）: 来源 key 前缀=%s",
@@ -3072,6 +3072,18 @@ def _build_items_deterministically(
     return items
 
 
+def _is_cos_hosted_str(u: object) -> bool:
+    """builder/补位共用子集准入：非空白字符串 且 本方 COS 托管。
+
+    ⚠️ isinstance+非空白必须前置——is_cos_url 对非 str/空串返 True 是迁移自
+    cos_uploader 的既有契约，直接用会让 None/""/"  " 混进 items（2026-09-16
+    终审修复波）。不用 is_product_image_candidate：它会放行 alicdn 等货源
+    白名单域，破坏本闸「只吃本方 COS」不变式。缩略/.webp 不在本闸拒绝
+    （历史语义，下游 prepare「不使用 alicdn 原图」/E1 salvage 兜底）。
+    """
+    return isinstance(u, str) and bool(u.strip()) and is_cos_url(u)
+
+
 def _image_source_key_prefixes(urls: list[Any]) -> str:
     """提取图片 URL path 首段作为来源 key 前缀（如 draft-images / ozon-1688）。
 
@@ -3148,7 +3160,7 @@ def _validate_and_enrich_items(
         # 纪律矛盾（2026-09-16 原图上卡事故）。补位子集只保留 is_cos_url 成立的本方
         # COS 托管图（镜像/E1/AI 生成产物）；全外链 → 诚实不补（走既有 IMAGE_ERROR
         # 语义），warning 带来源 key 前缀便于取证。已有图路径不触碰（不重过滤）。
-        _cos_fill = [u for u in images if is_cos_url(u)][:15]
+        _cos_fill = [u for u in images if _is_cos_hosted_str(u)][:15]
         if not item.get("images"):
             if _cos_fill:
                 item["images"] = _cos_fill

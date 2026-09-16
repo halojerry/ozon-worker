@@ -199,3 +199,66 @@ def test_follow_sell_path_images_still_deliberately_empty():
         _FakeFollowProgress(),
     )
     assert out["ozon_payload"]["items"][0]["images"] == [], "跟卖 images=[] 语义必须保持"
+
+
+# ============================================================
+# 终审修复波：空白条目闸前置（is_cos_url 对非 str/空串返 True 的既有契约
+# 会让 None/""/"  " 混进两个子集——须前置 str+非空白判定）
+# ============================================================
+def test_builder_blank_entries_dropped():
+    """builder：draft.images 含 None/\"\"/空白串 → 不进 items，合法 COS 不受影响。"""
+    cos = _COS.format("ok")
+    item = _run_builder([None, "", "   ", cos])
+    assert item["images"] == [cos], f"空白条目必须被闸掉，实际: {item['images']}"
+    assert item["primary_image"] == cos
+
+
+def test_fillin_blank_entries_dropped():
+    """补位同口径：None/\"\"/空白串不得混进补位子集。"""
+    cos = _COS.format("ok2")
+    item = _run([None, "", "   ", cos])
+    assert item["images"] == [cos], f"补位子集不得含空白条目，实际: {item.get('images')}"
+    assert item["primary_image"] == cos
+
+
+# ============================================================
+# 终审修复波：诚实空图 → validate 硬拦的回归锁（本批两闸「诚实不补」
+# 语义的下游闭环——空图 payload 必须在上传前被 ozon_validate 拦下）
+# ============================================================
+def test_validate_hard_fails_on_honest_empty_images(monkeypatch):
+    """item images=[]/primary_image="" → 「images缺失」进 critical 表 →
+    is_valid=False + stages.ozon_validate=failed（锚点 ozon_validate_node
+    286 缺失检查 / 489 extend 合并 / 636 critical 关键词表）。"""
+
+    class _Resp:
+        status_code = 200
+
+    # validate 的图片可达性探测不依赖本机网络（对齐 test_dim_bounds_v069做法）
+    monkeypatch.setattr("requests.head", lambda *a, **k: _Resp(), raising=False)
+
+    from graphs.state import OzonValidateInput
+    from graphs.nodes.ozon_validate_node import ozon_validate_node
+
+    item = {
+        "name": "Трещотка набор", "offer_id": "sku1", "price": "1990",
+        "old_price": "2390", "vat": "0", "weight": 950, "weight_unit": "g",
+        "depth": 330, "width": 400, "height": 100, "dimension_unit": "mm",
+        "images": [], "primary_image": "",
+        "description_category_id": 17028653, "type_id": 92147,
+        "attributes": [],
+    }
+    state = OzonValidateInput(
+        ozon_payload={"items": [item]},
+        ozon_client_id="c",
+        ozon_api_key="k",
+        attributes_schema=[],
+    )
+    runtime = type("R", (), {"context": None})()
+    out = ozon_validate_node(state, {}, runtime)
+
+    assert any("images缺失" in e for e in out.validation_errors), \
+        f"空图必须产出 images缺失 错误，实际: {out.validation_errors}"
+    assert out.is_valid is False, "空图 payload 必须被 validate 硬拦"
+    assert "严重错误" in (out.error_message or ""), \
+        f"critical 失败文案缺失: {out.error_message!r}"
+    assert (out.stages or {}).get("ozon_validate") == "failed"

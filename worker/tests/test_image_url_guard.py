@@ -150,6 +150,11 @@ def test_existing_whitelist_face_unchanged():
         "https://img.pddpic.com/mms-material/uvw.jpg") is True
     assert is_product_image_candidate(
         "https://yangkeduo.com/img/xyz.jpg") is True
+    # 终审修复波：计划 §5 用例8 点名的 taobaocdn / pinduoduo 允许面补断言
+    assert is_product_image_candidate(
+        "https://img.taobaocdn.com/bao/uploaded/i2/mno.jpg") is True
+    assert is_product_image_candidate(
+        "https://comm.pinduoduo.com/mms-material/jkl.jpg") is True
     # 拒绝面不变
     assert is_product_image_candidate(OZON_COMPETITOR) is False
     assert is_product_image_candidate(FOREIGN_THUMB_1) is False
