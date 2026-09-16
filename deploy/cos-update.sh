@@ -151,21 +151,20 @@ else
     echo "   修复: 确认发版 CI 已含签名步骤; 或应急 COS_UPDATE_SKIP_VERIFY=1(留痕无校验)" >&2
     exit 3
   fi
-  _expect_v=""
-  [ -n "$REQUESTED_VERSION" ] && _expect_v="${REQUESTED_VERSION#v}"
+  # ⚠️ T32 评审 Major-1: 这里不传 expected_version——verify 的第 4 参语义是
+  # 「等于 manifest 顶层 version」, 而顶层恒为最新版, 传指定版本会让一切非最新
+  # 回滚恒 rc=4 → 签名版本表全部不可达。指定版本的完整性绑定由三件事承担:
+  # ①manifest 整体(含 versions 表)已过 minisign 验签 ②请求版本必须命中版本表
+  # ③下载包 sha256 与表内登记值相等(§3)。三者在签名覆盖之内, 无需版本比对。
   set +e
-  bash "$VERIFY_SCRIPT" "$PUBKEY_FILE" "$MANIFEST_FILE" "$MANIFEST_SIG_FILE" "$_expect_v"
+  bash "$VERIFY_SCRIPT" "$PUBKEY_FILE" "$MANIFEST_FILE" "$MANIFEST_SIG_FILE"
   _verify_rc=$?
   set -e
   if [ "$_verify_rc" -ne 0 ]; then
-    echo -e "\033[1;31m[cos-update]\033[0m ❌ manifest 签名校验未通过(exit $_verify_rc: 2=环境 3=签名失败 4=版本不符)——COS 内容可能被篡改, 拒绝继续。" >&2
+    echo -e "\033[1;31m[cos-update]\033[0m ❌ manifest 签名校验未通过(exit $_verify_rc: 2=环境 3=签名失败)——COS 内容可能被篡改, 拒绝继续。" >&2
     exit 3
   fi
-  if [ -n "$_expect_v" ]; then
-    log "✅ manifest 签名校验通过(含指定版本比对 v${_expect_v})"
-  else
-    log "✅ manifest 签名校验通过"
-  fi
+  log "✅ manifest 签名校验通过"
 fi
 
 if [ -n "$REQUESTED_VERSION" ]; then
