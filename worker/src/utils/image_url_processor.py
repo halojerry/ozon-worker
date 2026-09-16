@@ -4,13 +4,8 @@
 S3已移除 — 图片直接从 MXOU API 返回 URL，无需重新上传。
 所有图片URL直接返回，由MXOU API处理。
 """
-import os
-import logging
-import requests
 from typing import List, Optional
 from collections import OrderedDict
-
-logger = logging.getLogger(__name__)
 
 # ✅ 内存优化：使用OrderedDict实现LRU缓存，最多100条，超过自动清理
 _URL_CACHE_MAX_SIZE: int = 100
@@ -52,24 +47,12 @@ def _referer_for_url(url) -> Optional[str]:
 
 # S3 存储已移除 — 图片直接从 MXOU API 返回 URL，无需重新上传
 
-
-def _download_image(url: str, timeout: int = 30) -> Optional[bytes]:
-    """下载图片，按图床域自动补 Referer 防盗链头（1688/淘宝系/pdd 热链校验）"""
-    try:
-        headers = {}
-        referer = _referer_for_url(url)
-        if referer:
-            headers["Referer"] = referer
-            headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-
-        resp = requests.get(url, headers=headers, timeout=timeout)
-        if resp.status_code == 200 and len(resp.content) > 0:
-            return resp.content
-        logger.warning(f"下载图片失败: url={url[:100]}, status={resp.status_code}")
-        return None
-    except Exception as e:
-        logger.warning(f"下载图片异常: url={url[:100]}, error={e}")
-        return None
+# v0.76 T16(controller)：`_download_image` 已删除——全仓零生产调用方的死代码
+# （T15 评审 N2），且是裸 requests.get（用户可控 URL 一旦误接即盲 SSRF）。
+# Referer 分派唯一事实源 `_referer_for_url` 保留，活链消费方：
+# utils/cos_uploader.salvage_original_images（E1 转存）与
+# services/draft_image_mirror._mirror_one（草稿镜像）——两条链 v0.76 T14/T15
+# 起均走 utils.secure_fetch.safe_fetch。
 
 
 def process_image_url(url: str) -> str:

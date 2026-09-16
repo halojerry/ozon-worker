@@ -598,7 +598,7 @@ export interface DiscoveryRun {
   filters?: Record<string, unknown> | null
   candidates?: unknown[] | null
   created_at?: string | null
-  contributed_by_token_id: string
+  contributed_by_fp: string
 }
 
 export interface DiscoveryRunsResponse {

@@ -3748,6 +3748,11 @@ def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote 
         resp = _req.post(
             f"{CLOUD_API_BASE}/api/v1/logistics/quote",
             json={"token": token, **payload},
+            # v0.76 T10(api-M4) 联动: worker 端 Bearer 必填(_require_bearer, 无
+            # header 401)——只发 body token 会被拒并静默降级 last-good, 失去权威
+            # 费率表。header 值直接用 body 同源 token(服务端剥 sk- 一层, 有无
+            # sk- 前缀均可)。
+            headers={"Authorization": f"Bearer {token}"},
             timeout=6,
         )
         if resp.status_code != 200:

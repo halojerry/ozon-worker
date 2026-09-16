@@ -14,6 +14,7 @@ from typing import Any, Final, Optional
 from sqlalchemy import text
 
 from storage.database.db import get_engine
+from utils.like_escape import escape_like
 
 # 管理员导入专用身份（skill 上报通道不感知，用户数据零污染）
 ADMIN_TOKEN_ID: Final[str] = "admin_import"
@@ -122,8 +123,9 @@ def list_queries(limit: int = 50, offset: int = 0, search: str = "") -> dict[str
     where: list[str] = []
     params: dict[str, Any] = {"limit": limit, "offset": offset}
     if search:
-        where.append("query ILIKE :search")
-        params["search"] = f"%{search}%"
+        # v0.76 inj-L1: search 是 admin 路由请求参数，%/_ 转义为字面量 + ESCAPE 声明
+        where.append("query ILIKE :search ESCAPE '\\'")
+        params["search"] = f"%{escape_like(search)}%"
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
     with get_engine().connect() as conn:
@@ -162,8 +164,9 @@ def search_public(q: str = "", limit: int = 20) -> list[dict[str, Any]]:
     params: dict[str, Any] = {"limit": limit}
     where = ""
     if q:
-        where = "WHERE query ILIKE :q"
-        params["q"] = f"%{q}%"
+        # v0.76 inj-L1: q 是 seo/keywords 请求参数，%/_ 转义为字面量 + ESCAPE 声明
+        where = "WHERE query ILIKE :q ESCAPE '\\'"
+        params["q"] = f"%{escape_like(q)}%"
 
     with get_engine().connect() as conn:
         rows = conn.execute(text(

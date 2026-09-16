@@ -9,6 +9,11 @@
 竞态(R8):回写按 payload version 校验——版本已变(用户又编辑过) → 丢弃镜像
 结果并告警,绝不用旧镜像覆盖新编辑。状态列 image_mirror_state:
 ''(未启用) / pending(镜像中) / mirrored(已转存) / failed(失败保持外链)。
+
+v0.76 security-remediation T14(inj-C1):下载统一走 utils.secure_fetch.safe_fetch
+(解析 IP 校验+逐跳复核)——draft.images 是用户可控 URL,裸 requests.get 曾构成
+全读 SSRF 且响应体外带公开 COS bucket;不安全 URL 拒绝后走既有降级语义
+(返回 None 保持外链,不阻断草稿保存)。
 """
 from __future__ import annotations
 
@@ -30,13 +35,9 @@ DOWNLOAD_TIMEOUT = 10
 
 
 def _mirror_one(url: str, prefix: str = "draft-images") -> Optional[str]:
-    """下载单张草稿图 → 转存 COS → 返回公网 URL;失败/非 http → None。"""
+    """下载单张草稿图 → 转存 COS → 返回公网 URL;失败/非 http/不安全 URL → None。"""
     import hashlib
 
-    try:
-        import requests
-    except Exception:
-        return None
     if not url.startswith(("http://", "https://")):
         return None
     try:
@@ -48,7 +49,12 @@ def _mirror_one(url: str, prefix: str = "draft-images") -> Optional[str]:
         referer = _referer_for_url(url.strip())
         if referer:
             headers["Referer"] = referer
-        resp = requests.get(url.strip(), timeout=DOWNLOAD_TIMEOUT, headers=headers)
+        # v0.76 T14(inj-C1)：裸 requests.get → safe_fetch（解析 IP 校验+逐跳
+        # 复核）。宽 except 是刻意的（T13 carried）：safe_fetch 对畸形
+        # Location 端口可抛裸 ValueError（fail-closed 但类型不保证），
+        # UnsafeUrlError/ValueError 一并落 warn 降级，绝不放行内网。
+        from utils.secure_fetch import safe_fetch
+        resp = safe_fetch(url.strip(), timeout=DOWNLOAD_TIMEOUT, headers=headers)
         if resp.status_code != 200 or not resp.content:
             logger.warning("草稿图下载失败(HTTP %s): %s", resp.status_code, url[:120])
             return None
@@ -56,7 +62,7 @@ def _mirror_one(url: str, prefix: str = "draft-images") -> Optional[str]:
         key = f"{prefix}/{digest}.jpg"
         return cos_upload_bytes(resp.content, key, content_type="image/jpeg")
     except Exception as exc:
-        logger.warning("草稿图转存失败(%s): %s", url[:120], exc)
+        logger.warning("草稿图转存失败(%s: %s): %s", type(exc).__name__, exc, url[:120])
         return None
 
 

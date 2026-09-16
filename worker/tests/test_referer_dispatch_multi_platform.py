@@ -5,6 +5,12 @@ pdd 图床有热链校验(无 Referer 可能 403,PLAN §2 A4);淘宝系 taobaocd
 ——天猫/淘宝主图床,不重派淘宝 Referer);taobaocdn → item.taobao.com;
 pdd 系三域 → mobile.yangkeduo.com。无规则命中不加头(行为同今日)。
 
+⚠️ v0.76 T16(controller)：`image_url_processor._download_image` 死代码已删
+（全仓零生产调用方 + 裸 requests.get 误接风险），批1 的下载路径测试随之清退；
+`_referer_for_url` 行为现在由 test_referer_helper_pure + 下方两条**活链**测试
+（cos_uploader.salvage_original_images 与 draft_image_mirror._mirror_one，
+均走 safe_fetch）锁定，覆盖不缩水。
+
 运行(无需 PG/GPU):
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_referer_dispatch_multi_platform.py -q
 """
@@ -15,70 +21,6 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from utils import image_url_processor
-
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-
-
-class _CaptureGet:
-    """替换 requests.get,捕获调用 headers,返回 200 图字节。"""
-
-    def __init__(self):
-        self.headers = None
-
-    def __call__(self, url, headers=None, timeout=30):
-        self.headers = dict(headers or {})
-        return SimpleNamespace(status_code=200, content=b"img-bytes")
-
-
-def _download_with(monkeypatch, url, status=200):
-    cap = _CaptureGet()
-    monkeypatch.setattr(image_url_processor.requests, "get",
-                        lambda u, headers=None, timeout=30: (
-                            cap(u, headers, timeout)
-                            if status == 200 else
-                            SimpleNamespace(status_code=status, content=b"")))
-    out = image_url_processor._download_image(url)
-    return out, cap.headers
-
-
-def test_1688_referer_unchanged(monkeypatch):
-    """1688/alicdn 域 → detail.1688.com + 既有 UA(现状逐字节)。"""
-    _, h1 = _download_with(monkeypatch, "https://cbu01.alicdn.com/img/ibank/a.jpg")
-    assert h1 == {"Referer": "https://detail.1688.com/", "User-Agent": UA}
-    _, h2 = _download_with(monkeypatch, "https://img.1688.com/page/a.jpg")
-    assert h2 == {"Referer": "https://detail.1688.com/", "User-Agent": UA}
-
-
-def test_alicdn_not_redispatched(monkeypatch):
-    """img.alicdn.com(天猫/淘宝主图床)保持 detail.1688.com——不重派淘宝 Referer。"""
-    _, h = _download_with(monkeypatch, "https://img.alicdn.com/imgextra/i2/O1CNmain.jpg")
-    assert h["Referer"] == "https://detail.1688.com/"
-    assert h["User-Agent"] == UA
-
-
-def test_taobaocdn_referer(monkeypatch):
-    """taobaocdn → item.taobao.com。"""
-    _, h = _download_with(monkeypatch, "https://img.taobaocdn.com/bao/uploaded/i1/T1abc.jpg")
-    assert h["Referer"] == "https://item.taobao.com/"
-    assert h["User-Agent"] == UA
-
-
-def test_pdd_referer(monkeypatch):
-    """pdd 系(pddpic/yangkeduo/pinduoduo) → mobile.yangkeduo.com。"""
-    for url in (
-        "https://img.pddpic.com/mms-material-img/2024-06-11/abcdef.jpeg",
-        "https://t00img.yangkeduo.com/goods/images/abc.jpeg",
-        "https://mobile.pinduoduo.com/goods/images/abc.jpg",
-    ):
-        _, h = _download_with(monkeypatch, url)
-        assert h["Referer"] == "https://mobile.yangkeduo.com/", url
-        assert h["User-Agent"] == UA, url
-
-
-def test_unknown_domain_no_headers(monkeypatch):
-    """无规则命中(外域图)→ 不加 Referer/UA(行为同今日)。"""
-    _, h = _download_with(monkeypatch, "https://cdn.example.com/x.jpg")
-    assert h == {}
 
 
 def test_referer_helper_pure(monkeypatch):
@@ -92,12 +34,6 @@ def test_referer_helper_pure(monkeypatch):
     assert f(123) is None
 
 
-def test_failure_degradation_unchanged(monkeypatch):
-    """下载失败降级路径不变:非 200 → None。"""
-    out, _ = _download_with(monkeypatch, "https://img.pddpic.com/x.jpeg", status=404)
-    assert out is None
-
-
 # ── 批5 gate 前置（A4，fix round 1）: _referer_for_url 接进两条活下载链 ──
 # 批1 只交付了分派函数（_download_image 无生产调用方）——本节锁两条**活链**
 # 均按图床域分派：cos_uploader.salvage_original_images（E1 转存下载）与
@@ -106,21 +42,35 @@ def test_failure_degradation_unchanged(monkeypatch):
 # 不加 Referer 仅裸 UA（行为同今日）。降级路径（非 200/异常）不因接线改变。
 
 import utils.cos_uploader as cos_uploader  # noqa: E402
+import utils.secure_fetch as secure_fetch  # noqa: E402
 from services import draft_image_mirror as mirror  # noqa: E402
 
 
-def _fake_get_capture(calls, status=200):
-    def fake_get(u, timeout=None, headers=None):
+def _fake_request_capture(calls, status=200):
+    """镜像链（v0.76 T14 起走 safe_fetch → requests.request）的假 HTTP。
+    假响应带 is_redirect 判定属性（safe_fetch 重定向判定要读）。"""
+    def fake_request(method, u, timeout=None, headers=None, **kw):
         calls["headers"] = dict(headers or {})
         if status != 200:
-            return SimpleNamespace(status_code=status, content=b"")
-        return SimpleNamespace(status_code=200, content=b"img-bytes")
-    return fake_get
+            return SimpleNamespace(status_code=status, content=b"",
+                                   is_redirect=False, is_permanent_redirect=False)
+        return SimpleNamespace(status_code=200, content=b"img-bytes",
+                               is_redirect=False, is_permanent_redirect=False)
+    return fake_request
+
+
+def _fake_mirror_dns(monkeypatch):
+    # 镜像链现过 safe_fetch 的解析 IP 校验——测试域 fake 到公共 IP，杜绝真实 DNS 出站
+    monkeypatch.setattr(secure_fetch.socket, "getaddrinfo",
+                        lambda host, port=None, *a, **k:
+                        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
 
 
 def _mirror_with(monkeypatch, url, status=200):
     calls = {}
-    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    _fake_mirror_dns(monkeypatch)
+    monkeypatch.setattr("utils.secure_fetch.requests.request",
+                        _fake_request_capture(calls, status))
     monkeypatch.setattr(
         mirror, "cos_upload_bytes",
         lambda content, key, content_type=None: f"https://cos.test/{key}")
@@ -129,8 +79,16 @@ def _mirror_with(monkeypatch, url, status=200):
 
 
 def _salvage_with(monkeypatch, urls, status=200):
+    """salvage 链（v0.76 T15 起走 safe_fetch → sf.requests.request）的假 HTTP。
+    旧 `requests.get` 补丁已死——safe_fetch 发 requests.request 且先做解析 IP
+    校验，故 fake DNS 到公共 IP 杜绝真实出站（对齐 T14 镜像链手法）；
+    假响应带 is_redirect 判定属性（safe_fetch 重定向判定要读）。"""
     calls = {}
-    monkeypatch.setattr("requests.get", _fake_get_capture(calls, status))
+    monkeypatch.setattr(secure_fetch.socket, "getaddrinfo",
+                        lambda host, port=None, *a, **k:
+                        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+    monkeypatch.setattr("utils.secure_fetch.requests.request",
+                        _fake_request_capture(calls, status))
     monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
     monkeypatch.setattr(
         cos_uploader, "cos_upload_bytes",
@@ -178,9 +136,16 @@ class TestLiveChainSalvageReferer:
         """salvage 链「裸 UA 无 Referer」结构性不可达：可下载域=image_url_guard
         白名单（alicdn/1688/taobaocdn/pddpic/yangkeduo/pinduoduo），恰为
         _referer_for_url 规则域的子集——非白名单域在 _is_reference_image 即跳过、
-        根本不发起下载（外域 URL 不产生任何请求）。"""
-        calls = {}
-        monkeypatch.setattr("requests.get", _fake_get_capture(calls))
+        根本不发起下载（外域 URL 不产生任何请求）。v0.76 T15 后断言升级为
+        requests 层零触达哨兵（get/request 双入口，对齐 T14 手法）。"""
+        called = {"n": 0}
+
+        def _touch(*a, **k):
+            called["n"] += 1
+            raise AssertionError("network touched: non-whitelisted domain reached fetch")
+
+        monkeypatch.setattr("requests.get", _touch)
+        monkeypatch.setattr(secure_fetch.requests, "request", _touch)
         monkeypatch.setattr(cos_uploader, "cos_enabled", lambda: True)
         monkeypatch.setattr(
             cos_uploader, "cos_upload_bytes",
@@ -188,4 +153,4 @@ class TestLiveChainSalvageReferer:
         out = cos_uploader.salvage_original_images(
             ["https://cdn.example.com/x.jpg"])
         assert out == []
-        assert "headers" not in calls  # 外域未发起下载（无裸 UA 请求）
+        assert called["n"] == 0  # 外域未发起下载（无裸 UA 请求）

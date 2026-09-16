@@ -246,9 +246,10 @@ def test_resubmit_rejected_creates_new_pending():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
+    # race-L1: 端点补余额预检（对齐 submit_task）——到达入队的用例统一 mock 余额充足
     with patch.object(main_mod, "task_processor", proc), patch(
         "main._authenticate_token", return_value="u1"
-    ):
+    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
             main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
@@ -271,7 +272,7 @@ def test_resubmit_failed_creates_new_pending():
     proc = _FakeTaskStatusProcessor(_task_status("failed", _original_payload()))
     with patch.object(main_mod, "task_processor", proc), patch(
         "main._authenticate_token", return_value="u1"
-    ):
+    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
             main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
@@ -361,7 +362,7 @@ def test_resubmit_sku_key_includes_store_dimension():
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
     with patch.object(main_mod, "task_processor", proc), patch(
         "main._authenticate_token", return_value="u1"
-    ):
+    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
             main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
@@ -382,7 +383,7 @@ def test_resubmit_error_does_not_leak_internal_detail():
     proc.submit_task = _boom
     with patch.object(main_mod, "task_processor", proc), patch(
         "main._authenticate_token", return_value="u1"
-    ):
+    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
             main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )

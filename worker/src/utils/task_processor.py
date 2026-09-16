@@ -9,6 +9,7 @@ from utils.logger import get_logger, set_trace_context, log_task_event, clear_tr
 from datetime import datetime
 from supabase import Client
 from sqlalchemy import text
+from sqlalchemy.exc import DataError
 from utils.sentry_setup import capture_task_error  # v0.23 Sentry 任务异常上报
 from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.63.1 R1/R4 闭环
 
@@ -1105,6 +1106,33 @@ class SupabaseTaskProcessor:
             logger.error(f"查询任务状态失败: {e}")
             return None
     
+    async def fetch_task_owner(self, task_id: str) -> Optional[dict]:
+        """T6(api-H2): 取任务归属供取消前鉴权（tenant_id + status）。
+
+        返回 ``{"tenant_id": ..., "status": ...}``；任务不存在 → None。
+        id 列是 UUID 主键（storage/database/shared/model.py ``OzonProductTask.id``
+        = ``UUID(as_uuid=True)``）——显式 ``CAST(:task_id AS uuid)``（勿用裸
+        ``:bind::uuid``，SQLAlchemy text() 不识别 ``::`` cast，见 AGENTS 记忆
+        sqlalchemy-jsonb-cast-trap）；非法 uuid 字面量 catch ``DataError`` →
+        None（端点侧统一 404，不泄漏格式/存在性信息）。session 用法与
+        ``cancel_task``/``get_task_status`` 同款（``self.engine.connect()``）。
+        """
+        try:
+            owner_sql = text("""
+                SELECT tenant_id, status
+                FROM ozon_product_tasks
+                WHERE id = CAST(:task_id AS uuid)
+            """)
+            with self.engine.connect() as conn:
+                row = conn.execute(owner_sql, {"task_id": task_id}).mappings().first()
+            return dict(row) if row else None
+        except DataError:
+            # 非法 uuid → 等价不存在（404），不当作 500
+            return None
+        except Exception as e:
+            logger.error(f"查询任务归属失败: {e}")
+            return None
+
     async def cancel_task(self, task_id: str) -> bool:
         """
         取消任务

@@ -8,9 +8,32 @@ from typing import Any, Optional
 
 from sqlalchemy import text
 
+from services.tenant_service import token_fingerprint
 from storage.database.db import get_engine
+from utils.like_escape import escape_like
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_bestseller_rows(*, where_sql: str, params: dict, filter_params: dict,
+                           sort_col: str, order_dir: str):
+    """榜单行查询封装（v0.76 T1 抽出：DB 访问与组装分层，测试可 monkeypatch 钉住脱敏行为）。
+
+    SQL 从 list_bestsellers 原内联处平移，零语义变更。返回 (rows, total)。
+    SELECT 保留明文列（contributed_by_token_id）供 Python 内算指纹用——
+    明文绝不进返回 dict（v0.76 api-C1：读侧只发 contributed_by_fp）。
+    """
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            f"SELECT sku_or_id, brand, category_path, ordering_amount, ordering_count, avg_price_rub, "
+            f"contributed_by_token_id "
+            f"FROM ozon_bestsellers WHERE {where_sql} "
+            f"ORDER BY {sort_col} {order_dir} NULLS LAST LIMIT :limit OFFSET :offset"
+        ), params).fetchall()
+        total = conn.execute(text(
+            f"SELECT COUNT(*) FROM ozon_bestsellers WHERE {where_sql}"
+        ), filter_params).scalar()
+    return rows, int(total or 0)
 
 
 def list_bestsellers(
@@ -28,7 +51,7 @@ def list_bestsellers(
     """全局浏览榜单（T4b.1：去掉 contributed_by_token_id 过滤，A 采集 B 可看）。
 
     order_by ∈ {ordering_amount 订购金额, ordering_count 订购数量, avg_price_rub 均价}
-    保留 contributed_by_token_id 贡献者列（干净 token）供前端标注贡献者。
+    贡献者列只回脱敏指纹 contributed_by_fp（v0.76 api-C1：明文 key 不出服务层）。
     token 仅作鉴权入参（端点层已验证），不再作数据过滤。
     """
     allowed_order = {"ordering_amount", "ordering_count", "avg_price_rub"}
@@ -41,11 +64,12 @@ def list_bestsellers(
     where: list[str] = []
     params: dict = {"limit": limit, "offset": offset}
     if category:
-        where.append("category_path ILIKE :cat")
-        params["cat"] = f"%{category}%"
+        # v0.76 inj-L1: category/brand 是请求 query 参数，%/_ 转义为字面量 + ESCAPE 声明
+        where.append("category_path ILIKE :cat ESCAPE '\\'")
+        params["cat"] = f"%{escape_like(category)}%"
     if brand:
-        where.append("brand ILIKE :brand")
-        params["brand"] = f"%{brand}%"
+        where.append("brand ILIKE :brand ESCAPE '\\'")
+        params["brand"] = f"%{escape_like(brand)}%"
     if min_sales is not None:
         where.append("ordering_count >= :min_sales")
         params["min_sales"] = min_sales
@@ -61,16 +85,10 @@ def list_bestsellers(
 
     where_sql = " AND ".join(where) if where else "TRUE"
     filter_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
-    with get_engine().connect() as conn:
-        rows = conn.execute(text(
-            f"SELECT sku_or_id, brand, category_path, ordering_amount, ordering_count, avg_price_rub, "
-            f"contributed_by_token_id "
-            f"FROM ozon_bestsellers WHERE {where_sql} "
-            f"ORDER BY {sort_col} {order_dir} NULLS LAST LIMIT :limit OFFSET :offset"
-        ), params).fetchall()
-        total = conn.execute(text(
-            f"SELECT COUNT(*) FROM ozon_bestsellers WHERE {where_sql}"
-        ), filter_params).scalar()
+    rows, total = _fetch_bestseller_rows(
+        where_sql=where_sql, params=params, filter_params=filter_params,
+        sort_col=sort_col, order_dir=order_dir,
+    )
 
     items = [{
         "sku_or_id": str(r[0]),
@@ -79,6 +97,7 @@ def list_bestsellers(
         "ordering_amount": float(r[3]) if r[3] is not None else None,
         "ordering_count": int(r[4]) if r[4] is not None else None,
         "avg_price_rub": float(r[5]) if r[5] is not None else None,
-        "contributed_by_token_id": str(r[6] or ""),
+        # v0.76 安全修复(api-C1): 明文 key 不出服务层——只发指纹前 8 位
+        "contributed_by_fp": token_fingerprint(str(r[6] or ""))[:8] if r[6] else "",
     } for r in rows]
-    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset}

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""PRD M3: 主密钥轮换 — 用旧 key 解密全部凭证密文,再用新 key 重加密(v1: 前缀)。
+"""PRD M3: 主密钥轮换 — 用旧 key 解密全部凭证密文,再用新 key 重加密(新密文 v2: 前缀,
+Task24 crypto-M2 起;存量 v1:/无前缀密文解密兼容不动)。
 
 用法:
     OLD_CREDENTIAL_MASTER_KEY=<旧> NEW_CREDENTIAL_MASTER_KEY=<新> \\
@@ -50,7 +51,7 @@ def rotate(engine, old_key: str, new_key: str, apply: bool) -> int:
             conn.execute(text(
                 "UPDATE credentials SET ozon_api_key_enc=:ct, updated_at=NOW() WHERE id::text=:id"
             ), {"ct": new_ct, "id": rid})
-    print(f"✅ 已重加密 {len(prepared)} 条凭证(新格式 v1: 前缀)")
+    print(f"✅ 已重加密 {len(prepared)} 条凭证(新格式 v2: 前缀)")
     return len(prepared)
 
 

@@ -23,6 +23,8 @@ from sqlalchemy.exc import IntegrityError
 from api.schemas import DraftPatch
 from services import credential_service, product_index_service
 from storage.database.db import get_engine
+from utils.csv_safety import neutralize_csv_cell
+from utils.draft_sanity import validate_draft_sanity
 from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
@@ -161,13 +163,17 @@ def _assert_no_api_key(payload: Any) -> None:
 
 
 def _validate_draft_fields(envelope: dict) -> None:
-    """create 阶段字段弱校验：只拦严重残缺，不替代 submit 真防线。
+    """create 阶段字段弱校验：只拦严重残缺，不替代 submit 入队前的真防线。
 
-    真防线在 submit 的 validate_draft_sanity（draft_sanity.py）——weight<=0 且无
-    competitor_weight_g → 拒；dimensions 三边全<=0 且无 competitor_dimensions_mm → 拒。
-    create 只做两件事：
-    - title 缺失（严重、无法修复）→ 400，把残缺尽早暴露给用户；
-    - weight/dimensions 全零且无竞品兜底 → logger.warning（不阻断，攒进采集箱再修）。
+    两道闸分工（v0.76 勘误：本注释此前称「真防线在 submit 的
+    validate_draft_sanity」与事实相反——该防线当时只挂在 submit_task 路径，
+    draft 提交路径从未调用；终审 Fix-1 已把闸补进 submit_draft 入队前）：
+    - create（本函数）：title 缺失 → 400（严重、无法修复，尽早暴露）；
+      weight/dimensions 全零且无竞品兜底 → 仅 logger.warning 不阻断（攒进
+      采集箱再修）。
+    - submit（submit_draft 入队前）：validate_draft_sanity（draft_sanity.py）
+      硬拦——weight<=0 且无 competitor_weight_g → 拒；dimensions 三边全<=0
+      且无 competitor_dimensions_mm → 拒；非跟卖 purchase_cost<=0 → 拒。
     """
     draft = envelope.get("draft") or {}
     if not isinstance(draft, dict):
@@ -384,19 +390,26 @@ def export_drafts_csv(tenant_id: str) -> str:
         # discover 选品元数据（skill 注入 extensions.discovery_meta，缺失键省略）
         meta = extensions.get("discovery_meta") or {}
         segments = extensions.get("commission_segments") or {}
+        # v0.76 T22(cicd-M2)：用户可控文本列过公式注入中和（OWASP CSV Injection；
+        # discovery runs 全局共享 → 竞品词等可被跨租户投毒）。数字/日期/ID 列
+        # （id/item_id/purchase_cost/price/stock/weight/created_at 等）不包；
+        # discovery_meta 为整包透传 JSONB、任意键可能携带字符串 → 循环内统一过
+        # neutralize（非 str 与非危险前缀值恒原样，数字键零影响）。
         row = [
             d["id"],
-            str(draft.get("title") or ""),
+            neutralize_csv_cell(str(draft.get("title") or "")),
             str(draft.get("item_id") or ""),
-            "|".join(str(u) for u in (draft.get("images") or [])),
+            neutralize_csv_cell("|".join(str(u) for u in (draft.get("images") or []))),
             draft.get("purchase_cost") if draft.get("purchase_cost") is not None else "",
-            str(source.get("purchase_url") or draft.get("purchase_url") or ""),
+            neutralize_csv_cell(str(source.get("purchase_url") or draft.get("purchase_url") or "")),
             draft.get("price") if draft.get("price") is not None else "",
             draft.get("stock") if draft.get("stock") is not None else "",
-            str(draft.get("supplier") or ""),
+            neutralize_csv_cell(str(draft.get("supplier") or "")),
             draft.get("weight") if draft.get("weight") is not None else "",
-            d.get("source") or "",
-            str(d.get("notes") or ""),
+            # source 客户端任意可写（POST /drafts 手拆 str(body.get("source")) 无白名单、
+            # DraftPatch.source 直落库）——T22 评审 F1：同属用户可控文本，必须中和
+            neutralize_csv_cell(str(d.get("source") or "")),
+            neutralize_csv_cell(str(d.get("notes") or "")),
             d.get("submission_status") or "",
             d.get("created_at") or "",
             d.get("updated_at") or "",
@@ -407,7 +420,7 @@ def export_drafts_csv(tenant_id: str) -> str:
         ]
         for key in _DRAFT_META_CSV_KEYS:
             val = meta.get(key)
-            row.append("" if val is None else val)
+            row.append(neutralize_csv_cell("" if val is None else val))
         row.append(_fmt_commission_segments(segments.get("fbs")))
         row.append(_fmt_commission_segments(segments.get("fbo")))
         writer.writerow(row)
@@ -863,6 +876,22 @@ async def submit_draft(
         tenant_id, payload_envelope, template_id, is_update=bool(update_product_id),
         credential_id=client_id,
     )
+
+    # v0.76 终审 Fix-1: 入队前 sanity 闸——此前 submit_task 路径（main.py）有
+    # validate_draft_sanity，而本函数（submit/resubmit/batch-submit/定时上架
+    # 四路消费方）入队前零检查 → weight=0 / cost<=0 信封绕过 T27 闸进管线。
+    # 注意 _apply_listing_template 返回副本，payload_ext 可能已失效 → 按
+    # main.py:2036 参数形态从最终 payload_envelope 重取。语义是「拒绝」不是
+    # 「改写」：不违反「采集箱即权威禁自主重配」红线（那约束的是改写用户
+    # 可见内容）；拒单让用户回采集箱修正数据，所见即所得不被破坏。
+    sanity_err = validate_draft_sanity(
+        payload_envelope.get("draft"), payload_envelope.get("extensions") or {})
+    if sanity_err:
+        logger.warning("❌ 草稿信封数据异常被拒 draft=%s: %s", draft_id, sanity_err)
+        raise HTTPException(
+            status_code=400,
+            detail=f"信封数据异常: {sanity_err}",
+        )
 
     graph_payload = {
         "token": token,

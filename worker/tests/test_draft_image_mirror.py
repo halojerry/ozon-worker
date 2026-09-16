@@ -31,6 +31,17 @@ import main as main_mod  # noqa: E402
 TENANT = main_mod._key_user_id("tokMir")
 
 
+# v0.76 T14(inj-C1)：镜像下载改走 utils.secure_fetch.safe_fetch——HTTP 假体与
+# DNS 都要 patch 到 secure_fetch 内部（requests.get 已不在镜像链上），保证零出站。
+def _fake_secure_dns(host, port=None, *args, **kwargs):
+    return [(2, 1, 6, "", ("93.184.216.34", port or 0))]
+
+
+def _fake_mirror_http():
+    return SimpleNamespace(status_code=200, content=b"fake-image",
+                           is_redirect=False, is_permanent_redirect=False)
+
+
 class FakeTokensTable:
     def __init__(self):
         self._rows = [{"user_id": "tenant-mir", "key": "tokMir", "status": 1, "deleted_at": None}]
@@ -116,10 +127,11 @@ def test_mirror_runs_and_updates_state(client):
     os.environ["COS_SECRET_KEY"] = "test"
     os.environ["COS_BUCKET"] = "test-bucket"
     try:
-        with patch("requests.get") as mock_get, \
+        with patch("utils.secure_fetch.socket.getaddrinfo", _fake_secure_dns), \
+             patch("utils.secure_fetch.requests.request",
+                   return_value=_fake_mirror_http()), \
              patch("services.draft_image_mirror.cos_upload_bytes",
                    return_value="https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/abc.jpg"):
-            mock_get.return_value = SimpleNamespace(status_code=200, content=b"fake-image")
             resp = client.post("/api/v1/drafts", json={
                 "token": "tokMir", "source": "webui",
                 "envelope": _envelope(),
@@ -147,10 +159,11 @@ def test_mirror_version_guard_drops_stale(client):
     os.environ["COS_SECRET_KEY"] = "test"
     os.environ["COS_BUCKET"] = "test-bucket"
     try:
-        with patch("requests.get") as mock_get, \
+        with patch("utils.secure_fetch.socket.getaddrinfo", _fake_secure_dns), \
+             patch("utils.secure_fetch.requests.request",
+                   return_value=_fake_mirror_http()), \
              patch("services.draft_image_mirror.cos_upload_bytes",
                    return_value="https://test-bucket.cos.ap-guangzhou.myqcloud.com/draft-images/abc.jpg"):
-            mock_get.return_value = SimpleNamespace(status_code=200, content=b"fake-image")
             resp = client.post("/api/v1/drafts", json={
                 "token": "tokMir", "source": "webui",
                 "envelope": _envelope(title="版本守卫商品"),

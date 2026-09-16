@@ -29,11 +29,20 @@ from graphs.nodes.ozon_validate_node import ozon_validate_node  # noqa: E402
 @pytest.fixture(autouse=True)
 def _img_probe_ok(monkeypatch):
     """v0.69 Wave4 起 validate 图片可达性错误真实生效（extend 收集缺陷修复）——
-    测试必须确定性控制 HTTP 探测结果，不得依赖本机网络/代理行为。"""
+    测试必须确定性控制 HTTP 探测结果，不得依赖本机网络/代理行为。
+    v0.76 T16 起探测走 utils.secure_fetch.safe_fetch（inj-H2）——改在
+    requests.request 层打桩（带 safe_fetch 重定向判定所需属性）+ fake DNS，
+    杜绝真实出站。"""
     class _R:
         status_code = 200
+        headers = {}
+        is_redirect = False
+        is_permanent_redirect = False
 
-    monkeypatch.setattr("requests.head", lambda *a, **k: _R(), raising=False)
+    monkeypatch.setattr("socket.getaddrinfo",
+                        lambda host, port=None, *a, **k:
+                        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+    monkeypatch.setattr("requests.request", lambda *a, **k: _R())
 
 
 def _run(items):

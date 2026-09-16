@@ -102,6 +102,8 @@ SUPABASE_KEY=your_supabase_service_role_key
 
 # 凭证加密主密钥（v0.41，凭证管理必需；v0.62.1 起部署脚本强制校验）
 # 生成: openssl rand -base64 32
+# 推荐 32 字节随机 key（base64/hex 形态解码后恰 32 字节 → 直接作 AES-256 key 不进 KDF；
+#   口令形态经 PBKDF2-HMAC-SHA256 60 万轮派生，v2 信封，Task24 crypto-M2）。
 # ⚠️ 启用后不可随意更换：换 key = 存量加密凭证全部无法解密（不可逆）。
 #    轮换必须走 worker/scripts/rotate_master_key.py（双 key 平滑过渡）。
 CREDENTIAL_MASTER_KEY=your_base64_32_bytes_key
@@ -257,6 +259,8 @@ curl -X POST https://your-domain.com/api/v1/submit_task \
 
 ### 更新 Worker
 
+> **v0.76 起升级链强制签名校验**：`cos-update.sh` 启动即拉取 `manifest.json`+`manifest.sig` 做 minisign 验签（失败 exit 3；应急逃生门 `COS_UPDATE_SKIP_VERIFY=1` 仅 warn 留痕）。首次启用前置：把 `deploy/cos-update.pub` + `deploy/verify_manifest.sh` 预置到服务器 `deploy/` 目录并安装 minisign（keypair/CI secret 等 7 项一次性待办见 `docs/PLAN-security-remediation-v1.md` Task 32 节）。**缓存 JSON 带外重传/重导后必须重签 manifest**（`bash deploy/sign_cache_hashes.sh <缓存目录> <当前已验签 manifest.json> cos-update.sec <输出目录> deploy/cos-update.pub`，产出 manifest.json+manifest.sig 成对上传 COS），否则升级时缓存 sha256 对不上会被跳过（懒加载兜底不阻断，但「部署即全量」失效一轮）。
+
 > v0.62.1 升级注意（部署问题修复）：
 > 1. **CREDENTIAL_MASTER_KEY 必配**（cos-update.sh 会提示缺失；缺失时凭证 CRUD 500、
 >    存量加密凭证同步解密失败）。升级后若 .env 无该 key 且库中有凭证 → 立即补 key 或删凭证重建。
@@ -358,6 +362,14 @@ bash deploy/backup-pg.sh --restore backup_20260724.sql.gpg
 > # 与 CACHE-WARM-RUNBOOK 上传缓存同配置）
 > 10 4 * * * cd /root/ozon-worker/deploy && bash backup-upload-cos.sh >> backups/upload.log 2>&1
 > ```
+> **bucket 只进密文**（v0.76 起上传脚本默认拒明文 dump——dump 含全部租户
+> 数据，bucket 权限误配即全量外泄）。推荐在 `deploy/.env` 配
+> `PG_BACKUP_PASSPHRASE='<强口令>'`：上传脚本自动宿主侧 gpg 现场加密成
+> `.gpg` 再传（container 模式生产者 postgres:16-alpine 无 gpg，加密缺口在
+> 消费端闭环；⚠️ 该口令勿注入 postgres 容器，否则 backup-pg.sh 会拒跑）。
+> 明文跳过/加密失败/上传失败会写 `backup_heartbeat` ok=false，有新上传写
+> true——上传 cron 的日志之外 `/health` 也能看到异地链健康度。应急逃生门
+> `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1` 不变（放行打 warn 留痕）。
 > 并按 `docs/RESTORE-RUNBOOK.md` 定期演练 restore（演练记录表回填）。
 
 ### 外部存活监控（dead-man，2026-09-11 事故后必配）
