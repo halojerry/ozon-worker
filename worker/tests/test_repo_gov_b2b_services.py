@@ -188,7 +188,17 @@ def _run_submit_draft():
     import services.draft_service as ds
 
     envelope = {
-        "draft": {"title": "测试商品", "images": []},
+        "draft": {
+            "title": "测试商品",
+            "images": [],
+            # v0.76 终审 Fix-1 适配：submit_draft 入队前补了 validate_draft_sanity
+            # 闸（weight=0/cost<=0 → 400），mock 信封补齐合法字段过闸——本组用例
+            # 锁的是 BL-16 tenant_id INSERT 契约，sanity 拒绝语义由
+            # test_submit_draft_sanity_v076.py 专测。
+            "weight": 350,
+            "dimensions": {"length": 10, "width": 10, "height": 10},
+            "purchase_cost": 12.5,
+        },
         "source": {},
         "extensions": {},
     }
