@@ -401,7 +401,9 @@ def export_drafts_csv(tenant_id: str) -> str:
             draft.get("stock") if draft.get("stock") is not None else "",
             neutralize_csv_cell(str(draft.get("supplier") or "")),
             draft.get("weight") if draft.get("weight") is not None else "",
-            d.get("source") or "",
+            # source 客户端任意可写（POST /drafts 手拆 str(body.get("source")) 无白名单、
+            # DraftPatch.source 直落库）——T22 评审 F1：同属用户可控文本，必须中和
+            neutralize_csv_cell(str(d.get("source") or "")),
             neutralize_csv_cell(str(d.get("notes") or "")),
             d.get("submission_status") or "",
             d.get("created_at") or "",

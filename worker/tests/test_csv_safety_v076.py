@@ -57,6 +57,14 @@ def test_export_drafts_csv_neutralizes_formula_title(monkeypatch):
     """端到端：含公式注入 title 的 draft 走 export_drafts_csv，导出单元格 '= 前缀。"""
     from services import draft_service
 
+    poison_source = _draft({
+        "draft": {"title": "正常标题", "item_id": "a2"},
+        "source": {},
+        "extensions": {},
+    })
+    # T22 评审 F1：source 列是客户端任意可写（POST /drafts 手拆 str(body.get("source"))
+    # 无白名单；DraftPatch.source 同样落库），并非系统枚举——导出必须中和
+    poison_source["source"] = "=cmd|'/c calc'!A1"
     monkeypatch.setattr(draft_service, "list_drafts", lambda tenant_id: [_draft({
         "draft": {
             "title": "=HYPERLINK(\"http://evil\",\"点我\")",
@@ -69,10 +77,10 @@ def test_export_drafts_csv_neutralizes_formula_title(monkeypatch):
             "match_1688_title": "=	cmd注入",
             "blue_ocean_score": 87.5,   # 数字列不受影响
         }},
-    }, notes="=cmd|'/c calc'!A1")])
+    }, notes="=cmd|'/c calc'!A1"), poison_source])
     body = draft_service.export_drafts_csv("t1")
     rows = list(csv.DictReader(io.StringIO(body)))
-    assert len(rows) == 1
+    assert len(rows) == 2
     assert rows[0]["title"].startswith("'=")
     assert rows[0]["supplier"].startswith("'@")
     assert rows[0]["notes"].startswith("'=")
@@ -81,3 +89,5 @@ def test_export_drafts_csv_neutralizes_formula_title(monkeypatch):
     assert rows[0]["blue_ocean_score"] == "87.5"
     # 正常文本列不受影响
     assert rows[0]["images"] == "https://img.example/1.jpg"
+    # F1：source 列同样中和
+    assert rows[1]["source"].startswith("'=")
