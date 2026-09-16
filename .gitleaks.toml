@@ -70,6 +70,10 @@ regexes = [
     # skill 测试夹具：假 tfstk/isg cookie（test_aibuy_search.py）
     '''gAOImrvbD3dwTYuK2kuZ1ilQWQCS0Vl4yz''',
     '''BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6''',
+    # ak_callback AK 字符合法集常量（skill 与 deploy/skill 打包副本同内容；AK 格式
+    # 校验用的 65 字符全字母表，非凭证。PR #29 首跑实录：gitleaks 8.24.x 熵算法
+    # 算出 6.04 误报、8.30.x <4.2——跨版本熵漂移，按内容显式豁免保确定性，不赌版本）
+    '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
 ]
 paths = [
     # vendored Ozon API swagger 参考快照（公开 operationId/URL path，零凭证）

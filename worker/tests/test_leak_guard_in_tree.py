@@ -221,6 +221,8 @@ EXPECTED_CUSTOM_RULE_ALLOWLIST_REGEXES: dict[str, frozenset[str]] = {
         "/category/mini-trenazhery-101029485/",
         "gAOImrvbD3dwTYuK2kuZ1ilQWQCS0Vl4yz",
         "BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6",
+        # ak_callback AK 字符合法集常量（跨版本熵漂移误报，见 .gitleaks.toml 同条注释）
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
     }),
 }
 EXPECTED_CUSTOM_RULE_ALLOWLIST_PATHS: dict[str, frozenset[str]] = {
