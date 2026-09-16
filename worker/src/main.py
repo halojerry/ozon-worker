@@ -227,6 +227,10 @@ TIMEOUT_SECONDS = 900  # 15分钟
 # API 限流配置
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))  # 每 token 每分钟最大提交数（与 AGENTS.md/.env.example 一致）
 
+# T21(race-M5): 限流字典有界化阈值——RateLimiter._requests 键数超过该值时，
+# check() 先清扫「最后活跃已滑出 60s 窗口」的键，未认证/海量 token 洪水不再无界吃内存。
+_RATE_LIMITER_MAX_KEYS = 4096
+
 
 class RateLimiter:
     """滑动窗口限流器：按 token 限制提交频率"""
@@ -241,6 +245,12 @@ class RateLimiter:
         now = time.time()
         window_start = now - 60
         with self._lock:
+            # T21(race-M5): 字典有界化——_requests 此前永不清扫（每个新 token 一个键），
+            # 未认证洪水可无界吃内存。超阈值先清「最后活跃已滑出窗口」的键，活跃键不动。
+            if len(self._requests) > _RATE_LIMITER_MAX_KEYS:
+                stale = [k for k, ts in self._requests.items() if not ts or ts[-1] <= window_start]
+                for k in stale:
+                    del self._requests[k]
             timestamps = self._requests.get(token, [])
             # 清理过期记录
             timestamps = [t for t in timestamps if t > window_start]
@@ -1561,14 +1571,17 @@ def _authenticate_token(token: str) -> str:
     clean_tmp = token.replace("sk-", "", 1) if token.startswith("sk-") else token
     if clean_tmp in _revoked_tokens:
         raise HTTPException(status_code=401, detail="Token is revoked")
+    from services.tenant_service import resolve_tenant
+    user_id = resolve_tenant(token)
+    # T21(race-M5): 限流后置——通过凭证校验(resolve_tenant 的 401/503)的 token 才写
+    # 限流键，未认证洪水不再消耗限流字典内存（键形态保持 raw token 含 sk- 前缀不变）。
     allowed, _remaining = rate_limiter.check(token)
     if not allowed:
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
         )
-    from services.tenant_service import resolve_tenant
-    return resolve_tenant(token)
+    return user_id
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
@@ -2033,13 +2046,7 @@ async def http_submit_task(request: Request):
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
 
-        # ✅ 限流检查（按原始 token，含 sk- 前缀）
-        allowed, remaining = rate_limiter.check(token)
-        if not allowed:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
-            )
+        raw_token = token  # T21(race-M5): 限流键保持原始 token（含 sk- 前缀）形态不变
 
         # Step2: 处理sk-前缀
         if token.startswith("sk-"):
@@ -2051,6 +2058,18 @@ async def http_submit_task(request: Request):
         # 且任务 tenant_id 与全系统(WebUI/采集箱)不一致造成租户漂移。
         from services.tenant_service import resolve_tenant
         user_id = resolve_tenant(token)
+
+        # ✅ 限流检查（T21(race-M5) 后置：移到 resolve_tenant 凭证校验之后——
+        # 未认证洪水不再写限流键（与 logistics/analytics 端点 T6-T10 后的
+        # 「鉴权先行」次序对齐）；键仍按原始 token（含 sk- 前缀）。保持在余额
+        # 检查之前，超限 token 不会打到 MXOU 外部接口）
+        allowed, remaining = rate_limiter.check(raw_token)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
+            )
+
         balance, has_quota = _check_mxou_balance({"key": token, "user_id": user_id})
         if not has_quota:
             # v0.64.1 B3: 402 文案带来源标识便于定位误报（订阅 0 哨兵 vs 真欠费 vs
