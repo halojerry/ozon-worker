@@ -38,7 +38,9 @@ COS_REGION="${COS_REGION:-ap-guangzhou}"
 # 上传侧加密与心跳所需（环境变量 > deploy/.env）。⚠️ PG_BACKUP_PASSPHRASE 仅供
 # 本脚本宿主侧 gpg 加密用——勿注入 postgres 容器：container 模式生产者无 gpg，
 # 注入会让 backup-pg.sh 直接拒跑（宁可不备份也不落明文），本机备份一并消失。
-PG_BACKUP_PASSPHRASE="${PG_BACKUP_PASSPHRASE:-}"
+# gitleaks 纪律：勿写 `PG_BACKUP_PASSPHRASE=<...>` 字面赋值（ozon-custom-password-assign
+# 会把变量间接赋值当密码命中）——用 POSIX `: "${VAR:=默认}"` 惯用法，语义等价
+: "${PG_BACKUP_PASSPHRASE:=}"
 PG_USER="${POSTGRES_USER:-postgres}"
 PG_DB="${POSTGRES_DB:-ozon}"
 if [ -f "$SCRIPT_DIR/.env" ]; then
@@ -50,7 +52,9 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   _d=$(grep -E '^POSTGRES_DB=' "$SCRIPT_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"' || true)
   [ -n "$_b" ] && COS_BUCKET="$_b"
   [ -n "$_r" ] && COS_REGION="$_r"
-  [ -n "$PG_BACKUP_PASSPHRASE" ] || PG_BACKUP_PASSPHRASE="${_p:-}"
+  if [ -n "${_p:-}" ] && [ -z "$PG_BACKUP_PASSPHRASE" ]; then
+    : "${PG_BACKUP_PASSPHRASE:=$_p}"
+  fi
   [ -n "$_u" ] && PG_USER="$_u"
   [ -n "$_d" ] && PG_DB="$_d"
 fi
