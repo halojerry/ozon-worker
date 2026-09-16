@@ -1165,6 +1165,66 @@ def _seller_direct_post(path: str, body: dict, cookies: dict[str, str],
         return {}, False
 
 
+def probe_seller_session_alive(cookies: dict[str, str] | None = None,
+                               cdp_url: str = "http://127.0.0.1:9222",
+                               timeout: int = 15) -> dict[str, Any]:
+    """卖家会话活性真探针（ISSUE-4，report 22e45744）：cookie 在 ≠ 会话活。
+
+    check_seller_login 只判 sc_company_id 存在（silent-first，零导航）；而
+    __Secure-access_token 是分钟级寿命/用后轮换型（v0.74 实机测验结论）——
+    死会话下 check 报「已登录」、what_to_sell 全 401，选品运营列全空（假阳性）。
+    本探针向 what_to_sell/data/v3 发最小请求，按 HTTP 状态分类：
+
+        200/400 → alive=True（鉴权层放行；400=参数层拒绝，与 token 无关）
+        401     → alive=False, reason=unauthenticated（token 失效，会话已死）
+        403     → alive=False, reason=forbidden_or_challenge（鉴权拒/DataDome）
+        其余/异常 → alive=None, reason=unknown|network_error|no_company_cookie
+
+    cookies 缺省时自行经 CDP 静默取（不导航任何页面）。
+    红线：只看状态码——响应体不进返回值、不落日志；不触发 _mark_direct_blocked
+    （check 不改变 discover 的直调/CDP 路径选择）。
+    """
+    if cookies is None:
+        try:
+            cookies = _fetch_seller_session_cookies(cdp_url)
+        except Exception as exc:
+            logger.debug("seller 会话探针取 cookie 失败: %s", type(exc).__name__)
+            cookies = {}
+    company_id = str(cookies.get("sc_company_id") or "")
+    if not company_id:
+        return {"alive": None, "http_status": None,
+                "reason": "no_company_cookie"}
+    headers = {
+        "Content-Type": "application/json",
+        "x-o3-company-id": company_id,
+        "x-o3-language": "zh-Hans",
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+        "Referer": SELLER_URL,
+        "Accept": "application/json, text/plain, */*",
+    }
+    body = {"limit": "1", "offset": "0",
+            "filter": {"stock": "any_stock", "period": "monthly",
+                       "categories": [], "sku": ""},
+            "sort": {"key": "sum_gmv_desc"}}
+    try:
+        resp = requests.post(
+            f"{SELLER_API_BASE}/api/site/seller-analytics/what_to_sell/data/v3",
+            json=body, headers=headers, cookies=cookies, timeout=timeout)
+    except Exception as exc:
+        logger.debug("seller 会话探针请求异常: %s", type(exc).__name__)
+        return {"alive": None, "http_status": None, "reason": "network_error"}
+    if resp.status_code in (200, 400):
+        return {"alive": True, "http_status": resp.status_code, "reason": "ok"}
+    if resp.status_code == 401:
+        return {"alive": False, "http_status": 401,
+                "reason": "unauthenticated"}
+    if resp.status_code == 403:
+        return {"alive": False, "http_status": 403,
+                "reason": "forbidden_or_challenge"}
+    return {"alive": None, "http_status": resp.status_code, "reason": "unknown"}
+
+
 def fetch_all_queries_direct(cookies: dict[str, str], keyword: str | None = None) -> list[dict]:
     """all-queries 关键词蓝海 —— 静默 cookie 直调（免 CDP 导航）。
 
