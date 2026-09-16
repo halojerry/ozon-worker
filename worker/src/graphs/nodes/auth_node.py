@@ -1,5 +1,6 @@
 """认证节点 - 验证mxou token + Supabase余额检查 + Ozon店铺信息查询"""
 import os
+import re
 import logging
 import requests
 from utils.http_session import session
@@ -21,6 +22,20 @@ MXOU_BASE = "https://api.mxou.cn"
 def mask_api_key(key: str) -> str:
     """T5(crypto-L1): 日志掩码——只出尾 4 位；过短全掩码。"""
     return f"***{key[-4:]}" if key and len(key) >= 4 else "***"
+
+
+_URL_IN_TEXT_RE = re.compile(r"https?://\S+")
+
+
+def sanitize_log_text(text: Any, limit: int = 200) -> str:
+    """T5(crypto-L1 终审 Fix-3): 日志脱敏文本——URL 剥成 <url> + 截断。
+
+    Supabase token 查询把明文 key 放 URL query（tokens?key=eq.<key>）：
+    requests 连接异常字符串化后内嵌完整 URL，原样拼日志 = 明文 key 落日志；
+    Supabase 错误响应体同样不整段落（防 body 回显敏感面）。截断保头部
+    排障信息。只影响日志文本，不影响异常对象本身与控制流。
+    """
+    return _URL_IN_TEXT_RE.sub("<url>", str(text or ""))[:limit]
 
 
 def _verify_mxou_token(token: str) -> tuple:
@@ -236,7 +251,8 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
                     _time.sleep(2)
                     continue
                 # Supabase完全不可达，降级处理：用默认值继续
-                logger.warning(f"Supabase连接失败（3次重试后仍超时），降级处理: {retry_err}")
+                # T5 Fix-3: retry_err 字符串内嵌完整 token 查询 URL（明文 key），剥 URL 再落日志
+                logger.warning(f"Supabase连接失败（3次重试后仍超时），降级处理: {sanitize_log_text(retry_err, limit=300)}")
                 supabase_unreachable = True
                 break
         if supabase_unreachable:
@@ -280,7 +296,8 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             )
         
         if response is not None and response.status_code != 200:
-            logger.error(f"Supabase查询token失败: {response.status_code} - {response.text}")
+            # T5 Fix-3: 错误响应体不整段落（防回显敏感面）——截断保头部 + 状态码
+            logger.error(f"Supabase查询token失败: {response.status_code} - {sanitize_log_text(response.text)}")
             return AuthOutput(
                 user_id="",
                 token_id="",
@@ -362,7 +379,8 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
             raise Exception("Supabase用户查询失败（3次重试后仍超时）")
         
         if user_response.status_code != 200:
-            logger.error(f"Supabase查询用户失败: {user_response.status_code} - {user_response.text}")
+            # T5 Fix-3 同类收敛：users 查询 URL 无 token，但响应体同样不整段落
+            logger.error(f"Supabase查询用户失败: {user_response.status_code} - {sanitize_log_text(user_response.text)}")
             return AuthOutput(
                 user_id=user_id,
                 token_id=token_id,
