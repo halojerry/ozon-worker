@@ -21,7 +21,10 @@ GRSAI_API_URL = "https://grsai.dakka.com.cn/v1/api/result"
 GRSAI_API_KEY = os.getenv("GRSAI_API_KEY", "")
 
 # 默认生图模型和降级模型
-PRIMARY_IMAGE_MODEL = "gpt-image-2"
+# v0.77: 主模型切 gpt-image-2.5（上游模型更新）。注意分工：本常量是 API 调用缺省 model 参数；
+# 节点级模型选择走 image_models.get_image_model（imagegen.json 热加载），其配置缺失/损坏的
+# 兜底是 image_models.DEFAULT_NODE_MODEL（gpt-image-2，按方案保持不动）——两条回退路径勿混写。
+PRIMARY_IMAGE_MODEL = "gpt-image-2.5"
 FALLBACK_IMAGE_MODEL = "nano-banana-fast"
 # v0.60: 第三级降级 — fast 真失败后再降 nano-banana-2-lite（MXOU 2026-08 新增，
 # lite 适合做末级兜底；降级级统一 120s 超时控制总时长 180+120+120=420s）
@@ -431,7 +434,7 @@ def call_mxou_image_api(
 ) -> Optional[str]:
     """
     调用mxou图片生成API，返回生成的图片URL。
-    主模型(gpt-image-2)失败后自动降级到nano-banana-fast。
+    主模型(gpt-image-2.5，v0.77)失败后自动降级到nano-banana-fast。
 
     参数:
         token: mxou API密钥（用户输入）
@@ -442,7 +445,7 @@ def call_mxou_image_api(
             90s 曾导致频繁误降级 nano-banana-fast）
         max_retries: 最大重试次数，默认1（共 2 次尝试；v0.26：轮询超时不再重试，
             violation/failed 有界重试，避免无限重烧额度）
-        model: 生图模型，默认gpt-image-2
+        model: 生图模型，默认gpt-image-2.5（v0.77）
 
     返回:
         生成的图片URL字符串；失败返回None
@@ -478,7 +481,8 @@ def call_mxou_image_api(
         return result_url
 
     # Step 2: 主模型真失败（HTTP 重试耗尽 / failed / violation 重试耗尽），降级到 fallback 模型
-    # v0.60 三级降级：gpt-image-2 → nano-banana-fast → nano-banana-2-lite
+    # v0.60 三级降级链：nano-banana-fast → nano-banana-2-lite（主模型 gpt-image-2/2.5 不在链中，
+    # index-miss 从 fast 起步；v0.77 主模型切 2.5 链行为不变）
     # 降级级统一 FALLBACK_TIMEOUT(120s)；仅「真失败」触发降级（轮询超时 v0.26 纪律不降级防双倍计费）
     # 链中任一模型失败 → 降级到链中更后的模型（fast 节点失败 → 2-lite）
     _chain: List[str] = [FALLBACK_IMAGE_MODEL, THIRD_IMAGE_MODEL] if FALLBACK_IMAGE_MODEL != THIRD_IMAGE_MODEL else [FALLBACK_IMAGE_MODEL]
