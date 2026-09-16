@@ -362,9 +362,14 @@ bash deploy/backup-pg.sh --restore backup_20260724.sql.gpg
 > # 与 CACHE-WARM-RUNBOOK 上传缓存同配置）
 > 10 4 * * * cd /root/ozon-worker/deploy && bash backup-upload-cos.sh >> backups/upload.log 2>&1
 > ```
-> **备份须先 gpg 加密再上传**（v0.76 起上传脚本默认拒明文 dump——dump 含全部租户
-> 数据，bucket 权限误配即全量外泄；只放行 `.gpg` 产物，应急逃生门
-> `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）。
+> **bucket 只进密文**（v0.76 起上传脚本默认拒明文 dump——dump 含全部租户
+> 数据，bucket 权限误配即全量外泄）。推荐在 `deploy/.env` 配
+> `PG_BACKUP_PASSPHRASE='<强口令>'`：上传脚本自动宿主侧 gpg 现场加密成
+> `.gpg` 再传（container 模式生产者 postgres:16-alpine 无 gpg，加密缺口在
+> 消费端闭环；⚠️ 该口令勿注入 postgres 容器，否则 backup-pg.sh 会拒跑）。
+> 明文跳过/加密失败/上传失败会写 `backup_heartbeat` ok=false，有新上传写
+> true——上传 cron 的日志之外 `/health` 也能看到异地链健康度。应急逃生门
+> `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1` 不变（放行打 warn 留痕）。
 > 并按 `docs/RESTORE-RUNBOOK.md` 定期演练 restore（演练记录表回填）。
 
 ### 外部存活监控（dead-man，2026-09-11 事故后必配）
