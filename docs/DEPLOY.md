@@ -259,6 +259,8 @@ curl -X POST https://your-domain.com/api/v1/submit_task \
 
 ### 更新 Worker
 
+> **v0.76 起升级链强制签名校验**：`cos-update.sh` 启动即拉取 `manifest.json`+`manifest.sig` 做 minisign 验签（失败 exit 3；应急逃生门 `COS_UPDATE_SKIP_VERIFY=1` 仅 warn 留痕）。首次启用前置：把 `deploy/cos-update.pub` + `deploy/verify_manifest.sh` 预置到服务器 `deploy/` 目录并安装 minisign（keypair/CI secret 等 7 项一次性待办见 `docs/PLAN-security-remediation-v1.md` Task 32 节）。**缓存 JSON 带外重传/重导后必须重签 manifest**（`bash deploy/sign_cache_hashes.sh <缓存目录> <当前已验签 manifest.json> cos-update.sec <输出目录> deploy/cos-update.pub`，产出 manifest.json+manifest.sig 成对上传 COS），否则升级时缓存 sha256 对不上会被跳过（懒加载兜底不阻断，但「部署即全量」失效一轮）。
+
 > v0.62.1 升级注意（部署问题修复）：
 > 1. **CREDENTIAL_MASTER_KEY 必配**（cos-update.sh 会提示缺失；缺失时凭证 CRUD 500、
 >    存量加密凭证同步解密失败）。升级后若 .env 无该 key 且库中有凭证 → 立即补 key 或删凭证重建。
@@ -360,6 +362,9 @@ bash deploy/backup-pg.sh --restore backup_20260724.sql.gpg
 > # 与 CACHE-WARM-RUNBOOK 上传缓存同配置）
 > 10 4 * * * cd /root/ozon-worker/deploy && bash backup-upload-cos.sh >> backups/upload.log 2>&1
 > ```
+> **备份须先 gpg 加密再上传**（v0.76 起上传脚本默认拒明文 dump——dump 含全部租户
+> 数据，bucket 权限误配即全量外泄；只放行 `.gpg` 产物，应急逃生门
+> `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）。
 > 并按 `docs/RESTORE-RUNBOOK.md` 定期演练 restore（演练记录表回填）。
 
 ### 外部存活监控（dead-man，2026-09-11 事故后必配）

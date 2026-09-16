@@ -97,6 +97,12 @@ coscli cp worker/assets/dictionary_values_zh.json cos://yss-1256275613/ozon-work
 > ⚠️ JSON 不进 git（数百 MB 超仓库承载）。COS 对象与 skill 部署包同 bucket、
 > **不同前缀**，不触碰 `file/images/*`（产品图）与生命周期规则覆盖面。
 >
+> ⚠️ **签名 manifest 上线后（v0.76 安全批）**：上述带外重传/重导缓存之后，必须
+> 重签 manifest——`bash deploy/sign_cache_hashes.sh <缓存目录> <当前已验签
+> manifest.json> cos-update.sec <输出目录> deploy/cos-update.pub`，把产出
+> `manifest.json` + `manifest.sig` 成对上传 COS；否则升级时缓存 sha256 对不上
+> 会被跳过（懒加载兜底不阻断，但「部署即全量」失效一轮）。
+>
 > ℹ️ 本流程**仅首次 / 三桶口径变化 / TTL 大面积过期时重跑**——此后每次
 > `deploy.sh` / `cos-update.sh` 升级都会自动从 COS 拉这两个 JSON 并后台
 > `--import-only` 灌入 PG（见下节），部署即全量，无需人工重走本流程。

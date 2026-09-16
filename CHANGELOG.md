@@ -26,6 +26,26 @@
 - Windows 真机 gate（B5）：接管通道按实验性随版；真机跑 `probe-win-cookies --takeover-test` + `import-cookies` 全链一次后转正。
 - pounding-mcp `import_cookies` 未映射 `--browser-profile`（缺省兼容，随 MCP 参数差分核查批补）。
 
+### 安全修复批次（2026-09-16，`fix/security-remediation-v1`，worker/pounding-mcp/CI/deploy 侧）
+
+> 安全审计修复战役（46 commits，方案 `docs/PLAN-security-remediation-v1.md`，SDD 任务级审查+评审修复轮全程留痕、全关环）。**发版说明必提**——下列为本批行为变更：
+
+1. **全局读端点（bestsellers/discovery runs）停发 `contributed_by_token_id` 明文 key，只回 `contributed_by_fp` 指纹**（webui 贡献者列显示指纹）。
+2. **读/操作端点补鉴权**：cancel_task / task_statistics / progress / store/health / logistics/quote——statistics 补鉴权且非 admin 恒查自身租户（跨租户 403）；store/health 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header、上游失败改 **502** 固定文案（200 体不再有 error 形态）；logistics/quote 需 Bearer+限流（无凭据 401、超限 429）；cancel/progress 无凭据 401（cancel 跨租户 404）。**pounding-harness 需核对 Bearer 透传与 8902 TASKS_TOKEN 注入（发版前置检查项）**。
+3. **resolve_tenant 消费 tokens.status——封禁 token 不可提交任务**（封禁生效有 60s 缓存延迟）。
+4. **`/node_run` 黑名单有状态节点**（learning_record 等拒 403，封学习表投毒面）。
+5. **SKIP_FAILED_REVIVE 语义翻转：部署重启默认不复活 failed 任务**（重试走采集箱 resubmit；旧行为曾每次发版对用户发起无人同意的重新上架）；恢复旧行为显式设 `SKIP_FAILED_REVIVE=0`。running→pending 中断恢复不受影响。
+6. **8902 任务网关需 Bearer token**（env `POUNDING_TASKS_TOKEN` 优先；未设则启动时随机生成并向 stderr 打一行 `TASKS_TOKEN=<t>`）；CORS `*` 已移除；params 白名单与 body 上限。
+7. **drafts resubmit 新增 402（低余额预检）/409（并发重复提交）语义**。
+8. **ILIKE 搜索 `%`/`_` 从通配变字面**（bestsellers/queries/seo 搜索词；`utils/like_escape.escape_like` 唯一入口）。
+9. **图片抓取链 SSRF 收口**：内网地址拒绝、抓不到保持外链；重定向跟随上限 30→3（`utils/secure_fetch.safe_fetch` 唯一入口；镜像链/E1 转存/validate 探测全部接线）。
+10. **CSV 导出公式中和**（`=` `+` `-` `@` `\t` `\r` 开头加 `'` 前缀；worker+webui 同口径）。
+11. drafts CSV 导出/镜像链/validate 探测等内部行为收口（对正常流量零感知）。
+12. **CI 加固**：actions 全量 pin commit SHA、gitleaks 全树扫描修复后真正生效（**首跑可能翻出新结果——属修复生效非回归**）、coscli 下载带 sha256 校验。
+13. **COS 升级链签名机制上线**（升级包/缓存 JSON 的 manifest minisign 强制验签，指定版本回滚与缓存下载封死无校验路径；skill updater 同语义，公钥未配置前 warn 放行）——**启用前置待办 7 项**（minisign keypair 生成/公钥入库 `deploy/cos-update.pub`/CI secret `COS_UPDATE_SIGN_KEY`/`MINISIGN_SHA256` 补算/build-skill.yml 同款签名/服务器预置 pub+verify 脚本/`updater.py PROD_PUBKEY` 填入）见 `docs/PLAN-security-remediation-v1.md` Task 32 与 task-32-report.md（SDD 台账）合并前待办清单；**缓存带外重传/重导后必须 `bash deploy/sign_cache_hashes.sh` 重签 manifest**，否则升级时缓存 sha256 对不上被跳过（懒加载兜底不阻断，但「部署即全量」失效一轮）。
+
+配套（行为不变面）：主密钥 KDF 升级 PBKDF2-600k（v2 信封，存量 v1 密文零迁移继续可解；legacy 解密保持 v1 原规则）；备份上传默认拒明文 dump（须先 gpg 加密，逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）；500/503 异常文本残留清零、task_status 出口递归脱敏凭证、Sentry 关栈帧局部变量、模板默认切换并发 409 不 500、采购成本非正数提交闸、限流器字典有界化、删除死代码 `utils/file/file.py`（任意路径读原语）；test/e2e compose PG 绑 127.0.0.1。
+
 ## [0.75.0] — 仓库治理收口批：repo-gov v1 全量余量 + 密钥出库与历史重写（2026-09-11）
 
 > 战役：Phase 0 工作树卫生 → A1-A9 九份只读审计（`docs/audit/2026-09-11-repo-gov/`）→ 六批修复 PR（#13/#15/#16/#17/#18/#19）→ **git 历史重写**（21 组密钥全历史出库，仓库 241MB→89MB，59 tag 全部重写）→ v075 收口十项（PR #21，`docs/PLAN-v075-release-closeout.md`）。部署加固第一批（PR #20，I/O 雪崩防线）同车发出。测试基线 worker 2377→2649 / skill →1342。
