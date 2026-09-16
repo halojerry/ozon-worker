@@ -23,6 +23,7 @@ import json
 import time
 import logging
 import re
+from urllib.parse import urlparse
 import requests
 from pathlib import Path
 from typing import Any, Optional
@@ -45,6 +46,7 @@ from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_di
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
+from utils.cos_uploader import is_cos_url  # fix/image-ref-cos-whitelist-v1 批2: 无图补位只吃本方 COS 托管图（唯一实现在 image_url_guard，经 cos_uploader re-export 防漂移）
 from utils.blocked_draft_box import (  # ✅ v0.69 T0.3: R2b 置信度分层阈值（阻断入箱函数延迟 import 防循环）
     R2B_ADOPT_CONF_CROSS_TOP,
     R2B_ADOPT_CONF_SAME_TOP,
@@ -3056,6 +3058,23 @@ def _build_items_deterministically(
     return items
 
 
+def _image_source_key_prefixes(urls: list[Any]) -> str:
+    """提取图片 URL path 首段作为来源 key 前缀（如 draft-images / ozon-1688）。
+
+    fix/image-ref-cos-whitelist-v1 批2：补位放弃时 warning 带此前缀，出事可一眼
+    定位图来自哪条写入链（draft_image_mirror=draft-images / E1 salvage=ozon-1688）。
+    解析不出段落的条目跳过；全空返回 "?"（占位，避免空 %s 难取证）。
+    """
+    prefixes: list[str] = []
+    for u in urls:
+        if not isinstance(u, str) or not u.strip():
+            continue
+        seg = urlparse(u).path.strip("/").split("/", 1)[0]
+        if seg and seg not in prefixes:
+            prefixes.append(seg)
+    return ",".join(prefixes) or "?"
+
+
 def _validate_and_enrich_items(
     items: list[dict[str, Any]],
     attr_list: list[dict[str, Any]],
@@ -3109,11 +3128,23 @@ def _validate_and_enrich_items(
         if not item.get("weight") or item.get("weight") == 0:
             item["weight"] = weight_grams
 
-        # 图片
+        # 图片（fix/image-ref-cos-whitelist-v1 批2：无图补位只吃本方 COS 托管图）
+        # 事故链：镜像未跑/失败时 draft.images 仍是 1688 裸 alicdn 原图，未过滤补位
+        # = 原图直接塞 payload——Ozon 抓不到外链，且与 prepare「不使用 alicdn 原图」
+        # 纪律矛盾（2026-09-16 原图上卡事故）。补位子集只保留 is_cos_url 成立的本方
+        # COS 托管图（镜像/E1/AI 生成产物）；全外链 → 诚实不补（走既有 IMAGE_ERROR
+        # 语义），warning 带来源 key 前缀便于取证。已有图路径不触碰（不重过滤）。
+        _cos_fill = [u for u in images if is_cos_url(u)][:15]
         if not item.get("images"):
-            item["images"] = images[:15]
-        if not item.get("primary_image") and images:
-            item["primary_image"] = images[0] if images else ""
+            if _cos_fill:
+                item["images"] = _cos_fill
+            elif images:
+                logger.warning(
+                    "   ⚠️ draft 图非本方 COS 托管，不补位（Ozon 抓不到外链）: 来源 key 前缀=%s",
+                    _image_source_key_prefixes(images),
+                )
+        if not item.get("primary_image") and _cos_fill:
+            item["primary_image"] = _cos_fill[0]
 
         # 数组字段
         item.setdefault("complex_attributes", [])
