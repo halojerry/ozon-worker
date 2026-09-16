@@ -61,6 +61,81 @@ class SkillError(RuntimeError):
     """skill CLI 调用失败（非零退出码 / 非 JSON 输出 / 进程异常）。"""
 
 
+# ── 参数白名单（v0.76 T18 cicd-H1）─────────────────────────────────────
+# 8902 tasks_server 与 /ask 是「任意 JSON → CLI flag」的直接通道，浏览器 drive-by
+# 可注入任意 flag（如 --auto-submit 真实下单烧余额）。此处按 skill/scripts/cli.py
+# 各子命令 add_argument 的**真实 flag 集**（下划线形式）逐 kind 声明白名单；
+# 键 = COLLECT_KINDS / MCP 工具的 kind 名（下划线），另含 /ask 直达的 check/category。
+# ⚠️ skill CLI 新增 flag 且网关/MCP 面要透出时，必须同步本表——白名单外的键会被丢弃。
+# 放置本模块（而非 tasks.py）的原因：tasks.py import 本模块，反向引用会循环导入。
+ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
+    "check": frozenset(),  # 无任何参数
+    "category": frozenset({"query", "lang", "max", "store"}),
+    "search": frozenset({
+        "query", "page_size", "sort", "export", "rules", "store",
+        "auto_submit", "to_box", "threads",
+    }),
+    "probe": frozenset({"url", "timeout"}),
+    "graph": frozenset({
+        "item_id", "url", "category_query", "category_id", "type_id",
+        "retries", "store", "no_submit", "min_density", "to_box",
+        "ozon_ref_url", "template_id", "notify", "wait", "force",
+    }),
+    "image_search": frozenset({
+        "image", "limit", "sort", "source", "ozon_product_id",
+    }),
+    "get_ak": frozenset({"timeout"}),
+    "follow": frozenset({
+        "ozon_url", "auto_submit", "to_box", "store", "review", "notify",
+        "wait", "force",
+    }),
+    "discover": frozenset({
+        "url", "keyword", "local", "china", "max_products", "min_margin",
+        "max_sellers", "fx_rate", "store", "no_analytics", "min_price",
+        "max_price", "brand_filter", "rules", "filter_profile", "base_filter",
+        "export", "output", "auto_submit", "to_box", "note", "fission",
+        "max_depth", "allow_depth_3", "max_total_products", "time_budget",
+        "max_sellers_per_product", "max_products_per_seller",
+        "non_interactive", "blue_ocean_source", "blue_ocean_csv", "review",
+        "compare_sources", "notify", "wait", "force",
+    }),
+    "discover_multi": frozenset({
+        "keywords", "max_each", "local", "china", "min_margin", "fx_rate",
+        "store", "no_analytics", "min_price", "max_price", "brand_filter",
+        "rules", "filter_profile", "base_filter", "export", "output",
+        "auto_submit", "to_box", "blue_ocean_source", "blue_ocean_csv",
+        "review", "notify", "wait", "force",
+    }),
+    "discover_task": frozenset({
+        "url", "keyword", "target_count", "max_scan", "filter_profile",
+        "base_filter", "min_price", "max_price", "brand_filter", "filters",
+        "min_margin", "fx_rate", "match_limit", "match_concurrency",
+        "no_match_streak_stop", "store", "to_box", "auto_submit", "dry_run",
+        "resume", "expend_shop", "max_depth", "allow_depth_3",
+        "max_total_products", "time_budget", "no_analytics", "export",
+        "wait", "force",
+    }),
+    "seller": frozenset({
+        "seller_id", "max_products", "max_skus", "wait", "force",
+    }),
+    "queries": frozenset({
+        "type", "keyword", "sku", "category_id", "price_min", "price_max",
+        "export", "output",
+    }),
+}
+
+
+def _filter_params(params: dict, allowed) -> dict:
+    """按白名单过滤 params（纯函数）：只保留 allowed 内的键，未知键静默丢弃。
+
+    allowed 是 frozenset/set（通常取 ALLOWED_PARAM_KEYS[kind]）；
+    值原样保留（含 None/False，后续 _build_argv 的跳过语义不变）。
+    """
+    if not isinstance(params, dict):
+        return {}
+    return {k: v for k, v in params.items() if k in allowed}
+
+
 # 浏览器宿主唤醒/静默：skill 需要浏览器时 POST 唤醒展开窗口；命令完成后 POST 完成让宿主自动静默。
 # 未配置/宿主未启动时静默忽略（skill 会照常走自启 Chrome 或纯 API 模式）。
 _BROWSER_WAKE_URL = os.environ.get("POUNDING_BROWSER_WAKE_URL", "http://127.0.0.1:9224/show")
@@ -86,11 +161,24 @@ def _done_browser() -> None:
 
 
 def _build_argv(cmd: str, positional: tuple = (), flags: dict | None = None) -> list[str]:
-    """构造 skill CLI argv（位置参数 + flags 映射；工具名→CLI 命令名走别名表）。"""
+    """构造 skill CLI argv（位置参数 + flags 映射；工具名→CLI 命令名走别名表）。
+
+    v0.76 T18（cicd-H1）：白名单内命令（ALLOWED_PARAM_KEYS）只放行声明过的参数键，
+    白名单外键丢弃并 stderr 提示一行——防 8902 网关/信封外通道注入任意 CLI flag。
+    白名单字典外的命令（MCP 既有面 set_store/query/session_sync 等）不过滤，行为不变。
+    """
+    allowed = ALLOWED_PARAM_KEYS.get(cmd)
+    if allowed is not None:
+        unknown = sorted(set(flags or {}) - allowed)
+        if unknown:
+            print(f"[skill_runner] {cmd}: 丢弃白名单外参数: {', '.join(unknown)}",
+                  file=sys.stderr)
     cmd = _CLI_COMMAND_ALIASES.get(cmd, cmd)
     argv = [SKILL_PYTHON, str(_CLI), cmd]
     argv += [str(p) for p in positional if p is not None and p != ""]
     for key, val in (flags or {}).items():
+        if allowed is not None and key not in allowed:
+            continue
         if val is None or val is False or val == "":
             continue
         flag = f"--{key.replace('_', '-')}"
