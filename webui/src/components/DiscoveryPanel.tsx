@@ -4,6 +4,14 @@ import type { DiscoveryRun, DiscoveryRunsResponse, MappingLookupResult, SeoKeywo
 import { apiErrorMessage, formatDateTime, useApi } from "../api/hooks"
 import { PageHeader, PanelEmpty, PanelError, PanelLoading } from "./ui"
 
+// v0.76 T22(cicd-M2): CSV 公式注入中和——discovery runs 全局共享（W11），keyword/候选
+// 文本可被跨租户投毒；以 = + - @ \t \r 开头的单元格前缀 ' 令 Excel/WPS 按文本处理
+// （OWASP CSV Injection，与 worker utils/csv_safety.neutralize_csv_cell 同语义）。
+const safeCsvCell = (v: unknown): string => {
+  const s = String(v ?? "").replace(/"/g, '""')
+  return `"${/^[=+\-@\t\r]/.test(s) ? `'${s}` : s}"`
+}
+
 export default function DiscoveryPanel() {
   const [tab, setTab] = useState<"runs" | "mappings" | "seo">("runs")
   const [detail, setDetail] = useState<DiscoveryRun | null>(null)
@@ -50,7 +58,7 @@ export default function DiscoveryPanel() {
     }))
     if (!rows.length) return
     const header = Object.keys(rows[0]).join(",")
-    const body = rows.map((r) => Object.values(r).map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n")
+    const body = rows.map((r) => Object.values(r).map(safeCsvCell).join(",")).join("\n")
     const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8" })
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
@@ -106,7 +114,7 @@ export default function DiscoveryPanel() {
       }
     })
     const header = Object.keys(rows[0]).join(",")
-    const body = rows.map((r) => Object.values(r).map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n")
+    const body = rows.map((r) => Object.values(r).map(safeCsvCell).join(",")).join("\n")
     const blob = new Blob([`\ufeff${header}\n${body}`], { type: "text/csv;charset=utf-8" })
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)

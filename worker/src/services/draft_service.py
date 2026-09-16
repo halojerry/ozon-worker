@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from api.schemas import DraftPatch
 from services import credential_service, product_index_service
 from storage.database.db import get_engine
+from utils.csv_safety import neutralize_csv_cell
 from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
@@ -384,19 +385,24 @@ def export_drafts_csv(tenant_id: str) -> str:
         # discover 选品元数据（skill 注入 extensions.discovery_meta，缺失键省略）
         meta = extensions.get("discovery_meta") or {}
         segments = extensions.get("commission_segments") or {}
+        # v0.76 T22(cicd-M2)：用户可控文本列过公式注入中和（OWASP CSV Injection；
+        # discovery runs 全局共享 → 竞品词等可被跨租户投毒）。数字/日期/ID 列
+        # （id/item_id/purchase_cost/price/stock/weight/created_at 等）不包；
+        # discovery_meta 为整包透传 JSONB、任意键可能携带字符串 → 循环内统一过
+        # neutralize（非 str 与非危险前缀值恒原样，数字键零影响）。
         row = [
             d["id"],
-            str(draft.get("title") or ""),
+            neutralize_csv_cell(str(draft.get("title") or "")),
             str(draft.get("item_id") or ""),
-            "|".join(str(u) for u in (draft.get("images") or [])),
+            neutralize_csv_cell("|".join(str(u) for u in (draft.get("images") or []))),
             draft.get("purchase_cost") if draft.get("purchase_cost") is not None else "",
-            str(source.get("purchase_url") or draft.get("purchase_url") or ""),
+            neutralize_csv_cell(str(source.get("purchase_url") or draft.get("purchase_url") or "")),
             draft.get("price") if draft.get("price") is not None else "",
             draft.get("stock") if draft.get("stock") is not None else "",
-            str(draft.get("supplier") or ""),
+            neutralize_csv_cell(str(draft.get("supplier") or "")),
             draft.get("weight") if draft.get("weight") is not None else "",
             d.get("source") or "",
-            str(d.get("notes") or ""),
+            neutralize_csv_cell(str(d.get("notes") or "")),
             d.get("submission_status") or "",
             d.get("created_at") or "",
             d.get("updated_at") or "",
@@ -407,7 +413,7 @@ def export_drafts_csv(tenant_id: str) -> str:
         ]
         for key in _DRAFT_META_CSV_KEYS:
             val = meta.get(key)
-            row.append("" if val is None else val)
+            row.append(neutralize_csv_cell("" if val is None else val))
         row.append(_fmt_commission_segments(segments.get("fbs")))
         row.append(_fmt_commission_segments(segments.get("fbo")))
         writer.writerow(row)
