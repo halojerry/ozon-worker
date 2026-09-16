@@ -102,6 +102,8 @@ SUPABASE_KEY=your_supabase_service_role_key
 
 # 凭证加密主密钥（v0.41，凭证管理必需；v0.62.1 起部署脚本强制校验）
 # 生成: openssl rand -base64 32
+# 推荐 32 字节随机 key（base64/hex 形态解码后恰 32 字节 → 直接作 AES-256 key 不进 KDF；
+#   口令形态经 PBKDF2-HMAC-SHA256 60 万轮派生，v2 信封，Task24 crypto-M2）。
 # ⚠️ 启用后不可随意更换：换 key = 存量加密凭证全部无法解密（不可逆）。
 #    轮换必须走 worker/scripts/rotate_master_key.py（双 key 平滑过渡）。
 CREDENTIAL_MASTER_KEY=your_base64_32_bytes_key

@@ -128,14 +128,16 @@ def test_logs_do_not_leak_plaintext_or_key(monkeypatch, caplog):
 # ── PRD M3: 版本前缀 + 显式 key 轮换 ──
 
 
-def test_encrypt_has_v1_prefix_and_legacy_decrypt(monkeypatch):
+def test_encrypt_has_v2_prefix_and_legacy_decrypt(monkeypatch):
     monkeypatch.setenv("CREDENTIAL_MASTER_KEY", KEY)
     from utils.credential_cipher import decrypt, encrypt
     ct = encrypt(VALUE, AAD)
-    assert ct.startswith(b"v1:"), "新密文必须带 v1: 前缀"
+    # Task24(crypto-M2): KDF 升级后新密文一律 v2: 前缀(原断言 v1: 已随之更新;
+    # 向后兼容仅指解密——v1 旧密文仍可解, 见 tests/test_kdf_v2_v076.py)。
+    assert ct.startswith(b"v2:"), "新密文必须带 v2: 前缀"
     assert decrypt(ct, AAD) == VALUE
-    # 模拟旧格式(无前缀)仍可解密(向后兼容)
-    legacy = ct[len(b"v1:"):]
+    # 模拟旧格式(无前缀)仍可解密(向后兼容)——KEY 为 32 字节形态, v1/v2 派生同值
+    legacy = ct[len(b"v2:"):]
     assert decrypt(legacy, AAD) == VALUE
 
 
