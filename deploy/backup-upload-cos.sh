@@ -33,10 +33,13 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   [ -n "$_r" ] && COS_REGION="$_r"
 fi
 
-command -v coscli >/dev/null 2>&1 || {
-  echo "❌ coscli 不在 PATH——安装见 https://cloud.tencent.com/document/product/436/63144"
-  exit 1
-}
+# DRY_RUN=1 只演练上传决策，不执行任何 coscli 调用——coscli 缺失不阻断（本地验证矩阵用）
+if [ "${DRY_RUN:-0}" != "1" ]; then
+  command -v coscli >/dev/null 2>&1 || {
+    echo "❌ coscli 不在 PATH——安装见 https://cloud.tencent.com/document/product/436/63144"
+    exit 1
+  }
+fi
 
 # 显式凭证存在则覆盖 coscli 配置（默认走 ~/.coscli.yaml）
 COSCLI="coscli --disable-log=true"
@@ -55,6 +58,28 @@ FAILED=0
 for f in "$BACKUP_DIR"/backup_*.sql*; do
   [ -f "$f" ] || continue
   [ -f "$f.uploaded" ] && continue
+  # 安全闸（crypto-M1/cicd-M1）：默认拒明文 dump——dump 含全部租户数据，bucket
+  # 权限误配即全量外泄；只放行 .gpg 加密产物。逃生门须显式 ALLOW_PLAINTEXT_BACKUP_UPLOAD=1
+  # （放行也打 warn 留痕）。置于存在/sidecar 守卫之后：空目录 glob 字面量与已上传
+  # 文件不产生重复噪音。
+  case "$f" in
+    *.gpg) ;;
+    *)
+      if [ "${ALLOW_PLAINTEXT_BACKUP_UPLOAD:-0}" = "1" ]; then
+        echo "  ⚠️ 明文备份放行（ALLOW_PLAINTEXT_BACKUP_UPLOAD=1）: $(basename "$f")" >&2
+      else
+        # ${f} 必须加花括号：$f 紧跟全角（ 时 macOS 系统 bash 3.2 会把多字节
+        # 首字节并进变量名，set -u 下报 unbound variable
+        echo "⏭️ 跳过明文备份 ${f}（设 ALLOW_PLAINTEXT_BACKUP_UPLOAD=1 强制上传）" >&2
+        continue
+      fi
+      ;;
+  esac
+  # DRY_RUN=1 演练：打印上传计划即跳过实际 coscli 调用（不写 .uploaded sidecar）
+  if [ "${DRY_RUN:-0}" = "1" ]; then
+    echo "[dry-run] 将上传: $f (跳过实际执行)"
+    continue
+  fi
   if $COSCLI cp "$f" "cos://${COS_BUCKET}/${REMOTE_PREFIX}/$(basename "$f")" >/dev/null 2>&1; then
     date -u +%Y-%m-%dT%H:%M:%SZ > "$f.uploaded"
     echo "  ✓ 已上传: $(basename "$f")"
@@ -65,6 +90,10 @@ for f in "$BACKUP_DIR"/backup_*.sql*; do
   fi
 done
 echo "ℹ️  上传完成: 新传 $UPLOADED / 失败 $FAILED → cos://${COS_BUCKET}/${REMOTE_PREFIX}/"
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "[dry-run] 结束：未执行实际上传与远端保留清理"
+  exit 0
+fi
 
 # ---- 远端保留清理（按文件名内嵌日期；失败不阻断）----
 # GNU date 优先，macOS BSD date 兜底
