@@ -46,7 +46,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 ## 最近更新（开发中 — 安全修复批：worker 鉴权收口 + SSRF/注入/竞态防线 + COS 升级链签名）
 
-> 分支 `fix/security-remediation-v1`（2026-09-16，基线 9959358a）。方案与 SDD 台账 `docs/PLAN-security-remediation-v1.md`（任务级审查+评审修复轮全程留痕、全关环）。**动下述链路前先读对应任务 commit 与 CHANGELOG 0.76.0 安全修复节**；行为变更 13 条清单见 CHANGELOG（发版说明以此为准）。
+> 分支 `fix/security-remediation-v1`（2026-09-16，基线 9959358a）。方案与 SDD 台账 `docs/PLAN-security-remediation-v1.md`（任务级审查+评审修复轮全程留痕、全闭环）。**改下述链路前先读对应任务 commit 与 CHANGELOG 0.76.0 安全修复节**；行为变更 13 条清单见 CHANGELOG（发版说明以此为准）。
 
 - **鉴权唯一入口 `_require_bearer`**（main.py）：/progress、cancel_task（+租户校验，跨租户 404）、task_statistics（+租户强制，非 admin 跨租户 403）、store/health（凭证支持 `X-Ozon-*` header、上游失败 502 固定文案）、logistics/quote（+限流）已收口；改这些端点前先读 `test_task_statistics_auth_v076.py` 等 v076 鉴权测试族。
 - **SSRF 唯一入口 `utils/secure_fetch.safe_fetch`**（改任何 worker 出站抓图/外链 fetch 前必读）：解析 IP 逐跳复核（内网拒绝、保持外链）+ 域名精确匹配 + 跨端点跳剥凭据 + 重定向 ≤3 跳；镜像链/E1 转存/validate 探测已全部接线，**新增抓取路径必须过它**（调用方须宽 except Exception 兜底——safe_fetch 对畸形 Location 可抛裸 ValueError，fail-closed 语义）。

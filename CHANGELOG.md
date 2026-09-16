@@ -28,7 +28,7 @@
 
 ### 安全修复批次（2026-09-16，`fix/security-remediation-v1`，worker/pounding-mcp/CI/deploy 侧）
 
-> 安全审计修复战役（46 commits，方案 `docs/PLAN-security-remediation-v1.md`，SDD 任务级审查+评审修复轮全程留痕、全关环）。**发版说明必提**——下列为本批行为变更：
+> 安全审计修复战役（54 commits，方案 `docs/PLAN-security-remediation-v1.md`，SDD 任务级审查+评审修复轮全程留痕、全闭环）。**发版说明必提**——下列为本批行为变更：
 
 1. **全局读端点（bestsellers/discovery runs）停发 `contributed_by_token_id` 明文 key，只回 `contributed_by_fp` 指纹**（webui 贡献者列显示指纹）。
 2. **读/操作端点补鉴权**：cancel_task / task_statistics / progress / store/health / logistics/quote——statistics 补鉴权且非 admin 恒查自身租户（跨租户 403）；store/health 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header、上游失败改 **502** 固定文案（200 体不再有 error 形态）；logistics/quote 需 Bearer+限流（无凭据 401、超限 429）；cancel/progress 无凭据 401（cancel 跨租户 404）。**pounding-harness 需核对 Bearer 透传与 8902 TASKS_TOKEN 注入（发版前置检查项）**。
