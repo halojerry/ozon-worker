@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.77.0] — 生图参考白名单认领本方 COS 镜像图：「原图上卡」事故修复 + gpt-image-2.5 切换（2026-09-17）
+
+> 生产事故修复（2026-09-16 取证，当日 PR #30 合入 dev）：用户批量新上产品全部上了 1688 原图。
+> 取证（worker `mxou_call_ledger` + 网关 Supabase logs 双源对账 + pHash 像素比对）实锤：**不是生成了被换回，
+> 是该批生图整批被跳过**（该日生图模型全程 gpt-image-2 在位、网关零报错，上游模型更新无辜）。
+> 方案 `docs/PLAN-image-ref-cos-whitelist-fix-v1.md`（SDD：任务级评审×3 + 分支终审 + 修复波 + 复审 4/4 关环）。
+> **改图片白名单 / assemble 补位 / salvage 链前先读该方案 §2。**
+
+### 根因（一句话）
+v0.64 M5b 把 draft.images 镜像到本方 COS（`draft-images/{md5}.jpg`）回写 payload 后，生图前置守卫
+`is_product_image_candidate` 白名单只认 alicdn/1688 等源站域 → 本方 COS 镜像图被判「外链」拒绝 →
+生图节点参考图为空整批跳过 → assemble 补位把裸原图回填 → Ozon 卡上 1688 原图。
+
+### 修复（三层，全部带回归锁）
+- **白名单认领本方 COS**（`utils/image_url_guard.py`）：`is_cos_url` 唯一实现自 cos_uploader 迁入
+  （cos_uploader 仅模块级 re-export，draft_service / ozon_validate_node / validation_retry_loop /
+  draft_image_mirror 四个既有消费方零改动）；`is_product_image_candidate` 放行本方 COS 镜像/生成/
+  salvage 图——镜像图与原图 1:1，作生图参照与原图等价（用户拍板，不放宽源站白名单）；`.webp`/缩略图
+  对 COS 同样恒拒；非 str/空串的 `is_cos_url` True 契约不外溢（assemble 闸自带 str+非空前置，用例锁死）。
+- **assemble 双通道 COS-only 补位闸**（`assemble_ozon_product_node.py`）：builder 与 fill-in 两条
+  payload 写图路径只回填本方 COS 图，裸 alicdn/外链不再上卡；诚实空图在本地 validate 硬失败
+  （`images缺失`，有回归锁驱动真实 ozon_validate_node）；跟卖 `images=[]` 锁定不变。
+- **E1 salvage 已托管图直通**（`cos_uploader.py`）：`is_cos_url` 命中即 passthrough，镜像图输入零下载-再转存。
+
+### 行为变更（发版说明必读）
+- 裸 1688/alicdn 原图从此**不再直上 Ozon 卡**：生成失败且 salvage 也不可用时，任务在本地 validate
+  硬失败（不再静默上原图）——「宁缺毋滥」是有意方向。
+- 生图主模型 `gpt-image-2` → **`gpt-image-2.5`**（`config/imagegen.json` main/social_proof 两键 +
+  `mxou_api.PRIMARY_IMAGE_MODEL` 代码默认值对齐；config bind mount 热加载，无需重建镜像）。三级降级链
+  不变（2.5 失败 → nano-banana-fast → nano-banana-2-lite，链上 index-miss 从 fast 起步）。回滚：
+  config 两键 sed 回 `gpt-image-2` 即热加载回退。
+
+### 测试
+- 新增 `test_image_url_guard`（19，含 taobaocdn/pinduoduo 放行断言 + 本方 COS 镜像/生成/salvage True +
+  缩略恒拒 + re-export 同一性）+ `test_assemble_fillin_cos_only`（11，builder/fill-in 双闸 + 诚实空图
+  validate 硬失败锁 + 跟卖空图锁）+ `test_salvage_cos_passthrough`（5）。
+- worker 全量 **2681 passed / 1 failed**（唯一红为存量 flake `test_dict_cache_singleflight`，base 树可复现；
+  `test_webui_e2e` 顺序敏感 flake 经 base A/B 定性非本分支）。CI：PR #30 13 check 全绿（含 Worker Tests / Docker）。
+
+### 实机 gate（发版门槛，方案 §6，tag 前必过）
+3 个镜像态污染草稿 resubmit（`task_generated_images` ≥5 slot / 卡主图 3:4 / 无 `draft-images/` 直上）
++ 1 单全新全链路 + 1 个 gen 失败对照（E1/补位图上卡且来源前缀可辨）+ `mxou_call_ledger` image_gen:* 恢复增长确认。
+
 ## [0.76.0] — skill 并发竞态止血 + Windows cookie 导入三层通道（2026-09-16）
 
 > 两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`（SDD 全程：任务级审查×5 + 分支终审×2 + 修复轮×5 全部关环）。**纯 skill 侧发版——worker 零改动**（worker 基线 2649 不变）；skill 测试 **1342→1496**（+154）。实机冒烟（macOS）：串行闸并发拦截 exit 4 ✓ / 单跑零误拦 ✓ / 真实 discover 采集 3 候选 ✓（免登录 cookie 导入真链路顺带实证；采集偶发 0 产品为合并前同在的间歇性反爬窗口，控制组 A/B 复验排除回归）。
