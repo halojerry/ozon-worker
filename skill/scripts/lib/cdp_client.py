@@ -34,7 +34,12 @@ class CdpTab:
         self._cdp_url = cdp_url
         self._tab_id = tab_id
         self._ws_url = ws_url
-        self._ws: websocket.WebSocket = websocket.create_connection(ws_url, timeout=10)
+        # suppress_origin: websocket-client 默认发送 Origin: http://<host>:<port>,
+        # Chrome 111+ 拒绝带 Origin 的 CDP 连接——这正是过去被迫给 Chrome 挂
+        # --remote-allow-origins=* 的唯一原因。不发 Origin 的握手本就合法,
+        # Chrome 侧白名单 flag 随之整个移除(安全加固:9222 承载登录态,
+        # 通配 allow-origins 等于任何本地进程可全控浏览器)。
+        self._ws: websocket.WebSocket = websocket.create_connection(ws_url, timeout=10, suppress_origin=True)
         self._closed = False
 
     # ------------------------------------------------------------------
@@ -344,7 +349,7 @@ class CdpConnection:
             raise RuntimeError("CDP did not return a browser webSocketDebuggerUrl")
 
         target_id = ""
-        ws = websocket.create_connection(browser_ws_url, timeout=10)
+        ws = websocket.create_connection(browser_ws_url, timeout=10, suppress_origin=True)
         try:
             ws.send(_json.dumps({"id": 1, "method": "Target.createTarget",
                                  "params": {"url": "about:blank", "background": True}}))
