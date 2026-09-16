@@ -22,7 +22,10 @@ def test_init_disables_local_variables(monkeypatch):
     monkeypatch.setattr("sentry_sdk.init", lambda **kw: captured.update(kw))
     # init_sentry 的两个早退分支一并绕过：重复初始化守卫 + 测试进程跳过
     # （pytest 下 PYTEST_CURRENT_TEST 恒在，_is_test_process 恒 True）
+    # v0.76 Fix-2: _SENTRY_ENABLED 也须纳入 monkeypatch——init 成功会置 True，
+    # 不登记则泄漏本会话（照抄 test_sentry_setup.py 的 _reset 模式）。
     monkeypatch.setattr(ss, "_SENTRY_INITIALIZED", False)
+    monkeypatch.setattr(ss, "_SENTRY_ENABLED", False)
     monkeypatch.setattr(ss, "_is_test_process", lambda: False)
     monkeypatch.setenv("SENTRY_DSN", "https://examplePublicKey@o0.ingest.sentry.io/0")
     assert ss.init_sentry() is True
