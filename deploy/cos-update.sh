@@ -14,6 +14,11 @@
 #   - 生产 .env 绝不覆盖
 #   - 升级前自动备份 deploy/ worker/ VERSION → backups/
 #   - 健康检查失败自动回滚到备份
+#   - v0.76 T32(cicd-H2): manifest 强制 minisign 签名校验(信任根 =
+#     deploy/cos-update.pub, 不再是 COS bucket 写权限)。指定版本同样先取
+#     manifest(从签名过的 versions 版本表取 sha256, 封死「指定版本跳过校验」);
+#     缓存 JSON 的 sha256 也登记进签名 manifest(cache_sha256), 校验后才进容器。
+#     逃生门 COS_UPDATE_SKIP_VERIFY=1 仅 warn+继续(应急, 日志必留痕)。
 # ═══════════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
@@ -70,26 +75,132 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   fi
 fi
 
-# ── 1. 读取 manifest(或指定版本) ──
+# ── 1. 读取 manifest + 签名校验(v0.76 T32 cicd-H2: 信任根= cos-update.pub) ──
+# 无论「最新」还是「指定版本」都必须先拿到签名过的 manifest——指定版本的
+# sha256 从 manifest 的 versions 版本表取, 此前的「指定版本 → SHA256 空跳过
+# 校验」路径(谁能写 bucket 谁就能喂恶意包)被彻底封死。
 REQUESTED_VERSION="${1:-}"
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+MANIFEST_FILE="$TMP_DIR/manifest.json"
+MANIFEST_SIG_FILE="$TMP_DIR/manifest.sig"
+
+log "读取 COS manifest: $MANIFEST_URL"
+curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -o "$MANIFEST_FILE" "$MANIFEST_URL" \
+  || fail "无法读取 manifest(检查网络/COS 配置): $MANIFEST_URL"
+curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -o "$MANIFEST_SIG_FILE" "${MANIFEST_URL}.sig" \
+  || rm -f "$MANIFEST_SIG_FILE"
+
+# manifest 字段提取(沿用本脚本既有 grep -oE 解析口径; 输入=文件)
+_mfield() {
+  grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]+\"" "$MANIFEST_FILE" 2>/dev/null \
+    | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
+}
+# versions 版本表条目提取: "<tag>": { ... } ——awk index() 字面匹配(零转义,
+# 兼容 BSD/GNU; 此前的 sed 方括号转义在 macOS BSD sed 上 "unbalanced brackets")。
+# 先压平成单行(条目对象扁平无嵌套 {}; grep/awk 均行式, 兼容 pretty-printed manifest)。
+# 约束: 版本 tag/文件名不含反斜杠(awk -v 会对 \ 做转义)——对 semver/固定文件名成立。
+_mversion_entry() {
+  local _tag="$1" _out
+  _out=$(tr -d '\n\t' < "$MANIFEST_FILE" | awk -v key="\"${_tag}\":" '{
+    i = index($0, key)
+    if (i > 0) {
+      rest = substr($0, i + length(key))
+      gsub(/^[[:space:]]+/, "", rest)
+      if (substr(rest, 1, 1) == "{") {
+        j = index(rest, "}")
+        if (j > 0) print substr(rest, 1, j)
+      }
+    }
+  }')
+  printf '%s' "$_out"
+}
+# cache_sha256 表按文件名取哈希(64 位 hex; 同样 awk 字面匹配)
+_mcache_sha() {
+  local _f="$1" _out
+  _out=$(tr -d '\n\t' < "$MANIFEST_FILE" | awk -v key="\"${_f}\":" '{
+    i = index($0, key)
+    if (i > 0) {
+      rest = substr($0, i + length(key))
+      gsub(/^[[:space:]]*"/, "", rest)
+      cand = substr(rest, 1, 64)
+      if (length(cand) == 64 && cand ~ /^[0-9a-fA-F]+$/) print cand
+    }
+  }')
+  printf '%s' "$_out"
+}
+
+# ── 1.5 manifest 签名校验 ──
+PUBKEY_FILE="$SCRIPT_DIR/cos-update.pub"
+VERIFY_SCRIPT="$SCRIPT_DIR/verify_manifest.sh"
+if [ "${COS_UPDATE_SKIP_VERIFY:-0}" = "1" ]; then
+  warn "COS_UPDATE_SKIP_VERIFY=1——显式跳过 manifest 签名校验(应急逃生门, 本次升级链无信任根, 已留痕)"
+else
+  if [ ! -f "$PUBKEY_FILE" ]; then
+    echo -e "\033[1;31m[cos-update]\033[0m ❌ 公钥不存在: $PUBKEY_FILE——拒绝校验不可信的 manifest。" >&2
+    echo "   修复: ①把 deploy/cos-update.pub 与 deploy/verify_manifest.sh 放到服务器 deploy/ 目录(推荐); 或 ②应急 COS_UPDATE_SKIP_VERIFY=1(留痕无校验)" >&2
+    exit 3
+  fi
+  if [ ! -f "$VERIFY_SCRIPT" ]; then
+    echo -e "\033[1;31m[cos-update]\033[0m ❌ 校验脚本不存在: $VERIFY_SCRIPT——部署包不完整。" >&2
+    echo "   修复: 把 deploy/verify_manifest.sh 放到服务器 deploy/ 目录; 或应急 COS_UPDATE_SKIP_VERIFY=1(留痕无校验)" >&2
+    exit 3
+  fi
+  if [ ! -s "$MANIFEST_SIG_FILE" ]; then
+    echo -e "\033[1;31m[cos-update]\033[0m ❌ manifest.sig 下载失败或为空——manifest 无签名(旧版 CI 产物或被剥离), 拒绝。" >&2
+    echo "   修复: 确认发版 CI 已含签名步骤; 或应急 COS_UPDATE_SKIP_VERIFY=1(留痕无校验)" >&2
+    exit 3
+  fi
+  _expect_v=""
+  [ -n "$REQUESTED_VERSION" ] && _expect_v="${REQUESTED_VERSION#v}"
+  set +e
+  bash "$VERIFY_SCRIPT" "$PUBKEY_FILE" "$MANIFEST_FILE" "$MANIFEST_SIG_FILE" "$_expect_v"
+  _verify_rc=$?
+  set -e
+  if [ "$_verify_rc" -ne 0 ]; then
+    echo -e "\033[1;31m[cos-update]\033[0m ❌ manifest 签名校验未通过(exit $_verify_rc: 2=环境 3=签名失败 4=版本不符)——COS 内容可能被篡改, 拒绝继续。" >&2
+    exit 3
+  fi
+  if [ -n "$_expect_v" ]; then
+    log "✅ manifest 签名校验通过(含指定版本比对 v${_expect_v})"
+  else
+    log "✅ manifest 签名校验通过"
+  fi
+fi
+
 if [ -n "$REQUESTED_VERSION" ]; then
   log "指定版本: $REQUESTED_VERSION"
-  # 指定版本: 直接用该版本的包(manifest 只指向最新, 指定版本需存在同名包)
   VERSION="${REQUESTED_VERSION#v}"
-  PKG="ozon-worker-deploy-v${VERSION}.tar.gz"
-  PACKAGE_URL="${PACKAGE_BASE_URL}/${PKG}"
-  SHA256=""
+  # 版本表键统一 tag 形态(v0.77.0), 与 cd.yml 生成口径一致
+  _entry=$(_mversion_entry "v${VERSION}")
+  if [ -n "$_entry" ]; then
+    PKG=$(printf '%s' "$_entry" | grep -oE '"package"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
+    SHA256=$(printf '%s' "$_entry" | grep -oE '"sha256"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]{64}"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
+    [ -n "$PKG" ] || fail "版本表条目 v${VERSION} 无 package 字段"
+    [ -n "$SHA256" ] || fail "版本表条目 v${VERSION} 无 sha256 字段"
+    PACKAGE_URL="${PACKAGE_BASE_URL}/${PKG}"
+    log "指定版本走签名 manifest 版本表: v${VERSION} → $PKG"
+  else
+    # 版本表无该版本(CI 只保留最近 10 个版本 / 本次升级前的老包)。默认拒绝:
+    # 无签名哈希 = 无校验 = 回到 bucket 写权限即 RCE 的老世界。
+    if [ "${COS_UPDATE_SKIP_VERIFY:-0}" = "1" ]; then
+      warn "版本表无 v${VERSION}——逃生门下回退为无 sha256 校验下载(保留老版回滚能力, 强烈建议尽快走签名链)"
+      PKG="ozon-worker-deploy-v${VERSION}.tar.gz"
+      PACKAGE_URL="${PACKAGE_BASE_URL}/${PKG}"
+      SHA256=""
+    else
+      fail "版本表无 v${VERSION}——无法取得签名过的 sha256(封死指定版本跳过校验)。可回滚目标见 manifest 版本表; 确需无校验回滚老包: COS_UPDATE_SKIP_VERIFY=1(留痕)"
+    fi
+  fi
 else
-  log "读取 COS manifest: $MANIFEST_URL"
-  MANIFEST_JSON=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "$MANIFEST_URL") \
-    || fail "无法读取 manifest(检查网络/COs 配置): $MANIFEST_URL"
-  VERSION=$(echo "$MANIFEST_JSON" | grep -oE '"version"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  VERSION=$(_mfield "version")
   # v0.73 W5: manifest version 是 tag 名(带 v 前缀), 剥 v 统一口径——否则日志/比较出现 vv0.72.0
   VERSION="${VERSION#v}"
-  PKG=$(echo "$MANIFEST_JSON" | grep -oE '"package"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-  SHA256=$(echo "$MANIFEST_JSON" | grep -oE '"sha256"\s*:\s*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+  PKG=$(_mfield "package")
+  SHA256=$(_mfield "sha256")
   [ -n "$VERSION" ] || fail "manifest 无 version 字段"
   [ -n "$PKG" ] || fail "manifest 无 package 字段"
+  [ -n "$SHA256" ] || fail "manifest 无 sha256 字段——拒绝无校验下载(T32 cicd-H2)"
   PACKAGE_URL="${PACKAGE_BASE_URL}/${PKG}"
   log "最新版本: v${VERSION} ($PKG)"
 fi
@@ -109,8 +220,8 @@ fi
 log "本地 v${LOCAL_VERSION:-无} → 目标 v${VERSION}"
 
 # ── 3. 下载 + sha256 校验 ──
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+# TMP_DIR/mktemp 已前移到步骤 1(manifest 落盘需要)——正常路径 SHA256 恒非空
+# (最新取自顶层字段, 指定版本取自签名版本表; 空值只可能出现在逃生门回滚老包分支)。
 log "下载 $PACKAGE_URL ..."
 curl -fsSL --retry 3 --retry-delay 2 --max-time 300 -o "$TMP_DIR/$PKG" "$PACKAGE_URL" \
   || fail "下载失败: $PACKAGE_URL"
@@ -121,7 +232,7 @@ if [ -n "$SHA256" ]; then
   fi
   log "✅ sha256 校验通过"
 else
-  warn "指定版本无 manifest sha256, 跳过校验"
+  warn "无 sha256 可校验(仅 COS_UPDATE_SKIP_VERIFY=1 逃生门下可能出现)——本次下载未验证完整性, 已留痕"
 fi
 
 # ── 3.5 v0.73 W4: 自举——包内脚本比当前新则 exec 新版重跑 ──
@@ -313,13 +424,24 @@ fi
 # 「部署即全量」：一次性分片预热(~16h) → --export-only → 上传 COS 后，此后每次
 # 升级自动灌入全量缓存（30 天 TTL）。COS 缺失时跳过（懒加载兜底，不阻断升级）。
 # 运维手册: docs/CACHE-WARM-RUNBOOK.md
+# v0.76 T32(cicd-H2): 缓存 JSON 的 sha256 必须登记进签名 manifest 的 cache_sha256
+# 表——此前 COS 里有什么就往容器灌什么(同一「bucket 写权限=信任根」漏洞: 缓存
+# JSON 直进 PG)。未登记哈希/校验不过一律不拷贝, 运行时懒加载兜底不阻断升级。
 CACHE_BASE_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/cache"
 CACHE_OK=0
 for _f in attribute_schemas_zh.json dictionary_values_zh.json; do
+  _expect_sha=$(_mcache_sha "$_f")
+  if [ -z "$_expect_sha" ]; then
+    warn "  manifest cache_sha256 未登记 $_f——不下载未登记哈希的缓存文件(运行时懒加载兜底; 带外重传缓存后须按 runbook 重签 manifest)"
+    continue
+  fi
   _tmp=$(mktemp)
   if curl -fsSL --retry 2 --retry-delay 2 --max-time 600 -o "$_tmp" "$CACHE_BASE_URL/$_f"; then
-    if docker compose cp "$_tmp" "worker:/app/assets/$_f" 2>/dev/null; then
-      log "  ✓ 属性缓存 JSON 就位: $_f"
+    _actual_sha=$(sha256sum "$_tmp" | awk '{print $1}')
+    if [ "$_actual_sha" != "$_expect_sha" ]; then
+      warn "  缓存 sha256 校验失败($_f): 期望 $_expect_sha, 实际 $_actual_sha——跳过不灌入(懒加载兜底)"
+    elif docker compose cp "$_tmp" "worker:/app/assets/$_f" 2>/dev/null; then
+      log "  ✓ 属性缓存 JSON 就位(哈希过签名 manifest): $_f"
       CACHE_OK=1
     fi
   else
