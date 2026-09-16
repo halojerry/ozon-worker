@@ -23,7 +23,7 @@ import os
 from typing import List, Optional
 
 from utils import image_url_guard
-from utils.image_url_guard import is_cos_url  # noqa: F401  # 模块级 re-export（防漂移）
+from utils.image_url_guard import is_cos_url  # 模块级 re-export（防漂移；F401 已在 ruff.toml 全局 ignore）
 from utils.image_url_processor import _referer_for_url
 
 logger = logging.getLogger(__name__)
