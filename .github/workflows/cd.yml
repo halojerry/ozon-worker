@@ -170,7 +170,7 @@ jobs:
 
       - name: Package deploy tarball (deploy/ + worker/ 源码 + webui/dist 前端, 服务器自行 build)
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${CD_VERSION}"
           mkdir -p pkg
           tar -czf "pkg/ozon-worker-deploy-${VERSION}.tar.gz" \
             --exclude='__pycache__' --exclude='*.pyc' \
@@ -186,6 +186,9 @@ jobs:
           echo "SHA256: $SHA"
           ls -la pkg/
         env:
+          # T23(cicd-M3): 表达式只在 env 展开一次，不进 shell 二次插值——tag 名
+          # （git refname 允许 ; " $( 等）不可被注入 runner shell。
+          CD_VERSION: ${{ steps.version.outputs.version }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
 
@@ -199,7 +202,7 @@ jobs:
       - name: Upload to Tencent COS (/ozon-worker/)
         timeout-minutes: 60
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${CD_VERSION}"
           PKG="ozon-worker-deploy-${VERSION}.tar.gz"
           coscli_cmd() {
             ./coscli "$@" \
@@ -225,6 +228,9 @@ jobs:
           fi
           echo "✅ 已上传: /ozon-worker/${PKG} + /ozon-worker/manifest.json"
         env:
+          # T23(cicd-M3): 表达式只在 env 展开一次，不进 shell 二次插值——tag 名
+          # （git refname 允许 ; " $( 等）不可被注入 runner shell。
+          CD_VERSION: ${{ steps.version.outputs.version }}
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
