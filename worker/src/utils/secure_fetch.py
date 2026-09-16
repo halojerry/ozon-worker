@@ -93,7 +93,8 @@ _CREDENTIAL_HEADER_NAMES = frozenset(("authorization", "cookie"))
 
 def _strip_hop_credentials(kwargs: dict) -> dict:
     """返回剥除凭据后的 kwargs 副本（headers 大小写不敏感删 Authorization/Cookie；
-    auth/cookies 请求参数直接删）。只对跨 host 跳调用，同 host 跳保持原样。"""
+    auth/cookies 请求参数直接删）。只对跨端点跳调用（端点三元组见 _endpoint_key），
+    同端点跳保持原样。（措辞勘误 T13 评审：r1 口径「跨 host」已改「跨端点」。）"""
     stripped = dict(kwargs)
     headers = stripped.get("headers")
     if headers:

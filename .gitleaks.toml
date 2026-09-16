@@ -1,5 +1,10 @@
 title = "ozon-worker gitleaks config"
 
+# ⚠️ path 类 allowlist（[[rules.allowlists]] 的 paths 与文末 [allowlist] paths，含
+# `^docs/...` 锚定）依赖**以仓库根为相对 source 调用**才按预期命中（CI
+# `gitleaks detect --source .` 同款）。从其他目录对子树扫描时路径锚不匹配、
+# 放行不生效——方向是 fail-closed（只多报不漏报），但会翻出一批已知误报，别当新泄漏。
+
 # 保留 gitleaks 默认全部规则,仅放行测试夹具里的假密钥
 [extend]
 useDefault = true

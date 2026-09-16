@@ -3,8 +3,10 @@
 设计:
 - 随机 12-byte nonce 前置 + AES-256-GCM 加密 (cryptography.AESGCM)
 - 密钥来自环境变量 CREDENTIAL_MASTER_KEY:
-  - 恰好 32 字节(裸 32B / 64 hex / 44 base64 解码后恰 32B) → 直接作为 AES-256
-    key, 不进 KDF (v1/v2 同规)
+  - 裸 32 字节(utf-8 编码恰 32B) → 直接作为 AES-256 key, 不进 KDF
+    (v1/v2 共通; legacy 解密保持 v1 原规则, 仅此一形态直用、有意不做形态检测)
+  - 64 hex / 44 base64(解码后恰 32B) → 同样直接用不进 KDF——形态检测仅 v2
+    (Task24: 新加密一律 v2 信封; v1 老密文解密不适用)
   - 否则视为口令(仅当 ≥8 字符, 防弱口令):
     - v2 信封(新加密一律): PBKDF2-HMAC-SHA256 派生 32 字节
       (盐 = sha256(b"ozon-worker-credential-kdf-v2"), 600_000 轮;
@@ -78,7 +80,9 @@ def derive_key(raw: str) -> bytes:
 
 
 def _raw_key_material_32b(raw: str) -> bytes | None:
-    """32 字节 key 形态检测(v1/v2 同规): 命中 → 原始 key 直接用, 不进 KDF。
+    """32 字节 key 形态检测(仅 v2 派生消费; legacy 解密走 derive_key 保持 v1
+    原规则、有意不做形态检测——措辞勘误 Task24 评审 F1): 命中 → 原始 key
+    直接用, 不进 KDF。
 
     三种互斥形态(按字符串长度天然区分, 派生确定可复现):
     - utf-8 编码恰 32 字节(v1 原规则, 保持)
