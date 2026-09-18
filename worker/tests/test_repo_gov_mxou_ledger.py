@@ -41,11 +41,12 @@ class _Recorder:
         self.calls = []
         self.raise_on_call = raise_on_call
 
-    def record_call(self, *, tenant_id, token_fp, endpoint):
+    def record_call(self, *, tenant_id, token_fp, endpoint, model=None):
         if self.raise_on_call:
             raise RuntimeError("ledger down")
         self.calls.append(
-            {"tenant_id": tenant_id, "token_fp": token_fp, "endpoint": endpoint}
+            {"tenant_id": tenant_id, "token_fp": token_fp,
+             "endpoint": endpoint, "model": model}
         )
 
 
@@ -59,13 +60,20 @@ def _install_ledger(monkeypatch, raise_on_call=False) -> _Recorder:
 
 @pytest.fixture(autouse=True)
 def _reset_balance_cache():
-    """每个用例重置模块级余额缓存，避免跨用例污染（同 test_mxou_balance_precheck）。"""
-    import utils.mxou_api as mxou_api
+    """每个用例重置模块级余额缓存，避免跨用例污染（同 test_mxou_balance_precheck）。
 
+    v0.77.2：同时清空链路 ContextVar——台账 tenant_id 现由任务边界 ContextVar
+    兜底解析（logger._user_id），不清理会跨用例串号致 ``tenant_id is None`` 抖动。
+    """
+    import utils.mxou_api as mxou_api
+    from utils.logger import clear_trace_context
+
+    clear_trace_context()
     mxou_api._BALANCE_CACHE["value"] = None
     mxou_api._BALANCE_CACHE["ts"] = 0.0
     mxou_api._BALANCE_CACHE["fp"] = None
     yield
+    clear_trace_context()
     mxou_api._BALANCE_CACHE["value"] = None
     mxou_api._BALANCE_CACHE["ts"] = 0.0
     mxou_api._BALANCE_CACHE["fp"] = None
@@ -76,7 +84,8 @@ def _reset_balance_cache():
 # ---------------------------------------------------------------------------
 
 def test_chat_records_call(monkeypatch):
-    """chat 即将发 HTTP 处记一行：tenant_id=None / token_fp 同源 / endpoint="chat"。"""
+    """chat 即将发 HTTP 处记一行：tenant_id=None / token_fp 同源 / endpoint="chat"
+    / model=请求模型（v0.77.2）。"""
     import utils.mxou_api as mxou_api
 
     rec = _install_ledger(monkeypatch)
@@ -89,12 +98,16 @@ def test_chat_records_call(monkeypatch):
 
     monkeypatch.setattr(mxou_api, "_get_session", lambda: FakeSession())
 
-    out = mxou_api.call_mxou_chat_api(token="tok-secret-1", system_prompt="s", user_prompt="u")
+    out = mxou_api.call_mxou_chat_api(
+        token="tok-secret-1", system_prompt="s", user_prompt="u",
+        model="deepseek-v4-flash-vision-exp",
+    )
     assert out == "回答"
     assert len(rec.calls) == 1
     c = rec.calls[0]
     assert c["endpoint"] == "chat"
     assert c["tenant_id"] is None
+    assert c["model"] == "deepseek-v4-flash-vision-exp"
     assert c["token_fp"] == mxou_api._token_fingerprint("tok-secret-1")
     assert c["token_fp"] != "tok-secret-1", "台账必须存脱敏指纹，绝不存 token 原文"
 
@@ -118,7 +131,7 @@ def test_record_call_failure_swallowed(monkeypatch):
 
 
 def test_image_records_call_with_model_endpoint(monkeypatch):
-    """生图埋点：endpoint="image_gen:<model>"（真实计费生成一行）。"""
+    """生图埋点：endpoint="image_gen:<model>" + model 列同值（真实计费生成一行）。"""
     import utils.mxou_api as mxou_api
 
     rec = _install_ledger(monkeypatch)
@@ -137,6 +150,7 @@ def test_image_records_call_with_model_endpoint(monkeypatch):
     c = rec.calls[0]
     assert c["endpoint"] == "image_gen:gpt-image-2"
     assert c["tenant_id"] is None
+    assert c["model"] == "gpt-image-2"
     assert c["token_fp"] == mxou_api._token_fingerprint("tok-img")
 
 

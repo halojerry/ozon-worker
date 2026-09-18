@@ -134,6 +134,39 @@ def migrate_repo_gov_v075(engine):
     )
 
 
+def migrate_ledger_model_v0772(engine):
+    """v0.77.2（观测修复）: mxou_call_ledger 补 model 列 + 索引（幂等，二次运行 no-op）。
+
+    动因（生产实数据）：台账只有 endpoint（model 信息内嵌在 'image_gen:<model>'），
+    无独立 model 列 → 无法按模型对账费用（chat 1465 / image_gen:nano-banana-fast 325 /
+    image_gen:gpt-image-2 72 / image_gen:gpt-image-2.5 7 七天）。
+
+    新建库 create_all 已带列（model.py MxouCallLedger.model, index=True → 默认名
+    ix_mxou_call_ledger_model）；此处兜底存量库 ADD COLUMN IF NOT EXISTS + 同名索引。
+    可空列——旧行保持 NULL 不回填（语义上无 model 可指）。纯 DDL 无绑定参数
+    （text() 裸 cast 坑不适用，见 AGENTS 记忆 sqlalchemy-jsonb-cast-trap）。
+    ⚠️ 不加 cost 金额列——真钱数只有网关侧有，库内编不了。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLE = "mxou_call_ledger"
+    # 结构性 DDL（加列+索引）：**响失败**——列缺失会让写侧 ORM（带 model 的
+    # INSERT）运行时 500，正是 H9 fail-fast 要暴露的「schema 半就绪」；对齐
+    # migrate_repo_gov_b2b / migrate_repo_gov_v075 的既有模式（结构性迁移 raise）。
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS model VARCHAR(80)"
+        ))
+        conn.execute(sql_text(
+            f"CREATE INDEX IF NOT EXISTS ix_{_TABLE}_model ON {_TABLE} (model)"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "v0772_ledger_model",
+        "v0.77.2 mxou_call_ledger 补 model 列+索引（按模型对账；旧行 NULL 不回填）",
+    )
+
+
 # A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
 # (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
 # 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
@@ -359,6 +392,10 @@ def create_tables(engine):
         engine, "repo_gov_v075_bounds",
         "attr_bounds_learned 表（create_all 建表，无 ALTER）",
     )
+    # ✅ v0.77.2（观测修复）: mxou_call_ledger 补 model 列 + 索引（按模型对账费用）。
+    # 新建库 create_all 已带列（model.py MxouCallLedger.model）；此处兜底存量库
+    # ADD COLUMN IF NOT EXISTS（可空，旧行保持 NULL 不回填——语义上无 model 可指）。
+    migrate_ledger_model_v0772(engine)
     logger.info("✅ 表结构已就绪")
 
 
