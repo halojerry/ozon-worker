@@ -1100,7 +1100,8 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
         price_rub = str(item0.get("price") or draft.get("price") or "")
         old_price_rub = str(item0.get("old_price") or draft.get("original_price") or "")
         currency = str(item0.get("currency_code") or "") or "RUB"
-        images = draft.get("images") or item0.get("images") or []
+        # ✅ fix/retry-image-restore-v1: AI 生成图优先（偏序见 _prefer_generated_payload_images）
+        images = _prefer_generated_payload_images(item0.get("images"), draft.get("images"))
         if not isinstance(images, list):
             images = []
         try:
@@ -3342,14 +3343,52 @@ def should_continue(state: ValidationRetryLoopState) -> str:
     return "parse_error"
 
 
+def _prefer_generated_payload_images(item0_images, draft_images) -> list:
+    """R4 重建取图偏序：载荷内 AI 生成图（file/images/）> draft 原图 > 载荷余图。
+
+    ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：原顺序
+    draft 原图在前，把首传已装载的 AI 图替换回 1688 原图。
+    """
+    _gen = [str(u) for u in (item0_images or []) if "/file/images/" in str(u)]
+    return _gen or (draft_images or item0_images or [])
+
+
+def _payload_has_generated_images(state: ValidationRetryLoopState) -> bool:
+    """载荷首 item 是否已含 AI 生成图（COS file/images/ 前缀，prepare 升级产物）。
+
+    ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：首传载荷
+    已装载 AI 图（prepare 日志 primary_image=file/images/…）后，pictures 类错误
+    触发 _restore_draft_images_to_payload 用 draft 原图整体覆盖 → 卡上全为 1688
+    原图。生成图是卡图最高优先来源，任何恢复/重建路径不得覆盖。
+    """
+    _items = getattr(state, "ozon_payload", None) or {}
+    _items = _items.get("items") if isinstance(_items, dict) else None
+    if not _items or not isinstance(_items[0], dict):
+        return False
+    for _u in (_items[0].get("images") or []):
+        if "/file/images/" in str(_u):
+            return True
+    return False
+
+
 def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
-    """生图全失败导致首传空载荷时，从信封 draft 图（COS 转存，Ozon 可访问）恢复图片。
+    """生图全失败导致首传空载荷时，从信封 draft 图恢复图片到上传载荷。
 
     实机 gate 实证（2026-09-08）：采集箱路径 draft 图非 alicdn → 生图参考链全跳过 →
     prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。R4 整卡重配路径已证明
     draft 图可过 Ozon import + 审核approved（同批任务实证）——本恢复让 pictures-only
     死端复用同一来源。恢复成功返回 True（payload 已就地更新）。
+
+    ✅ fix/retry-image-restore-v1 双保险（2026-09-18 商品 6381680593 实证）：
+    ① 载荷已含 AI 生成图（file/images/）→ 拒绝恢复（生成图是卡图最高优先来源，
+    本函数只救「空载荷」，绝不覆盖已有图）；② 入箱预镜像停用后 draft 图是裸
+    1688 链（Ozon 抓不到）→ 恢复前经 COS 同步转存（cos_enabled 时），转存失败
+    保留原 URL（诚实降级）。
     """
+    # ① 载荷已有生成图 → 不动（调用方据 False 走既有分支语义）
+    if _payload_has_generated_images(state):
+        logger.info("🖼️ 载荷已含 AI 生成图，跳过 draft 图片恢复（生成图优先）")
+        return False
     _draft = getattr(state, "draft", None) or {}
     _env = getattr(state, "envelope", None) or {}
     if not isinstance(_draft, dict):
@@ -3360,6 +3399,26 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     images = (_draft.get("images") or _env_draft.get("images") or [])
     if not isinstance(images, list):
         images = []
+    images = [str(u) for u in images if str(u).strip()]
+    if not images:
+        return False
+    # ② 裸链 1688 图先同步转存 COS（Ozon 侧可访问；入箱预镜像停用后的必要步骤）
+    try:
+        from utils.cos_uploader import cos_enabled as _cos_enabled
+        from utils.cos_uploader import is_cos_url as _is_cos_url
+        if _cos_enabled():
+            from services.draft_image_mirror import _mirror_one
+            _hosted: list[str] = []
+            for _u in images:
+                if _is_cos_url(_u):
+                    _hosted.append(_u)
+                    continue
+                _mirrored = _mirror_one(_u)
+                _hosted.append(_mirrored or _u)
+            images = _hosted
+    except Exception as _sync_err:
+        logger.warning("⚠️ draft 图同步转存失败（保留原 URL 继续恢复）: %s", _sync_err)
+    items = state.ozon_payload.get("items") or []
     images = [str(u) for u in images if str(u).strip()]
     if not images:
         return False
@@ -3406,6 +3465,12 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             # 首传空载荷被拒；此时信封 draft 图（COS 转存）是 Ozon 可访问的合法图，
             # 恢复后全量 CREATE 可过审（26fa8072 经 R4 重建恢复 draft 图后 approved）。
             # 恢复失败（draft 也无图）才诚实 unfixable，不烧重试轮次。
+            # ✅ fix/retry-image-restore-v1: 载荷已含 AI 生成图时跳过恢复直接重导
+            # （restore 有同款自保护，此处前置判断让「有 AI 图」走 CREATE 而非
+            # 误落 rejected_unfixable；2026-09-18 商品 6381680593 覆盖事故）。
+            if _payload_has_generated_images(state):
+                logger.info("📦 图片错误且无 product_id：载荷已含 AI 生成图，跳过 draft 恢复直接全量重导")
+                return _full_import_create(state)
             if _restore_draft_images_to_payload(state):
                 logger.info("📦 图片错误且无 product_id：draft 图已恢复，全量 CREATE 重导")
                 return _full_import_create(state)
