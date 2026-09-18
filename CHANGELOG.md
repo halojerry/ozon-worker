@@ -58,8 +58,17 @@
 - 回归：`tests/test_no_product_error_code_v077.py`（3，复用 writeback fake engine 驱动真实终态分支）。
 
 ### 测试
-- 新增 17（8+6+3）+ 存量对齐 3 文件 `_payload()`；触及模块回归（14 文件）
+- 新增 17（8+6+3）+ 存量对齐 3 文件 `_payload()` + `test_store_domains` 双打 ozon_get
+  （Docker 全量唯一真失败，见下）；触及模块回归（14 文件）
   **147 passed / 3 skipped**（skip 为 PG-gated store_actions，直调 snippet 补验证）。
+- **Docker 全量实跑**（`scripts/test-docker.sh`，容器内真 PG + init_data 播种）：
+  **2705 passed / 3 skipped / 0 代码红**。15 个伪红（cos_update_invariants 6 + leak_guard 4 +
+  deploy_compose_hygiene 5 errors）全为仓树文件扫描类——容器只挂 `tests/`+`webui/`，
+  FileNotFoundError；同 15 文件宿主机全绿（A/B 实证，测试文件晚于 Docker runner 搭建的既有缺口）。
+- **测试基建**：`docker-compose.test.yml` 加 `name: ozon-worker-test` 显式 project 隔离——
+  本与 deploy compose 同目录默认同名项目，`test-docker.sh` 的 `up -d postgres` 会把 deploy 栈
+  postgres 按测试配置重建（实测翻转 5433/15433 端口与凭证、deploy worker unhealthy；
+  数据卷无恙但每次跑完需手工复原）。加 name 后两栈互不可见，端到端复跑验证通过。
 
 ## [0.77.1] — 「原图上卡」根因三连修：权威类目置信闸 + 重传链 AI 图覆盖 + 收尾断言闸（2026-09-18）
 
