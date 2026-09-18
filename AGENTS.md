@@ -68,8 +68,14 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **无商品佐证 failed 带取证三元组**：T0.4 闸命中时 `_mark_no_real_product_failure` 补
   `error_code=PRODUCT_NOT_CREATED` + `failed_stage=final_product_evidence_check` + error_message
   进终态 result + listing_result_log（此前 46 条 failed 行两列全空，失败点无留痕）。
+- **S3 残留点补修（改 `_sync_rating` 前必读）**：`/v1/rating/summary` 的 `localization_index`
+  官方是**数组**（`[{calculation_date, localization_percentage}]`，14 天无销售为空），不是标量——
+  旧标量直塞列每轮炸 can't adapt 'dict'（09-12 S3 的真炸点，0.77.0 只修了另一处）。
+  唯一出口 `_extract_localization_index`；存量标量 mock 形态兼容不回归。
 - 测试：新增 `test_sync_window_tz_v077`（8）/`test_upload_image_guard_v077`（6）/
-  `test_no_product_error_code_v077`（3）；触及模块回归 147 passed / 3 skipped。
+  `test_no_product_error_code_v077`（3）/`test_sync_rating_s3_v077`（5）；
+  **实机验证**：本地真凭证（测试店 5381204）五域全打真 Ozon 七端点全 200，orders 实发
+  窗口 since<to、actions count=3、rating 落库 error 空；Docker 全量 2705 passed/0 代码红。
 
 ## 最近更新（v0.77.1 — 「原图上卡」根因三连修：权威类目闸 + 重传链 AI 图覆盖 + 收尾断言）
 

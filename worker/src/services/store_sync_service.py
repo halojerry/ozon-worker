@@ -372,6 +372,35 @@ def _upsert_analytics_rows(tenant_id: str, credential_id: str, rows: list) -> in
     return synced
 
 
+def _extract_localization_index(raw) -> float | None:
+    """v0.77.2 (S3 残留点): /v1/rating/summary 的 localization_index 安全提取。
+
+    官方契约（swagger RatingAPI_RatingSummaryV1）：localization_index 是**数组**
+    [{calculation_date, localization_percentage:int}]，14 天无销售 → 空数组。
+    旧代码当标量直塞 rating_localization_index 列 → psycopg2 can't adapt 'dict'
+    （评分域每轮必炸；09-12 上报的 S3 在 0.77.0 只修了 credential_sync_state 写入点，
+    此处为评分写回 credentials 的真炸点，2026-09-18 本地真凭证实机取证）。
+
+    - list[dict] → calculation_date 最新一条的 localization_percentage（float），
+      非法元素跳过；空数组/全非法 → None（宁缺毋滥）；
+    - int/float 标量 → float 原值（兼容存量 mock/旧形态）；
+    - 其他 → None，绝不抛。
+    """
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return float(raw)
+    if not isinstance(raw, list):
+        return None
+    dated = [e for e in raw if isinstance(e, dict)]
+    dated.sort(key=lambda e: str(e.get("calculation_date") or ""), reverse=True)
+    for e in dated:
+        try:
+            v = float(e.get("localization_percentage"))
+        except (TypeError, ValueError):
+            continue
+        return v
+    return None
+
+
 def _sync_rating(tenant_id: str, credential_id: str, client_id: str, api_key: str,
                  force: bool = False) -> dict:
     """评分(/v1/rating/summary,日级节流)→ credentials.rating_*。"""
@@ -381,7 +410,9 @@ def _sync_rating(tenant_id: str, credential_id: str, client_id: str, api_key: st
     try:
         resp = ozon_post(client_id, api_key, "/v1/rating/summary", {}, timeout=30, language="RU")
         groups = resp.get("groups") or []
-        localization_index = resp.get("localization_index")
+        # ✅ v0.77.2 (S3 残留点): localization_index 官方是数组（见 _extract_localization_index），
+        # 取最新一条 percentage 存标量——旧标量直塞列每轮炸 can't adapt 'dict'。
+        localization_index = _extract_localization_index(resp.get("localization_index"))
         rating_total = None
         for g in groups:
             for it in (g.get("items") or []):

@@ -57,6 +57,25 @@
   error_message（已有更具体消息不覆盖）进终态 result JSONB + listing_result_log。
 - 回归：`tests/test_no_product_error_code_v077.py`（3，复用 writeback fake engine 驱动真实终态分支）。
 
+### S3 残留点：评分域 localization_index 数组形态（实机取证补修）
+- 09-12 上报的 S3（`can't adapt type 'dict'`）在 0.77.0 只修了 credential_sync_state 写入点
+  （:121 json.dumps）——评分写回 credentials 的 `:li` 参数才是评分域每轮失败的真炸点。
+- **官方 swagger 实锤**：`/v1/rating/summary` 的 `localization_index` 是**数组**
+  `[{calculation_date, localization_percentage:int}]`（14 天无销售为空数组），旧代码当标量
+  直塞 `rating_localization_index` 列。存量单测 mock 写的 92.5 float 掩盖了形态错配——
+  **2026-09-18 本地真凭证实机首跑即炸**，形态对齐后同链路复跑全绿。
+- 修复：`_extract_localization_index`（数组取 calculation_date 最新一条 percentage；空数组/
+  非法 → None 宁缺毋滥；标量 float 兼容存量）+ `_sync_rating` 接线。
+- 回归：`tests/test_sync_rating_s3_v077.py`（5）。
+
+### 实机验证（真凭证真 Ozon，测试店 5381204）
+- 五个只读域全部真打真 Ozon 七端点全 200：`/v4/posting/fbs/list`（订单窗口实发
+  `since=13:48:41Z < to=14:48:42Z`，修复前 since 落未来 8h 必 400）、`GET /v1/actions`
+  count=3（修复前 POST 恒 405）、rating 落库 error 空（修复前每轮 can't adapt）、
+  products synced=102、analytics synced=3、水位正常推进。
+- 验证脚本 `/tmp/verify_real_sync.py`（ORM 选店 + 凭证解密 + passthrough spy 记录实发
+  窗口；凭证全程不落输出）。
+
 ### 测试
 - 新增 17（8+6+3）+ 存量对齐 3 文件 `_payload()` + `test_store_domains` 双打 ozon_get
   （Docker 全量唯一真失败，见下）；触及模块回归（14 文件）
