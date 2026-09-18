@@ -1,5 +1,135 @@
 # Changelog
 
+## [0.77.2] — store 同步 S1/S2/S3 根治 + 上传零图硬闸 + error_code 全线接线 + 观测/运维批（2026-09-19）
+
+> 发版（PR #38，生产库只读取证 + 三路并行修复 + 实机验证）。两个同步死 bug（09-12 上报，
+> 0.77.0/0.77.1 均未触及，每轮调度必现 ~5500 条/天）+ 两个新失败类的根因修复
+>（46 条无留痕 failed / 5 例零图白烧配额）。
+> **改同步窗口构造 / ozon GET 调用 / 上传图片闸前先读本节与对应测试文件。**
+
+### S1 订单/退货同步窗口时区 bug（每轮必现的 Ozon 400）
+- **根因**：`credential_sync_state.orders_last_synced_at` 是 timestamptz 列，psycopg2 取回带
+  **会话时区**（生产 Asia/Shanghai +08:00）的 aware datetime；旧代码
+  `.strftime("%Y-%m-%dT%H:%M:%SZ")` 把 +08 挂钟时间硬标成 UTC → since 落到真实 UTC 未来
+  8 小时 → since > to → `POST /v4/posting/fbs/list` 恒 400 "filter.to must be after the
+  filter.since"。续传窗口分支（orders_window_since/to 同列取回）同款隐患；
+  `_sync_returns` 同款 strftime 一并收口。
+- **修复**：新 `_as_utc`/`_fmt_utc`（store_sync_service，任意 aware/naive → 真 UTC "…Z"，
+  同格式可字典序比较）统一三处窗口构造 + 防御 clamp（水位异常落到未来 → since 收敛到
+  to−重叠，绝不发出 since>=to）。**改任何同步窗口构造必须经 _fmt_utc，禁裸 strftime("…Z")**。
+- 回归：`tests/test_sync_window_tz_v077.py`（8：+08 水位/续传/naive 兜底/未来水位 clamp/returns 存量 +08 ISO）。
+
+### S2 促销同步 /v1/actions 永久 405（方法错 + 解析错双 bug）
+- **根因**：官方 swagger `/v1/actions` 仅 GET（method=GET、parameters=[]、请求体 schema=null），
+  代码发 POST → 永久 405；且 200 响应 `result` 是**数组**——只修方法不改解析会 405 变
+  AttributeError（旧 `result.get("actions")` 对 list 抛异常）。
+- **修复**：`utils/ozon_client` 新增 `ozon_get`（与 ozon_post 同构：限流/429+5xx tenacity
+  重试/结构化日志/共享连接池）；`_sync_actions` 改 GET + result 数组优先、对象形态兼容。
+  **第二处同款**：`utils/promo_client.list_actions` 模块注释自称「Ozon 容忍 POST」被生产证伪
+  （恒 405），一并切 `ozon_get`（返回 result 数组；limit/offset 形参保留兼容、GET 不再发出；
+  `test_store_actions.py::test_promo_client_list_actions` 断言同步，PG 不可达环境以直调
+  snippet 验证，CI 有 PG 时跑真闸）。
+  **GET-only 端点一律走 ozon_get（写 Ozon 调用前先用 mcp ozon_describe_method 核对 method）。**
+- 回归：同文件（GET 断言 + POST 禁止回潮 + 双形态解析）。
+
+### 上传前零图硬闸（LOCAL_IMAGES_MISSING）
+- 生产实证：5 例 Ozon 审核拒 IMAGE_ERROR（item[0].images 缺失，最新 09-18 15:56），抽查
+  task 3e22a11e-… `task_generated_images` **0 行**（生图零产物）仍走到 /v3/product/import
+  → 必拒 + 白烧创建配额。
+- 位置：`ozon_upload_node` 在 **offer upsert 之后**、import POST 之前——CREATE 项
+  （item 无 product_id）images 缺失/全空（含空白串）→ 显式 failed + `error_code=
+  LOCAL_IMAGES_MISSING` + `failed_stage=ozon_upload`，绝不发 import POST。UPDATE/跟卖项
+  （product_id 在手）天然豁免——0 图=不动卡上既有图片，合法语义；upsert 注入 product_id
+  转 UPDATE 的死卡不受误伤（有锁）。层级关系：validate 硬失败管主图链路入参、0.77.1 收尾
+  断言管上卡结果，本闸是**上传节点最后一道**（防绕过 validate 的直调/重发路径），三者互补。
+- `OzonUploadOutput` 补 `error_code` 字段（GlobalState/GraphOutput 已有同名 channel——
+  加字段即透传，listing_result_log.error_code 自动取到）。三个存量上传测试的 `_payload()`
+  补 images 键（它们测 import task_id/upsert/failed_stage 语义，与图片策略无关）。
+- 回归：`tests/test_upload_image_guard_v077.py`（6）。
+
+### 无商品佐证 failed 取证补全（PRODUCT_NOT_CREATED）
+- 生产实证：46 条「任务完成但未创建 Ozon 商品(product_id 缺失)」failed 行的
+  listing_result_log.error_message/error_code **全空**——task_processor 只写 harness 内部键
+  `_harness_error`（下划线前缀不进留存），writer 只读 error_code/error_message → 失败点
+  无留痕，无法定位是「创建商品 API 失败」还是「管线没走到创建」。
+- 修复：`_mark_no_real_product_failure`（纯函数）——闸命中时补
+  `error_code=PRODUCT_NOT_CREATED` + `failed_stage=final_product_evidence_check` +
+  error_message（已有更具体消息不覆盖）进终态 result JSONB + listing_result_log。
+- 回归：`tests/test_no_product_error_code_v077.py`（3，复用 writeback fake engine 驱动真实终态分支）。
+
+### S3 残留点：评分域 localization_index 数组形态（实机取证补修）
+- 09-12 上报的 S3（`can't adapt type 'dict'`）在 0.77.0 只修了 credential_sync_state 写入点
+  （:121 json.dumps）——评分写回 credentials 的 `:li` 参数才是评分域每轮失败的真炸点。
+- **官方 swagger 实锤**：`/v1/rating/summary` 的 `localization_index` 是**数组**
+  `[{calculation_date, localization_percentage:int}]`（14 天无销售为空数组），旧代码当标量
+  直塞 `rating_localization_index` 列。存量单测 mock 写的 92.5 float 掩盖了形态错配——
+  **2026-09-18 本地真凭证实机首跑即炸**，形态对齐后同链路复跑全绿。
+- 修复：`_extract_localization_index`（数组取 calculation_date 最新一条 percentage；空数组/
+  非法 → None 宁缺毋滥；标量 float 兼容存量）+ `_sync_rating` 接线。
+- 回归：`tests/test_sync_rating_s3_v077.py`（5）。
+
+### 生产分析驱动批（2026-09-18 深夜，ozon_ro 只读取证 + 三路并行修复）
+
+**取证结论（生产实数据）**：S1 唯一现役大故障（5/5 活跃店 1427 次 400，consecutive_failures 6-15）；
+S3 5/5 店全中坐实「0.77.0 已修」是误判；**S2 生产反常定论**——实测（测试店真 key）POST /v1/actions
+硬 405 且 `str(exc)` 为**空字符串**，旧代码 `error=str(exc)[:200]` 把空串写进 domain_state →
+生产 actions 域 `{"error": ""}` 且 count 永远 absent 的反常数据得到完整解释；error_code 通道
+94.6% failed 行为空；L0 学习疑案结案（表是 category_mapping，learned_approved 58 行活跃 13 行
+权威，「恒 0」是查错表名）；假 completed 结案（95/95 带真 product_id）。
+
+- **error_code 全线接线（16 出口）**：assemble 阻断（LOCAL_CATEGORY_MATCH_FAILED/
+  LOCAL_RESTRICTED_CATEGORY/LOCAL_SENSITIVE_CATEGORY/LOCAL_TITLE_EMPTY/LOCAL_ATTRIBUTE_SCHEMA_FAILED/
+  LOCAL_ASSEMBLY_EMPTY_ITEMS）、pricing（LOCAL_PRICE_GAP_BLOCKED/LOCAL_PRICING_FAILED）、retry 子图
+  （LOCAL_CATEGORY_RECATEGORIZE_FAILED/LOCAL_REUPLOAD_FAILED/LOCAL_UPLOAD_NO_TASK_ID/
+  LOCAL_STATUS_QUERY_FAILED）。**LOCAL_TITLE_CATEGORY_MISMATCH 生产空串根因修复**：retry 子图出口
+  与 wrapper 出口两处 Output model 未声明 error_code 被 langgraph channel 过滤静默吞掉（与
+  OzonUploadOutput 同类根因）——PricingOutput/ValidationRetryLoopOutput/ValidationRetryWrapperOutput
+  补声明 + final_result 透传（成功清空）。回归 test_error_code_wiring_v0772（21）。
+- **同步域观测死列复活**：orders_error/products_error 生产恒空根因 = `_sync_products` 成功路径的
+  `ON CONFLICT DO UPDATE` 带出 `orders_error=''` **RMW clobber**（把上一域刚写的订单错误抹掉）+
+  products 失败分支从不写列。修复：_set_sync_error 反 clobber（不清对侧列）+ 新
+  _set_products_error_no_watermark（对称）+ scheduler 失败分支传错误文本（mark_sync_failure 只填
+  空列 COALESCE(NULLIF(col,''),:e) 不覆盖精确域错误）。回归 test_sync_state_observability_v0772（9，
+  含真 PG 端到端 S1 场景复现）。
+- **商品同步失败禁止归档全店（地雷拆除）**：`_sync_products` 首页/部分分页失败 → 空/残缺
+  seen_ids → `_archive_missing` 的 NOT ANY 匹配全部 → 一次网络抖动把全店缓存商品 archived=TRUE。
+  修复：error 非空绝不归档（空店成功仍归档，合法语义）。回归 test_products_archive_guard_v0772（4）。
+- **mxou_call_ledger 补 model 列 + tenant_id 透传**：生产 tenant_id 全空根因 = `_record_mxou_call`
+  恒传 None（本层拿不到租户）。接线走 ContextVar（task_processor 已 set_trace_context，实测跨
+  ainvoke 线程可见）：显式参数 > _user_id > None。model 从 image_gen:<model> 拆 + chat 调用点传。
+  迁移 `migrate_ledger_model_v0772`（ALTER ADD COLUMN IF NOT EXISTS + 索引，init_data 接线）。
+  ⚠️ 未做 cost 金额列——真钱数只在网关侧。回归 test_ledger_model_tenant_v0772（9）。
+- **store_metrics_history 90 天保留**：唯一高速膨胀表（~650 行/店/天）。挂点 _periodic_task_cleanup，
+  SAVEPOINT 隔离 + env STORE_METRICS_RETENTION_DAYS 可调。回归 test_metrics_retention_v0772（7）。
+
+### 发版实机 Gate（2026-09-19，本地 Docker 0.77.2 + 测试店 5381204，≥3 单达标）
+- 信封直传 3 单（历史 approved payload 改 item_id 后缀避 UPSERT → 全 CREATE）：
+  da2a316e→**6385965858**、350ce791→**6385965837**、794aeedc→**6385965897**——
+  3/3 completed + upload success + **moderation approved**，Skill 权威类目，留存行齐整。
+- **同步修复活体复验**（本栈调度器 0.77.2 首跑真店）：actions `count=3`（S2 修复后
+  真值首次落库）、rating error 空（S3 修复后不再 can't adapt）、orders_error/products_error 空。
+
+### 实机验证（真凭证真 Ozon，测试店 5381204）
+- 五个只读域全部真打真 Ozon 七端点全 200：`/v4/posting/fbs/list`（订单窗口实发
+  `since=13:48:41Z < to=14:48:42Z`，修复前 since 落未来 8h 必 400）、`GET /v1/actions`
+  count=3（修复前 POST 恒 405）、rating 落库 error 空（修复前每轮 can't adapt）、
+  products synced=102、analytics synced=3、水位正常推进。
+- 验证脚本 `/tmp/verify_real_sync.py`（ORM 选店 + 凭证解密 + passthrough spy 记录实发
+  窗口；凭证全程不落输出）。
+
+### 测试
+- 新增 17（8+6+3）+ 存量对齐 3 文件 `_payload()` + `test_store_domains` 双打 ozon_get
+  （Docker 全量唯一真失败，见下）；触及模块回归（14 文件）
+  **147 passed / 3 skipped**（skip 为 PG-gated store_actions，直调 snippet 补验证）。
+- **Docker 全量实跑**（`scripts/test-docker.sh`，容器内真 PG + init_data 播种）：
+  **2705 passed / 3 skipped / 0 代码红**。15 个伪红（cos_update_invariants 6 + leak_guard 4 +
+  deploy_compose_hygiene 5 errors）全为仓树文件扫描类——容器只挂 `tests/`+`webui/`，
+  FileNotFoundError；同 15 文件宿主机全绿（A/B 实证，测试文件晚于 Docker runner 搭建的既有缺口）。
+- **测试基建**：`docker-compose.test.yml` 加 `name: ozon-worker-test` 显式 project 隔离——
+  本与 deploy compose 同目录默认同名项目，`test-docker.sh` 的 `up -d postgres` 会把 deploy 栈
+  postgres 按测试配置重建（实测翻转 5433/15433 端口与凭证、deploy worker unhealthy；
+  数据卷无恙但每次跑完需手工复原）。加 name 后两栈互不可见，端到端复跑验证通过。
+
 ## [0.77.1] — 「原图上卡」根因三连修：权威类目置信闸 + 重传链 AI 图覆盖 + 收尾断言闸（2026-09-18）
 
 > 用户硬证据驱动（商品 6381680593 / 任务 bf71442e：prepare 明确装载 AI 图 5 张，卡上却全是 1688 原图）。

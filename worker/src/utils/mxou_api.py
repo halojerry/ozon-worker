@@ -123,13 +123,49 @@ def _sentry_set_user_context(token: str, endpoint: str = "") -> None:
         pass
 
 
-def _record_mxou_call(token: str, endpoint: str) -> None:
+def _extract_model_from_endpoint(endpoint: str) -> Optional[str]:
+    """从 'image_gen:<model>' 拆出模型 id；其余 endpoint（chat 等）返回 None。
+
+    model 信息本就编码在 endpoint 字符串里（生产实测 image_gen:nano-banana-fast /
+    image_gen:gpt-image-2 / image_gen:gpt-image-2.5），v0.77.2 落独立列供按模型对账。
+    """
+    if endpoint and endpoint.startswith("image_gen:"):
+        _m = endpoint.split(":", 1)[1].strip()
+        return _m or None
+    return None
+
+
+def _resolve_tenant_id(tenant_id: Optional[str]) -> Optional[str]:
+    """解析租户：显式参数 > 任务边界 ContextVar（logger._user_id）> None。
+
+    mxou_api 的深层调用方（graph 节点）拿不到 tenant，但 task_processor 在任务边界
+    已 `set_trace_context(user_id=tenant_id)`——ContextVar 随 langgraph ainvoke 复制
+    进同步节点线程（本地实证），故节点内 mxou 调用可自动带租户。任务结束
+    clear_trace_context 置空 → 归一为 None（绝不落空串）。
+    """
+    if tenant_id:
+        return tenant_id
+    try:
+        from utils.logger import get_trace_context
+        return get_trace_context().get("user_id") or None
+    except Exception:
+        return None
+
+
+def _record_mxou_call(
+    token: str,
+    endpoint: str,
+    model: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> None:
     """BL-10 (repo-gov): mxou 调用埋点 —— 写本地调用台账 mxou_call_ledger，
     供 worker/scripts/reconcile_mxou.py 对账（本地计数 vs 平台余额差分）。
 
     - lazy import + 全吞错：台账服务未部署 / PG 异常绝不影响原 API 调用；
-    - tenant_id 本层拿不到（mxou token 即用户），恒传 None —— 对账脚本按
-      token_fp 关联租户；
+    - tenant_id（v0.77.2）：显式参数 > 任务边界 ContextVar（见 _resolve_tenant_id），
+      修复生产 tenant_id 全空（旧实现恒传 None）；解析不到才为 None；
+    - model（v0.77.2）：显式 model 参数优先，否则从 'image_gen:<model>' endpoint 拆；
+      chat 由调用点传请求参数 model —— 供按模型对账费用（库内不编造 cost 金额）；
     - token_fp 复用 _token_fingerprint（与 Sentry tag 同一实现）；
     - 对账口径：每次业务调用一行（chat 的 5xx 重试不重复计行；生图降级到
       不同模型各计一行 —— 每次都是真实计费生成）。余额 pre-check 拦下的
@@ -137,7 +173,12 @@ def _record_mxou_call(token: str, endpoint: str) -> None:
     """
     try:
         from services.mxou_ledger_service import record_call
-        record_call(tenant_id=None, token_fp=_token_fingerprint(token), endpoint=endpoint)
+        record_call(
+            tenant_id=_resolve_tenant_id(tenant_id),
+            token_fp=_token_fingerprint(token),
+            endpoint=endpoint,
+            model=model or _extract_model_from_endpoint(endpoint),
+        )
     except Exception:
         pass
 
@@ -211,7 +252,7 @@ def call_mxou_chat_api(
     mxou_acquire(token)
 
     # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账（重试不重复计行）
-    _record_mxou_call(token, "chat")
+    _record_mxou_call(token, "chat", model=model)
 
     # ⚠️ v0.14 B2: 重试退避（旧代码 0 重试，API 故障时逐条调用级联浪费）
     # 规则: 4xx（除429）不重试；429 走指数退避；5xx/timeout/异常 退避重试 2 次
@@ -563,7 +604,7 @@ def _call_image_with_model(
 
     # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账。
     # endpoint 带模型名：主模型/降级模型各计一行（每次都是真实计费生成）。
-    _record_mxou_call(token, f"image_gen:{model}")
+    _record_mxou_call(token, f"image_gen:{model}", model=model)
 
     for attempt in range(max_retries + 1):
         try:

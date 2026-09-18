@@ -96,6 +96,11 @@ def validation_retry_wrapper_node(
     _final_notice: str = str(result.get("notice") or "")
     # ✅ v0.67.1 wave①: 子图各轮拒绝原文累积回传（留存表 moderation_texts 列数据源）
     _decline_errors: list = result.get("decline_errors") or []
+    # ✅ v0.77.2: 子图终态 error_code 透传主图（ValidationRetryLoopOutput → 本节点 Output
+    # → GlobalState.error_code → GraphOutput → listing_result_log.error_code）。此前
+    # wrapper 不读/不回传，且 ValidationRetryWrapperOutput 未声明该字段——子图写的
+    # LOCAL_TITLE_CATEGORY_MISMATCH / DESCRIPTION_DECLINE 等码双双被吞（生产根因）。
+    _error_code: str = str(result.get("error_code") or "")
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -121,4 +126,6 @@ def validation_retry_wrapper_node(
         notice=_final_notice,
         # v0.67.1 wave①: 拒绝原文累积回传主图
         decline_errors=_decline_errors,
+        # v0.77.2: 终态错误码回传主图（成功子图返回空串，不污染成功任务）
+        error_code=_error_code,
     )

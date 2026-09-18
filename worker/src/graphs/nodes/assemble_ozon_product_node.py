@@ -816,7 +816,8 @@ def _maybe_create_blocked_draft(state, draft: dict, candidates: list,
 
 
 def _blocked_exit(state, draft: dict, candidates: list, error_message: str,
-                  match_confidence: float | None = None) -> dict:
+                  match_confidence: float | None = None,
+                  error_code: str = "LOCAL_CATEGORY_MATCH_FAILED") -> dict:
     """✅ v0.69 T0.3: 类目闸阻断出口统一构造——终态失败字段（v0.69 T2.2 语义不变）
     + 尽力入采集箱（低置信/歧义/弃权场景代替无声 failed）。
 
@@ -826,9 +827,13 @@ def _blocked_exit(state, draft: dict, candidates: list, error_message: str,
     """
     out: dict[str, Any] = {
         "error_message": error_message,
+        "error_code": error_code,
         "assembly_retry_count": (getattr(state, "assembly_retry_count", 0) or 0) + 1,
         "failed_stage": "category_match",
     }
+    # ✅ v0.77.2: 类目阻断出口统一带 error_code（默认 LOCAL_CATEGORY_MATCH_FAILED）——
+    # listing_result_log.error_code 不再恒空（生产 226/239 failed 行无码根因之一）；
+    # 受限/需资质出口经 _restricted_category_exit 传 LOCAL_RESTRICTED_CATEGORY。
     if match_confidence is not None:
         out["match_confidence"] = match_confidence
     _box = _maybe_create_blocked_draft(state, draft, candidates, error_message)
@@ -855,7 +860,8 @@ def _restricted_category_exit(state, draft: dict, candidates: list,
                f"{_notice}")
     logger.error(f"   🛑 受限品类闸（双命中）: {_reason}")
     out = _blocked_exit(state, draft, candidates, _reason,
-                        match_confidence=match_confidence)
+                        match_confidence=match_confidence,
+                        error_code="LOCAL_RESTRICTED_CATEGORY")
     out["notice"] = f"{_notice}；{out['notice']}" if out.get("notice") else _notice
     return out
 
@@ -941,6 +947,8 @@ def _assemble_follow_sell(
             logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema（CREATE 需要类目）")
             return {
                 "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
+                "error_code": "LOCAL_CATEGORY_MATCH_FAILED",
+                "failed_stage": "category_match",
                 "description_category_id": str(description_category_id),
                 "type_id": str(type_id),
                 "final_attributes": _build_hardcoded_attributes(description_category_id),
@@ -1245,6 +1253,7 @@ def assemble_ozon_product_node(
         # ✅ v0.69 T2.2: 阻断出口统一带 failed_stage——task_processor _is_failed
         # 的 (error_message 且 failed_stage) 条件据此命中，阻断不再假 completed。
         return {"error_message": "产品标题为空，无法进行类目匹配",
+                "error_code": "LOCAL_TITLE_EMPTY",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                 "failed_stage": "category_match"}
 
@@ -1869,6 +1878,7 @@ def assemble_ozon_product_node(
         # 保持 failed + 人工处理（红线：R1 语义零放松）。
         return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
                                  "但商品来源无对应敏感信号词，需人工确认类目",
+                "error_code": "LOCAL_SENSITIVE_CATEGORY",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                 "match_confidence": 0.0,
                 "failed_stage": "category_match"}
@@ -2114,6 +2124,7 @@ def assemble_ozon_product_node(
             except Exception:
                 pass
             return {"error_message": f"属性 Schema 获取失败: 尝试了 {len(tried_category_ids)} 个类目对均无效",
+                    "error_code": "LOCAL_ATTRIBUTE_SCHEMA_FAILED",
                     "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
         logger.info(f"   ✅ Ozon API 返回: {len(attr_list)} 个属性")
 
@@ -2171,6 +2182,7 @@ def assemble_ozon_product_node(
         logger.error("❌ 确定性组装失败，返回空 items")
         return {
             "error_message": "确定性组装失败：未生成有效的 items",
+            "error_code": "LOCAL_ASSEMBLY_EMPTY_ITEMS",
             "description_category_id": str(description_category_id),
             "type_id": str(type_id),
             "attributes_schema": attr_list,
