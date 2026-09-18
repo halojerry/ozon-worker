@@ -44,6 +44,24 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（v0.77.0 — 生图白名单认领本方 COS 镜像图：「原图上卡」事故修复 + gpt-image-2.5 切换）
+
+> 2026-09-17 发版（PR #30 → dev）。生产事故：批量新上产品全上 1688 原图。取证双源对账
+> （mxou_call_ledger + 网关 Supabase logs + pHash 像素比对）实锤：v0.64 M5b 镜像图被生图白名单误拒 →
+> 生图整批跳过 → 原图回填，**不是「生成了被换回」**。方案 `docs/PLAN-image-ref-cos-whitelist-fix-v1.md`。
+> **改图片白名单 / assemble 补位 / salvage 链前先读该方案 §2 设计口径。**
+
+- **白名单（改生图守卫前必读）**：`is_cos_url` 唯一实现迁 `utils/image_url_guard.py`（cos_uploader 仅
+  re-export，四消费方零改动）；`is_product_image_candidate` 放行本方 COS 镜像/生成/salvage 图（镜像与原图
+  1:1 参照等价，用户拍板；源站白名单不放宽）；`.webp`/缩略图对 COS 恒拒；非 str/空串契约不外溢。
+- **assemble 双闸（改 payload 写图路径前必读）**：builder 与 fill-in 两条写图路径只回填本方 COS 图，裸
+  alicdn 不再上卡——诚实空图本地 validate 硬失败，不再静默上原图（宁缺毋滥，有意方向）；跟卖 images=[] 锁不变。
+- **E1 salvage 直通**：已托管图 passthrough 零二次转存。
+- **批3 生图主模型**：`config/imagegen.json` main/social_proof → `gpt-image-2.5` + `PRIMARY_IMAGE_MODEL`
+  默认值对齐（热加载；回滚 sed config 两键即可）。三级降级链 fast→2-lite 不变。
+- 测试基线 worker **2681**（+35）；实机 gate（方案 §6）本地真链路 §6.1/6.3/6.4 已过（3:4 生图真卡 +
+  gen 失败对照原图卡 + ledger 恢复），§6.2 discover 全新单 defer 部署后补跑。
+
 ## 最近更新（v0.76.0 — skill 并发竞态止血 + Windows cookie 导入三层通道）
 
 > 2026-09-16 发版（纯 skill 侧，worker 零改动；skill 测试 1342→1496）。两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案与 SDD 全程留痕 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`。**改 discover/并发链前先读该方案 §A 与 CHANGELOG 0.76.0**。
