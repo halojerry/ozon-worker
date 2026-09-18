@@ -102,6 +102,13 @@ S3 5/5 店全中坐实「0.77.0 已修」是误判；**S2 生产反常定论**�
 - **store_metrics_history 90 天保留**：唯一高速膨胀表（~650 行/店/天）。挂点 _periodic_task_cleanup，
   SAVEPOINT 隔离 + env STORE_METRICS_RETENTION_DAYS 可调。回归 test_metrics_retention_v0772（7）。
 
+### 发版实机 Gate（2026-09-19，本地 Docker 0.77.2 + 测试店 5381204，≥3 单达标）
+- 信封直传 3 单（历史 approved payload 改 item_id 后缀避 UPSERT → 全 CREATE）：
+  da2a316e→**6385965858**、350ce791→**6385965837**、794aeedc→**6385965897**——
+  3/3 completed + upload success + **moderation approved**，Skill 权威类目，留存行齐整。
+- **同步修复活体复验**（本栈调度器 0.77.2 首跑真店）：actions `count=3`（S2 修复后
+  真值首次落库）、rating error 空（S3 修复后不再 can't adapt）、orders_error/products_error 空。
+
 ### 实机验证（真凭证真 Ozon，测试店 5381204）
 - 五个只读域全部真打真 Ozon 七端点全 200：`/v4/posting/fbs/list`（订单窗口实发
   `since=13:48:41Z < to=14:48:42Z`，修复前 since 落未来 8h 必 400）、`GET /v1/actions`
