@@ -44,10 +44,10 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
-## 最近更新（开发中 — fix/store-sync-upload-guards-v1：store 同步 S1/S2 修复 + 上传零图硬闸 + 无商品取证）
+## 最近更新（v0.77.2 — store 同步 S1/S2/S3 根治 + 零图闸 + error_code 全线 + 观测/运维批）
 
-> 2026-09-18 v0.77.0 升级核验驱动（09-12 上报 S1/S2 在 0.77.0 仍未修，每轮调度必现 ~5500 条/天刷屏）。
-> **改同步窗口构造 / ozon GET 调用 / 上传图片闸前先读 CHANGELOG 0.77.2 对应节。**
+> 2026-09-19 发版（PR #38 → dev，生产库只读取证 + 本地真凭证实机驱动；worker 侧，skill 零改动）。
+> **改同步窗口构造 / ozon GET 调用 / 上传图片闸 / error_code 出口前先读 CHANGELOG 0.77.2 对应节。**
 
 - **同步窗口 UTC 收口（改 `_orders_since`/`_sync_orders`/`_sync_returns` 前必读）**：timestamptz
   列经 psycopg2 取回带**会话时区**（生产 Asia/Shanghai +08:00），裸 `strftime("…Z")` 会把 +08
