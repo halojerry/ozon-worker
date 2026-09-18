@@ -540,8 +540,9 @@ def ozon_status_node(
                                 _card_urls = [str(u) for u in (info_items[0].get("images") or []) if str(u).strip()] \
                                     if info_items and isinstance(info_items[0], dict) else []
                                 _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
-                                if _v_status == VERIFY_MISMATCH and _payload_imgs:
-                                    # 数量不符可能是 Ozon 异步填充未完成 → 15s 后复查一次再定罪
+                                # mismatch/unverified 都复查一次（15s）：审核通过瞬间 CDN 对象
+                                # 常未就绪（图片数组已出但对象 404/异步填充未完成），即判会误伤
+                                if _v_status in (VERIFY_MISMATCH, VERIFY_UNVERIFIED) and _payload_imgs:
                                     time.sleep(15)
                                     _recheck: Dict[str, Any] = {}
                                     try:
