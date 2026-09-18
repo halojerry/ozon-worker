@@ -44,6 +44,33 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（开发中 — fix/store-sync-upload-guards-v1：store 同步 S1/S2 修复 + 上传零图硬闸 + 无商品取证）
+
+> 2026-09-18 v0.77.0 升级核验驱动（09-12 上报 S1/S2 在 0.77.0 仍未修，每轮调度必现 ~5500 条/天刷屏）。
+> **改同步窗口构造 / ozon GET 调用 / 上传图片闸前先读 CHANGELOG 0.77.2 对应节。**
+
+- **同步窗口 UTC 收口（改 `_orders_since`/`_sync_orders`/`_sync_returns` 前必读）**：timestamptz
+  列经 psycopg2 取回带**会话时区**（生产 Asia/Shanghai +08:00），裸 `strftime("…Z")` 会把 +08
+  挂钟标成 UTC → since 落到真实未来 8h → Ozon 400 "filter.to must be after the filter.since"
+  （S1 事故根因）。窗口构造唯一出口 `_fmt_utc`/`_as_utc`（store_sync_service），禁裸 strftime；
+  防御 clamp 保 since<to 恒成立。
+- **`/v1/actions` 是 GET-only**（swagger method=GET、无请求体；200 响应 `result` 是**数组**）——
+  促销同步已改 `ozon_get`（新共享封装，与 ozon_post 同构）+ 数组优先解析；`promo_client.list_actions`
+  同款 POST→405 一并切换。写 Ozon GET 调用前先用 mcp `ozon_describe_method` 核对 method，
+  GET-only 一律走 `ozon_get`（POST 永久 405）。
+- **上传零图硬闸（LOCAL_IMAGES_MISSING）**：`ozon_upload_node` 在 offer upsert **之后**、import
+  POST 之前——CREATE 项（无 product_id）images 缺失/全空 → 显式 failed 不发请求（防 Ozon
+  IMAGE_ERROR 白烧配额，生产 5 例实锤）；UPDATE/跟卖项（product_id 在手）豁免（0 图=不动
+  卡上图片，合法）；upsert 注入 product_id 的死卡不受误伤。与 validate 硬失败/0.77.1 收尾
+  断言闸互补（本闸管上传节点最后一道，防绕过 validate 的直调/重发路径）。
+  `OzonUploadOutput` 补 error_code 字段（channel 全链已在）。三个存量上传测试 `_payload()`
+  已补 images 键。
+- **无商品佐证 failed 带取证三元组**：T0.4 闸命中时 `_mark_no_real_product_failure` 补
+  `error_code=PRODUCT_NOT_CREATED` + `failed_stage=final_product_evidence_check` + error_message
+  进终态 result + listing_result_log（此前 46 条 failed 行两列全空，失败点无留痕）。
+- 测试：新增 `test_sync_window_tz_v077`（8）/`test_upload_image_guard_v077`（6）/
+  `test_no_product_error_code_v077`（3）；触及模块回归 147 passed / 3 skipped。
+
 ## 最近更新（v0.77.1 — 「原图上卡」根因三连修：权威类目闸 + 重传链 AI 图覆盖 + 收尾断言）
 
 > 2026-09-18 发版（PR #33/#34/#35 → dev，1bc8a5ed..e848022f）。用户硬证据驱动（6381680593：prepare
