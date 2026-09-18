@@ -12,6 +12,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import re
 import uuid
 from typing import Any, Optional
@@ -286,8 +287,14 @@ def create_draft(tenant_id: str, body: dict) -> dict:
             "notes": notes,
             "source_batch": source_batch,
         }).fetchone()
-    from services.draft_image_mirror import spawn_image_mirror
-    spawn_image_mirror(tenant_id, str(row.id), row.version, envelope)
+    # ✅ fix/retry-image-restore-v1（2026-09-18 用户拍板）: 入箱预镜像默认停用——
+    # draft.images 保留 1688 裸链（生图参考白名单 v0.77 起已认源站域），COS 只存
+    # 「提交时按需转存（_ensure_images_mirrored_for_submit）+ 生成图」：
+    # 采集箱囤稿不再吃 COS 存储，payload 从此不被异步回写换图。
+    # 应急回退旧行为: DRAFT_IMAGE_MIRROR=1（入箱即镜像）。
+    if os.getenv("DRAFT_IMAGE_MIRROR", "0") == "1":
+        from services.draft_image_mirror import spawn_image_mirror
+        spawn_image_mirror(tenant_id, str(row.id), row.version, envelope)
     return _draft_row_to_dict(row)
 
 
