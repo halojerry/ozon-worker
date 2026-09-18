@@ -520,6 +520,71 @@ def ozon_status_node(
                                 else:
                                     logger.info(f"✅ model_info验证通过: model_id={list(model_ids)}, counts={model_counts}（变体已合并）")
 
+                            # ✅ fix/upload-image-assertion-v1（2026-09-18 用户②，商品 6381680593 实证）：
+                            # 上架收尾卡片图断言——卡上图必须与上传载荷一致。此前重传链曾用
+                            # draft 原图覆盖 AI 图静默上线，零收尾校验。详见 utils/card_image_assert。
+                            try:
+                                from utils.card_image_assert import (
+                                    VERIFY_MISMATCH,
+                                    VERIFY_OK,
+                                    VERIFY_SKIPPED,
+                                    VERIFY_UNVERIFIED,
+                                    verify_card_images,
+                                )
+
+                                _payload_items = (getattr(state, "ozon_payload", None) or {}).get("items") or []
+                                _payload_imgs = (
+                                    [str(u) for u in (_payload_items[0].get("images") or []) if str(u).strip()]
+                                    if _payload_items and isinstance(_payload_items[0], dict) else []
+                                )
+                                _card_urls = [str(u) for u in (info_items[0].get("images") or []) if str(u).strip()] \
+                                    if info_items and isinstance(info_items[0], dict) else []
+                                _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+                                # mismatch/unverified 都复查一次（15s）：审核通过瞬间 CDN 对象
+                                # 常未就绪（图片数组已出但对象 404/异步填充未完成），即判会误伤
+                                if _v_status in (VERIFY_MISMATCH, VERIFY_UNVERIFIED) and _payload_imgs:
+                                    time.sleep(15)
+                                    _recheck: Dict[str, Any] = {}
+                                    try:
+                                        _recheck = ozon_post(
+                                            ozon_client_id, ozon_api_key,
+                                            "/v3/product/info/list", info_payload, timeout=60,
+                                        )
+                                    except OzonError:
+                                        pass
+                                    _ri = (_recheck.get("items") or [{}])[0] if isinstance(_recheck, dict) else {}
+                                    _card_urls = [str(u) for u in (_ri.get("images") or []) if str(u).strip()]
+                                    _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+                                logger.info(f"🖼️ 收尾卡片图断言: {_v_status} — {_v_detail}")
+                                if _v_status == VERIFY_MISMATCH:
+                                    logger.error("❌ 卡片图与上传载荷不一致（拒绝假成功）: %s", _v_detail)
+                                    return OzonStatusOutput(
+                                        product_id=real_product_ids[0],
+                                        product_ids=real_product_ids,
+                                        status="failed",
+                                        moderation_status="approved",  # 审核确实过了——失败在图
+                                        upload_status="failed",
+                                        error_code="CARD_IMAGE_MISMATCH",
+                                        errors=[{"code": "CARD_IMAGE_MISMATCH", "message": _v_detail}],
+                                        purchase_url=purchase_url,
+                                        purchase_cost=purchase_cost,
+                                        sku_id=sku_id,
+                                        profit_estimation=profit_estimation,
+                                        error_message=f"[CARD_IMAGE_MISMATCH] {_v_detail}",
+                                        failed_stage="ozon_status",
+                                        stages={"ozon_status": "image_mismatch"},
+                                    )
+                                if _v_status == VERIFY_UNVERIFIED:
+                                    logger.warning(
+                                        "⚠️ 收尾卡片图断言不可用（异步填充/下载失败），放行并留痕: %s",
+                                        _v_detail,
+                                        extra={"namespace": "image.verify"},
+                                    )
+                            except Exception as _assert_exc:
+                                # 断言自身异常绝不拦成功（防误杀），留痕即可
+                                logger.warning("⚠️ 收尾卡片图断言异常（放行）: %s", _assert_exc,
+                                               extra={"namespace": "image.verify"})
+
                             return OzonStatusOutput(
                                 product_id=real_product_ids[0],
                                 product_ids=real_product_ids,
