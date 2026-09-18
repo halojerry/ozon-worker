@@ -68,6 +68,40 @@
   非法 → None 宁缺毋滥；标量 float 兼容存量）+ `_sync_rating` 接线。
 - 回归：`tests/test_sync_rating_s3_v077.py`（5）。
 
+### 生产分析驱动批（2026-09-18 深夜，ozon_ro 只读取证 + 三路并行修复）
+
+**取证结论（生产实数据）**：S1 唯一现役大故障（5/5 活跃店 1427 次 400，consecutive_failures 6-15）；
+S3 5/5 店全中坐实「0.77.0 已修」是误判；**S2 生产反常定论**——实测（测试店真 key）POST /v1/actions
+硬 405 且 `str(exc)` 为**空字符串**，旧代码 `error=str(exc)[:200]` 把空串写进 domain_state →
+生产 actions 域 `{"error": ""}` 且 count 永远 absent 的反常数据得到完整解释；error_code 通道
+94.6% failed 行为空；L0 学习疑案结案（表是 category_mapping，learned_approved 58 行活跃 13 行
+权威，「恒 0」是查错表名）；假 completed 结案（95/95 带真 product_id）。
+
+- **error_code 全线接线（16 出口）**：assemble 阻断（LOCAL_CATEGORY_MATCH_FAILED/
+  LOCAL_RESTRICTED_CATEGORY/LOCAL_SENSITIVE_CATEGORY/LOCAL_TITLE_EMPTY/LOCAL_ATTRIBUTE_SCHEMA_FAILED/
+  LOCAL_ASSEMBLY_EMPTY_ITEMS）、pricing（LOCAL_PRICE_GAP_BLOCKED/LOCAL_PRICING_FAILED）、retry 子图
+  （LOCAL_CATEGORY_RECATEGORIZE_FAILED/LOCAL_REUPLOAD_FAILED/LOCAL_UPLOAD_NO_TASK_ID/
+  LOCAL_STATUS_QUERY_FAILED）。**LOCAL_TITLE_CATEGORY_MISMATCH 生产空串根因修复**：retry 子图出口
+  与 wrapper 出口两处 Output model 未声明 error_code 被 langgraph channel 过滤静默吞掉（与
+  OzonUploadOutput 同类根因）——PricingOutput/ValidationRetryLoopOutput/ValidationRetryWrapperOutput
+  补声明 + final_result 透传（成功清空）。回归 test_error_code_wiring_v0772（21）。
+- **同步域观测死列复活**：orders_error/products_error 生产恒空根因 = `_sync_products` 成功路径的
+  `ON CONFLICT DO UPDATE` 带出 `orders_error=''` **RMW clobber**（把上一域刚写的订单错误抹掉）+
+  products 失败分支从不写列。修复：_set_sync_error 反 clobber（不清对侧列）+ 新
+  _set_products_error_no_watermark（对称）+ scheduler 失败分支传错误文本（mark_sync_failure 只填
+  空列 COALESCE(NULLIF(col,''),:e) 不覆盖精确域错误）。回归 test_sync_state_observability_v0772（9，
+  含真 PG 端到端 S1 场景复现）。
+- **商品同步失败禁止归档全店（地雷拆除）**：`_sync_products` 首页/部分分页失败 → 空/残缺
+  seen_ids → `_archive_missing` 的 NOT ANY 匹配全部 → 一次网络抖动把全店缓存商品 archived=TRUE。
+  修复：error 非空绝不归档（空店成功仍归档，合法语义）。回归 test_products_archive_guard_v0772（4）。
+- **mxou_call_ledger 补 model 列 + tenant_id 透传**：生产 tenant_id 全空根因 = `_record_mxou_call`
+  恒传 None（本层拿不到租户）。接线走 ContextVar（task_processor 已 set_trace_context，实测跨
+  ainvoke 线程可见）：显式参数 > _user_id > None。model 从 image_gen:<model> 拆 + chat 调用点传。
+  迁移 `migrate_ledger_model_v0772`（ALTER ADD COLUMN IF NOT EXISTS + 索引，init_data 接线）。
+  ⚠️ 未做 cost 金额列——真钱数只在网关侧。回归 test_ledger_model_tenant_v0772（9）。
+- **store_metrics_history 90 天保留**：唯一高速膨胀表（~650 行/店/天）。挂点 _periodic_task_cleanup，
+  SAVEPOINT 隔离 + env STORE_METRICS_RETENTION_DAYS 可调。回归 test_metrics_retention_v0772（7）。
+
 ### 实机验证（真凭证真 Ozon，测试店 5381204）
 - 五个只读域全部真打真 Ozon 七端点全 200：`/v4/posting/fbs/list`（订单窗口实发
   `since=13:48:41Z < to=14:48:42Z`，修复前 since 落未来 8h 必 400）、`GET /v1/actions`

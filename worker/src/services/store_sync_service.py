@@ -912,7 +912,12 @@ def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: 
         if len(items) < _PRODUCT_PAGE:
             break
 
-    _archive_missing(tenant_id, credential_id, seen_ids)
+    # ✅ v0.77.2（归档地雷拆除）：同步失败（含首页炸/部分分页炸）绝不归档——
+    # 空/残缺 seen_ids 会让 _archive_missing 的 NOT (product_id = ANY(...)) 匹配全部，
+    # 一次网络抖动即把全店缓存商品标记 archived=TRUE（软删全店）。数据保真优先：
+    # 宁可归档状态滞后，不可错杀。空店成功（total=0, seen 空）仍照常归档（合法语义）。
+    if not error:
+        _archive_missing(tenant_id, credential_id, seen_ids)
     if error:
         # ✅ v0.77.2（死列复活）：失败必须落 products_error（非致命，不推进水位）
         _set_products_error_no_watermark(tenant_id, credential_id, error)

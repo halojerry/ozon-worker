@@ -72,8 +72,20 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
   官方是**数组**（`[{calculation_date, localization_percentage}]`，14 天无销售为空），不是标量——
   旧标量直塞列每轮炸 can't adapt 'dict'（09-12 S3 的真炸点，0.77.0 只修了另一处）。
   唯一出口 `_extract_localization_index`；存量标量 mock 形态兼容不回归。
+- **生产分析驱动批（改 error_code 出口 / 同步域观测 / ledger 前必读）**：①failed 终态 16 出口
+  全带 LOCAL_* 错误码；**langgraph 出口 Output model 不声明 error_code 即被 channel 静默吞**
+  （PricingOutput/ValidationRetryLoopOutput/ValidationRetryWrapperOutput 已补——新增失败出口必须
+  声明+透传，LOCAL_TITLE_CATEGORY_MISMATCH 曾因此生产恒空串）。②credential_sync_state 域错误列
+  复活：_set_sync_error 反 RMW-clobber（成功清己侧不清对侧）、失败双写 jobs+state
+  （mark_sync_failure 只填空列）。③**_sync_products 失败绝不 _archive_missing**（空集=全店软删，
+  已拆雷）。④mxou_call_ledger 有 model 列+tenant（ContextVar 透传，调用点显式传优先）。
+  ⑤store_metrics_history 90 天保留（env 可调）。⑥S2 生产反常定论：405 的 str(exc) 是空串，
+  旧代码把空 error 写进 domain_state——写 domain_state 前对空异常消息要兜底文案。
 - 测试：新增 `test_sync_window_tz_v077`（8）/`test_upload_image_guard_v077`（6）/
-  `test_no_product_error_code_v077`（3）/`test_sync_rating_s3_v077`（5）；
+  `test_no_product_error_code_v077`（3）/`test_sync_rating_s3_v077`（5）/
+  `test_error_code_wiring_v0772`（21）/`test_sync_state_observability_v0772`（9）/
+  `test_products_archive_guard_v0772`（4）/`test_ledger_model_tenant_v0772`（9）/
+  `test_metrics_retention_v0772`（7）；
   **实机验证**：本地真凭证（测试店 5381204）五域全打真 Ozon 七端点全 200，orders 实发
   窗口 since<to、actions count=3、rating 落库 error 空；Docker 全量 2705 passed/0 代码红。
 
