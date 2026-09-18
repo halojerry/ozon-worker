@@ -44,6 +44,22 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（v0.77.1 — 「原图上卡」根因三连修：权威类目闸 + 重传链 AI 图覆盖 + 收尾断言）
+
+> 2026-09-18 发版（PR #33/#34/#35 → dev，1bc8a5ed..e848022f）。用户硬证据驱动（6381680593：prepare
+> 装 AI 图 5 张、卡上全原图）。**改类目置信链 / 重传图片恢复 / 入箱镜像 / 上架收尾前先读 CHANGELOG 0.77.1。**
+
+- **权威类目置信闸（改 assemble 采纳块前必读）**：L0/Skill 采纳命中即无条件恢复 match_confidence=0.95
+  （树/学习表 ID 命中即权威，文本 sim 不适用）——曾因恢复困在 layer 守卫内，权威 (dc,tp) 被 0.3 闸误杀。
+- **重传链 AI 图保护（改 retry 图片路径前必读）**：载荷含 `file/images/` 生成图 → `_restore_draft_images_to_payload`
+  拒恢复（只救空载荷）；R4 重建取图偏序 = 载荷 AI 图 > draft 原图。**入箱预镜像默认停用**
+  （`DRAFT_IMAGE_MIRROR=1` 回退）——draft.images 保留 1688 裸链，COS 只存提交时按需转存 + 生成图。
+- **收尾卡片图断言（改 ozon_status all_approved 出口前必读）**：数量恒校验 + AI 载荷卡首图 3:4 比例校验
+  （`utils/card_image_assert`）；mismatch/unverified 先 15s 复查（CDN 就绪时序）；仍 mismatch →
+  `CARD_IMAGE_MISMATCH` failed 拒假成功；unverified 放行留 `image.verify` 遥测。`OzonStatusInput.ozon_payload`
+  必须声明（channel 过滤纪律）。
+- 存量 55 原图卡批量重推脚本（用户③）待部署后出；升级不治已上线卡。
+
 ## 最近更新（v0.77.0 — 生图白名单认领本方 COS 镜像图：「原图上卡」事故修复 + gpt-image-2.5 切换）
 
 > 2026-09-17 发版（PR #30 → dev）。生产事故：批量新上产品全上 1688 原图。取证双源对账
