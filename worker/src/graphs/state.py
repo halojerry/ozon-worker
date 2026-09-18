@@ -425,6 +425,10 @@ class PricingOutput(BaseModel):
     # ✅ v0.73: 价差守卫 block 出口入采集箱结果（format_box_notice 生成；task_processor
     # 失败信息 notice 优先）——GlobalState/GraphOutput 已有该通道，补声明即可透传
     notice: str = Field(default="", description="中文可读失败说明（价差守卫入箱结果）")
+    # ✅ v0.77.2: 错误码透出（GlobalState/GraphOutput 已有同名 channel——加字段即透传，
+    # listing_result_log.error_code 自动取到）。失败出口：LOCAL_PRICE_GAP_BLOCKED（价差
+    # 守卫）/ LOCAL_PRICING_FAILED（定价异常）。对齐 v0.77.1 OzonUploadOutput 先例。
+    error_code: str = Field(default="", description="错误码（LOCAL_PRICE_GAP_BLOCKED / LOCAL_PRICING_FAILED）")
 
 
 # ==================== 属性获取节点 ====================
@@ -823,6 +827,12 @@ class ValidationRetryWrapperOutput(BaseModel):
     # ✅ v0.67.1 wave①: 子图各轮拒绝原文累积回传主图（GlobalState → GraphOutput → 留存表）
     decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
     notice: str = Field(default="", description="中文可读失败说明（子图 _build_notice 透出）")
+    # ✅ v0.77.2: 错误码透出（子图终态 error_code → wrapper → GlobalState → GraphOutput
+    # → listing_result_log.error_code）。根因修复：子图 state.error_code（如
+    # LOCAL_TITLE_CATEGORY_MISMATCH / DESCRIPTION_DECLINE）此前被子图 output_schema 与
+    # 本包装器 Output 双重过滤吞掉（生产 125 行 failed error_code 全空串的根因）。
+    # GlobalState/GraphOutput 已有同名 channel——两处 Output 声明 + wrapper 透传即可。
+    error_code: str = Field(default="", description="终态错误码（子图透出，成功恒空）")
 
 
 # ==================== 学习记录节点 ====================
