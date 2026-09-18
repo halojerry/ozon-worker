@@ -59,8 +59,8 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **E1 salvage 直通**：已托管图 passthrough 零二次转存。
 - **批3 生图主模型**：`config/imagegen.json` main/social_proof → `gpt-image-2.5` + `PRIMARY_IMAGE_MODEL`
   默认值对齐（热加载；回滚 sed config 两键即可）。三级降级链 fast→2-lite 不变。
-- 测试基线 worker **2681**（+35）；实机 gate（方案 §6：3 污染草稿 resubmit + 1 全新单 + gen 失败对照 +
-  ledger 恢复确认）**tag v0.77.0 前必过**。
+- 测试基线 worker **2681**（+35）；实机 gate（方案 §6）本地真链路 §6.1/6.3/6.4 已过（3:4 生图真卡 +
+  gen 失败对照原图卡 + ledger 恢复），§6.2 discover 全新单 defer 部署后补跑。
 
 ## 最近更新（v0.76.0 — skill 并发竞态止血 + Windows cookie 导入三层通道）
 

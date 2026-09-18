@@ -39,9 +39,15 @@ v0.64 M5b 把 draft.images 镜像到本方 COS（`draft-images/{md5}.jpg`）回�
 - worker 全量 **2681 passed / 1 failed**（唯一红为存量 flake `test_dict_cache_singleflight`，base 树可复现；
   `test_webui_e2e` 顺序敏感 flake 经 base A/B 定性非本分支）。CI：PR #30 13 check 全绿（含 Worker Tests / Docker）。
 
-### 实机 gate（发版门槛，方案 §6，tag 前必过）
-3 个镜像态污染草稿 resubmit（`task_generated_images` ≥5 slot / 卡主图 3:4 / 无 `draft-images/` 直上）
-+ 1 单全新全链路 + 1 个 gen 失败对照（E1/补位图上卡且来源前缀可辨）+ `mxou_call_ledger` image_gen:* 恢复增长确认。
+### 实机 gate（方案 §6，2026-09-17/18 本地 Docker 真链路执行，测试店 5381204）
+- §6.1 ✅ 3 镜像态污染草稿 resubmit：各 5 槽 `task_generated_images`（`file/images/`）；真卡 6360219595
+  上线，4 张卡图 896×1200 全 3:4 生图规格，零 `draft-images/` 直上。
+- §6.3 ✅ gen 失败对照（compose extra_hosts 黑洞 api.mxou.cn，连接级真失败零计费）：任务 completed、
+  product_id=6360271467，卡上 800×800 原图、日志 `draft-images/` 前缀可辨——补位/直通与生图卡像素级可分。
+- §6.4 ✅ `mxou_call_ledger` image_gen:gpt-image-2.5 恢复增长（+3），网关计费连续。
+- §6.2 ⏸ discover 全新单 defer（工具 Chrome 1688 登录态未就绪；用户拍板先发版，部署后补跑）。
+- 生产反证（09-18）：生产未部署本修复期间，mirror 型任务生图 0 行、原图上卡（2 approved + 3 declined）——
+  部署本版即根治。
 
 ## [0.76.0] — skill 并发竞态止血 + Windows cookie 导入三层通道（2026-09-16）
 
