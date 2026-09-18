@@ -62,7 +62,9 @@ def _run_job(job: dict) -> None:
         )
         errs = [str(e) for e in (orders.get("error"), products.get("error")) if e]
         if errs:
-            store_sync_jobs.mark_sync_failure(tenant, cid)
+            # ✅ v0.77.2（死列复活）：域级错误已由 `_set_orders_error_no_watermark` /
+            # `_set_products_error_no_watermark` 落 state；此处兜底填空白列（不覆盖精确原文）。
+            store_sync_jobs.mark_sync_failure(tenant, cid, error="; ".join(errs)[:500])
             store_sync_jobs.finish(jid, status="failed",
                                    error="; ".join(errs)[:500], error_code="ozon_api_error")
         else:
@@ -71,7 +73,9 @@ def _run_job(job: dict) -> None:
     except Exception as exc:
         logger.warning("同步 job 异常 tenant=%s store=%s job=%s: %s",
                        tenant, cid, jid, str(exc)[:200])
-        store_sync_jobs.mark_sync_failure(tenant, cid)
+        # ✅ v0.77.2：job 层异常同样落 state（填空白列）——此前只在 jobs.error 留痕，
+        # credential_sync_state 零留痕（生产 13 行恒空的观测盲区）。
+        store_sync_jobs.mark_sync_failure(tenant, cid, error=f"同步任务失败: {str(exc)[:500]}")
         store_sync_jobs.finish(jid, status="failed",
                                error=str(exc)[:500], error_code=_classify_error(exc))
 

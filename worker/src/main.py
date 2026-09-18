@@ -1178,6 +1178,67 @@ _SWEEP_CACHE_TABLES = ("dictionary_value_cache", "attribute_cache")
 _SWEEP_BATCH_LIMIT = 5000  # 每批 ctid 删除上限（防长事务锁表）
 _SWEEP_MAX_BATCHES = 20    # 单表迭代批数封顶（防病态大量过期行拖死清理循环）
 
+# ✅ v0.77.2（运维修复）: store_metrics_history 保留策略默认天数——_append_metrics_snapshot
+# 每次同步 append 一条快照，是唯一高速增长表（生产 15,557 行 / ~650 行/店/天，无保留策略）。
+# env STORE_METRICS_RETENTION_DAYS 可覆盖；非法值回落 90。
+STORE_METRICS_RETENTION_DAYS = 90
+_STORE_METRICS_RETENTION_ENV = "STORE_METRICS_RETENTION_DAYS"
+
+
+def _store_metrics_retention_days() -> int:
+    """保留天数（运行时读 env，故 ops 改环境变量即生效；非法值回落 90）。"""
+    try:
+        days = int(os.getenv(_STORE_METRICS_RETENTION_ENV, str(STORE_METRICS_RETENTION_DAYS)))
+    except (TypeError, ValueError):
+        return STORE_METRICS_RETENTION_DAYS
+    return days if days >= 1 else STORE_METRICS_RETENTION_DAYS
+
+
+def _sweep_store_metrics_history(conn, retention_days: int | None = None) -> int:
+    """删 snapshot_at 早于 NOW()-N 天的店铺指标快照，返回删除行数（v0.77.2）。
+
+    实现细节：
+    - 天数经 int() 强转后传入 **绑定参数**，SQL 用 ``make_interval(days => :days)``
+      组装——不用 f-string 拼字面量（避免 sqlalchemy text() 裸 cast 家族坑，见
+      AGENTS 记忆 sqlalchemy-jsonb-cast-trap；也免注入面）。
+    - 幂等：删过的行不再命中 → 每轮清理循环调用安全。
+    - 失败由调用方（:func:`_maybe_sweep_store_metrics`）处理——本函数把异常如实抛出。
+    """
+    from sqlalchemy import text
+
+    days = retention_days if retention_days is not None else _store_metrics_retention_days()
+    days = max(1, int(days))
+    res = conn.execute(
+        text(
+            "DELETE FROM store_metrics_history "
+            "WHERE snapshot_at < NOW() - make_interval(days => :days)"
+        ),
+        {"days": days},
+    )
+    return int(res.rowcount or 0)
+
+
+def _maybe_sweep_store_metrics(conn) -> int:
+    """每轮清理 store_metrics_history 超期快照（默认 90 天，v0.77.2）。
+
+    - 每轮（非节流）执行——单语句 DELETE 成本低，且增长最快表需及时回收；
+    - **SAVEPOINT（begin_nested）隔离**：sweep 失败只回滚本语句，绝不污染同轮
+      r1/r1f/r2/r3 等其它清理写入，也不中止主循环；
+    - 失败仅 warning（非致命），返回 0。
+    """
+    try:
+        with conn.begin_nested():
+            n = _sweep_store_metrics_history(conn)
+        if n:
+            logger.info(
+                f"🧹 定期清理: {n} 行过期店铺指标快照已删除"
+                f"（store_metrics_history > {_store_metrics_retention_days()} 天）"
+            )
+        return n
+    except Exception:
+        logger.warning("store_metrics_history 保留清理失败（非致命，下轮重试）", exc_info=True)
+        return 0
+
 
 def _sweep_expired_caches(conn) -> int:
     """物理删除两缓存表的过期行（expires_at 为 int 秒），返回删除总数。
@@ -1328,6 +1389,10 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                     "AND ds.status IN ('pending','uploading') "
                     "AND t.status IN ('completed','failed','rejected','cancelled')"
                 )).rowcount
+                # ✅ v0.77.2（运维修复）: store_metrics_history 保留策略——每店每次同步
+                # append 快照，唯一高速增长表（生产 15,557 行 / ~650 行/店/天）。每轮清理
+                # 超期行（默认 90 天，env 可覆盖），savepoint 隔离 + 失败仅 warning。
+                _maybe_sweep_store_metrics(conn)
                 conn.commit()
                 if r1 or r1f or r2 or r3:
                     logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted (结果已留存 listing_result_log), {r3} submission 对账归位")

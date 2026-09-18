@@ -195,8 +195,13 @@ def test_pricing_gap_block_stage_locked(monkeypatch):
 # ══════════════ 4. ozon_upload_node：失败显式带 "ozon_upload"，成功/pending 恒空 ══════════════
 
 def _payload():
-    """最小合法 payload（节点对缺字段只告警不阻断）。"""
-    return {"items": [{"name": "Тест", "offer_id": _OFFER, "price": "100", "old_price": "120"}]}
+    """最小合法 payload（节点对缺字段只告警不阻断）。
+
+    ⚠️ v0.77.1 起必须带 images：上传节点零图硬闸（CREATE 项 0 图上传前阻断）——
+    本文件测 failed_stage 通道语义，与图片策略无关。
+    """
+    return {"items": [{"name": "Тест", "offer_id": _OFFER, "price": "100", "old_price": "120",
+                       "images": ["https://img.example.com/1.jpg"]}]}
 
 
 def _upload_state(import_submitted=False, ozon_payload=None, client_id="123", api_key="key"):

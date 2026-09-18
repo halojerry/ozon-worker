@@ -468,6 +468,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price="",
                 notice=_notice,
                 error_message=_error,
+                error_code="LOCAL_PRICE_GAP_BLOCKED",
                 failed_stage="pricing",
             )
         if _verdict == "warn":
@@ -492,6 +493,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             old_price="",
             # ⚠️ v0.14 P1-4: [PRICING_FAILED] 标记，graph 检测后阻断管线，不再用 ¥1000 兜底上架
             error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}",
+            # ✅ v0.77.2: 错误码透出（留存表 error_code 列）
+            error_code="LOCAL_PRICING_FAILED",
             # ✅ v0.73 Task8: 失败出口显式带 failed_stage（默认值已归零，见上）
             failed_stage="pricing",
         )

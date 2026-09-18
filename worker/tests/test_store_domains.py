@@ -79,7 +79,8 @@ def _domain_mock(calls=None):
                  "status": "in_progress"},
             ], "has_next": False}
         if path == "/v1/actions":
-            return {"result": {"actions": [{"action_id": 1}, {"action_id": 2}]}}
+            # v0.77.2 (S2): /v1/actions 走 ozon_get，真实 200 响应 result 是**数组**
+            return {"result": [{"action_id": 1}, {"action_id": 2}]}
         if path == "/v2/warehouse/list":
             return {"warehouses": [{"warehouse_id": 1020005025772440, "name": "viola", "is_rfbs": False}]}
         if path == "/v1/analytics/data":
@@ -97,7 +98,9 @@ def _domain_mock(calls=None):
 
 def test_domains_sync_and_persist(cred):
     tenant, cid = cred
-    with patch("utils.ozon_client.ozon_post", side_effect=_domain_mock()):
+    # v0.77.2 (S2): actions 域走 ozon_get，与 ozon_post 同 handler 双打
+    with patch("utils.ozon_client.ozon_post", side_effect=_domain_mock()), \
+         patch("utils.ozon_client.ozon_get", side_effect=_domain_mock()):
         r = store_sync_service.sync_store(tenant, cid, force_domains=True)
     assert r["returns"]["synced"] == 1
     assert r["actions"]["count"] == 2
@@ -125,7 +128,9 @@ def test_domains_sync_and_persist(cred):
 
 def test_domains_throttled_by_watermark(cred):
     tenant, cid = cred
-    with patch("utils.ozon_client.ozon_post", side_effect=_domain_mock()):
+    # v0.77.2 (S2): actions 域走 ozon_get，首轮同样双打
+    with patch("utils.ozon_client.ozon_post", side_effect=_domain_mock()), \
+         patch("utils.ozon_client.ozon_get", side_effect=_domain_mock()):
         store_sync_service.sync_store(tenant, cid, force_domains=True)
 
     def _throttle_mock(calls):
@@ -142,7 +147,9 @@ def test_domains_throttled_by_watermark(cred):
         return _handler
 
     calls = []
-    with patch("utils.ozon_client.ozon_post", side_effect=_throttle_mock(calls)):
+    # 节流轮：ozon_get 同样纳入监控——若域未节流被误拉起，path 会进 calls 被断言抓获
+    with patch("utils.ozon_client.ozon_post", side_effect=_throttle_mock(calls)), \
+         patch("utils.ozon_client.ozon_get", side_effect=_throttle_mock(calls)):
         store_sync_service.sync_store(tenant, cid, force_domains=False)
     assert not any(p in calls for p in (
         "/v1/returns/list", "/v1/actions", "/v2/warehouse/list",

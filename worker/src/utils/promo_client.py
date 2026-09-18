@@ -9,10 +9,11 @@ transport）——**不调用 ozon-mcp 的异步 BaseClient**（服务端约束�
     本模块全部端点为「/v1/actions…」或「/v1/seller-actions…」（Seller API）。
 
 调用约定（重要）：
-    - list_actions /v1/actions（swagger 为 GET），但 worker 运输层仅 `ozon_post`
-      支持 POST —— 我们按 POST 调用（Ozon 对这些端点容忍 POST）。测试断言其为
-      worker ozon_post（endpoint=/v1/actions），**绝不触碰 /api/client/*（Performance
-      API，需独立广告 OAuth，属 roadmap）**。
+    - list_actions /v1/actions（swagger 为 GET）——✅ 2026-09-18 起走 `utils.ozon_client.ozon_get`
+      （GET-only 契约：method=GET、parameters=[]、无请求体 schema；旧「Ozon 容忍 POST」假设
+      被生产证伪——POST /v1/actions 恒 405，S2 事故，store_sync 促销同步同款已同批修复）。
+      其余写操作端点走 `ozon_post`，**绝不触碰 /api/client/*（Performance API，需独立广告
+      OAuth，属 roadmap）**。
     - add_action_products（/v1/seller-actions/products/add）=「活动报名」。
     - create_discount（/v1/seller-actions/create/discount）=「自建促销」。
 
@@ -21,7 +22,7 @@ API spec v2.1 移除（deprecated_methods.yaml），**本模块永不使用** �
 折扣管理已迁至卖家 UI，无公开 API。
 
 参数/必填字段以 swagger schema 为准（req body `required` 数组）：
-    list_actions:            {limit?, offset?}（endpoint 无 body 参数，Ozon 容忍）
+    list_actions:            GET 无 body 参数（旧 {limit?, offset?} 形参保留但不再发出）
     action_products:         {action_id必填, offset, limit?}
     create_discount:         {date_end必填, date_start必填, min_action_percent必填, title?}
     create_voucher:          {title必填, budget必填, date_start必填, date_end必填,
@@ -85,20 +86,31 @@ def _post(client_id: str, api_key: str, endpoint: str, body: dict[str, Any], tim
     return resp.get("result") or {}
 
 
+def _get(client_id: str, api_key: str, endpoint: str, timeout: int = 30) -> list | dict:
+    """统一 GET 包装（GET-only 端点专用）：返回 `result`（数组或对象）；异常由 ozon_get 抛出。"""
+    if endpoint not in ALLOWED_ENDPOINTS:
+        raise ValueError(f"promo_client 白名单拒绝端点 {endpoint}")
+    # 延迟导入（对齐 _post 注释）：本地 import 保持可 mock。
+    from utils.ozon_client import ozon_get
+
+    resp = ozon_get(client_id, api_key, endpoint, timeout=timeout, language="RU")
+    return resp.get("result") or []
+
+
 def list_actions(
     client_id: str,
     api_key: str,
     limit: int | None = None,
     offset: int | None = None,
     timeout: int = 30,
-) -> dict:
-    """参与中的营销活动列表（/v1/actions）。"""
-    body: dict[str, Any] = {}
-    if limit is not None:
-        body["limit"] = limit
-    if offset is not None:
-        body["offset"] = offset
-    return _post(client_id, api_key, ENDPOINT_LIST_ACTIONS, body, timeout=timeout)
+) -> list:
+    """参与中的营销活动列表（/v1/actions，GET-only）。
+
+    ⚠️ 2026-09-18 (S2)：/v1/actions swagger 契约 method=GET、parameters=[]、无请求体
+    schema——旧 POST 实现恒 405（生产实锤）。响应 `result` 是**数组**，原样返回；
+    `limit`/`offset` 形参保留兼容旧签名（GET 无 body 参数，Ozon 忽略，不再发出）。
+    """
+    return _get(client_id, api_key, ENDPOINT_LIST_ACTIONS, timeout=timeout)
 
 
 def action_products(

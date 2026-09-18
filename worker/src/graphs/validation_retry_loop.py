@@ -206,6 +206,11 @@ class ValidationRetryLoopOutput(BaseModel):
     errors: list = Field(default_factory=list, description="Ozon官方错误数组（终态透出，wrapper→主图）")
     # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（留存表 moderation_texts 列 + notice 兜底素材）
     decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
+    # ✅ v0.77.2: 终态错误码透出（子图 output_schema 过滤根因修复）——state.error_code
+    # （LOCAL_TITLE_CATEGORY_MISMATCH / DESCRIPTION_DECLINE / LOCAL_CATEGORY_RECATEGORIZE_FAILED
+    # 等）此前未在本 Output 声明，被 output_schema 静默吞掉 → wrapper/GraphOutput/
+    # listing_result_log.error_code 恒空（生产 125 行空串根因）。成功终态清空。
+    error_code: str = Field(default="", description="终态错误码（成功恒空）")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -2316,6 +2321,7 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error("❌ repair_pricing: pricing_info 无有效价格，阻断修复")
                 state.error_message = "[PRICING_FAILED] 无有效定价信息，无法修复价格"
                 state.failed_stage = "pricing"
+                state.error_code = state.error_code or "LOCAL_PRICING_FAILED"  # v0.77.2
                 return state
 
             # F-F02（2026-09-09 审计）：划线价/促销底线派生收敛唯一入口
@@ -3323,6 +3329,8 @@ def should_continue(state: ValidationRetryLoopState) -> str:
     if getattr(state, "needs_recategorization", False):
         state.is_valid = False
         state.upload_status = "failed"
+        # ✅ v0.77.2: 终态失败必须带码（此前只写 error_message → 留存表 error_code 空）
+        state.error_code = "LOCAL_CATEGORY_RECATEGORIZE_FAILED"
         if not state.error_message:
             state.error_message = "类目需人工确认：自动重配类目无解，已停止重传"
         logger.warning(
@@ -3532,6 +3540,8 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             logger.error("❌ product/import(UPDATE) 失败")
             state.upload_status = "failed"
             state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
+            # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
+            state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
             return state
 
     # 类型 4: 不可修复 → 直接标记成功
@@ -3565,10 +3575,12 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
         state.upload_status = "failed"
         state.error_message = f"重新上传失败: {error_msg}"
+        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
     except Exception as e:
         logger.error(f"❌ 全量 import(CREATE) 异常: {e}")
         state.upload_status = "failed"
         state.error_message = f"重新上传异常: {str(e)}"
+        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
 
     return state
 
@@ -3604,6 +3616,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error("❌ task_id为空，无法查询状态")
         state.upload_status = "failed"
         state.error_message = "task_id为空"
+        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
         return state
 
     # ✅ 防御：检测 UUID 格式（ingest_node 生成的系统 task_id）
@@ -3612,6 +3625,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id 仍为系统 UUID（上传失败未覆盖）: {task_id}")
         state.upload_status = "failed"
         state.error_message = "Ozon 上传失败，未获取到 Ozon task_id"
+        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
         return state
 
     try:
@@ -3620,6 +3634,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id转换失败：{task_id}")
         state.upload_status = "failed"
         state.error_message = f"task_id格式错误: {task_id}"
+        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
         return state
 
     payload: Dict[str, Any] = {"task_id": task_id_int}
@@ -3643,6 +3658,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error(f"❌ 响应中无items数据(attempt {attempt}/{max_polls})")
                 if attempt == max_polls:
                     state.upload_status = "failed"
+                    state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
                 continue
 
             first_item: Dict[str, Any] = result_items[0]
@@ -3721,11 +3737,13 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态失败: {_oe}"
+                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
         except Exception as e:
             logger.error(f"❌ 查询状态异常(attempt {attempt}/{max_polls}): {e}")
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态异常: {str(e)}"
+                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
 
     return state
 
@@ -3800,6 +3818,9 @@ def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationR
         retry_count=state.retry_count,
         error_type=state.error_type,
         error_message=LOCAL_TITLE_MISMATCH_BLOCK_REASON,
+        # ✅ v0.77.2: 本出口码必须显式透出（此前只写子图 state，被 output_schema 吞掉
+        # → 生产 listing_result_log.error_code 全空串的根因）
+        error_code="LOCAL_TITLE_CATEGORY_MISMATCH",
         product_id=state.product_id if state.product_id else None,
         upload_status="blocked",
         moderation_status=state.moderation_status,
@@ -3818,6 +3839,10 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
     """最终结果节点：返回修复结果"""
     # ✅ 如果重新上传成功，清除之前的错误消息
     final_error_message = state.error_message
+    # ✅ v0.77.2: 终态错误码透出——成功清空（不把历史错误码带到成功任务），
+    # 失败保留 state.error_code（parse_error 写入的 Ozon 码 / 本地码）。此前不透出，
+    # 子图 output_schema 与本返回值双重丢码 → listing_result_log.error_code 恒空。
+    final_error_code = "" if state.upload_status == "success" else str(getattr(state, "error_code", "") or "")
     if state.upload_status == "success":
         final_error_message = ""
         logger.info("✅ 重新上传成功，清除之前的错误消息")
@@ -3837,6 +3862,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         retry_count=state.retry_count,
         error_type=state.error_type,
         error_message=final_error_message,
+        # ✅ v0.77.2: 终态错误码透出（成功已在上方清空）
+        error_code=final_error_code,
         product_id=state.product_id if state.product_id else None,
         upload_status=state.upload_status,
         moderation_status=state.moderation_status,
