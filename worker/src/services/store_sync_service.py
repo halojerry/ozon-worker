@@ -650,6 +650,26 @@ def _set_orders_error_no_watermark(tenant_id: str, credential_id: str, error: st
         ), {"t": tenant_id, "c": credential_id, "e": error})
 
 
+def _set_products_error_no_watermark(tenant_id: str, credential_id: str, error: str) -> None:
+    """商品错误回写,但**不推进** products_last_synced_at(商品全量同步失败不推进水位)。
+
+    ✅ v0.77.2（死列复活）：与 `_set_orders_error_no_watermark` 对称。此前 `_sync_products`
+    失败分支只返回局部 error、**从不落库** products_error（只在成功分支调
+    `_set_sync_error(…, "")`）——products_error 全库恒空的直接原因之一。
+    """
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            """
+            INSERT INTO credential_sync_state
+                (tenant_id, credential_id, orders_error, products_error, updated_at)
+            VALUES (:t, :c, '', :e, NOW())
+            ON CONFLICT (tenant_id, credential_id) DO UPDATE SET
+                products_error = :e,
+                updated_at = NOW()
+            """
+        ), {"t": tenant_id, "c": credential_id, "e": error})
+
+
 def _as_utc(dt: datetime.datetime) -> datetime.datetime:
     """v0.77.1 (S1): 任意 datetime → UTC aware。naive 按 UTC 解释（历史值兜底），
     aware 一律 astimezone——timestamptz 列经 psycopg2 取回带**会话时区**
@@ -893,7 +913,10 @@ def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: 
             break
 
     _archive_missing(tenant_id, credential_id, seen_ids)
-    if not error:
+    if error:
+        # ✅ v0.77.2（死列复活）：失败必须落 products_error（非致命，不推进水位）
+        _set_products_error_no_watermark(tenant_id, credential_id, error)
+    else:
         _set_sync_error(tenant_id, credential_id, "products", "")
     return {"synced": len(seen_ids), "error": error}
 
@@ -1088,6 +1111,12 @@ def _set_sync_error(tenant_id: str, credential_id: str, kind: str, error: str) -
     """同步状态 upsert（orders/products 各自的最后时间 + 错误）。
 
     两列错误字段都必须写入（另一列置空），否则 NOT NULL 约束报错。
+
+    ✅ v0.77.2（死列复活）：ON CONFLICT 只更新**本域**列,绝不 `other_err = ''`——
+    `sync_store` 无条件依次跑 `_sync_orders`→`_sync_products`,旧写法会让后跑的
+    products 成功写把前一步 `_set_orders_error_no_watermark` 刚落库的订单错误原地抹掉,
+    生产 credential_sync_state 全库 13 行 orders_error 恒空的元凶。INSERT 分支保留
+    `other_err` 置空仅为满足 NOT NULL 缺省。
     """
     col_ts = "orders_last_synced_at" if kind == "orders" else "products_last_synced_at"
     col_err = "orders_error" if kind == "orders" else "products_error"
@@ -1100,7 +1129,6 @@ def _set_sync_error(tenant_id: str, credential_id: str, kind: str, error: str) -
             ON CONFLICT (tenant_id, credential_id) DO UPDATE SET
                 {col_ts} = NOW(),
                 {col_err} = :err,
-                {other_err} = '',
                 updated_at = NOW()
             """
         ), {"t": tenant_id, "c": credential_id, "err": error})
