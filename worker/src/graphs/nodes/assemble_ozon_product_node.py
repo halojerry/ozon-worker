@@ -1713,8 +1713,13 @@ def assemble_ozon_product_node(
         # L0 会误导一致性豁免语义且审计层分不清来源。
         if match_layer != "Skill":
             match_layer = "L0"
-            match_confidence = 0.95
-        logger.info(f"   ✅ L0/Skill 命中覆盖: [{category_result['description_category_id']}/{category_result['type_id']}] (layer={match_layer})")
+        # ✅ fix/category-gate-authority-v1: 置信恢复移出 layer 守卫——
+        # 此前 L1696 无条件用文本 sim 重算 confidence（CN 标题 vs RU 类目结构性
+        # 低分），而本块只在 L0 层恢复 0.95、Skill 层跳过 → 权威直采（dc/tp 树已
+        # 解析）被 0.3 置信闸误杀（实证：manual 17027937/970896147 树中存在仍被
+        # 「置信度过低(0.25)」阻断）。树/学习表 ID 命中即权威，文本 sim 不适用。
+        match_confidence = 0.95
+        logger.info(f"   ✅ L0/Skill 命中覆盖: [{category_result['description_category_id']}/{category_result['type_id']}] (layer={match_layer}, conf={match_confidence:.2f})")
 
     # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选

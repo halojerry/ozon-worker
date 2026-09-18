@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.77.1] — 「原图上卡」根因三连修：权威类目置信闸 + 重传链 AI 图覆盖 + 收尾断言闸（2026-09-18）
+
+> 用户硬证据驱动（商品 6381680593 / 任务 bf71442e：prepare 明确装载 AI 图 5 张，卡上却全是 1688 原图）。
+> 三个 PR 各堵一条路径 + 一道防复发闸，全部本地 Docker 真链路活体验证（测试店 5381204）。
+
+### 修复①：Skill 权威直采被文本置信闸误杀（PR #33）
+- 根因：assemble 采纳块置信恢复困在 `match_layer != "Skill"` 守卫内——Skill 权威 0.95 被 L1696 无条件
+  文本 sim 重算覆盖（CN 标题 vs RU 类目结构性低分）后不再恢复 → 0.25 撞 0.3 闸，**树中明明存在的
+  (dc,tp) 被拦**（用户点破「不是有 id 吗」）。
+- 修复：L0/Skill 采纳命中即无条件恢复 0.95；自动匹配流零改动。
+- 活体：同一草稿修复前 0.25/0.25/0.125 三连拦 → 修复后 approved + 卡图 4×896×1200 全 3:4 生图
+  （task b2d59341 / product 6381800470）。
+
+### 修复②：重传/修复链用 draft 原图覆盖 AI 生成图（PR #34，6381680593 直接根因）
+- 根因：首传后 pictures 类错误触发 `_restore_draft_images_to_payload` 无条件用 draft 图整体替换载荷
+  （本意只救「首传空载荷」）；R4 类目重建取图 draft 优先于载荷 AI 图（顺序反了）。
+- 修复：`_payload_has_generated_images` 前置判断 + restore 自保护（载荷含 `file/images/` 生成图即拒
+  恢复）；R4 偏序反转（`_prefer_generated_payload_images`）；restore 对裸链同步转存 COS。
+- **行为变更（用户拍板砍 COS 支出）**：入箱异步预镜像默认停用（`DRAFT_IMAGE_MIRROR=1` 应急回退）——
+  draft.images 保留 1688 裸链，COS 只存「提交时按需转存 + 生成图」。
+- 回归：`test_retry_image_restore_guard` 12 用例 + 镜像面 37 用例。
+
+### 修复③：上架收尾卡片图断言（PR #35，防复发闸——错图无论从哪条路径再来，收尾拦下）
+- `utils/card_image_assert`：数量校验恒做；载荷全 AI 图 → 卡首图 3:4 比例校验（JPEG/PNG 头解析手写
+  零新依赖；卡图域限 Ozon CDN 白名单；下载复用 image_url_processor）。
+- `ozon_status` all_approved 出口接线：mismatch/unverified 均先 15s 复查（审核通过瞬间 CDN 对象常
+  未就绪即判误伤——活体实证）；仍 mismatch → `failed CARD_IMAGE_MISMATCH` 拒绝假成功；unverified
+  放行留痕（`image.verify` 遥测）；断言异常绝不拦成功。
+- `OzonStatusInput` 补 `ozon_payload` 声明（langgraph channel 过滤纪律，漏声明断言恒 skipped）。
+- 活体：task b989b085 → completed 6383066197，断言真实触发（AI 载荷识别→数量过→时序降级留痕）；
+  容器内同 URL 复下解析 896×1200。
+- 回归：`test_card_image_assert` 12 用例。
+
+### 部署注意
+- 升级后新单生效；**已上线的原图卡不会自愈**（含 6380430002/6380422490 等）——存量 55 个有 AI 图
+  商品批量重推脚本随后出（用户③）。
+- COS 存储结构变化：新草稿不再产生 `draft-images/` 前缀对象；存量对象不清理（无生命周期影响）。
+
 ## [0.77.0] — 生图参考白名单认领本方 COS 镜像图：「原图上卡」事故修复 + gpt-image-2.5 切换（2026-09-17）
 
 > 生产事故修复（2026-09-16 取证，当日 PR #30 合入 dev）：用户批量新上产品全部上了 1688 原图。

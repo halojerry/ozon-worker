@@ -636,6 +636,9 @@ class OzonStatusInput(BaseModel):
     # pricing_info（promo_price/price/old_price）由 pricing_node 产出、GlobalState 累积，需在此声明
     # 才会进入 ozon_status 的 input channel（否则被 schema 过滤剥掉，同 v0.27 moderation_status 教训）。
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（含 promo_price 促销底线）")
+    # ✅ fix/upload-image-assertion-v1: 收尾卡片图断言要读上传载荷 items[0].images
+    # （同 v0.27 教训——不声明进 Input 会被 langgraph channel 过滤静默剥掉，断言恒 skipped）。
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="上传载荷（收尾卡片图断言读取 items[0].images）")
 
 
 class OzonStatusOutput(BaseModel):
