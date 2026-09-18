@@ -150,8 +150,10 @@ def _sync_returns(tenant_id: str, credential_id: str, client_id: str, api_key: s
     except (ValueError, TypeError):
         since_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
     to_dt = datetime.datetime.now(datetime.timezone.utc)
-    since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    to = to_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # ✅ v0.77.1 (S1): 同款 strftime 直标 UTC 隐患收口——存量 last_synced_at 可能是
+    # naive 或带任意时区的 ISO 串，统一经 _fmt_utc 转真 UTC。
+    since = _fmt_utc(since_dt)
+    to = _fmt_utc(to_dt)
     synced = 0
     offset = 0
     try:
@@ -225,15 +227,25 @@ def _upsert_returns(tenant_id: str, credential_id: str, items: list) -> None:
 
 def _sync_actions(tenant_id: str, credential_id: str, client_id: str, api_key: str,
                   force: bool = False) -> dict:
-    """促销/活动计数(/v1/actions,60min 节流)→ domain_state.actions.count(快照真值)。"""
-    from utils.ozon_client import ozon_post
+    """促销/活动计数(/v1/actions,60min 节流)→ domain_state.actions.count(快照真值)。
+
+    ✅ v0.77.1 (S2 修复): /v1/actions 官方契约仅 GET（swagger method=GET、
+    parameters=[]、请求体 schema=null）——旧 ozon_post 调用永久 405（2026-09-12
+    生产实锤，每轮调度必现）。且 200 响应 `result` 是**数组**——解析 list 优先、
+    对象形态（result.actions/result.items）兼容防结构变动再断。
+    """
+    from utils.ozon_client import ozon_get
     if not _domain_due(tenant_id, credential_id, "actions", _ACTIONS_INTERVAL_MIN, force):
         return {"count": None, "error": "", "skipped": True}
     try:
-        resp = ozon_post(client_id, api_key, "/v1/actions", {"limit": 100, "offset": 0},
-                         timeout=30, language="RU")
-        result = resp.get("result") or resp
-        actions = result.get("actions") or result.get("items") or []
+        resp = ozon_get(client_id, api_key, "/v1/actions", timeout=30, language="RU")
+        result = resp.get("result") if isinstance(resp, dict) else None
+        if isinstance(result, list):
+            actions = result
+        elif isinstance(result, dict):
+            actions = result.get("actions") or result.get("items") or []
+        else:
+            actions = []
         count = len(actions)
     except Exception as exc:
         logger.warning("促销同步失败 tenant=%s store=%s: %s",
@@ -486,8 +498,17 @@ def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: st
         since_dt = _orders_since(tenant_id, credential_id)
         to_dt = datetime.datetime.now(datetime.timezone.utc)
         cursor = ""
-    since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    to = to_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # ✅ v0.77.1 (S1 修复): 窗口统一转真 UTC 再格式化——水位/续传窗口可能带 +08:00
+    # 会话时区，旧 strftime("…Z") 直标 UTC → since > to → Ozon 400（S1 事故）。
+    # 防御 clamp：水位异常落到未来（时钟漂移/脏数据）→ since 收敛到 to−重叠，
+    # 绝不发出 since>=to（同格式字符串字典序=时间序）。
+    to_s = _fmt_utc(to_dt)
+    since_s = _fmt_utc(since_dt)
+    if since_s >= to_s:
+        since_dt = _as_utc(to_dt) - datetime.timedelta(hours=_SYNC_OVERLAP_HOURS)
+        since_s = _fmt_utc(since_dt)
+    since = since_s
+    to = to_s
 
     synced = 0
     truncated = False
@@ -598,8 +619,31 @@ def _set_orders_error_no_watermark(tenant_id: str, credential_id: str, error: st
         ), {"t": tenant_id, "c": credential_id, "e": error})
 
 
+def _as_utc(dt: datetime.datetime) -> datetime.datetime:
+    """v0.77.1 (S1): 任意 datetime → UTC aware。naive 按 UTC 解释（历史值兜底），
+    aware 一律 astimezone——timestamptz 列经 psycopg2 取回带**会话时区**
+    （生产 Asia/Shanghai +08:00），不是 UTC。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def _fmt_utc(dt: datetime.datetime) -> str:
+    """v0.77.1 (S1): 任意 datetime → "YYYY-MM-DDTHH:MM:SSZ"（真 UTC，同格式可字典序比较）。
+
+    ⚠️ 同步窗口构造必须经此——禁裸 strftime("…Z")：把 +08 挂钟时间硬标成 UTC，
+    since 落到真实未来 8 小时 → Ozon 400 "filter.to must be after the filter.since"
+    （2026-09-12 生产实锤，每轮调度必现）。回归：tests/test_sync_window_tz_v077.py。
+    """
+    return _as_utc(dt).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _orders_since(tenant_id: str, credential_id: str) -> datetime.datetime:
-    """增量起点：上次同步 − 1h 重叠；从未同步 → 90 天前。"""
+    """增量起点：上次同步 − 1h 重叠；从未同步 → 90 天前。
+
+    ⚠️ v0.77.1: 返回值可能带会话时区（timestamptz 取回 +08:00）——消费方必须经
+    _fmt_utc/_as_utc 转真 UTC，不得直接 strftime。
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
     row = _sync_state_row(tenant_id, credential_id)
     last = (row.orders_last_synced_at if row else None)

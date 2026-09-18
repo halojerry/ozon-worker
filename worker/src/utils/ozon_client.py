@@ -146,6 +146,77 @@ def ozon_post(
         raise
 
 
+def ozon_get(
+    client_id: str,
+    api_key: str,
+    endpoint: str,
+    timeout: int = 60,
+    language: str = "ZH_HANS",
+) -> dict[str, Any]:
+    """调用 Ozon Seller API（GET），自动记录调用日志。
+
+    ✅ v0.77.1 (S2): 与 ozon_post 同构（全局限流 / 429+5xx tenacity 重试 /
+    结构化日志 / 共享连接池），用于**仅支持 GET** 的端点——/v1/actions（列表促销）
+    官方契约 method=GET、parameters=[]、无请求体 schema；store_sync 促销同步此前
+    误用 ozon_post 永久 405（2026-09-12 生产实锤）。写 Ozon 调用前先用
+    mcp ozon_describe_method 核对 method，GET-only 端点一律走本函数。
+
+    Raises:
+        同 ozon_post（OzonError 及子类 / requests 网络异常）。
+    """
+    url = f"{BASE_URL}{endpoint}"
+    headers = {
+        "Client-Id": client_id,
+        "Api-Key": api_key,
+    }
+    if language:
+        headers["Accept-Language"] = language
+
+    # 速率限制：与 ozon_post 同口径（重试循环之外 acquire 一次）
+    if not _rate_limiter.acquire(endpoint):
+        logger.warning("Ozon 限流器等待超时(%s)——fail-open 放行，注意 429 风险", endpoint)
+
+    start = time.monotonic()
+    try:
+        from utils.http_session import session as _shared_session
+        for attempt in Retrying(
+            stop=stop_after_attempt(_MAX_RETRIES),
+            wait=_wait_strategy,
+            retry=retry_if_exception_type((OzonRateLimitError, OzonServerError)),
+            reraise=True,
+        ):
+            with attempt:
+                resp = _shared_session.get(url, headers=headers, timeout=timeout)
+                duration_ms = (time.monotonic() - start) * 1000
+                log_ozon_api_call(
+                    method="GET",
+                    endpoint=endpoint,
+                    status_code=resp.status_code,
+                    duration_ms=duration_ms,
+                    request_summary=None,
+                    response_summary=_summarize_response(endpoint, resp) if resp.ok else None,
+                    error=None if resp.ok else resp.text[:500],
+                )
+                _raise_for_status(resp, endpoint)
+                resp.raise_for_status()
+                return resp.json()
+
+    except requests.exceptions.Timeout:
+        duration_ms = (time.monotonic() - start) * 1000
+        log_ozon_api_call(
+            method="GET", endpoint=endpoint, status_code=0,
+            duration_ms=duration_ms, error="timeout",
+        )
+        raise
+    except requests.exceptions.ConnectionError as e:
+        duration_ms = (time.monotonic() - start) * 1000
+        log_ozon_api_call(
+            method="GET", endpoint=endpoint, status_code=0,
+            duration_ms=duration_ms, error=str(e)[:200],
+        )
+        raise
+
+
 def ozon_check_quota(
     client_id: str,
     api_key: str,
