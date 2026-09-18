@@ -556,6 +556,9 @@ class OzonUploadOutput(BaseModel):
     # ✅ v0.73 Task8: 默认值归零（operator.add 拼接粘连根治，见 PricingOutput 同注释）——
     # 失败出口由 ozon_upload_node 显式带 "ozon_upload"，成功恒空。
     failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 ozon_upload，成功恒空）")
+    # ✅ v0.77.1: 错误码透出（GlobalState/GraphOutput 已有同名 channel——加字段即透传，
+    # listing_result_log.error_code 列自动取到）。首个使用者：零图硬闸 LOCAL_IMAGES_MISSING。
+    error_code: str = Field(default="", description="错误码（Ozon 错误码或内部错误码）")
     stages: Dict[str, str] = Field(default_factory=dict, description="节点状态标记")
 
 
