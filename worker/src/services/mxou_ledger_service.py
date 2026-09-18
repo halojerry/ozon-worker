@@ -1,7 +1,11 @@
 """MXOU 调用台账（BL-10，repo-gov B2-β）——LLM 网关调用审计（fire-and-forget）。
 
 record_call 是**唯一**写入口，接口契约已锁定（BL-08 接线方按此调用）：
-    record_call(*, tenant_id: str | None, token_fp: str, endpoint: str) -> None
+    record_call(*, tenant_id: str | None, token_fp: str, endpoint: str,
+                model: str | None = None) -> None
+
+v0.77.2：补 model 列（观测修复）——调用方从 endpoint 'image_gen:<model>' 拆分或
+直接传请求参数 model；旧行 NULL 不回填。库内**不写 cost 金额**（真钱数只有网关侧有）。
 
 关键约束（红线）：**绝不影响业务调用路径**——
 1. 每次调用开独立短事务（get_engine().begin()）插入一行，不复用业务 session
@@ -25,28 +29,38 @@ logger = logging.getLogger(__name__)
 
 _ENDPOINT_MAX = 200
 _TOKEN_FP_MAX = 64
+_MODEL_MAX = 80
 
 
-def record_call(*, tenant_id: str | None, token_fp: str, endpoint: str) -> None:
+def record_call(
+    *,
+    tenant_id: str | None,
+    token_fp: str,
+    endpoint: str,
+    model: str | None = None,
+) -> None:
     """记一次 MXOU 调用（fire-and-forget，同步短插入，整体吞错）。
 
     Args:
         tenant_id: 租户（user_id）；匿名/解析失败场景传 None（列可空）
         token_fp: token 指纹（sha256 hex，绝不明文 key；写入侧截 64）
         endpoint: 网关端点路径（写入侧截 200）
+        model: 模型 id（v0.77.2，可空；写入侧截 80）——按模型对账费用用
     """
     try:
         with get_engine().begin() as conn:
             conn.execute(
                 text(
-                    "INSERT INTO mxou_call_ledger (called_at, tenant_id, token_fp, endpoint) "
-                    "VALUES (:ts, :tenant_id, :token_fp, :endpoint)"
+                    "INSERT INTO mxou_call_ledger "
+                    "(called_at, tenant_id, token_fp, endpoint, model) "
+                    "VALUES (:ts, :tenant_id, :token_fp, :endpoint, :model)"
                 ),
                 {
                     "ts": time.time(),
                     "tenant_id": tenant_id,
                     "token_fp": (token_fp or "")[:_TOKEN_FP_MAX],
                     "endpoint": (endpoint or "")[:_ENDPOINT_MAX],
+                    "model": (str(model)[:_MODEL_MAX] if model else None),
                 },
             )
     except Exception as exc:
