@@ -56,6 +56,7 @@
   常量旁注明「我方 COS 源 URL 是 Ozon 转存前的合法返回」；Ozon CDN 三域与外链拒绝回归不变。
   **TODO（跨批遗留）**：`is_all_ai_images` 内联 `/file/images/` marker 待并行批E 的
   `utils.image_source.has_generated_images` 合并后切换（接线方收口，本批不自建该模块）。
+  （批H H3 已收口）
 - **C2 复查 1×15s → 3×20s**（`graphs/nodes/ozon_status_node.py`）：mismatch/unverified 复查
   循环化——env `CARD_ASSERT_RETRIES`（默认 3）/ `CARD_ASSERT_INTERVAL_S`（默认 20）可覆写；
   任一次复查转 ok 提前收口；复查打点带 `复查 N/M 次`。mismatch 语义不变（走满预算仍不一致
