@@ -209,6 +209,21 @@ def _mark_ok(probe: str, ok: bool = True) -> None:
         pass
 
 
+def _seller_login_memo_confirmed() -> bool:
+    """seller 登录确认 memo 是否近期在案（进程内 30min / 落盘 600s 双层）。
+
+    修正轮（批A 评审 Important）：seller_login 负缓存命中时必须先问 memo——
+    用户刚完成登录（上一条命令的 wait_for_seller_login / 流程内等待成功都会
+    mark_seller_login_confirmed 落盘）时，负缓存窗不得压过登录事实，否则
+    discover-task 会拿陈旧失败 exit 1 继续让用户「登录后重跑」。
+    """
+    try:
+        from scripts.lib.ozon_seller_analytics import seller_login_confirmed_recently
+        return bool(seller_login_confirmed_recently())
+    except Exception:
+        return False
+
+
 # ── 管线就绪入口 ──
 
 
@@ -260,13 +275,19 @@ def ensure_pipeline_ready(pipeline: str, *, profile_dir: str | None = None,
                 if entry.get("ok"):
                     results[probe] = True
                     cached.append(probe)
+                    continue
+                if probe == "seller_login" and _seller_login_memo_confirmed():
+                    # 修正轮：负缓存遇上「登录 memo 近期已确认」→ 视作未命中，
+                    # 落到下方正常实检（probe_seller_login 经 memo 秒回 True），
+                    # 后续修复链（auto-import/等待/fail-fast 判定）随实检结果走
+                    logger.info("探针 seller_login 负缓存但登录 memo 已确认，重探放行")
                 else:
                     # 负缓存命中（A2）：600s 内不重试探针、不触发 prewarm 导航
                     logger.info("探针 %s 负缓存命中（%ds 内不重试/不预热）",
                                 probe, READINESS_TTL_SECONDS)
                     results[probe] = False
                     hints[probe] = _HINTS.get(probe, "")
-                continue
+                    continue
 
         ok = bool(_PROBES[probe](CDP_URL))
 

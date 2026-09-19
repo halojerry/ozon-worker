@@ -27,6 +27,11 @@ from scripts.lib import readiness as rd  # noqa: E402
 def cache_store(monkeypatch) -> dict:
     """密闭：摘除 pytest 快通道 + 磁盘缓存换进程内 dict（可检 TTL/值形状）。"""
     monkeypatch.setattr(rd, "_under_pytest", lambda: False)
+    # seller 登录 memo 层（seller_login 负缓存豁免链路）同为生产语义：
+    # 摘除 osa 的 pytest 守卫（memo 落盘读才可达）+ 清进程内 memo 防跨文件泄漏
+    import scripts.lib.ozon_seller_analytics as _osa
+    monkeypatch.setattr(_osa, "_under_pytest", lambda: False)
+    monkeypatch.setattr(_osa, "_LOGIN_CONFIRMED_MONO", 0.0)
     store: dict = {}
 
     def _get(ns, key):
@@ -142,3 +147,59 @@ def test_expired_negative_cache_probes_again(cache_store, monkeypatch):
     r = rd.ensure_pipeline_ready("discover", interactive=False)
     assert r["results"]["aibuy_token"] is False
     assert len(calls) == 1, "过期负缓存不得拦截实检"
+
+
+# ── 修正轮（评审 Important）：seller_login 负缓存不得压过登录确认 memo ──
+
+
+def test_seller_login_negative_cache_defers_to_login_memo(cache_store, monkeypatch):
+    """seller_login 负缓存 + 登录 memo 近期确认 → 视作缓存未命中重探放行。
+
+    病景：用户完成登录重跑 discover-task，若负缓存照旧 early-exit，命令仍
+    exit 1 提示「登录后重跑」——登录 memo（进程内 + 落盘双层）在场时必须
+    重探（probe_seller_login 经 check_seller_login 的 memo 秒回 True）。
+    """
+    monkeypatch.setattr(rd, "probe_chrome_cdp",
+                        lambda profile_dir=None, cdp_url=rd.CDP_URL: True)
+    seller_calls: list[int] = []
+
+    def _seller_probe(cdp_url):
+        seller_calls.append(1)
+        return True
+
+    monkeypatch.setitem(rd._PROBES, "seller_login", _seller_probe)
+    monkeypatch.setitem(rd._PROBES, "aibuy_token", lambda cdp_url: True)
+    # 预置：seller_login 负缓存（600s 窗内）+ 登录 memo 落盘在案
+    cache_store[("readiness", "seller_login")] = {
+        "value": {"ok": False}, "expires_at": time.time() + 600}
+    cache_store[("seller_login", "confirmed")] = {
+        "value": {"ok": True}, "expires_at": time.time() + 600}
+
+    r = rd.ensure_pipeline_ready("discover-task", interactive=False)
+
+    assert seller_calls == [1], "memo 已确认 → 负缓存视作未命中，必须重探"
+    assert r["results"]["seller_login"] is True
+    assert r["ok"] is True, "discover-task 不再被陈旧负缓存 fail-fast"
+
+
+def test_login_memo_only_unblocks_seller_login(cache_store, monkeypatch):
+    """memo 豁免仅限 seller_login：其他探针负缓存照常早退（不放大窗口）。"""
+    monkeypatch.setattr(rd, "probe_chrome_cdp",
+                        lambda profile_dir=None, cdp_url=rd.CDP_URL: True)
+    aibuy_calls: list[int] = []
+
+    def _aibuy_probe(cdp_url):
+        aibuy_calls.append(1)
+        return True
+
+    monkeypatch.setitem(rd._PROBES, "aibuy_token", _aibuy_probe)
+    monkeypatch.setitem(rd._PROBES, "seller_login", lambda cdp_url: True)
+    cache_store[("readiness", "aibuy_token")] = {
+        "value": {"ok": False}, "expires_at": time.time() + 600}
+    cache_store[("seller_login", "confirmed")] = {
+        "value": {"ok": True}, "expires_at": time.time() + 600}
+
+    r = rd.ensure_pipeline_ready("discover-task", interactive=False)
+
+    assert aibuy_calls == [], "非 seller_login 探针的负缓存不因 memo 解锁"
+    assert r["results"]["aibuy_token"] is False
