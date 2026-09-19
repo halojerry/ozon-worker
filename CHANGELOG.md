@@ -58,6 +58,12 @@
   对无界越限属性整属性丢弃（错填→不填），8962 等有界属性零影响。
 - 回归：`tests/test_value_limit_drop_v0773.py`（4）。
 
+### P7（skill）discover --non-interactive --auto-submit 自动确认
+- **根因**：cli.py 提交腿无差别 `input("确认提交？(y/N)")`——非交互管道读到
+  EOF 即「已取消」，自动提交永远走不到（gate 实测：1 条 profitable 白匹配）。
+- **修复**：`--non-interactive` 在场时自动确认（组合语义 = 无人值守）；交互
+  模式确认框保持不变。
+
 ### Gate 实测（本地 0.77.3 栈，测试店 5381204）
 - graph：6386133733 approved（修复前 2m09s 全链，含 4s Supabase 白烧）；修复后
   auth 段 4.0s→0s、字典 Step3 命中缓存 16ms。
