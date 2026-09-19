@@ -2,6 +2,46 @@
 
 ## [0.78.0] — 未发版
 
+### 批D fix/mxou-downgrade-visibility-v1 — 配置类生图错误响亮化 + ledger 成败
+
+> 动因（取证 I5，`docs/PLAN-image-source-hardening-v1.md` §0）：生产 48h 内 69 次
+> 「模型未配价/model_not_found」类 **400 配置性错误**被当普通失败重试后**静默降级**
+> （54 次降级、零告警），主槽配置错误持续时最多 **~15 次真实 POST/主图**白烧；
+> `mxou_call_ledger` 只记调用不记成败（有记录会被误判「已生效」）；生图节点入口
+> 静默 return（draft/token 缺失无日志）。worker 侧，skill 零改动。
+
+- **`MxouModelConfigError` 快停（`utils/mxou_api.py`，改此链前必读其注释）**：POST
+  响应 body 命中 `_MODEL_CONFIG_ERROR_KEYWORDS`（价格尚未由管理员配置/未配价/
+  model_not_found/no available channel/无可用渠道，TODO 注释可扩充）→ 该模型
+  **零重试、不降级**直接抛（带 model + body 摘要）。降级编排层捕获后：
+  `logger.error`（进 Sentry）+ **每 token+模型 每小时去重**的
+  `capture_task_event("image_model_config_error")` 通知，然后**继续剩余 fallback 链**
+  （banana 兜底可用性不变——只有配置错的模型被快跳）；链耗尽且终态为配置错误 →
+  上抛，main 槽 node-level 二次兜底循环（`main_image_gen_node`）对该异常立即
+  `break`。效果：配置错误从「~15 POST 静默烧」变「每模型 1 POST + 响亮告警 +
+  链内快跳」（主槽最坏 ~15 → **5 POST**）。非配置类失败的重试/降级行为逐字保持
+  （`test_image_gen_quota_fixes` 回归锁）。
+- **ledger 成败观测**：`mxou_call_ledger` 加列 `outcome`（NOT NULL，新行
+  'pending' → `finish_call` 回写 "ok"/"failed"/"config_error" 白名单）+ `duration_ms`
+  （该模型段耗时毫秒，可空）。`record_call` 改 `INSERT..RETURNING id` 返回
+  ledger_id；`finish_call` 单向回写（`WHERE outcome='pending'` 防覆盖）+ 全容错
+  （行不存在/列未迁移/DB 异常 → 吞掉 + debug 日志，红线：绝不影响业务路径）。
+  **幂等迁移** `init_data.migrate_ledger_outcome_v078`（ADD COLUMN IF NOT EXISTS +
+  存量行按成功口径回填 'ok'——迁移时刻无法区分历史成败，保持可读；结构性 DDL
+  响失败对齐 v0772 模式）。chat 调用同样回写 ok/failed（`_chat_attempt` 原样抽出，
+  行为零变化）。
+- **gen 节点入口日志补全**：main/social_proof/comparison/detail/scene_1/2/3 七节点
+  静默 `if not draft or not token: return` 补 INFO 日志（含缺失原因）；main 槽降级
+  文案「主模型 gpt-image-2 失败」陈旧硬编码修为引用实际 `get_image_model("main")`
+  变量（v0.77 切 2.5 起即失真）。白底/多角度两节点已有日志未动。
+- 测试：新增 `tests/test_mxou_config_error_v078.py` 33 用例（纯 mock：快停/零重试/
+  链内快跳/终态上抛/告警去重/ledger 回写与容错/迁移幂等两遍/节点入口日志/主槽
+  break）；`test_repo_gov_b2b_models_migration.py::test_mxou_call_ledger_table` 列
+  断言同步新 schema。⚠️ 已知（非本批引入，取证在案）：`test_image_gen_quota_fixes`
+  两用例在**多文件合跑**时偶发假阳性（余额缓存 30s TTL × 无 PG 环境
+  `record_call` 20s 连接重试放大 → fake session 响应队列错位）——单文件跑全绿，
+  基线 origin/dev c7344e1e 同批合跑同样失败（+2），与本批改动无关。
+
 ### 批B feat/skill-run-logging-v1 — 运行日志体系 + 一次性命令
 
 > 动因（用户反馈）：「运行日志没有明确，整个过程都是黑盒」+ agent 因提交后 fire-and-forget
