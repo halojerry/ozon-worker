@@ -726,7 +726,8 @@ def fetch_sales_analytics(
     skus = [str(s) for s in skus[:max_skus]]
 
     # ✅ v0.36 磁盘缓存（昂贵 CDP fetch，6h 复用）。key = sorted skus hash + lang，
-    # 语言维度防跨语言固化错误货币数据。只缓存有结果的（失败/未登录不缓存，可重试）。
+    # 语言维度防跨语言固化错误货币数据。只缓存有结果的；失败/空结果不写此缓存，
+    # 改开下方 A3 600s 负缓存窗（窗内早退不建 tab，过期后可重试）。
     from scripts.lib.cache import cache_get, cache_set
     cache_key = f"{','.join(sorted(skus))}|{lang}"
     cached = cache_get("seller_analytics", cache_key)
