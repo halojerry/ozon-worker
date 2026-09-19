@@ -88,6 +88,12 @@ class GlobalState(BaseModel):
     # 分档（match_layer=L0 且 dc/tp 未变 → L0 自证跳过；Skill→0.9；L1/R2b→0.7）。
     # last-write-wins（无自定义 reducer 需求，对齐 pricing_info dict 字段风格）。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（match_layer/confidence/dc/tp，L0 自证防护 + 写侧信任分档）")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源标记——prepare
+    # 计算（match_layer=Skill 或 draft.ozon_category.source ∈ 权威白名单 →
+    # "authoritative"），ozon_validate 消费（零交集预检对权威来源降级 warning 不拦）。
+    # last-write-wins（对齐 category_match_meta 风格）；prepare→validate 每一跳
+    # Input/Output 均已声明（AGENTS「input schema 纪律」，漏一跳被 channel 静默过滤）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
     # ✅ v0.67.1 wave②: prepare 归一后真值通道（last-write-wins，GraphOutput 透传
     # 供留存表记实际上传重量/尺寸——信封 draft 可能是 1688 原始垃圾值）
     final_weight_g: int = Field(default=0, description="prepare 归一后重量(g)，0=未走到 prepare")
@@ -480,6 +486,11 @@ class PrepareOzonUploadInput(BaseModel):
         default_factory=dict,
         description="Ozon属性字典值缓存（来自attributes_fetch_node，key=attribute_id字符串, value=字典值列表[{id,value,info}...]）"
     )
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: prepare 要读 assemble 写入的
+    # match_layer 计算权威类目标记（category_source）——langgraph 按节点 Input model
+    # 过滤 channel，不声明则恒空（v0.66/0.27 教训，AGENTS 红线）。类型对齐 GlobalState 同名字段。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict,
+                                                description="类目匹配元数据（match_layer/confidence，Q7 权威类目判定读 match_layer）")
 
 
 class PrepareOzonUploadOutput(BaseModel):
@@ -509,6 +520,10 @@ class PrepareOzonUploadOutput(BaseModel):
     # ✅ v0.69 T2.2: 跟卖标记（draft.ozon_product_id 派生）→ GlobalState → ozon_upload
     # offer 存在性检查豁免（跟卖本就要并卡，不查不转）
     is_follow_sell: bool = Field(default=False, description="跟卖标记（ozon_upload 消费）")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: 权威类目标记（_resolve_category_source
+    # 计算）→ GlobalState → ozon_validate 零交集预检豁免消费。prepare→validate 每一跳
+    # Output/Input 都声明（漏一跳被 langgraph channel 静默过滤，历史事故两次）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
 
 
 # ==================== Ozon上传节点 ====================
@@ -585,6 +600,12 @@ class OzonValidateInput(BaseModel):
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     is_valid: bool = Field(default=True, description="是否验证通过")
     error_message: str = Field(default="", description="错误信息")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源（prepare 写入，
+    # GlobalState 同名 channel 透传）。"authoritative"=权威来源（match_layer=Skill 或
+    # 信封 draft.ozon_category.source ∈ page/mapping/what_to_sell/manual）——零交集
+    # 预检对权威来源降级 warning 不拦截（前门豁免后门杀根治）。不声明则被 channel
+    # 过滤恒空 → 权威豁免永不生效（AGENTS「input schema 纪律」）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
 
 
 class OzonValidateOutput(BaseModel):

@@ -1755,6 +1755,39 @@ def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> t
     return weight_g, depth_mm, width_mm, height_mm
 
 
+_AUTHORITATIVE_CATEGORY_SOURCES = ("page", "mapping", "what_to_sell", "manual")
+
+
+def _resolve_category_source(category_match_meta, draft) -> str:
+    """✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源判定（纯函数）。
+
+    规则（对齐 assemble 侧 ``_is_skill_authoritative`` 权威语义，widget 不在白名单——
+    命名空间数字 ID 可能是顾客空间，仅 category_path 精配才权威，而该精配定稿时
+    match_layer 已置 Skill，由第一分支覆盖）：
+      - ``category_match_meta.match_layer == "Skill"``（assemble 对权威 Skill 直采
+        定稿标记，含 manual 采纳）→ "authoritative"；
+      - 或信封 ``draft.ozon_category.source ∈ {page, mapping, what_to_sell, manual}``
+        （meta 缺失/老信封时靠信封兜底判定）→ "authoritative"；
+      - 其余（search_kw 关键词模糊 / L0 / L1 / R2b / 空）→ ""（非权威，validate
+        零交集预检照拦，行为不变）。
+
+    消费方：ozon_validate_node 标题-类目零交集预检对 "authoritative" 降级 warning
+    不拦截（面包屑=竞品在售真实类目=最高信任源，被零交集闸杀是「前门豁免后门杀」
+    误伤——盆/篮/筛家族 8+ 卡实证）。
+    """
+    try:
+        if str((category_match_meta or {}).get("match_layer") or "").strip() == "Skill":
+            return "authoritative"
+        ozon_cat = (draft or {}).get("ozon_category")
+        src = str((ozon_cat or {}).get("source") or "").strip().lower()
+        if src in _AUTHORITATIVE_CATEGORY_SOURCES:
+            return "authoritative"
+    except (AttributeError, TypeError):
+        # meta/draft 形态异常（非 dict 等）→ 按非权威处理，绝不因判定失败炸 prepare
+        return ""
+    return ""
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -1816,6 +1849,9 @@ def prepare_ozon_upload_node(
     # Step 2: 提取draft数据
     draft = state.draft or {}
     source = state.source or {}  # ✅ 提取source数据（采购来源信息）
+    # ✅ v0.78 批C Q7: 权威类目标记（match_layer=Skill 或信封类目 source 白名单）
+    # → ozon_validate 零交集预检豁免。两个返回出口（成功/失败）都带，留档一致。
+    category_source = _resolve_category_source(getattr(state, "category_match_meta", None), draft)
     attributes_schema = state.attributes_schema if state.attributes_schema else []
     
     # ✅ 关键修复：构建字典属性查找表（attribute_id -> dictionary_id）
@@ -3641,6 +3677,8 @@ def prepare_ozon_upload_node(
             attributes_adjusted=attributes_adjusted,
             # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
             is_follow_sell=bool(is_follow_sell),
+            # ✅ v0.78 批C Q7: 权威类目标记（失败出口同带，ozon_validate 消费）
+            category_source=category_source,
         )
     
     # Step 8: 返回准备好的数据
@@ -3672,6 +3710,8 @@ def prepare_ozon_upload_node(
         attributes_adjusted=attributes_adjusted,
         # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
         is_follow_sell=bool(is_follow_sell),
+        # ✅ v0.78 批C Q7: 权威类目标记（ozon_validate 零交集预检豁免消费）
+        category_source=category_source,
         validation_errors=[],
         error_message="",
         failed_stage=""
