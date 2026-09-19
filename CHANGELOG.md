@@ -304,6 +304,30 @@ cmd_discover 非交互分支**先于**交互弹窗判定（源码序锁防回归
 - **defer（批A 范围外）**：`cli.py _collect_keyword_pids`（discover-multi 滚动采集）前台
   `new_tab` 未后台化——「零前台弹窗」口径限 discover/graph/follow，discover-multi 后续批补一行。
 
+### 0.78.0 实机验证记录（2026-09-19 晚，本地 Docker dev 5c491c65）+ follow 语义冲突发现
+
+- **graph（1688 源）✅**：真实上架同 offer 覆写（UPSERT_BY_OFFER），Ozon 过审 approved；
+  上传图 5 张全为 AI（`file/images/` key），E1 salvage 零触发、出口闸零违规日志；
+  声明批次（E/F/G/H）行为与设计一致。
+- **批E 语义首实机触发 ✅**：follow 单因无合格参考图（见下）生图全跳过 →
+  `IMAGE_GEN_ALL_FAILED` 任务级失败（非永久 → 整任务重试一轮后终态 failed），
+  **E1 未兜底、零原图上卡**——正是生产 Hermes I1 场景的新行为，如实生效。
+- **⚠️ follow 语义冲突（拍板项，未改码）**：`cloud_probe.py` follow 组装末尾
+  `draft["images"] = ozon_images[:1]`（v0.33.1 设计「跟卖始终用 Ozon 竞品原图」）与
+  批E 硬闸正面冲突——旧链路 E1 会把**竞品图**转存上卡（跟卖对标设计，但盗图投诉风险）；
+  批E 后 follow CREATE 必然 `IMAGE_GEN_ALL_FAILED`（生图拒竞品图作参考 + 兜底已停）。
+  三选一待拍板：①follow 保留竞品图语义 → 给 follow 链加白名单豁免；
+  ②follow 改用 1688 原图作生图参考、出 AI 图卡（对齐 Hermes 预期，改 skill 侧）；
+  ③follow CREATE 维持诚实失败（跟卖仅 UPDATE 场景可用）。
+- **⚠️ follow 错货实锤（旧缺陷，批外）**：实机 follow 碗碟架时 aibuy 匹配选中
+  **发夹** 货源（envelope attributes 全为发夹/边夹/儿童发饰，title 仍是竞品碗碟架）——
+  `_pick_best_match` 标题相关性护栏未拦住图搜错配；错货卡一旦走旧 E1 链会带错属性上卡。
+  登记 follow 匹配质量批（与上面拍板项同车处理）。
+- **部署注意**：`mxou_call_ledger` 的 outcome/duration_ms 列（批G）迁移在
+  `init_data.py migrate_ledger_outcome_v078`——`docker compose up -d --build` **不会**
+  自动跑 init_data，升级后须执行（cos-update 路径自带；漏跑只影响台账写入，
+  日志 WARNING 提示 UndefinedColumn、不阻断业务）。
+
 ## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
 
 > 动因（用户报告「直接给 1688/Ozon 链接上架非常慢」+ 全功能实跑 gate 取证）：
