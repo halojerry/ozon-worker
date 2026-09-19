@@ -12,7 +12,7 @@ from graphs.state_image_gen import MainImageInput, MainImageOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import clean_title_for_image_prompt
-from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.62 R4 / v0.63.1
+from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError, MxouModelConfigError  # v0.62 R4 / v0.63.1 / 批D v0.78
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
 from utils.image_models import get_image_model  # ✅ v0.25: 节点模型路由
@@ -47,6 +47,12 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
         return MainImageOutput(main_image=None)
     
     if not draft or not token:
+        # 批D v0.78: 入口静默分支补日志（原样 return 无任何痕迹，排障只能靠猜）
+        logger.info(
+            "main_image_gen: 入口前置缺失，跳过生图 (draft=%s, token=%s)",
+            "缺失" if not draft else "有",
+            "缺失" if not token else "有",
+        )
         return MainImageOutput(main_image=None)
     
     # 构建参考图：优先使用Phase1白底图（更干净），其次多角度图，最后回退到原始产品图
@@ -93,8 +99,11 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
 
     try:
         # ✅ 调用统一mxou API（正确参数: images/aspectRatio/replyType）
+        # 批D v0.78: 模型名提为变量——降级日志引用实际节点模型（原文案硬编码
+        # 「gpt-image-2」自 v0.77 主模型切 2.5 起即为陈旧误导）。
+        primary_model = get_image_model("main")
         image_url = call_mxou_image_api(
-            model=get_image_model("main"),
+            model=primary_model,
             token=token,
             prompt=prompt,
             ref_images=ref_images if ref_images else None,
@@ -102,14 +111,14 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
             timeout=180,
             max_retries=2
         )
-        
-        # ⚠️ v0.40: 主模型(gpt-image-2)失败/卡轮询超时 → 模型降级重新生成
+
+        # ⚠️ v0.40: 主模型失败/卡轮询超时 → 模型降级重新生成
         # （不是用别的图顶替——主图必须真正生成）。API 内部对轮询超时不降级
         # （防双倍计费），但主图是关键图，宁可承担双倍计费风险也要保证有主图。
-        # v0.60 三级降级：gpt-image-2 → nano-banana-fast → nano-banana-2-lite（120s/级）
+        # v0.60 三级降级：主模型 → nano-banana-fast → nano-banana-2-lite（120s/级）
         if not (image_url and isinstance(image_url, str) and image_url):
             for _fb_model in ("nano-banana-fast", "nano-banana-2-lite"):
-                logger.warning("⚠️ main_image_gen: 主模型 gpt-image-2 失败/超时，降级 %s 重新生成", _fb_model)
+                logger.warning("⚠️ main_image_gen: 主模型 %s 失败/超时，降级 %s 重新生成", primary_model, _fb_model)
                 try:
                     image_url = call_mxou_image_api(
                         model=_fb_model,
@@ -124,6 +133,14 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
                     raise  # v0.62 R4: 内容违规不降级（降级模型同 prompt 同样违规）
                 except MxouOutOfQuotaError:
                     raise  # v0.63.1: 余额/鉴权/额度永久错误 → 不尝试降级模型
+                except MxouModelConfigError:
+                    # 批D v0.78: 该降级模型（及其链内后继）也配置错（API 层已响亮
+                    # 告警 + 每模型仅 1 POST）→ 立即 break，不再对同一批坏模型重烧
+                    logger.error(
+                        "⚠️ main_image_gen: 降级模型 %s 配置错误（未配价/无渠道），已快停，终止降级循环",
+                        _fb_model,
+                    )
+                    break
                 except Exception as _fb_exc:
                     logger.error(f"主图降级生成失败({_fb_model}): {_fb_exc}")
                     image_url = None
@@ -136,12 +153,18 @@ def main_image_gen_node(state: MainImageInput, config: RunnableConfig, runtime: 
                            version=_regen_version_from_config(config),
                            params=state.model_dump())
             return MainImageOutput(main_image=image_url)
-        
+
         return MainImageOutput(main_image=None)
     except MxouContentViolationError:
         raise  # v0.62 R4: 内容违规 → 任务失败，写入「图片内容违规，请调整商品图片/标题」
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级不 E1 兜底
+    except MxouModelConfigError as _mce:
+        # 批D v0.78: 主模型 + 整条 API 级降级链全部配置错误（API 层已逐模型响亮
+        # 告警）→ 节点返回空图，任务继续（不推向失败；无主图由下游既有兜底处理，
+        # 非本批地盘）
+        logger.error("⚠️ main_image_gen: 全部生图模型配置错误，主图跳过 (%s)", str(_mce)[:200])
+        return MainImageOutput(main_image=None)
     except Exception as e:
         logger.error(f"Main image generation failed: {str(e)}")
         return MainImageOutput(main_image=None)
