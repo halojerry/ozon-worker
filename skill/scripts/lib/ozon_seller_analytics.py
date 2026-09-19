@@ -442,12 +442,17 @@ def _parse_response(data: dict) -> dict[str, Any]:
     return {}
 
 
-def _tab_for_seller(cdp) -> tuple:
+def _tab_for_seller(cdp, *, background: bool = True) -> tuple:
     """获取 seller.ozon.ru 的可用 Tab —— ✅ v0.26 参考 maozi CROSS_TAB 借道。
 
     优先复用用户已打开的 seller.ozon.ru Tab（登录态天然在 cookie 里），
     而不是新建 Tab（新 Tab 打开根路径会被重定向到 /app/ 或登录页，
     sc_company_id 拿不到 → 0/1 SKUs have data 头号根因）。
+
+    Args:
+        background: 新建 tab 是否后台创建（批A A1：数据路径默认 True 不抢前台；
+            唯一前台调用方是 wait_for_seller_login 的首次登录引导页——人工要
+            看到登录页，显式传 background=False）。
 
     Returns:
         (tab, reused)：reused=True 表示复用用户 Tab（调用方必须 release +
@@ -464,7 +469,8 @@ def _tab_for_seller(cdp) -> tuple:
     except Exception as exc:
         logger.debug("find_tab seller.ozon.ru 失败（降级新建）: %s", exc)
     logger.info("seller.ozon.ru: 未找到已打开 seller Tab，新建（可能需重新登录）")
-    tab = cdp.new_tab()
+    # 批A A1（fix/skill-silent-cdp-v1）：数据路径默认后台建 tab，不激活到前台
+    tab = cdp.new_tab(background=background)
     tab.set_bypass_csp()  # CSP 剥除（v4.2）：导航前设置，随 target 存活跨导航生效
     # ✅ v0.26 premium 解锁：新建场景导航前预注入（上品帮 addScriptToEvaluateOnNewDocument 时机）
     try:
@@ -518,7 +524,8 @@ def _read_seller_cookies_silent(cdp) -> dict[str, str]:
     """
     tab = None
     try:
-        tab = cdp.new_tab("about:blank")
+        # 批A A1：零导航静默检测，about:blank 也不得激活到前台
+        tab = cdp.new_tab("about:blank", background=True)
         msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
         resp = tab._recv_until_id(msg_id, timeout=10) or {}
         cookies: dict[str, str] = {}
@@ -653,8 +660,11 @@ def wait_for_seller_login(cdp, *, timeout_seconds: int = 300, poll_interval: flo
 
     # 未登录 → 确保卖家后台页面开着给用户登录（复用已有 tab；没有才新建）。
     # release 移出连接管理：调用方 with 块退出 conn.close() 时不会连带关掉它。
+    # ⚠️ 白名单（批A A1）：首次登录引导页必须前台（人工要看到登录页）——
+    # 但只影响这个「引导新建」；5s 轮询里的检测走 _read_seller_cookies_silent
+    # （后台 about:blank），不再反复弹页。
     try:
-        _tab, _reused = _tab_for_seller(cdp)
+        _tab, _reused = _tab_for_seller(cdp, background=False)
         if _tab is not None:
             try:
                 cdp.release(_tab)
@@ -723,6 +733,13 @@ def fetch_sales_analytics(
     if cached is not None:
         return cached
 
+    # A3 负缓存窗：失败后 600s 内直接早退——不建 tab、不导航（「seller 页
+    # 反复打开」根治；实现在上方 _mark_direct_blocked 之后的窗口对）。
+    if _sales_negcache_active():
+        logger.info("seller analytics 负缓存窗内（%ds），跳过建 tab/导航直接降级",
+                    _SELLER_NEG_SECONDS)
+        return {}
+
     tab, reused = None, False
     try:
         tab, reused = _tab_for_seller(cdp)
@@ -752,6 +769,7 @@ def fetch_sales_analytics(
 
         if not company_id:
             logger.warning("seller.ozon.ru 未登录（无 sc_company_id），运营指标降级为公开数据")
+            _mark_sales_negcache()
             return {}
 
         # 2. 逐 SKU 查询
@@ -783,10 +801,13 @@ def fetch_sales_analytics(
         logger.info("seller analytics: %d/%d SKUs have data", len(results), len(skus))
         if results:
             cache_set("seller_analytics", cache_key, results, ttl=21600)
+        else:
+            _mark_sales_negcache()  # A3：空结果也开负缓存窗（600s 内不重开 seller 页）
         return results
 
     except Exception as exc:
         logger.warning("seller.ozon.ru analytics 整体失败，降级: %s", exc)
+        _mark_sales_negcache()  # A3：整体异常同开窗
         return {}
     finally:
         _close_seller_tab(cdp, tab, reused)
@@ -968,7 +989,8 @@ def _cdp_get_cookies_sequence(conn) -> list:
     返回 [network响应, storage响应] 两段原始响应。抽成函数只为让测试能
     monkeypatch（免造 CDP 连接），零业务逻辑。
     """
-    tab = conn.new_tab("about:blank")
+    # 批A A1：about:blank 后台 tab（cookie 双读零导航，不抢前台）
+    tab = conn.new_tab("about:blank", background=True)
     try:
         msg_id = tab._send("Network.getCookies", {"urls": [SELLER_URL]})
         network_resp = tab._recv_until_id(msg_id, timeout=10) or {}
@@ -1112,6 +1134,88 @@ def _mark_direct_blocked() -> None:
         from scripts.lib.cache import cache_set
         cache_set(_DIRECT_BLOCK_CACHE_NS, _DIRECT_BLOCK_CACHE_KEY,
                   {"until": _DIRECT_BLOCKED_UNTIL}, ttl=_DIRECT_BLOCK_SECONDS)
+    except Exception:
+        pass
+
+
+# seller 数据获取失败负缓存窗（批A A3，fix/skill-silent-cdp-v1）：
+# fetch_sales_analytics / fetch_bestseller_metrics_map 失败/空结果此前永不缓存
+# → 每次调用原样重开 seller tab 导航（「seller 页反复打开」伴生根因）。对齐
+# 上方 DataDome 短路窗先例：进程内全局 + 落盘 600s（pytest 下不落盘防污染，
+# 且窗整体禁用——生产语义，测试逐用例 monkeypatch `_under_pytest` 验证，防
+# 既有用例跨用例串扰）。窗内二次调用直接早退返回失败形状：不建 tab、不导航。
+_SELLER_NEG_SECONDS = 600
+_SELLER_NEG_SALES_UNTIL = 0.0   # fetch_sales_analytics 失败窗（进程内）
+_SELLER_NEG_MAP_UNTIL = 0.0     # fetch_bestseller_metrics_map 失败窗（进程内）
+_SELLER_NEG_CACHE_NS = "seller_analytics_negcache"
+_SELLER_NEG_SALES_KEY = "sales_until"
+_SELLER_NEG_MAP_KEY = "bestseller_map_until"
+
+
+def _sales_negcache_active() -> bool:
+    """fetch_sales_analytics 失败窗内 → True（进程内先行，落盘回填进程内）。"""
+    global _SELLER_NEG_SALES_UNTIL
+    if _under_pytest():
+        return False
+    if time.time() < _SELLER_NEG_SALES_UNTIL:
+        return True
+    try:
+        from scripts.lib.cache import cache_get
+        cached = cache_get(_SELLER_NEG_CACHE_NS, _SELLER_NEG_SALES_KEY)
+        if isinstance(cached, dict):
+            until = float(cached.get("until") or 0)
+            if time.time() < until:
+                _SELLER_NEG_SALES_UNTIL = until
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _mark_sales_negcache() -> None:
+    """fetch_sales_analytics 失败/空结果 → 开 600s 负缓存窗（进程内 + 落盘）。"""
+    global _SELLER_NEG_SALES_UNTIL
+    _SELLER_NEG_SALES_UNTIL = time.time() + _SELLER_NEG_SECONDS
+    if _under_pytest():
+        return
+    try:
+        from scripts.lib.cache import cache_set
+        cache_set(_SELLER_NEG_CACHE_NS, _SELLER_NEG_SALES_KEY,
+                  {"until": _SELLER_NEG_SALES_UNTIL}, ttl=_SELLER_NEG_SECONDS)
+    except Exception:
+        pass
+
+
+def _map_negcache_active() -> bool:
+    """fetch_bestseller_metrics_map 失败窗内 → True。"""
+    global _SELLER_NEG_MAP_UNTIL
+    if _under_pytest():
+        return False
+    if time.time() < _SELLER_NEG_MAP_UNTIL:
+        return True
+    try:
+        from scripts.lib.cache import cache_get
+        cached = cache_get(_SELLER_NEG_CACHE_NS, _SELLER_NEG_MAP_KEY)
+        if isinstance(cached, dict):
+            until = float(cached.get("until") or 0)
+            if time.time() < until:
+                _SELLER_NEG_MAP_UNTIL = until
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _mark_map_negcache() -> None:
+    """fetch_bestseller_metrics_map 失败/空结果 → 开 600s 负缓存窗。"""
+    global _SELLER_NEG_MAP_UNTIL
+    _SELLER_NEG_MAP_UNTIL = time.time() + _SELLER_NEG_SECONDS
+    if _under_pytest():
+        return
+    try:
+        from scripts.lib.cache import cache_set
+        cache_set(_SELLER_NEG_CACHE_NS, _SELLER_NEG_MAP_KEY,
+                  {"until": _SELLER_NEG_MAP_UNTIL}, ttl=_SELLER_NEG_SECONDS)
     except Exception:
         pass
 
@@ -1333,7 +1437,8 @@ def fetch_bestseller_metrics_map(
     sold_count/gmv_sum/weight_g/尺寸等）；未登录/失败 → {}（调用方降级）。
 
     磁盘缓存 6h（namespace seller_analytics），key 含 lang + company_id 维度
-    （防跨账号/跨语言固化错误数据）；只缓存有结果的成功响应，失败可重试。
+    （防跨账号/跨语言固化错误数据）；只缓存有结果的成功响应。失败/空结果开
+    600s 负缓存窗（A3）：窗内二次调用直接早退，不建 tab 不导航。
     """
     from scripts.lib.cache import cache_get, cache_set
     cache_key = f"bestseller_map|{lang}|{company_id or ''}"
@@ -1341,10 +1446,19 @@ def fetch_bestseller_metrics_map(
     if cached is not None:
         return cached
 
+    # A3 负缓存窗：失败后 600s 内直接早退——不建 tab、不导航（与
+    # fetch_sales_analytics 同口径，窗口相互独立）
+    if _map_negcache_active():
+        logger.info("seller 畅销榜指标负缓存窗内（%ds），跳过 seller 页导航直接降级",
+                    _SELLER_NEG_SECONDS)
+        return {}
+
     rows = fetch_ozon_bestsellers(cdp, company_id=company_id)
     result = {row["sku"]: row for row in rows if row.get("sku")}
     if result:
         cache_set("seller_analytics", cache_key, result, ttl=21600)
+    else:
+        _mark_map_negcache()  # A3：空结果开负缓存窗（600s 内不再重开 seller 页）
     return result
 
 
