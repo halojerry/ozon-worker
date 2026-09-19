@@ -2,6 +2,56 @@
 
 ## [0.78.0] — 未发版
 
+### 批B feat/skill-run-logging-v1 — 运行日志体系 + 一次性命令
+
+> 动因（用户反馈）：「运行日志没有明确，整个过程都是黑盒」+ agent 因提交后 fire-and-forget
+> 只能手工 `query` 重复绕路。取证：全 skill 仅 cloud_probe 以 import 副作用 basicConfig 一次，
+> discover/check 的 INFO 被 lastResort 丢弃；无 per-run 日志文件、无阶段耗时；follow 直提
+> task_id 只埋 `_out` JSON；graph/follow/discover 提交后从不轮询。纯 skill 侧，worker 零改动。
+
+- **B1 统一运行日志**：`logging_utils.setup_run_logging(cmd)`（唯一入口）——root 双 handler
+  （stderr INFO 沿用 cloud_probe 现格式 + 文件 DEBUG → `data/logs/run_{ts}_{cmd}.log`），
+  返回路径、幂等不叠加（pytest LogCaptureHandler 不算 stderr 通道）；`cli main()` 启动即打
+  `📋 运行日志: <path>` 一行（pytest 下跳过密闭）。cloud_probe 的 basicConfig 保持
+  「仅 root 无 handler 时」兜底（批A 守卫，源码级断言锁定）。
+- **B2 阶段计时 `log_stage`**：contextmanager enter/exit 各一条 INFO、exit 带耗时秒；
+  替换 discover/discover-multi（采集/货源/结果展示）与 discover-task（采集/匹配/出口）的
+  「阶段 N/3」print（stdout 逐条进度不动），follow_sell_cloud 四节点
+  （CDP 抓取/aibuy·CDP·文字图搜/信封组装/提交）同款接入。
+- **B3 `--wait` 一次性命令（语义合并拍板）**：`--wait` 自 v0.76 是串行闸「排队等锁」——
+  本批合并为两层「不放弃等待」：闸被占排队（原语义）+ 提交后 `poll_task_status` 轮询到终态
+  （新语义；graph/follow/discover `--auto-submit`/discover-task 四提交腿）。缺省不带
+  `--wait` = 闸快速失败 + fire-and-forget 逐字不变。终态打一行人话：
+  completed `✅ 任务完成 task_id=… product_id=…`；failed `❌ 任务失败 task_id=… 原因=首行` 且
+  **exit 3**（❌ 配 exit 0 = 假成功反模式）；超时给 `query` 补查提示。poll 可观测性增强：
+  每次 poll DEBUG / 状态变化 INFO / 连续 3 次 worker_unreachable·query_error 一行 WARNING；
+  10s 间隔·900s 超时·终态映射逐字保持。argparse 零新增（复用 v0.76 同名 flag，help 文案更新）。
+- **B4 终局 run 报告**：discover/discover-task 结束写 `data/logs/report_{ts}_{cmd}.json`
+  （逐条 item_id/title/status/task_id/draft_id/error_first_line + 汇总计数；
+  item_id 从 match_1688_url 数字解析、无货源回退 ozon pid）+ 打 `📄 运行报告: <path>` 一行；
+  既有 analysis report（export_analysis_report）通道不动。
+- **B5 `check --logs`**：`read_task_log` 死代码复活（全仓此前零调用）——`--logs <task_id>`
+  打印该任务 JSONL 事件、`--logs`（不带值）列最近 5 个日志文件、缺省（不带 flag）照旧全量诊断；
+  `--logs` 命中即短路，零 Chrome/网络探测。argparse `nargs="?"` 三态（None/""/task_id）。
+- **B6 预估打印 + `--min-margin`（拍板项）**：graph 腿内联预估公式（v0.39）提取为共享入口
+  `cli._estimate_and_print(draft, store)`（graph/follow 禁止再内联；新增免责一行
+  「预估非终价，以 Worker 实算为准」）；follow 腿补齐预估（此前完全没有）——在
+  follow_sell_cloud 内部**提交前**打印（缓存命中路径同闸，防绕过）；
+  graph/follow 新增 `--min-margin`（float 默认 0.0=不拦截零变化）：预估利润率低于阈值 →
+  打印拦截原因 + exit 3（对齐 `--min-density` 语义；低利润拦截发生在提交前，不烧 worker）。
+  discover/discover-task 不加（已有 profitable 筛选；其 `--min-margin` 是匹配期门槛，语义不同）。
+- **B7 SKILL.md**（渐进披露不拆 skill）：§0.5「最短路径」三条 recipe（graph --wait /
+  follow --wait / discover 无人值守）；§2 速查表补 `--wait`（合并语义说明）/`--min-margin`/
+  `check --logs`；「全局 flag 与运行日志」+「长任务后台」小节（job_status/job_result/
+  job_list/job_cancel 四件套引导，替代手工轮询）。
+- 测试：新增 6 文件 43 用例（`test_run_logging_v078` / `test_wait_flag_v078` /
+  `test_run_report_v078` / `test_check_logs_v078` / `test_estimate_min_margin_v078` /
+  `test_skill_md_sync_v078`（SKILL.md 同步锁，先例 test_compile_frontmatter）），全纯 mock
+  零实机 CDP/网络；TDD 全程（RED 38 failed → GREEN）。
+- 已知边界（defer 口径）：pounding-mcp server.py 参数映射未同步新 flag（`--min-margin`/
+  `--logs` 为可选参数，既有工具不受影响）；`--wait` 语义合并已在 help/SKILL.md 双处写明；
+  run 日志/报告无自动清理（`cleanup --old-results` 现有通道可覆盖，未验证）。
+
 ### 批A fix/skill-silent-cdp-v1 — CDP 静默化（前台弹窗根治）
 
 - **A1 静默场景全部后台 tab**（`new_tab` 接口不动，只改调用点）：`ozon_image_search`（`_fetch_aibuy_cookies_from_chrome` 前台开 1688 首页元凶 / `_read_1688_cookies_silent`）、`ozon_seller_analytics`（`_tab_for_seller` 新增 `background` 参数默认 True / `_read_seller_cookies_silent` / `_cdp_get_cookies_sequence`）、`readiness`（1688 登录探针 / DataDome 探针）、`ozon_discovery`（discover 阶段①搜索页）、`taobao_client`/`pdd_client`（fetch_product + wait_for_login 登录页兜底各 2 处）。**前台白名单不动**：`ozon_scraper` 全部、`cli._open_tab`、`wait_for_seller_login` 首次登录引导页（经 `_tab_for_seller(background=False)` 显式前台；其 5s 轮询检测随 A1 变后台）。
