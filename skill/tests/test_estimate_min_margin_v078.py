@@ -231,6 +231,57 @@ def test_cmd_follow_passes_min_margin_and_returns_3_on_block():
     assert captured.get("min_margin") == 50.0, "cmd_follow 必须把 --min-margin 传进管线"
 
 
+# ── follow 缓存命中路径（与主路径对齐：预估打印无条件，拦截仅 min_margin>0）──
+
+_CACHED_FOLLOW = {
+    "success": True, "product_id": "4767514314", "slug": "avtopoilka",
+    "images": ["http://img/ozon/1.jpg"], "title": "Автопоилка",
+    "1688_matches": [{"id": "980815374096", "title": "宠物饮水器"}],
+    "envelope": FOLLOW_ENV,
+}
+
+
+def _run_follow_cloud_cache_hit(min_margin: float):
+    """缓存命中（cache_get 返回完整结果）走提交腿，返回 (result, submit 调用数)。"""
+    submits = []
+
+    def _fake_submit(envelope):
+        submits.append(envelope)
+        return {"ok": True, "task_id": "T-FC1"}
+
+    with mock.patch("scripts.lib.cache.cache_get", return_value=dict(_CACHED_FOLLOW)), \
+            mock.patch("scripts.lib.cache.cache_set"), \
+            mock.patch("scripts.lib.config_store._require_auth"), \
+            mock.patch.object(cloud_probe, "_get_ozon_credentials",
+                              return_value={"client_id": "1", "api_key": "k"}), \
+            mock.patch("scripts.lib.config_store.get_mxou_token", return_value="sk"), \
+            mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
+            mock.patch.object(cloud_probe, "submit_envelope", side_effect=_fake_submit), \
+            mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
+                       return_value=_quote(5.0)), \
+            mock.patch("scripts.lib.config_store.get_ozon_credentials",
+                       return_value={"margin_rate": 0.5, "commission_rate": 0.2}):
+        r = cloud_probe.follow_sell_cloud(URL, auto_submit=True, store_id="s1",
+                                          min_margin=min_margin)
+    return r, len(submits)
+
+
+def test_follow_cache_hit_prints_estimate_at_zero_margin():
+    """⑩修复不对称：缓存命中 + min_margin=0 也打预估（与主路径一致）并照常提交。"""
+    r, n = _run_follow_cloud_cache_hit(0.0)
+    assert n == 1
+    assert isinstance(r.get("estimate"), dict), "缓存命中路径必须与主路径同打预估"
+    assert r.get("from_cache") is True
+
+
+def test_follow_cache_hit_min_margin_still_blocks():
+    """⑪缓存命中 + --min-margin 50：拦截不提交（缓存不得绕过阈值闸）。"""
+    r, n = _run_follow_cloud_cache_hit(50.0)
+    assert n == 0
+    assert r.get("blocked_reason") == "low_margin"
+    assert r.get("success") is False
+
+
 if __name__ == "__main__":
     import traceback
     failed = total = 0

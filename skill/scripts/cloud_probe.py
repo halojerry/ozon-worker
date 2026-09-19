@@ -4305,13 +4305,14 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             if notify:
                 _env["notify"] = True
             # ✅ v0.78 批B6: 缓存路径与主路径同闸——提交前预估 + --min-margin 拦截
-            # （缓存绕过拦截 = 阈值漏洞）。
+            # （fix round 1: 预估打印与主路径对齐为无条件——只有拦截才是 min_margin>0 的
+            # 事，缓存命中 min_margin=0 也该有 💰 预估；缓存绕过拦截 = 阈值漏洞）。
             _cached_blocked = False
             try:
                 from scripts.cli import _min_margin_block_reason
                 _ced = _env.get("envelope", {}).get("draft", {}) if isinstance(
                     _env.get("envelope"), dict) else {}
-                if _ced and float(min_margin or 0) > 0:
+                if _ced:
                     from scripts.cli import _estimate_and_print
                     _cest = _estimate_and_print(_ced, store_id)
                     if _cest:
