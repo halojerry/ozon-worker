@@ -876,7 +876,9 @@ def collect_and_analyze(
         # 漏斗 v2 收尾·静默优先：滚动 tab 采集完不关，保留给阶段②当页内
         # fetch 的上下文（shopbang 同款——highlight 页上下文 fetch 其他商品
         # widget 可行，逐商品导航不必要），② 结束统一关闭。
-        tab = cdp.new_tab(target_url)
+        # 批A A1（fix/skill-silent-cdp-v1）：滚动采集 tab 后台创建——静默选品
+        # 不得把搜索/亮点页弹到用户眼前（参考图搜 background=True 在产先例）
+        tab = cdp.new_tab(target_url, background=True)
         scroll_tab = None
         try:
             time.sleep(5)  # 初始加载

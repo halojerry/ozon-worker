@@ -1468,7 +1468,11 @@ def cmd_discover(args: argparse.Namespace) -> int:
     # readiness 统一预检（漏斗 v2 收尾）：Chrome 硬门 + seller 登录（交互给登录
     # 窗口，成功记 memo 免流程深处重复等待）+ aibuy 冷启动预热；结果缓存 10 分钟。
     from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
-    report = ensure_pipeline_ready("discover", profile_dir=_chrome_profile_dir())
+    # A2（fix/skill-silent-cdp-v1）：非交互路径不 prewarm（失败负缓存窗 + 免
+    # 导航预热 1688 首页）；交互路径保持预热一次
+    report = ensure_pipeline_ready(
+        "discover", profile_dir=_chrome_profile_dir(),
+        prewarm=not getattr(args, "non_interactive", False))
     print_readiness_report(report)
     if not report["ok"]:
         print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
@@ -2716,7 +2720,10 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # 无人值守预检（readiness）：seller 未登录 fail-fast 秒退（替代流程深处 90s
     # 黑等）；aibuy 冷启动预热一次；10 分钟内 --resume 重跑缓存免检测。
     from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
-    report = ensure_pipeline_ready("discover-task", interactive=False)
+    # A2（fix/skill-silent-cdp-v1）：discover-task 天然非交互 → 不 prewarm
+    # （结合 readiness 负缓存窗，无人值守全程零导航预热）
+    report = ensure_pipeline_ready("discover-task", interactive=False,
+                                   prewarm=False)
     print_readiness_report(report)
     if not report["ok"]:
         print("  → 处理完上述 ❌ 项后重跑本命令（--resume 可续跑已有任务）", flush=True)
