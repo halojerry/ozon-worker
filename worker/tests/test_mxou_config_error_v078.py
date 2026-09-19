@@ -599,7 +599,7 @@ def test_main_node_stale_model_text_uses_actual_model(monkeypatch, caplog):
     monkeypatch.setattr(mod, "merge_visual_vars", lambda *a, **k: {})
     monkeypatch.setattr(mod, "resolve_color_preset", lambda *a, **k: "")
     monkeypatch.setattr(mod, "get_image_model", lambda *a, **k: "vision-model-x")
-    monkeypatch.setattr(mod, "filter_product_images", lambda imgs: list(imgs or []))
+    monkeypatch.setattr(mod, "filter_reference_images", lambda imgs, allow_competitor=False: list(imgs or []))
 
     state = MainImageInput(
         draft={"title": "测试商品"}, token="tok",
@@ -639,7 +639,7 @@ def test_main_node_breaks_loop_on_config_error(monkeypatch):
     monkeypatch.setattr(mod, "merge_visual_vars", lambda *a, **k: {})
     monkeypatch.setattr(mod, "resolve_color_preset", lambda *a, **k: "")
     monkeypatch.setattr(mod, "get_image_model", lambda *a, **k: "gpt-image-2.5")
-    monkeypatch.setattr(mod, "filter_product_images", lambda imgs: list(imgs or []))
+    monkeypatch.setattr(mod, "filter_reference_images", lambda imgs, allow_competitor=False: list(imgs or []))
 
     state = MainImageInput(
         draft={"title": "测试商品"}, token="tok",
@@ -669,7 +669,7 @@ def test_main_node_primary_all_config_error_returns_none(monkeypatch):
     monkeypatch.setattr(mod, "merge_visual_vars", lambda *a, **k: {})
     monkeypatch.setattr(mod, "resolve_color_preset", lambda *a, **k: "")
     monkeypatch.setattr(mod, "get_image_model", lambda *a, **k: "gpt-image-2.5")
-    monkeypatch.setattr(mod, "filter_product_images", lambda imgs: list(imgs or []))
+    monkeypatch.setattr(mod, "filter_reference_images", lambda imgs, allow_competitor=False: list(imgs or []))
 
     state = MainImageInput(
         draft={"title": "测试商品"}, token="tok",
