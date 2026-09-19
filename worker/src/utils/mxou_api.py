@@ -49,6 +49,22 @@ class MxouContentViolationError(Exception):
     pass
 
 
+class MxouModelConfigError(Exception):
+    """模型配置类错误（未配价/model_not_found/无可用渠道）— 该模型**零重试、不降级**，
+    直接抛给降级编排层快跳（批D v0.78，生产取证 I5：48h 69 次 400 配置错被当普通
+    失败重试后静默降级，主槽最多 ~15 POST/主图零告警）。
+
+    与 MxouOutOfQuotaError / MxouContentViolationError 的区别：这不是任务级终态——
+    其他模型可能仍可用，由 call_mxou_image_api 响亮告警后继续 fallback 链
+    （banana 兜底可用性不变；仅配置错的模型被快跳）。
+    """
+
+    def __init__(self, model: str, body: str = ""):
+        self.model = model
+        self.body = (body or "")[:300]
+        super().__init__(f"模型配置错误 (model={model}): {self.body}")
+
+
 # W12: 生图前余额事中复查 — 余额低于该阈值直接 fast-fail（够 1 张图的最低成本）
 MIN_BALANCE_THRESHOLD = 1.0
 
@@ -71,6 +87,23 @@ _CONTENT_VIOLATION_KEYWORDS = (
     "content", "violation", "sensitive", "adult", "porn", "nudity",
     "inappropriate", "违规", "敏感", "成人",
 )
+
+# 批D (v0.78, 取证 I5): 模型配置类错误特征词 — 响应 body 命中任一 → 该模型
+# 零重试零降级直接快停（MxouModelConfigError）。配置错是模型级永久问题：
+# newapi 网关侧「模型未配价 / 未上架渠道」，重试与换渠道重发都无意义，
+# 唯一正确动作是响亮告警 + 链内快跳到下一模型（或上抛给节点层终止循环）。
+# TODO: 出现新的配置类错误文案时在此扩充（newapi 生态常见形态：未配价/渠道未绑定）。
+_MODEL_CONFIG_ERROR_KEYWORDS = (
+    "价格尚未由管理员配置",   # newapi: 模型未配价（生产 48h 69 次 400 的主形态）
+    "未配价",                 # 同上短形态
+    "model_not_found",        # 模型不存在/未上架
+    "no available channel",   # newapi: 无可用渠道（英文形态）
+    "无可用渠道",             # newapi: 无可用渠道（中文形态）
+)
+
+# 配置错告警去重表：token 指纹 + 模型 → 上次告警时间（1 小时窗口，防刷屏）
+_MODEL_CONFIG_ALERT_TS: Dict[str, float] = {}
+_MODEL_CONFIG_ALERT_LOCK = threading.Lock()
 
 # 内存优化：复用requests.Session，避免每次请求创建新TCP连接
 _session: Optional[requests.Session] = None
@@ -157,11 +190,13 @@ def _record_mxou_call(
     endpoint: str,
     model: Optional[str] = None,
     tenant_id: Optional[str] = None,
-) -> None:
+) -> Optional[int]:
     """BL-10 (repo-gov): mxou 调用埋点 —— 写本地调用台账 mxou_call_ledger，
     供 worker/scripts/reconcile_mxou.py 对账（本地计数 vs 平台余额差分）。
 
     - lazy import + 全吞错：台账服务未部署 / PG 异常绝不影响原 API 调用；
+    - **返回 ledger_id**（批D v0.78）：供调用点在 POST 返回/异常处 finish_call
+      回写 outcome/duration_ms；台账失败返回 None（回写侧自行跳过）；
     - tenant_id（v0.77.2）：显式参数 > 任务边界 ContextVar（见 _resolve_tenant_id），
       修复生产 tenant_id 全空（旧实现恒传 None）；解析不到才为 None；
     - model（v0.77.2）：显式 model 参数优先，否则从 'image_gen:<model>' endpoint 拆；
@@ -173,14 +208,79 @@ def _record_mxou_call(
     """
     try:
         from services.mxou_ledger_service import record_call
-        record_call(
+        return record_call(
             tenant_id=_resolve_tenant_id(tenant_id),
             token_fp=_token_fingerprint(token),
             endpoint=endpoint,
             model=model or _extract_model_from_endpoint(endpoint),
         )
     except Exception:
-        pass
+        return None
+
+
+def _finish_mxou_ledger(ledger_id: Optional[int], outcome: str, t0: float) -> None:
+    """批D (v0.78): 台账成败回写 —— UPDATE outcome + duration_ms（fire-and-forget）。
+
+    - outcome 白名单（服务侧强校验）：ok / failed / config_error；
+    - duration = 该模型段耗时（t0 起算，毫秒）；
+    - lazy import + 全吞错 + debug 级日志：台账回写失败只损失一条观测数据，
+      **绝不影响业务调用路径**（红线同 record_call）。
+    """
+    if not ledger_id:
+        return
+    try:
+        from services.mxou_ledger_service import finish_call
+        finish_call(ledger_id, outcome=outcome,
+                    duration_ms=int((time.time() - t0) * 1000))
+    except Exception as exc:
+        logger.debug("mxou 台账回写跳过 ledger_id=%s: %s", ledger_id, str(exc)[:120])
+
+
+def _is_model_config_error_body(body: Optional[str]) -> bool:
+    """批D (v0.78, 取证 I5): 配置类错误 body 特征判定。
+
+    命中 _MODEL_CONFIG_ERROR_KEYWORDS 任一（大小写不敏感，中文不受影响）→ True。
+    空 body 恒 False（宁可多一次重试也不误杀普通故障）。
+    """
+    if not body:
+        return False
+    lower = str(body).lower()
+    return any(kw in lower for kw in _MODEL_CONFIG_ERROR_KEYWORDS)
+
+
+def _notify_model_config_error(token: str, exc: MxouModelConfigError) -> None:
+    """批D (v0.78): 配置类模型错误响亮化 —— logger.error（Sentry LoggingIntegration
+    自动上报）+ capture_task_event('image_model_config_error') 通知。
+
+    去重：token 指纹 + 模型 维度 1 小时窗口（同模型持续报错不刷屏；不同模型
+    各自告警）。本函数**绝不抛出**（告警失败不影响 fallback 编排）。
+    """
+    model = getattr(exc, "model", "?") or "?"
+    # 响亮：error 级日志进 Sentry（旧路径 warning 被重试噪音淹没，取证 I5 无任何告警）
+    logger.error(
+        "⚠️ 生图模型配置错误（未配价/无渠道，零重试已快停）: model=%s 详情=%s",
+        model, str(exc)[:300],
+    )
+    key = f"{_token_fingerprint(token)}:{model}"
+    now = time.time()
+    with _MODEL_CONFIG_ALERT_LOCK:
+        if now - _MODEL_CONFIG_ALERT_TS.get(key, 0.0) < 3600:
+            return  # 1 小时内已告警过同模型 → 只留日志不发事件
+        _MODEL_CONFIG_ALERT_TS[key] = now
+    try:
+        from utils.sentry_setup import capture_task_event
+        capture_task_event(
+            "image_model_config_error",
+            f"生图模型配置错误（未配价/model_not_found/无渠道）：model={model} "
+            f"已零重试快停并跳过；请到 MXOU 平台检查该模型定价/渠道配置",
+            level="error",
+            model=model,
+            token_fp=_token_fingerprint(token),
+            tenant_id=_resolve_tenant_id(None) or "",
+            detail=str(exc)[:300],
+        )
+    except Exception as exc2:
+        logger.debug("image_model_config_error 事件发送失败: %s", str(exc2)[:120])
 
 
 def call_mxou_chat_api(
@@ -252,11 +352,36 @@ def call_mxou_chat_api(
     mxou_acquire(token)
 
     # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账（重试不重复计行）
-    _record_mxou_call(token, "chat", model=model)
+    # 批D (v0.78): 捕获 ledger_id —— POST 返回/异常处回写 outcome/duration_ms
+    _ledger_id = _record_mxou_call(token, "chat", model=model)
+    _t0 = time.time()
+    try:
+        _content = _chat_attempt(
+            token=token, session=session, headers=headers, payload=payload,
+            timeout=timeout, model=model, max_attempts=3,
+        )
+    except MxouOutOfQuotaError:
+        _finish_mxou_ledger(_ledger_id, "failed", _t0)
+        raise
+    except Exception:
+        _finish_mxou_ledger(_ledger_id, "failed", _t0)
+        raise
+    _finish_mxou_ledger(_ledger_id, "ok" if _content else "failed", _t0)
+    return _content
 
-    # ⚠️ v0.14 B2: 重试退避（旧代码 0 重试，API 故障时逐条调用级联浪费）
-    # 规则: 4xx（除429）不重试；429 走指数退避；5xx/timeout/异常 退避重试 2 次
-    max_attempts = 3  # 首次 + 2 次重试
+
+def _chat_attempt(
+    token: str,
+    session: requests.Session,
+    headers: Dict[str, str],
+    payload: Dict[str, Any],
+    timeout: int,
+    model: str,
+    max_attempts: int,
+) -> Optional[str]:
+    """chat 单次调用（含重试退避）主体 —— 批D v0.78 从 call_mxou_chat_api 原样抽出
+    （逐字保持：4xx 不重试 / 429 指数退避 / 5xx·超时·异常退避 2 次），
+    仅为台账 outcome 回写提供单一返回点，无任何行为变化。"""
     last_err = ""
     for attempt in range(max_attempts):
         try:
@@ -498,6 +623,11 @@ def call_mxou_image_api(
         )
     t0 = time.time()
     # Step 1: 用主模型尝试
+    # 批D (v0.78): _config_error 记录链内最后一次配置类错误——配置错是该模型级
+    # 永久问题，响亮告警后跳过该模型继续链（banana 兜底可用性不变）；
+    # 若整条链耗尽且终态为配置错误 → 上抛（调用方 node-level 循环可立即跳出，
+    # 不再对同一批坏模型重复烧 POST）。
+    _config_error: Optional[MxouModelConfigError] = None
     try:
         result_url: Optional[str] = _call_image_with_model(
             token=token,
@@ -516,23 +646,30 @@ def call_mxou_image_api(
             model, time.time() - t0
         )
         return None
+    except MxouModelConfigError as _mce:
+        # 批D (v0.78): 配置类错误 — 主模型 1 POST 即快停（零重试），响亮告警后继续链
+        _notify_model_config_error(token, _mce)
+        _config_error = _mce
+        result_url = None
 
     if result_url:
         logger.info("生图成功 model=%s 耗时=%.1fs", model, time.time() - t0)
         return result_url
 
-    # Step 2: 主模型真失败（HTTP 重试耗尽 / failed / violation 重试耗尽），降级到 fallback 模型
+    # Step 2: 主模型真失败（HTTP 重试耗尽 / failed / violation 重试耗尽 / 配置错快停），
+    # 降级到 fallback 模型
     # v0.60 三级降级链：nano-banana-fast → nano-banana-2-lite（主模型 gpt-image-2/2.5 不在链中，
     # index-miss 从 fast 起步；v0.77 主模型切 2.5 链行为不变）
     # 降级级统一 FALLBACK_TIMEOUT(120s)；仅「真失败」触发降级（轮询超时 v0.26 纪律不降级防双倍计费）
     # 链中任一模型失败 → 降级到链中更后的模型（fast 节点失败 → 2-lite）
+    # 批D (v0.78): 链内配置错同样快停（每模型 1 POST），跳过继续下一模型
     _chain: List[str] = [FALLBACK_IMAGE_MODEL, THIRD_IMAGE_MODEL] if FALLBACK_IMAGE_MODEL != THIRD_IMAGE_MODEL else [FALLBACK_IMAGE_MODEL]
     _start_idx: int = _chain.index(model) + 1 if model in _chain else 0
     if _start_idx < len(_chain):
         _last_url: Optional[str] = None
         for _fb_model in _chain[_start_idx:]:
             logger.warning(
-                "模型 %s 生图失败（已重试，总耗时=%.1fs），降级到 %s 重试...",
+                "模型 %s 生图失败（总耗时=%.1fs），降级到 %s 重试...",
                 model, time.time() - t0, _fb_model
             )
             try:
@@ -551,14 +688,27 @@ def call_mxou_image_api(
                     _fb_model
                 )
                 return None
+            except MxouModelConfigError as _mce:
+                # 批D (v0.78): 降级模型也配置错 → 同样 1 POST 快停 + 告警，跳到链内下一个
+                _notify_model_config_error(token, _mce)
+                _config_error = _mce
+                continue
             if _last_url:
                 logger.warning("降级模型 %s 生图成功（总耗时=%.1fs）",
                                _fb_model, time.time() - t0)
                 return _last_url
 
+        if _config_error is not None:
+            # 批D (v0.78): 链耗尽且终态为配置错误 → 上抛快停。全部命中模型均已
+            # 各 1 POST + 响亮告警；上抛让 node-level 二次兜底循环立即 break，
+            # 最坏 POST 次数 ~15 → 5（见简报修改项 4）。
+            raise _config_error
         logger.error("模型 %s 和降级模型 %s 均失败（总耗时=%.1fs）",
                      model, "/".join(_chain[_start_idx:]), time.time() - t0)
     else:
+        if _config_error is not None:
+            # 批D (v0.78): 无链可降且主模型配置错 → 上抛（同上，供调用方快跳）
+            raise _config_error
         logger.error("模型 %s 生图失败（无降级）", model)
 
     return None
@@ -573,13 +723,61 @@ def _call_image_with_model(
     max_retries: int,
     model: str
 ) -> Optional[str]:
-    """
-    使用指定模型调用图片生成API（含重试和轮询）。
+    """使用指定模型调用图片生成API（批D v0.78 包装层：台账埋点 + outcome 回写）。
+
+    - 限流 + 台账记录在此层（原 inner 内逻辑上移——finish 回写需要 ledger_id）；
+    - outcome：返回 URL → "ok"；None/异常（含轮询超时/余额/违规）→ "failed"；
+      MxouModelConfigError → "config_error"（简化口径，见批D 简报）；
+    - duration_ms = 该模型段耗时（毫秒）；
+    - 生成主体转发 _call_image_with_model_inner（逐字保持，无行为变化）。
     """
     if not token or not token.strip():
         logger.error("mxou image API 调用失败: token 为空")
         return None
 
+    t0 = time.time()
+
+    # ⚠️ v0.14 B3: 全局限流器 — 生图（慢操作+高成本）更需限流防并发打爆
+    mxou_acquire(token)
+
+    # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账。
+    # endpoint 带模型名：主模型/降级模型各计一行（每次都是真实计费生成）。
+    _ledger_id = _record_mxou_call(token, f"image_gen:{model}", model=model)
+
+    try:
+        url = _call_image_with_model_inner(
+            token=token,
+            prompt=prompt,
+            ref_images=ref_images,
+            aspect_ratio=aspect_ratio,
+            timeout=timeout,
+            max_retries=max_retries,
+            model=model,
+        )
+    except MxouModelConfigError:
+        _finish_mxou_ledger(_ledger_id, "config_error", t0)
+        raise
+    except Exception:
+        # 含 ImagePollTimeoutError（轮询超时=该段未产出图）/ 余额 / 违规 / 网络异常
+        _finish_mxou_ledger(_ledger_id, "failed", t0)
+        raise
+    _finish_mxou_ledger(_ledger_id, "ok" if url else "failed", t0)
+    return url
+
+
+def _call_image_with_model_inner(
+    token: str,
+    prompt: str,
+    ref_images: Optional[List[str]],
+    aspect_ratio: str,
+    timeout: int,
+    max_retries: int,
+    model: str
+) -> Optional[str]:
+    """
+    使用指定模型调用图片生成API（含重试和轮询）—— 批D v0.78 从 _call_image_with_model
+    原样抽出（生成/重试/轮询逻辑逐字保持），包装层负责台账 outcome 回写。
+    """
     headers: Dict[str, str] = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -598,13 +796,6 @@ def _call_image_with_model(
     }
 
     session = _get_session()
-
-    # ⚠️ v0.14 B3: 全局限流器 — 生图（慢操作+高成本）更需限流防并发打爆
-    mxou_acquire(token)
-
-    # BL-10 (repo-gov): 调用埋点 —— 即将发起 HTTP 调用处记一行台账。
-    # endpoint 带模型名：主模型/降级模型各计一行（每次都是真实计费生成）。
-    _record_mxou_call(token, f"image_gen:{model}", model=model)
 
     for attempt in range(max_retries + 1):
         try:
@@ -643,6 +834,11 @@ def _call_image_with_model(
                         f"OUT_OF_QUOTA: MXOU image API rejected "
                         f"(HTTP {response.status_code}, body={err_body})"
                     )
+                # 批D (v0.78, 取证 I5): 配置类错误（未配价/model_not_found/无渠道）—
+                # 模型级永久问题，重试与降级重发都无意义 → 零重试直接快停；
+                # 编排层响亮告警后跳过该模型继续 fallback 链。
+                if _is_model_config_error_body(err_body):
+                    raise MxouModelConfigError(model=model, body=err_body)
                 try:
                     if _span is not None:
                         _span.set_tag("result", f"http_{response.status_code}")
@@ -730,6 +926,9 @@ def _call_image_with_model(
 
             # 失败/违规（无 task_id）
             error_msg: str = result.get("error", "unknown error")
+            # 批D (v0.78): 200 包裹的错误体同样可能携带配置类文案 — 同样快停
+            if _is_model_config_error_body(str(error_msg)):
+                raise MxouModelConfigError(model=model, body=str(error_msg))
             logger.error("mxou image API返回status=%s(model=%s), error=%s", status, model, error_msg)
             return None
 
@@ -758,6 +957,8 @@ def _call_image_with_model(
             raise  # W12: 余额不足/403 → 直接失败，不重试不降级
         except MxouContentViolationError:
             raise  # v0.62 R4: 内容违规 → 直接失败，不重试不降级（防重复烧额度）
+        except MxouModelConfigError:
+            raise  # 批D v0.78: 配置类错误 → 零重试快停（否则落进下方普通异常重试）
         except Exception as e:
             try:
                 if _span is not None:
