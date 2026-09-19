@@ -123,6 +123,14 @@
 > 回 dev（4 文件干净落位，cdp/chrome/launcher 相关 48 测试绿）。**纪律补充：发版后
 > hotfix 若直 PR main，必须同日回灌 dev**（此前 WORKFLOW 未写死，现登记）。
 
+### 实机验证补缺 — discover --non-interactive 挑选腿自动全选
+
+实机验证第二轮发现：`--non-interactive` 下 `_interactive_select` 仍弹 `input("挑选: ")`，
+非 tty EOF 被当「已取消」→ exit 0 静默不出货（P7 只修了提交确认腿，挑选腿漏了）。
+修复：新增 `_auto_select_noninteractive`（自动全选 ok/uncertain，口径=交互「回车全选可挑」），
+cmd_discover 非交互分支**先于**交互弹窗判定（源码序锁防回归，
+`test_discover_noninteractive_select_v078` 4 用例）。交互路径行为零变化（专测锁定仍走 input()）。
+
 ### 0.78.0 final review 登记（defer / 发版说明）
 
 - **`--wait` 轮询期间持有 heavy gate 锁**（合并语义既有代价）：graph/follow `--wait` 最长 900s、

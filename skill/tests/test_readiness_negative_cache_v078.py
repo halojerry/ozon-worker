@@ -23,6 +23,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scripts.lib import readiness as rd  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_real_prewarm(monkeypatch):
+    """环境隔离：探针恒失败时 readiness 会走 prewarm 修复链——真跑
+    `_fetch_aibuy_cookies_from_chrome` 会在本机 Chrome 已登录 1688 时拿到
+    cookie 覆写探针结果（CI 无 Chrome 才恒 False，环境泄漏）。桩死它，
+    保持本文件只测负缓存/预热调度语义本身。"""
+    monkeypatch.setattr(
+        "scripts.lib.ozon_image_search._fetch_aibuy_cookies_from_chrome",
+        lambda *a, **k: {})
+
+
 @pytest.fixture()
 def cache_store(monkeypatch) -> dict:
     """密闭：摘除 pytest 快通道 + 磁盘缓存换进程内 dict（可检 TTL/值形状）。"""
