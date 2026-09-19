@@ -1167,18 +1167,12 @@ def cmd_check(args) -> int:
             else:
                 print(f"  ❌ {msg}")
                 session_ok = False
-        elif not info["has_remote_allow_origins"]:
-            print("  ⚠️ CDP 运行中但缺少 --remote-allow-origins，正在重启 Chrome...")
-            ok, msg = ensure_chrome_cdp(auto_restart=True, profile_dir=_chrome_profile_dir())
-            if ok:
-                print(f"  ✅ {msg}")
-                session_ok = True
-            else:
-                print(f"  ❌ {msg}")
-                session_ok = False
         else:
             session_ok = True
             print("  ✅ CDP 已启动")
+        # v0.76.1: 已删除「缺 --remote-allow-origins → 杀重启 Chrome」分支——
+        # cdp_client 改 suppress_origin 握手(不发 Origin),Chrome 白名单 flag
+        # 不再需要;旧分支会为由安全加固去 flag 的实例无谓重启 Chrome。
     except ImportError:
         cdp = config.get("cdp", {})
         session_ok = cdp.get("session_available", False) or cdp.get("cdp_running", False)
@@ -1186,7 +1180,7 @@ def cmd_check(args) -> int:
         if not session_ok:
             print("  ⚠️ 自动启动模块不可用，请手动启动 Chrome:")
             print("  macOS: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\")
-            print("    --remote-debugging-port=9222 --remote-allow-origins='*'")
+            print("    --remote-debugging-port=9222 --user-data-dir=<专用抓取 profile>")
 
     cdp = config.get("cdp", {})
     login_ok = not cdp.get("login_required", True)

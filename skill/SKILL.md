@@ -39,10 +39,11 @@ description: >
 
 > **③ 关键词→选品上箱**（无人值守）：
 > ```bash
-> python3 scripts/cli.py discover --keyword <关键词> --to-box --auto-submit --non-interactive --wait
+> python3 scripts/cli.py discover --keyword <关键词> --to-box --auto-submit --non-interactive
 > ```
-> `--non-interactive`（口头别名 `--yes`，同义）自动确认提交；`--to-box` 入采集箱可逆；
-> `--wait` 逐个等任务终态。要「凑足 N 个达标」用 discover-task（§1 规则⑫）。
+> `--non-interactive`（口头别名 `--yes`，同义）自动确认提交；`--to-box` 入采集箱可逆
+> （出 draft_id 即结束——`--wait` 只对直提 Worker 的 task_id 轮询，入箱模式不适用）。
+> 要「凑足 N 个达标」用 discover-task（§1 规则⑫）。
 
 ## 1. 意图路由
 

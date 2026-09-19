@@ -705,7 +705,7 @@ def main() -> int:
                 issues.append("Chrome 浏览器未安装")
             if not cdp.get("session_available") and not cdp.get("cdp_running"):
                 issues.append("CDP Chrome 未启动 (端口 9222)")
-                issues.append("→ 启动: Chrome --remote-debugging-port=9222 --remote-allow-origins='*'")
+                issues.append("→ 启动: Chrome --remote-debugging-port=9222(专用抓取 profile,无需 allow-origins flag)")
     else:
         print("♻️  本批全部走 discover 复用直上（免 Ozon 抓图/图搜；信封组装按需启 Chrome）", flush=True)
 
