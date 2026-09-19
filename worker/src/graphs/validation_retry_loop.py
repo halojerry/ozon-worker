@@ -2657,6 +2657,15 @@ def _fix_via_pictures_import(state: ValidationRetryLoopState) -> bool:
 
     items = state.ozon_payload.get("items", [])
     first_item = items[0] if items else {}
+
+    # ✅ v0.78 fix round 1 (fix/attr4194-regen-v1): 重传出口闸（与 _full_import_create
+    # 同一 enforce_upload_policy 唯一入口）——下方 is_cos_url 过滤对 draft-images/
+    # 镜像与 ozon-1688/salvage/ 转存全放行（都在本方 COS），原图会经 pictures/import
+    # 整体替换上卡。违规 → 不 POST，IMAGE_GEN_ALL_FAILED 语义（调用方 reupload_node
+    # 按 failed 收口，不落 rejected_unfixable）。
+    if _reupload_gate_blocked(state):
+        return False
+
     primary = str(first_item.get("primary_image") or "")
     ordered = ([primary] if primary else []) + [
         str(u) for u in (first_item.get("images") or []) if u
@@ -2862,6 +2871,13 @@ def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[
     for item in items:
         if isinstance(item, dict):
             item["product_id"] = pid_int
+
+    # ✅ v0.78 fix round 1 (fix/attr4194-regen-v1): 重传出口闸（与 _full_import_create
+    # 同一 enforce_upload_policy 唯一入口）——UPDATE 全量重传与 CREATE 同样会把
+    # 镜像/salvage 残余原图原样推上卡，POST 前统一拦截（IMAGE_GEN_ALL_FAILED 语义，
+    # 调用方对已置语义不覆盖）。
+    if _reupload_gate_blocked(state):
+        return None
 
     try:
         data = ozon_post(
@@ -3685,6 +3701,11 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             state.is_valid = True
             logger.info("✅ 图片整体替换成功（pictures/import），跳过审核轮询")
             return state
+        # ✅ v0.78 fix round 1: 出口闸拦截（IMAGE_GEN_ALL_FAILED 语义）→ 按 failed
+        # 收口（非永久码，task_processor 整任务重试），不落 rejected_unfixable——
+        # 那是「无 COS 图可修」的诚实终态，闸拦截是「有图但违规」，必须可重试。
+        if state.error_code == WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
+            return state
         # 无 COS 图可推 / API 失败 → 保持旧 unfixable 语义（诚实不硬修）
         logger.warning("⚠️ pictures/import 不可行（无 COS 图或失败），标记 rejected_unfixable")
         state.upload_status = "rejected_unfixable"
@@ -3724,9 +3745,13 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
         else:
             logger.error("❌ product/import(UPDATE) 失败")
             state.upload_status = "failed"
-            state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
-            # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
-            state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
+            # ✅ v0.78 fix round 1: 出口闸已置 IMAGE_GEN_ALL_FAILED 语义（错误码 +
+            # 违规清单消息）时不覆盖——否则码回落 LOCAL_REUPLOAD_FAILED、违规清单
+            # 丢失，task_processor 无法识别为可重试的生图全败类失败。
+            if state.error_code != WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
+                state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
+                # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
+                state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
             return state
 
     # 类型 4: 不可修复 → 直接标记成功
@@ -3741,42 +3766,60 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     return _full_import_create(state)
 
 
+def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
+    """重传出口闸统一封装（✅ v0.78 fix round 1, fix/attr4194-regen-v1）。
+
+    三处重传 POST（_full_import_create CREATE 全量 / _fix_via_product_import_update
+    UPDATE 全量 / _fix_via_pictures_import 图片整体替换）共用——items 全部
+    primary_image+images 必须过 enforce_upload_policy（批E 唯一入口，逃生门
+    IMAGE_SALVAGE_FALLBACK 时并入 salvage）。违规 → 不 POST，置 IMAGE_GEN_ALL_FAILED
+    语义（复用批E 错误码与消息；非永久 → task_processor 整任务重试一轮），
+    返回 True 表示已拦截（调用方直接收口返回）。
+    """
+    items: list = (
+        state.ozon_payload.get("items", [])
+        if isinstance(state.ozon_payload, dict) else []
+    )
+    gate_urls: list = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for field in ("primary_image", "images"):
+            val = item.get(field)
+            if isinstance(val, str):
+                if val.strip():
+                    gate_urls.append(val.strip())
+            elif isinstance(val, list):
+                gate_urls.extend(
+                    str(u).strip() for u in val
+                    if isinstance(u, str) and u.strip()
+                )
+    ok, violations = image_source.enforce_upload_policy(
+        gate_urls, allow_salvage=image_source.salvage_fallback_enabled()
+    )
+    if ok:
+        return False
+    logger.error("⛔ 重传出口闸拦截（非 ai 来源混入重传载荷，不 POST）: %s", violations)
+    state.upload_status = "failed"
+    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+    state.error_message = (
+        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
+        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
+        f"（违规图: {'; '.join(violations)}）"
+    )
+    return True
+
+
 def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """全量 product/import（CREATE 模式）— 用于无 product_id 的首次上传或回退场景。"""
     items: list = state.ozon_payload.get("items", [])
 
     # ✅ v0.78 批H (fix/attr4194-regen-v1): 重传出口闸（批E 评审 Important#1 最后
     # 缝隙）——restore/镜像残余把原图（draft-images/ 外链等）混进重传载荷时在此
-    # 拦截，POST 前收口：items 全部 primary_image+images 必须过
-    # enforce_upload_policy（批E 唯一入口，逃生门 IMAGE_SALVAGE_FALLBACK 时并入
-    # salvage）。违规 → 不 POST，以 IMAGE_GEN_ALL_FAILED 语义失败（复用批E 错误码
-    # 与消息；非永久码——task_processor 整任务重试一轮）。
-    _gate_urls: list = []
-    for _item in items:
-        if not isinstance(_item, dict):
-            continue
-        for _field in ("primary_image", "images"):
-            _val = _item.get(_field)
-            if isinstance(_val, str):
-                if _val.strip():
-                    _gate_urls.append(_val.strip())
-            elif isinstance(_val, list):
-                _gate_urls.extend(
-                    str(_u).strip() for _u in _val
-                    if isinstance(_u, str) and _u.strip()
-                )
-    _ok, _violations = image_source.enforce_upload_policy(
-        _gate_urls, allow_salvage=image_source.salvage_fallback_enabled()
-    )
-    if not _ok:
-        logger.error("⛔ 重传出口闸拦截（非 ai 来源混入重传载荷，不 POST）: %s", _violations)
-        state.upload_status = "failed"
-        state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
-        state.error_message = (
-            f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
-            f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
-            f"（违规图: {'; '.join(_violations)}）"
-        )
+    # 拦截，POST 前收口。fix round 1 起三处重传 POST（CREATE 全量/UPDATE 全量/
+    # pictures 整体替换）统一走 _reupload_gate_blocked（enforce_upload_policy
+    # 批E 唯一入口，逃生门 IMAGE_SALVAGE_FALLBACK 时并入 salvage）。
+    if _reupload_gate_blocked(state):
         return state
 
     payload: Dict[str, Any] = {"items": items}
