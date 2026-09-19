@@ -10,6 +10,31 @@
 - **A4 aibuy 批内熔断**：`search_by_image_aibuy` 模块级连续失败计数（空/异常 +1，成功归零）；≥3 → 熔断 600s，窗内直接返回 `[]` 且底层 mtop 零调用、只打一行日志；`_aibuy_breaker_reset()` 可测钩子；600s 过期半开放行。token 级 600s claim 闸不动。
 - **Q6 aibuy upload 前压缩（根治 HTTP 413）**：`image_preprocessor.downscale_for_upload`（最长边 >1024 才缩 + 统一 JPEG q80 + 动图取首帧 + PIL 异常原样返回绝不 raise）；`_aibuy_image_upload` 下载后过压缩再 base64（len<100 原始字节守卫与上传失败→原始 URL 直搜兜底不变；AK 通道不经此路径零影响）。
 - 测试：新增 5 文件 38 用例（`test_silent_cdp_background_v078` / `test_readiness_negative_cache_v078` / `test_seller_negcache_v078` / `test_aibuy_breaker_v078` / `test_aibuy_upload_compress_v078`），全纯 mock 零实机 CDP/网络；skill 全量 **1534 passed**（基线 1496）；ruff scripts/ 零新增（改动文件前后均 40 条存量）。
+- 修正轮1：seller_login 负缓存让位登录确认 memo（`seller_login_confirmed_recently` 双层命中→实检并覆盖负缓存，登录后重跑不再 exit 1；aibuy_token 负缓存语义不外溢，专测锁定）+ `fetch_sales_analytics` 陈旧注释对齐 A3 口径；全量 1536 passed。
+
+### 批D fix/config-healthcheck-v1 — config 挂空 healthcheck 固化
+- **背景**：2026-09-19 生产事故三层防线的第三层（前两层随 0.77.3：scene 节点
+  FileNotFoundError 永久错误化 + 启动 `_assert_critical_configs` 守卫
+  report-not-block）。compose 栈从后来被删除的 worktree 目录起 → config bind
+  源路径不存在 → Docker 静默挂空目录盖住镜像内 `/app/config` → worker
+  「健康地空跑」（对 `/api/v1/health` 依旧 200，任务确定性失败）。
+- **compose**（`deploy/docker-compose.yml` worker.healthcheck）：健康端点检查
+  追加 AND `test -f /app/config/imagegen.json` 存在性哨兵（哨兵取自
+  `_CRITICAL_CONFIG_FILES` 清单，与启动守卫同源；CMD-SHELL `&&` 链式，
+  exec 形式跑不了链式已由测试锁定）。参数 interval 30s / timeout 5s→10s /
+  retries 3 / start_period 15s→60s。**故意不配 autoheal/自动重启**——unhealthy
+  只做可见化，repair = 人工修 bind 源路径/重新部署（重启只会再次静默挂同一
+  个空目录，掩盖事故）。
+- **测试**（`tests/test_deploy_compose_hygiene.py`，TDD RED→GREEN）：新增
+  `test_worker_healthcheck_has_config_sentinel`（哨兵在位 + CMD-SHELL 形式 +
+  参数纪律 + start_period ≥60s）与 `test_worker_healthcheck_no_autoheal`
+  （全 service 禁 autoheal 触发器）；既有不变式（日志封顶 / PG 调参 /
+  mem_limit / 宿主端口禁 5433 / pg healthcheck 跟随 env）零回归。
+- **文档**（`docs/DEPLOY.md`）：新增「部署红线（必读）」一节——①禁止从临时
+  worktree/会删目录起 compose 栈（bind 源必须主仓持久路径，源路径被删 =
+  Docker 静默挂空目录）；②healthcheck config 哨兵语义（unhealthy + health
+  端点正常 ⇒ config 挂空，查 bind 源，勿盲目重启）。
+- 修正轮1：DEPLOY.md 红线②取容器命令修正（compose 无 container_name，`docker inspect worker` 必失败 → `docker inspect --format '{{json .Mounts}}' $(docker compose ps -q worker)`）。
 
 ## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
 
