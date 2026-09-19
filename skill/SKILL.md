@@ -26,14 +26,14 @@ description: >
 
 > **① 1688 链接→上架**（一条命令到终态）：
 > ```bash
-> python3 scripts/cli.py graph <1688商品URL> --wait
+> python3 scripts/cli.py graph --url <1688商品URL> --wait
 > ```
 > 提交后轮询 Worker 到终态：`✅ 任务完成 task_id=… product_id=…` / `❌ 任务失败 task_id=… 原因=…`。
 > 提交=真实上架（用户没确认过先问）；加 `--min-margin 20` 按预估利润率拦截（预估非终价）。
 
 > **② Ozon 链接→跟卖**：
 > ```bash
-> python3 scripts/cli.py follow <Ozon商品URL> --auto-submit --wait
+> python3 scripts/cli.py follow --ozon-url <Ozon商品URL> --auto-submit --wait
 > ```
 > 图搜 1688 同款 → 提交前打印 💰 预估（`--min-margin` 可拦）→ 等终态打一行。
 
@@ -125,7 +125,9 @@ description: >
 - **`--wait`（graph/follow/discover/discover-multi/discover-task，缺省不带=行为不变）**：
   一句话「不放弃等待」——① 重采集串行闸被占时排队等锁（每 30s 心跳报占用方，而非 exit 4）；
   ② 提交成功后轮询 Worker 到终态再退出：completed 打 `✅ 任务完成 task_id=… product_id=…`、
-  failed 打 `❌ 任务失败 task_id=… 原因=…` 且 **exit 3**（❌ 绝不配 exit 0）。终态前无需再手工 `query`。
+  failed 打 `❌ 任务失败 task_id=… 原因=…`。**exit 3 仅 graph/follow（单卡腿）**——❌ 不配 exit 0；
+  discover/discover-multi/discover-task（批量腿）逐单打 ❌ 行但整命令退出码不变（0），
+  成败看末尾汇总计数。终态前无需再手工 `query`。
 - **`--min-margin`（graph/follow 专属，缺省 0=不拦截）**：提交前打印 💰 预估
   （售价/利润/利润率，与 worker 定价公式同源；**预估非终价，以 Worker 实算为准**），
   预估利润率低于阈值 → 打印拦截原因 + exit 3。注意与 discover/discover-task 的
