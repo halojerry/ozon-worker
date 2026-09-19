@@ -1563,6 +1563,19 @@ def _print_discover_table(candidates: list) -> None:
     print(f"{'─' * 112}")
 
 
+def _auto_select_noninteractive(candidates: list) -> list:
+    """--non-interactive 挑选腿自动全选：只留可分析产品（ok/uncertain）。
+
+    ✅ 0.78.0 实机验证补缺：--non-interactive 下此前仍走 _interactive_select 弹
+    input("挑选: ")，非 tty EOF 被当「已取消」→ exit 0 静默不出货（P7 只修了
+    提交确认腿，挑选腿漏了）。口径 = 交互模式「回车全选可挑」同一状态集。
+    """
+    picked = [c for c in candidates if getattr(c, "status", "") in ("ok", "uncertain")]
+    print(f"\n🤖 非交互模式：自动全选 {len(picked)}/{len(candidates)} 个可分析产品",
+          flush=True)
+    return picked
+
+
 def _interactive_select(candidates: list) -> list | None:
     """交互挑选：输入序号（1,3,5-8 / all / 回车=全选可挑 / q=取消）。"""
     print("\n🎯 挑选要分析货源的产品（只对选中产品花 1688 识图配额）")
@@ -1789,7 +1802,11 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     # ── 阶段③ 表格展示 + 挑选 ──
     _print_discover_table(candidates)
 
-    if args.rules:
+    if getattr(args, "non_interactive", False):
+        # ✅ 0.78.0 实机验证补缺：非交互自动全选（必须先于交互弹窗判定——
+        # 先弹 input 再判 EOF = 非 tty 静默取消）
+        selected = _auto_select_noninteractive(candidates)
+    elif args.rules:
         try:
             # ✅ v0.69 两段式：挑选期只跑采集期字段（ai 预设/月销/跟卖…）；
             # margin 等匹配期字段留到 1688 匹配后二次筛（此前 pre-match 恒 0.0
