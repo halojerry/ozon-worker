@@ -5,9 +5,10 @@
 本模块在 ozon_status all_approved 出口校验「卡片图 = 载荷图」：
 
 - 数量：卡片可见图数 < 载荷图数 → mismatch；
-- 来源：载荷图全为 AI 生成图（/file/images/）→ 抽卡首图下载，宽高比须 ≈ 0.75
-  （3:4，生成图规格 896×1200；1688 原图通常 1:1）→ 不符 → mismatch；
-- 载荷为 salvage/原图兜底（非 file/images/）→ 仅数量校验（尺寸不区分来源语义）；
+- 来源：载荷图全为 AI 生成图（utils/image_source 判 ai：file/images/ 与
+  mxou-b64/，批H 接线）→ 抽卡首图下载，宽高比须 ≈ 0.75（3:4，生成图规格
+  896×1200；1688 原图通常 1:1）→ 不符 → mismatch；
+- 载荷为 salvage/镜像/原图兜底（非 ai）→ 仅数量校验（尺寸不区分来源语义）；
 - 载荷无图（跟卖 UPDATE/编辑流）→ skipped；
 - 卡图尚未异步填充 / 下载失败 → unverified（warning 不拦，诚实降级——校验
   不可用 ≠ 校验失败，Ozon 图片填充是异步的，硬拦会误杀正常单）。
@@ -23,6 +24,10 @@ import logging
 import struct
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import urlparse
+
+# ✅ v0.78 批H (fix/attr4194-regen-v1): AI 判定唯一事实源（批F TODO 收口）——
+# 内联 ``/file/images/`` 字面 marker 对 mxou-b64/ 兜底图全盲，改走 image_source。
+from utils import image_source
 
 logger = logging.getLogger(__name__)
 
@@ -113,14 +118,15 @@ def _default_fetch_size(url: str) -> Optional[Tuple[int, int]]:
 
 
 def is_all_ai_images(payload_images: List[str]) -> bool:
-    """载荷图是否全为本方 AI 生成图（COS file/images/ 前缀）。
+    """载荷图是否全为本方 AI 生成图（utils/image_source 唯一入口逐张判定）。
 
-    TODO(批A image_source 契约，fix/card-assert-cos-v1 登记)：并行批A 新建的
-    utils.image_source.has_generated_images 合并到 dev 后，本函数内联的
-    /file/images/ marker 应换为该唯一入口（跨批遗留，由接线方收口）。
+    ✅ v0.78 批H (fix/attr4194-regen-v1)：内联 ``/file/images/`` marker 换
+    ``utils.image_source.has_generated_images``（批A 唯一事实源，批F TODO 收口）——
+    行为对 file/images/ 完全兼容，对 mxou-b64/ 兜底图从盲变明（现计 AI 产物，
+    同样受 3:4 尺寸断言约束）；salvage/镜像/外链/未知 key 均非 AI。
     """
     urls = [str(u) for u in (payload_images or []) if str(u).strip()]
-    return bool(urls) and all("/file/images/" in u for u in urls)
+    return bool(urls) and all(image_source.has_generated_images((u,)) for u in urls)
 
 
 def verify_card_images(

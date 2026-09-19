@@ -110,6 +110,45 @@
   `record_call` 20s 连接重试放大 → fake session 响应队列错位）——单文件跑全绿，
   基线 origin/dev c7344e1e 同批合跑同样失败（+2），与本批改动无关。
 
+### 批H fix/attr4194-regen-v1 — 主图拒单重生成 + 重传出口闸
+
+> 动因（取证 I2，`docs/PLAN-image-source-hardening-v1.md` §0）：Ozon 以
+> attr=4194/4195（«На главном фото не показан товар» 主图未展示商品）拒单时
+> `classify_error_node` 直接 warn-and-pass（`success_with_warning`），从不重生成
+> 主图——不合规 AI 主图永挂卡片。本批加「重生成合规主图 + 重传一次」修复分支
+> （regen 每任务仅一次，布尔门防循环，失败绝不抛死任务），并收口批E 评审
+> Important#1 重传缝隙与批F TODO。worker 侧，skill 零改动。
+
+- **H1 4194/4195 主图重生成分支（`validation_retry_loop`）**：classify 对
+  DESCRIPTION_DECLINE + attr∈{4194,4195} + 载荷含 AI 图（`image_source` 唯一入口）
+  + `regen_main_image_done=False` → 路由新节点 `regen_main_image`（error_type=fixable
+  可路由）；不满足（无 AI 图/已重生成过）→ 既有 warn-and-pass 逐字保持。新节点用
+  **严格合规 prompt**（`REGEN_MAIN_IMAGE_PROMPT` 调用参数层写死，白底/单品居中/
+  无文字·角标·水印·场景，config/*.json 零接触）+ `original_images`（空则回退
+  draft.images）经 `filter_product_images` 白名单参考图，`call_mxou_image_api`
+  （model=`get_image_model("main")` 与主槽一致）重生成；成功 → 替换
+  `items[0].primary_image`（旧主图从图廊整体移除防二次 4194、新图插首位、其余槽位
+  不动）+ 加速域名改写（对齐 restore 先例）→ 既有 reupload 链重传；失败（任何异常/
+  None/产物非本方 AI 图）→ `logger.error` + 回落 warn-and-pass。主图职责分离：
+  重生成产物=main 槽合规单品图语义，海报式元素允许留在 images 其余槽位（本批不动）。
+- **防循环布尔声明链（langgraph Input model 纪律）**：`regen_main_image_done` 在
+  子图 State/Input/Output + `ValidationRetryWrapperInput/Output` + `GlobalState`
+  全链声明（一次任务内 validate 与 status 两次修复入口共享同一布尔，二次 4194/4195
+  直达 warn-and-pass）；`original_images` 同链透传进子图（wrapper 节点补 4 行管道）。
+- **H2 重传出口闸（`_full_import_create` POST 前）**：items 全部 primary_image+images
+  过 `enforce_upload_policy(allow_salvage=salvage_fallback_enabled())`（批E 唯一入口）
+  ——违规 → 不 POST + `logger.error` + 以 `IMAGE_GEN_ALL_FAILED` 错误码与批E 中文
+  消息失败（非永久码，task_processor 整任务重试一轮）。堵「restore/镜像残余把原图
+  混进重传载荷」的最后缝隙。
+- **H3 断言 AI 判定接线（`utils/card_image_assert.py`，批F TODO 收口）**：
+  `is_all_ai_images` 内联 `/file/images/` marker 换 `image_source.has_generated_images`
+  逐张判定——行为对 file/images/ 兼容，对 `mxou-b64/` 从盲变明（b64 载荷现同样受
+  3:4 尺寸断言约束）。
+- 测试：新 `tests/test_attr4194_regen_v078.py` 29 用例（纯 mock：classify 路由/
+  无 AI 图与二次拒单 warn-and-pass 回归/regen 成功替换与严格 prompt·主模型参数断言/
+  失败回落任务不炸/非 AI 产物拒入/H2 镜像·外链拦截与纯 AI 放行·逃生门/H3 b64 转明/
+  声明完整性+builder 接线锁定）。TDD：RED 20 failed → GREEN 29 passed。
+
 ### 批B feat/skill-run-logging-v1 — 运行日志体系 + 一次性命令
 
 > 动因（用户反馈）：「运行日志没有明确，整个过程都是黑盒」+ agent 因提交后 fire-and-forget
