@@ -47,6 +47,7 @@ from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加�
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
 from utils.cos_uploader import is_cos_url  # fix/image-ref-cos-whitelist-v1 批2: 无图补位只吃本方 COS 托管图（唯一实现在 image_url_guard，经 cos_uploader re-export 防漂移）
+from utils import image_source  # ✅ v0.78 批A (fix/image-source-hardgate-v1): 无图补位收窄——只吃 classify=="ai"（镜像草稿/salvage 原图不再补位）
 from utils.blocked_draft_box import (  # ✅ v0.69 T0.3: R2b 置信度分层阈值（阻断入箱函数延迟 import 防循环）
     R2B_ADOPT_CONF_CROSS_TOP,
     R2B_ADOPT_CONF_SAME_TOP,
@@ -3155,7 +3156,11 @@ def _validate_and_enrich_items(
         # 纪律矛盾（2026-09-16 原图上卡事故）。补位子集只保留 is_cos_url 成立的本方
         # COS 托管图（镜像/E1/AI 生成产物）；全外链 → 诚实不补（走既有 IMAGE_ERROR
         # 语义），warning 带来源 key 前缀便于取证。已有图路径不触碰（不重过滤）。
-        _cos_fill = [u for u in images if _is_cos_hosted_str(u)][:15]
+        # ✅ v0.78 批A (fix/image-source-hardgate-v1) 再收窄：只吃 classify ==
+        # "ai"（file/images/ 与 mxou-b64/）——镜像草稿原图（draft-images/，货源原图
+        # 1:1 副本）与 E1 salvage（ozon-1688/salvage/）不再具备补位资格；生图全败
+        # 走 prepare 硬闸（IMAGE_GEN_ALL_FAILED），原图仅作生图参考不上卡。
+        _cos_fill = [u for u in images if image_source.classify_image_source(u) == "ai"][:15]
         if not item.get("images"):
             if _cos_fill:
                 item["images"] = _cos_fill
