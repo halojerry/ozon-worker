@@ -312,13 +312,16 @@ cmd_discover 非交互分支**先于**交互弹窗判定（源码序锁防回归
 - **批E 语义首实机触发 ✅**：follow 单因无合格参考图（见下）生图全跳过 →
   `IMAGE_GEN_ALL_FAILED` 任务级失败（非永久 → 整任务重试一轮后终态 failed），
   **E1 未兜底、零原图上卡**——正是生产 Hermes I1 场景的新行为，如实生效。
-- **⚠️ follow 语义冲突（拍板项，未改码）**：`cloud_probe.py` follow 组装末尾
-  `draft["images"] = ozon_images[:1]`（v0.33.1 设计「跟卖始终用 Ozon 竞品原图」）与
-  批E 硬闸正面冲突——旧链路 E1 会把**竞品图**转存上卡（跟卖对标设计，但盗图投诉风险）；
-  批E 后 follow CREATE 必然 `IMAGE_GEN_ALL_FAILED`（生图拒竞品图作参考 + 兜底已停）。
-  三选一待拍板：①follow 保留竞品图语义 → 给 follow 链加白名单豁免；
-  ②follow 改用 1688 原图作生图参考、出 AI 图卡（对齐 Hermes 预期，改 skill 侧）；
-  ③follow CREATE 维持诚实失败（跟卖仅 UPDATE 场景可用）。
+- **✅ follow 语义冲突已拍板并落地（批I，fix/follow-reference-image-v1，用户拍板 2026-09-20）**：
+  拍板口径——**跟卖的 Ozon 竞品图就是拿来做生图参考的**（AI 按竞品参考重绘出图上卡，
+  竞品图本身绝不上卡）。旧冲突根因：skill v0.33.1 让 follow 信封 draft.images=竞品首图
+  作参考，但 worker 生图链 image-ref-pollution 白名单把 ozone 域整链拒掉 → 生图全跳过 →
+  批E IMAGE_GEN_ALL_FAILED → follow CREATE 全灭（2026-09-19 本地实机两单复现）。
+  落地（worker 侧，skill 零改动）：`image_url_guard.filter_reference_images` follow 感知版
+  ——extensions.follow_sell 时放行 Ozon 竞品 CDN **原尺寸图**作参考（缩略/.webp 恒拒），
+  graph 信封默认逐字等价旧白名单零变化；white_bg/multi_angle/main_image 三节点接线。
+  **参考 ≠ 上卡**：enforce_upload_policy 对竞品图恒拒零回退；生图仍全败时批E 任务级
+  失败语义不变。TDD 11 用例（tests/test_follow_reference_image_v078.py）+ image 系回归 176 绿。
 - **⚠️ follow 错货实锤（旧缺陷，批外）**：实机 follow 碗碟架时 aibuy 匹配选中
   **发夹** 货源（envelope attributes 全为发夹/边夹/儿童发饰，title 仍是竞品碗碟架）——
   `_pick_best_match` 标题相关性护栏未拦住图搜错配；错货卡一旦走旧 E1 链会带错属性上卡。
