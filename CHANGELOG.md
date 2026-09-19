@@ -21,7 +21,7 @@
 - **A2 marker 盲区修复（retry 链）**：`validation_retry_loop._payload_has_generated_images`
   与 `_prefer_generated_payload_images` 换唯一入口——`mxou-b64/` b64 兜底图从盲变明，
   pictures 类错误不再用草稿原图覆盖 b64 AI 载荷；对 `/file/images/` 行为逐字兼容。
-  ⚠️ `utils/card_image_assert.py` 的 AI 载荷判定（同款 marker）归批C 接线，本批未动。
+  ⚠️ `utils/card_image_assert.py` 的 AI 载荷判定（同款 marker）归批F 接线，本批未动。
 - **A3 prepare 硬闸**：①E1 兜底默认停用——chosen_primary 为空时不再转存原图，
   抛新错误码 `IMAGE_GEN_ALL_FAILED`（errors.py 14→15，附中文 message；承载异常
   `ImageGenAllFailedError`(RuntimeError) **非永久** → task_processor 整任务重试一轮，
@@ -41,7 +41,7 @@
   `test_assemble_fillin_cos_only.py` 补位 fixture 同步换 file/images/ key + 新增
   镜像/salvage 不补位锁。纯 mock，无网络/CDP。
 
-### 批C fix/card-assert-cos-v1 — 卡片图断言 COS 白名单与重试
+### 批F fix/card-assert-cos-v1 — 卡片图断言 COS 白名单与重试
 
 > 动因（取证 I4，docs/PLAN-image-source-hardening-v1.md §0）：v0.77.1 收尾卡片图断言在
 > 「import 刚完成」场景恒失效——`/v3/product/info/list` 此刻先返回我方 COS 源 URL
@@ -52,7 +52,7 @@
 - **C1 白名单放行我方 COS 域**（`utils/card_image_assert.py`）：`_ALLOWED_CARD_HOST_SUFFIXES`
   增 `.myqcloud.com`（同时覆盖区域桶 `cos.ap-guangzhou` 与全域加速 `cos.accelerate` 两形态），
   常量旁注明「我方 COS 源 URL 是 Ozon 转存前的合法返回」；Ozon CDN 三域与外链拒绝回归不变。
-  **TODO（跨批遗留）**：`is_all_ai_images` 内联 `/file/images/` marker 待并行批A 的
+  **TODO（跨批遗留）**：`is_all_ai_images` 内联 `/file/images/` marker 待并行批E 的
   `utils.image_source.has_generated_images` 合并后切换（接线方收口，本批不自建该模块）。
 - **C2 复查 1×15s → 3×20s**（`graphs/nodes/ozon_status_node.py`）：mismatch/unverified 复查
   循环化——env `CARD_ASSERT_RETRIES`（默认 3）/ `CARD_ASSERT_INTERVAL_S`（默认 20）可覆写；
