@@ -22,8 +22,10 @@
   本批合并为两层「不放弃等待」：闸被占排队（原语义）+ 提交后 `poll_task_status` 轮询到终态
   （新语义；graph/follow/discover `--auto-submit`/discover-task 四提交腿）。缺省不带
   `--wait` = 闸快速失败 + fire-and-forget 逐字不变。终态打一行人话：
-  completed `✅ 任务完成 task_id=… product_id=…`；failed `❌ 任务失败 task_id=… 原因=首行` 且
-  **exit 3**（❌ 配 exit 0 = 假成功反模式）；超时给 `query` 补查提示。poll 可观测性增强：
+  completed `✅ 任务完成 task_id=… product_id=…`；failed `❌ 任务失败 task_id=… 原因=首行`——
+  **exit 3 仅 graph/follow 单卡腿**（❌ 配 exit 0 = 假成功反模式），discover/discover-multi/
+  discover-task 批量腿逐单打 ❌ 行、整命令退出码不变（0，成败看汇总计数）；超时给 `query`
+  补查提示。poll 可观测性增强：
   每次 poll DEBUG / 状态变化 INFO / 连续 3 次 worker_unreachable·query_error 一行 WARNING；
   10s 间隔·900s 超时·终态映射逐字保持。argparse 零新增（复用 v0.76 同名 flag，help 文案更新）。
 - **B4 终局 run 报告**：discover/discover-task 结束写 `data/logs/report_{ts}_{cmd}.json`
