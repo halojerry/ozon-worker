@@ -131,8 +131,7 @@ def filter_reference_images(urls: Iterable[object], allow_competitor: bool = Fal
     for u in urls:
         if not (isinstance(u, str) and u.strip()):
             continue
-        if is_product_image_candidate(u):
-            out.append(u.strip())
-        elif allow_competitor and _is_competitor_reference_candidate(u):
+        if is_product_image_candidate(u) or (
+                allow_competitor and _is_competitor_reference_candidate(u)):
             out.append(u.strip())
     return out
