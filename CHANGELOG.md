@@ -64,6 +64,32 @@
 - 测试：新增 5 文件 38 用例（`test_silent_cdp_background_v078` / `test_readiness_negative_cache_v078` / `test_seller_negcache_v078` / `test_aibuy_breaker_v078` / `test_aibuy_upload_compress_v078`），全纯 mock 零实机 CDP/网络；skill 全量 **1534 passed**（基线 1496）；ruff scripts/ 零新增（改动文件前后均 40 条存量）。
 - 修正轮1：seller_login 负缓存让位登录确认 memo（`seller_login_confirmed_recently` 双层命中→实检并覆盖负缓存，登录后重跑不再 exit 1；aibuy_token 负缓存语义不外溢，专测锁定）+ `fetch_sales_analytics` 陈旧注释对齐 A3 口径；全量 1536 passed。
 
+### 批C fix/guard-precision-v1 — 守卫精化
+
+两个守卫误伤收窄（权威类目豁免 + 价差守卫汇率换算），均为「拦对事、放过对的卡」的精度修复：
+
+- **Q7 标题-类目零交集预检权威来源豁免（「前门豁免后门杀」根治）**：assemble 侧一致性检查对权威来源
+  （`match_layer=Skill` = page/what_to_sell/manual/mapping 直采定稿）豁免，validate 侧零交集闸却照样拦
+  ——面包屑=竞品在售真实类目=最高信任源被杀，盆/篮/筛家族 8+ 卡误伤。修复：prepare 侧新增
+  `_resolve_category_source` 纯函数（`match_layer=="Skill"` 或信封 `draft.ozon_category.source ∈
+  {page,mapping,what_to_sell,manual}` → `"authoritative"`，widget 命名空间路径精配定稿时 match_layer 已置
+  Skill 由第一分支覆盖；search_kw/L0/L1/R2b/空 → 空串），经 `GlobalState.category_source` /
+  `PrepareOzonUploadInput.category_match_meta` / `PrepareOzonUploadOutput.category_source` /
+  `OzonValidateInput.category_source` 每一跳 Output/Input 声明透传（AGENTS「input schema 纪律」）；
+  validate 零交集预检对 `authoritative` 降级 `logger.warning` 留痕（来源+标题头40字+类目路径头80字）不进
+  item_errors，非权威来源行为逐字保持（retry 子图 `LOCAL_TITLE_CATEGORY_MISMATCH` 拦截语义不受影响）；
+  UPDATE（product_id）与缺 RU 路径既有豁免不动。
+- **Q8 价差守卫跨币种汇率换算真比（0.77.3 skip 止血增强）**：锚价（discovery_meta.ozon_price）恒 RUB，
+  CNY 币种店铺产出垃圾比值（608₽÷30¥=20×，真实 1.52×）。`check_price_sanity` 新增 keyword-only
+  `exchange_rate`（CNY→RUB 方向）：rate>0 时 `anchor_cmp = anchor / exchange_rate` 折回店铺币种走既有
+  ratio 判定（block ≥10 / warn ≥3 阈值不变），evidence 记 `anchor_converted`/`exchange_rate` 留痕；
+  rate 缺失/≤0 维持 skip（宁缺勿假）；绝不 raise。**pricing_node 接线纠偏**：不能直接透传定价用
+  `exchange_rate`（CNY 店 `_get_exchange_rate("CNY")` 恒返 1.0，透传=假阳性复活）——非 RUB 店且有锚时
+  按 RUB 方向另走 fx 三级链（pg_cache→live→fallback 12）取真实换算汇率，取失败按无汇率 skip。
+- **测试**：新增 `test_validate_category_source_v078.py`（14：双分支豁免/拦截+channel 全跳声明锁定+
+  prepare 接线 mock）+ `test_price_guard_fx_v078.py`（10：ok/warn/block 三带+skip 保持+keyword-only+
+  RUB 回归+pricing_node 接线 spy 锁定传真实汇率非 1.0）。
+
 ### 批D fix/config-healthcheck-v1 — config 挂空 healthcheck 固化
 - **背景**：2026-09-19 生产事故三层防线的第三层（前两层随 0.77.3：scene 节点
   FileNotFoundError 永久错误化 + 启动 `_assert_critical_configs` 守卫

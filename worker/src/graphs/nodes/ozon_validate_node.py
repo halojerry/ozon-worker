@@ -381,6 +381,15 @@ def ozon_validate_node(
             # 只对 CREATE 生效——UPDATE/跟卖（带 product_id）豁免，对齐上方类目必填
             # 豁免逻辑；RU 路径缺失（树缺行/PG 异常）→ 跳过（宁松勿严）。
             # RU 路径按 (dc,tp) 进程内缓存，多变体不重复查 PG。
+            # ✅ v0.78 批C Q7（fix/guard-precision-v1）: 权威类目来源豁免——assemble
+            # 侧一致性检查对权威来源（match_layer=Skill = page/what_to_sell/manual/
+            # mapping 直采定稿）豁免，validate 零交集闸却照样拦 =「前门豁免后门杀」
+            # （面包屑=竞品在售真实类目=最高信任源，盆/篮/筛家族 8+ 卡误伤实证）。
+            # category_source="authoritative"（prepare 侧 _resolve_category_source
+            # 计算，经 GlobalState channel 透传）→ 降级 warning 留痕（带来源+标题头
+            # 40 字+类目路径头 80 字）不进 item_errors；非权威来源行为逐字保持；
+            # retry 子图拦截语义不变（本批只收窄触发面）。
+            _category_source = str(getattr(state, "category_source", "") or "").strip()
             if description_category_id and type_id and not item.get("product_id"):
                 _ru_cache_key = (str(description_category_id), str(type_id))
                 _ru_path = _ru_path_cache.get(_ru_cache_key)
@@ -390,14 +399,22 @@ def ozon_validate_node(
                 if _ru_path:
                     _consistency_name = item.get("name", "")
                     if _consistency_name and not common_cyr_words(_consistency_name, _ru_path):
-                        item_errors.append(
-                            f"item[{i}]标题与类目不一致（Ozon DESCRIPTION_DECLINE 风险）: "
-                            f"标题「{str(_consistency_name)[:60]}」与类目「{_ru_path[:80]}」"
-                            f"无公共西里尔词（≥{_MIN_COMMON_WORD_LEN}字符）"
-                        )
-                        logger.error(
-                            f"❌ item[{i}]标题与类目零交集: {_consistency_name[:60]} × {_ru_path[:80]}"
-                        )
+                        if _category_source == "authoritative":
+                            logger.warning(
+                                f"⚠️ item[{i}]标题与类目零交集但类目为权威来源，降级放行"
+                                f"（Ozon DESCRIPTION_DECLINE 风险留痕）: source=authoritative, "
+                                f"标题「{str(_consistency_name)[:40]}」× "
+                                f"类目「{_ru_path[:80]}」"
+                            )
+                        else:
+                            item_errors.append(
+                                f"item[{i}]标题与类目不一致（Ozon DESCRIPTION_DECLINE 风险）: "
+                                f"标题「{str(_consistency_name)[:60]}」与类目「{_ru_path[:80]}」"
+                                f"无公共西里尔词（≥{_MIN_COMMON_WORD_LEN}字符）"
+                            )
+                            logger.error(
+                                f"❌ item[{i}]标题与类目零交集: {_consistency_name[:60]} × {_ru_path[:80]}"
+                            )
 
             # ✅ 关键修复：本地内容预检 — 检测拉丁字母/中文字符
             # 这些问题会被Ozon审核标记为DESCRIPTION_DECLINE等错误
