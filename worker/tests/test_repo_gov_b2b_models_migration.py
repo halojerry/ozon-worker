@@ -102,10 +102,13 @@ def test_mxou_call_ledger_table():
     """BL-10: mxou_call_ledger — tenant_id 可空+索引 / token_fp 索引 / endpoint String(200)。
 
     v0.77.2 观测修复追加 model 列（可空 String(80) + 索引）——按模型对账费用。
+    批D v0.78（取证 I5）追加 outcome（NOT NULL，default pending）+ duration_ms（可空）
+    ——成败观测，mxou_api 经 finish_call 回写终态。
     """
     assert MxouCallLedger.__tablename__ == "mxou_call_ledger"
     cols = _cols(MxouCallLedger)
-    assert set(cols) == {"id", "called_at", "tenant_id", "token_fp", "endpoint", "model"}
+    assert set(cols) == {"id", "called_at", "tenant_id", "token_fp", "endpoint", "model",
+                         "outcome", "duration_ms"}
     assert cols["id"].primary_key
     assert cols["called_at"].nullable is False
     assert cols["tenant_id"].nullable is True
@@ -115,6 +118,10 @@ def test_mxou_call_ledger_table():
     # v0.77.2: model 可空（旧行 NULL 不回填）+ String(80)（写入侧同宽截断）
     assert cols["model"].nullable is True
     assert cols["model"].type.length == 80
+    # 批D v0.78: outcome 非空（pending 起步）+ duration_ms 可空
+    assert cols["outcome"].nullable is False
+    assert cols["outcome"].default.arg == "pending"
+    assert cols["duration_ms"].nullable is True
     idx_names = {ix.name for ix in MxouCallLedger.__table__.indexes}
     assert {"idx_mxou_call_ledger_tenant", "idx_mxou_call_ledger_token_fp",
             "idx_mxou_call_ledger_model"} <= idx_names

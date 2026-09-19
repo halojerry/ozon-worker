@@ -167,6 +167,44 @@ def migrate_ledger_model_v0772(engine):
     )
 
 
+def migrate_ledger_outcome_v078(engine):
+    """批D v0.78（取证 I5）: mxou_call_ledger 补 outcome/duration_ms 列（幂等，二次运行 no-op）。
+
+    动因：台账只记调用不记成败——ledger 有记录会被误判「已生效」（生产 48h 69 次
+    未配价 400 全部有 ledger 行却无任何失败信号）。写侧 mxou_api 在 POST 返回/
+    异常处经 mxou_ledger_service.finish_call 回写 outcome（ok/failed/config_error）
+    + duration_ms。
+
+    新建库 create_all 已带列（model.py MxouCallLedger.outcome/duration_ms）；此处
+    兜底存量库 ADD COLUMN IF NOT EXISTS。outcome 以 DEFAULT 'pending' 加列，
+    随后**存量行一次性回填 'ok'**（迁移时刻不存在真正 in-flight 的新行，历史行
+    无法区分成败——按成功口径回填保持可读，批D 拍板口径；worker 重启瞬间的
+    存量 pending 行同为死调用，回填无碍）。duration_ms 可空（旧行 NULL）。
+    纯 DDL/无绑定参数 UPDATE（text() 裸 cast 坑不适用，见 AGENTS 记忆
+    sqlalchemy-jsonb-cast-trap）。结构性 DDL **响失败**（对齐 migrate_ledger_model_v0772）。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLE = "mxou_call_ledger"
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS outcome VARCHAR(20) NOT NULL DEFAULT 'pending'"
+        ))
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS duration_ms INTEGER"
+        ))
+        # 历史行回填：迁移时刻全部存量 pending 行都是「无回写通道的旧调用」，
+        # 按成功口径回填 'ok' 保持可读（新行起 finish_call 回写真实终态）。
+        conn.execute(sql_text(
+            f"UPDATE {_TABLE} SET outcome = 'ok' WHERE outcome = 'pending'"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "v078_ledger_outcome",
+        "批D v0.78 mxou_call_ledger 补 outcome/duration_ms 列（成败观测；存量行回填 'ok'）",
+    )
+
+
 # A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
 # (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
 # 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
@@ -396,6 +434,9 @@ def create_tables(engine):
     # 新建库 create_all 已带列（model.py MxouCallLedger.model）；此处兜底存量库
     # ADD COLUMN IF NOT EXISTS（可空，旧行保持 NULL 不回填——语义上无 model 可指）。
     migrate_ledger_model_v0772(engine)
+    # ✅ 批D v0.78（取证 I5）: mxou_call_ledger 补 outcome/duration_ms 列（成败观测）。
+    # 新建库 create_all 已带列；此处兜底存量库（outcome 存量行回填 'ok'）。
+    migrate_ledger_outcome_v078(engine)
     logger.info("✅ 表结构已就绪")
 
 
