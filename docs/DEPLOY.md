@@ -2,7 +2,7 @@
 title: Worker 云端部署指南
 purpose: deploy/ docker compose 首次部署、cos-update.sh 升级、Nginx/HTTPS、部署数据初始化
 applies-version: ">=v0.63.0"
-last-updated: 2026-09-01
+last-updated: 2026-09-19
 owner: deploy
 depends: [CACHE-WARM-RUNBOOK, API-OVERVIEW]
 status: active
@@ -23,6 +23,34 @@ status: active
 │ 抓取数据 + 组装信封   │               │ 接收信封 → 执行上架管线      │
 └──────────────────────┘               └─────────────────────────────┘
 ```
+
+## 部署红线（必读，违反即生产事故）
+
+> 每条红线背后都是一次真实事故；`worker/tests/test_deploy_compose_hygiene.py`
+> 把可机器锁定的部分固化成了 CI 闸，人工纪律部分靠本节。
+
+### 红线① 禁止从临时 worktree / 会删除的目录起 compose 栈
+
+- compose 里 worker 的 config 是 bind mount（`../worker/config:/app/config`），
+  **bind 源路径必须落在持久目录**（如 `/opt/ozon-worker`，见 §2.1）。
+- 若从临时 worktree（如 `~/dev/ozon-worker-xxx`，事后删除）起栈：源目录被删后，
+  **Docker 不会报错，而是静默创建一个空目录**盖住镜像内的 `/app/config`——
+  worker 照常启动、`/api/v1/health` 照常 200，但全部场景配置丢失，任务在
+  scene 节点确定性失败（2026-09-19 生产事故，烧 4 轮重试 40s/任务）。
+- 部署/升级只认主仓持久路径：`/opt/ozon-worker/deploy`。临时目录只用于
+  构建与验证，`docker compose up` 前先确认栈所在目录不会被删。
+
+### 红线② healthcheck 的 config 哨兵语义（unhealthy = config 挂空）
+
+- worker healthcheck = **健康端点 AND `test -f /app/config/imagegen.json`**
+  （哨兵文件取自 `main.py` `_CRITICAL_CONFIG_FILES` 清单，与启动守卫
+  `_assert_critical_configs` 同源；0.78.0 批D 接入）。
+- **容器 unhealthy 且 `/api/v1/health` 手动 curl 正常 ⇒ 几乎必是 config bind
+  挂空**：按红线①查 bind 源路径是否存在（`docker inspect worker | grep -A3
+  '"Source"'` 对比宿主实际路径），修复 = 恢复源目录/迁回主仓路径后重建容器。
+- 设计口径：失败**只做 unhealthy 可见化**（30s 探测/10s 超时/3 次转 unhealthy），
+  **故意不配 autoheal/自动重启**——重启解决不了挂空的 bind（会再次静默挂同一
+  个空目录），盲目自愈只会掩盖事故；看见 unhealthy 先修 bind 源，别重启了事。
 
 ## 服务器要求
 
