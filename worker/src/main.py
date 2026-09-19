@@ -453,6 +453,58 @@ async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
 task_processor: Optional[SupabaseTaskProcessor] = None
 
+# ✅ v0.77.3：启动关键配置校验清单——缺失即大声报（ERROR+Sentry）。
+# 必需 = 节点硬依赖（缺了任务确定性失败）；可选 = 有内置降级（仅 WARNING）。
+_CRITICAL_CONFIG_FILES = (
+    "scene_generation_llm_cfg.json",
+    "visual_vars_llm_cfg.json",
+    "category_match_v2_cfg.json",
+    "attributes_llm_cfg.json",
+    "translate_russian_cfg.json",
+    "error_repair_llm_cfg.json",
+    "imagegen.json",
+    "image_prompts.json",
+)
+_OPTIONAL_CONFIG_FILES = (
+    "restricted_keywords.json",   # 缺失回退内置默认词表（受限闸降级）
+    "attr_synonyms.json",         # 同义词组缺失=匹配质量降级，非失败
+    "category_synonyms.json",
+)
+
+
+def _assert_critical_configs(base_dir: str | None = None) -> None:
+    """启动即校验 /app/config 关键文件在位（bind mount 挂空秒级暴露）。
+
+    实测事故（2026-09-19 gate 取证）：compose 栈从已删除 worktree 启动 →
+    config bind 源路径不存在 → Docker 静默创建空目录 → 镜像内配置被空目录
+    遮蔽 → 任务在 scene 节点 FileNotFoundError 被重试 4 轮白烧 40s+。
+    校验只报不拦（repair = 修 bind/重新部署，热路径不受影响）。
+    base_dir 参数供测试注入（缺省 /app/config）。
+    """
+    base = base_dir or os.path.join(os.sep, "app", "config")
+    if not os.path.isdir(base):
+        logger.warning("⚠️ 配置目录 %s 不存在（源码态运行可忽略）", base)
+        return
+    missing = [f for f in _CRITICAL_CONFIG_FILES if not os.path.isfile(os.path.join(base, f))]
+    if missing:
+        logger.error(
+            "🚨 关键配置文件缺失 %d 个（bind mount 挂空/镜像残缺？任务将确定性失败）: %s",
+            len(missing), ", ".join(missing),
+        )
+        try:
+            from utils.sentry_setup import capture_task_event
+            capture_task_event(
+                "critical_configs_missing",
+                f"关键配置缺失: {', '.join(missing)}",
+                level="error",
+            )
+        except Exception:
+            pass
+    for f in _OPTIONAL_CONFIG_FILES:
+        if not os.path.isfile(os.path.join(base, f)):
+            logger.warning("⚠️ 可选配置缺失（走内置降级）: %s", f)
+
+
 def _warn_if_multi_worker() -> None:
     """B4 BL-31（2026-09-11 仓库治理）：多 worker 部署探测告警（只告警不改行为）。
 
@@ -478,6 +530,12 @@ def _warn_if_multi_worker() -> None:
 async def lifespan(app: FastAPI):
     # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
     _warn_if_multi_worker()
+    # ✅ v0.77.3（管线延迟同批运维守卫）：启动即校验关键 config 文件在位。
+    # 实测事故（2026-09-19 gate）：栈从已删除的 worktree 启动 → config bind 挂到
+    # 死路径 → Docker 静默挂空目录遮住镜像内配置 → scene 节点 FileNotFound、
+    # 受限词表静默回退内置、任务 4 轮重试白烧。缺文件大声报（ERROR + Sentry），
+    # 不 crash（可热修 bind 后重启）；restricted_keywords 属可选降级仅 WARNING。
+    _assert_critical_configs()
     engine = get_engine()
     # 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
     init_db()

@@ -1,5 +1,88 @@
 # Changelog
 
+## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
+
+> 动因（用户报告「直接给 1688/Ozon 链接上架非常慢」+ 全功能实跑 gate 取证）：
+> 本地 0.77.2 栈对 graph/follow/discover 三管线逐节点计时（graph 单卡 worker 侧
+> 2m09s / follow skill 侧 41s + worker 1m57s / discover 25 品 4m15s），把固定白烧
+> 与两类把好卡拦死的假阳性逐一定位修复。**每项修复都有实跑时间线编号背书。**
+
+### P1 Supabase 未配置每任务白烧 4.0s（auth_node）
+- **根因**：`SUPABASE_URL` 空/无 scheme 时 `session.get` 立刻抛 `MissingSchema`
+  （确定性错误），旧重试循环 `sleep(2)`×2 照睡不误 → 每任务固定 4.0s（g3 实测
+  17:59:36.13→40.13；任务每被重试一轮再付一次）。
+- **修复**：URL 非 http(s) 直接走既有降级分支零请求零 sleep；合法 URL 但
+  MissingSchema/InvalidURL 同样不重试（重试不会让 URL 变合法）。真超时/5xx 的
+  3 次重试语义保持不变。
+- 回归：`tests/test_pipeline_latency_v0773.py`（空 URL/相对路径/合法 URL 三态）。
+
+### P2 环境级确定性异常被 temporary 重试 4 轮（task_processor）
+- **根因**：config bind 挂空（见 P5 事故）→ scene 节点 FileNotFoundError →
+  `_is_permanent_task_error` 不认 → 4 轮全管线重跑白烧 ~40s（cbbeaf03 实测
+  4×~11s，每轮还重付 auth/类目/字典段）。文件/权限/依赖缺失不会因重试长出来。
+- **修复**：`FileNotFoundError/PermissionError/ImportError/ModuleNotFoundError`
+  纳入 permanent——直接终态 failed，错误信息自证根因。
+
+### P3 字典预载串行 Ozon RTT（assemble Step 3 / R4 重配 Step 3''）
+- **根因**：逐 attr 串行 `_get_dict_values_sf`——PG 命中无感，miss 时每次
+  ~0.5s Ozon RTT × 7-16 个字典属性/任务（g3 实测 7 连发 0.49s 间隔）。
+- **修复**：新 `_preload_dict_values` helper（有界 4 线程池并行、按 attr_id 归位、
+  list/dict 双兼容保持），两处调用点共用。`dict_value_cache` 单飞锁 per-key，
+  并行安全；结果与串行逐键等价。
+- 回归：`test_pipeline_latency_v0773.py`（并发重叠 + 行为等价 + 空表边界）。
+
+### P4 价差守卫跨币种假阳性（六连杀，dtw2 实测）
+- **根因**：锚价 `discovery_meta.ozon_price` 恒为 **RUB**（Ozon 站内价），守卫
+  直接 `anchor/final_price` 比倍数——非 RUB 店（本 gate 测试店 currency=CNY）
+  终价 30¥ ÷ 锚 608₽ = 20.27× block 冤杀六卡；真实可比 608×0.075≈45.6¥ vs 30¥
+  仅 1.52×。RUB 店（生产主形态）同币种不受影响。
+- **修复**：`check_price_sanity` 新增 `final_currency`（缺省 "RUB" 行为零变化），
+  非 RUB 终价币种不可比 = 不比（对齐「无锚恒 ok 零误杀」教义），放行并留
+  `skipped: currency_mismatch` 留痕；pricing_node 接线传币种。
+- 回归：`tests/test_price_guard_currency_v0773.py`（RUB 保持 block / CNY 跳比 /
+  缺省回退 / 无锚恒 ok）。
+
+### P5 启动关键配置守卫（bind 挂空秒级暴露）
+- **事故**：compose 栈从已删除 worktree 启动 → config bind 源不存在 → Docker
+  静默挂空目录遮蔽镜像内配置 → 任务确定性失败（叠加 P2 白烧 4 轮）。
+- **修复**：lifespan `_assert_critical_configs`——8 个必需 config 缺失即 ERROR +
+  Sentry（`critical_configs_missing`），3 个可选项缺失 WARNING；只报不拦。
+- 回归：`test_pipeline_latency_v0773.py`（缺关键点名/全齐静默/目录不存在静默）。
+
+### P6 VALUE_MAX/MIN_LIMIT 无界值可夹 → 丢弃可选属性（不再原值重传）
+- **根因**（c9b6d16f 实测）：6949 «Количество предметов»=97（上游 1688 属性
+  误映射）→ Ozon VALUE_MAX_LIMIT 拒；拒单原文不含具体界值 → bounds 学习置信门
+  不学（正确）；repair 无界可夹 → **原值 97 重传 → 再拒 → 卡被 Ozon 移除**。
+- **修复**：`attr_numeric_sanitize.limit_error_attr_needs_drop`（错误码 + 属性
+  界值查询：静态白名单/学习表任一有界 → False 走夹取）；repair_prepare
+  对无界越限属性整属性丢弃（错填→不填），8962 等有界属性零影响。
+- 回归：`tests/test_value_limit_drop_v0773.py`（4）。
+
+### P7（skill）discover --non-interactive --auto-submit 自动确认
+- **根因**：cli.py 提交腿无差别 `input("确认提交？(y/N)")`——非交互管道读到
+  EOF 即「已取消」，自动提交永远走不到（gate 实测：1 条 profitable 白匹配）。
+- **修复**：`--non-interactive` 在场时自动确认（组合语义 = 无人值守）；交互
+  模式确认框保持不变。
+
+### Gate 实测（本地 0.77.3 栈，测试店 5381204）
+- graph **5/5 approved**（6386133733 / 6387619139 / 6387619466 / 6387631118 / 6387628384；
+  修复前单卡 worker 侧 2m09s 含 4s Supabase 白烧；修复后 auth 段 4.0s→0s、
+  字典 Step3 命中缓存 16ms）。
+- follow **6/6 approved**（f1 + 6386216158 / 6386217100 / 6386217602 / 6386218362 +
+  复验卡；典型 worker 侧 60s/卡，修复前 117s）。
+- discover **6/5 approved**（6386240597 / 6387547339 / 6387784778 / 6387784856 /
+  6388048416 / 6388050494；25 品采集+运营指标 4m15s；提交腿走 P7 修复后链路）。
+- 生图两波串行（white_bg→场景合成链）为**质量设计**非延迟浪费：单卡 ~88s 生图
+  占比 69%，属产品决策域（gpt-image-2 主图 51s vs nano-banana 36s），未动。
+
+### 已登记待办（非本批）
+- L0 弱档学习串类目（f1 学习行盖过 jieba 正确匹配，筷子篮被拦——弱档 L0 应
+  让位高分文本匹配）；标题-类目零交集闸跨词面误伤（盆/篮/筛同族不同名词被
+  冤杀，gate 中 8+ 张死于此）；维度类属性 cm/mm 单位治理（6432 «Диаметр, см»
+  收到 1688 毫米值 155 被拒）；aibuy image.upload **HTTP 413**（Ozon 原图超
+  上传体积限制 → 图搜空结果 → CDP 兜底 ~17s/品，应压缩后上传）；0 候选不写
+  导出文件；discover 图搜落 taobao 源候选信封构造 NoneType 崩。
+
 ## [0.77.2] — store 同步 S1/S2/S3 根治 + 上传零图硬闸 + error_code 全线接线 + 观测/运维批（2026-09-19）
 
 > 发版（PR #38，生产库只读取证 + 三路并行修复 + 实机验证）。两个同步死 bug（09-12 上报，

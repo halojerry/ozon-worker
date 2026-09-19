@@ -1808,14 +1808,21 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             return 0
         print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
-        try:
-            confirm = input("确认提交？(y/N) ")
-        except (EOFError, KeyboardInterrupt):
-            print("\n已取消（非交互模式不自动确认提交）")
-            return 0
-        if confirm.lower() != 'y':
-            print("已取消")
-            return 0
+        # v0.77.3（gate 发现修复）：--non-interactive + --auto-submit 组合语义 = 无人值守
+        # 自动确认——旧实现无差别 input()，非交互管道（CI/discover 联动）读到 EOF 直接
+        # 取消，提交腿永远走不到（实测 gate：1 条 profitable 白匹配）。
+        if getattr(args, "non_interactive", False):
+            print("✅ 非交互模式：自动确认提交")
+            confirm = "y"
+        else:
+            try:
+                confirm = input("确认提交？(y/N) ")
+            except (EOFError, KeyboardInterrupt):
+                print("\n已取消（非交互模式不自动确认提交）")
+                return 0
+            if confirm.lower() != 'y':
+                print("已取消")
+                return 0
         try:
             from scripts.cloud_probe import (
                 build_envelope_from_discovery,

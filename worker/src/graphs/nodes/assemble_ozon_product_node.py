@@ -2133,24 +2133,13 @@ def assemble_ozon_product_node(
     logger.info(f"   其中 {len(required_attrs)} 个必填属性")
 
     # =====================================================
-    # Step 3: 预加载字典值（PG 缓存优先，Ozon API 回退）
+    # Step 3: 预加载字典值（PG 缓存优先，Ozon API 回退；v0.77.3 并行化）
     # =====================================================
     logger.info("📖 Step 3: 预加载字典值")
 
-    dict_lookup: dict[int, list[dict[str, Any]]] = {}
-    for attr in attr_list:
-        dict_id = attr.get("dictionary_id", 0)
-        if dict_id and dict_id > 0:
-            attr_id = int(attr.get("id", 0))
-            # ✅ v0.75 C1：读穿一站式（含负缓存/单飞防击穿/三桶落档），失败返回 None
-            values = _get_dict_values_sf(
-                attr_id, description_category_id, type_id,
-                attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
-            )
-            if values and isinstance(values, list) and len(values) > 0:
-                dict_lookup[attr_id] = values
-            elif isinstance(values, dict) and values.get("result"):
-                dict_lookup[attr_id] = values["result"]
+    dict_lookup: dict[int, list[dict[str, Any]]] = _preload_dict_values(
+        attr_list, description_category_id, type_id, ozon_client_id, ozon_api_key,
+    )
 
     dict_attr_count = sum(1 for a in attr_list if a.get("dictionary_id", 0) > 0)
     cached_dict_count = len(dict_lookup)
@@ -2661,21 +2650,10 @@ def _rebuild_for_new_category(
         
         logger.info(f"   ✅ 新类目 schema: {len(new_attr_list)} 个属性")
         
-        # Step 3'': 预加载字典值（ZH_HANS，与初始逻辑一致）
-        new_dict_lookup: dict[int, list[dict[str, Any]]] = {}
-        for attr in new_attr_list:
-            dict_id = attr.get("dictionary_id", 0)
-            if dict_id and dict_id > 0:
-                attr_id = int(attr.get("id", 0))
-                # ✅ v0.75 C1：读穿一站式（同 Step 3 初始链，new_dc/new_type 键）
-                values = _get_dict_values_sf(
-                    attr_id, new_dc, new_type,
-                    attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
-                )
-                if values and isinstance(values, list) and len(values) > 0:
-                    new_dict_lookup[attr_id] = values
-                elif isinstance(values, dict) and values.get("result"):
-                    new_dict_lookup[attr_id] = values["result"]
+        # Step 3'': 预加载字典值（ZH_HANS，与初始逻辑一致；v0.77.3 并行化）
+        new_dict_lookup: dict[int, list[dict[str, Any]]] = _preload_dict_values(
+            new_attr_list, new_dc, new_type, ozon_client_id, ozon_api_key,
+        )
         
         logger.info(f"   ✅ 新类目字典值: {len(new_dict_lookup)} 个字典属性")
         
@@ -3821,6 +3799,54 @@ def _fetch_dict_values_from_ozon(
 
 class _DictFetchFailed(Exception):
     """Ozon 字典拉取失败（区别于确认空 []）：单飞等待者共享失败，绝不落负缓存。"""
+
+
+# ✅ v0.77.3（管线延迟）：字典预载并行helper——Step 3 与 R4 重配 Step 3'' 共用。
+# 旧链串行逐 attr 调 _get_dict_values_sf：PG 命中 ~ms 级无感，miss 时每次
+# ~0.5s Ozon RTT × 7-16 个字典属性/任务（g3 实测 assemble 段 7 连发 0.49s 间隔）。
+# 各 attr 键互不相干 + dict_value_cache 单飞锁 per-key → 有界线程池安全并行；
+# 结果按 attr_id 归位，行为与串行逐键等价（含 list/dict["result"] 双兼容）。
+_DICT_PRELOAD_WORKERS = 4
+
+
+def _preload_dict_values(
+    attr_list: list[dict[str, Any]],
+    description_category_id: int,
+    type_id: int,
+    ozon_client_id: str,
+    ozon_api_key: str,
+) -> dict[int, list[dict[str, Any]]]:
+    """并行预载字典属性值（PG 读穿优先，miss 并行回源 Ozon）。
+
+    Returns: {attr_id: values_list}，与旧串行循环同形（空/失败键不进表）。
+    """
+    dict_rows: list[tuple[int, dict[str, Any]]] = []
+    for attr in attr_list or []:
+        dict_id = (attr or {}).get("dictionary_id", 0)
+        if dict_id and dict_id > 0:
+            dict_rows.append((int(attr.get("id", 0)), attr))
+    if not dict_rows:
+        return {}
+
+    def _load_one(row: tuple[int, dict[str, Any]]):
+        attr_id, attr = row
+        values = _get_dict_values_sf(
+            attr_id, description_category_id, type_id,
+            attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
+        )
+        if values and isinstance(values, list) and len(values) > 0:
+            return attr_id, values
+        if isinstance(values, dict) and values.get("result"):
+            return attr_id, values["result"]
+        return attr_id, None
+
+    lookup: dict[int, list[dict[str, Any]]] = {}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(_DICT_PRELOAD_WORKERS, len(dict_rows))) as pool:
+        for attr_id, values in pool.map(_load_one, dict_rows):
+            if values is not None:
+                lookup[attr_id] = values
+    return lookup
 
 
 def _get_dict_values_sf(

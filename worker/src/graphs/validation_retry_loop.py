@@ -2201,6 +2201,18 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # 内嵌此处：按 state.attributes_schema 数值型 type 逐属性过唯一入口
     # sanitize_numeric_attr_value（剥单位/逗号小数/越界夹取，8962 区间 (1,10000)）。
     # 清洗失败 → 8962 回落 "1"，其余属性删空值防 error_attribute_values_empty。
+    # ✅ v0.77.3（gate 发现修复）：本轮拒单若为 VALUE_MAX/MIN_LIMIT 且该属性
+    # 静态白名单/学习表都无界值（无法夹取），原值重传必再拒（实测 c9b6d16f：
+    # 6949=97 两连拒后卡被 Ozon 移除）→ 丢弃该可选属性（错填→不填）。
+    # 8962 等有界属性不受影响（limit_error_attr_needs_drop 内部先查界值）。
+    _limit_drop_attr_id = 0
+    try:
+        from utils.attr_numeric_sanitize import limit_error_attr_needs_drop
+        if limit_error_attr_needs_drop(state.error_code, state.attribute_id):
+            _limit_drop_attr_id = int(state.attribute_id or 0)
+    except Exception:
+        _limit_drop_attr_id = 0
+
     _rp_numeric_types: Dict[int, str] = {}
     for _sa in state.attributes_schema or []:
         if not isinstance(_sa, dict):
@@ -2225,6 +2237,14 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                     _rp_pid = int(attr.get("id") or attr.get("attribute_id") or 0)
                 except (ValueError, TypeError):
                     _rp_pid = 0
+                if _limit_drop_attr_id and _rp_pid == _limit_drop_attr_id:
+                    # ✅ v0.77.3：无界值可夹的越限属性 → 整属性丢弃（可选属性，宁缺毋滥；
+                    # 实测 c9b6d16f 6949=97 原值重传两连拒后卡被 Ozon 移除）
+                    logger.warning(
+                        f"⚠️ repair_prepare 丢弃越限属性 {_rp_pid}"
+                        f"（{state.error_code} 无可用界值，原值重传必再拒）"
+                    )
+                    continue
                 _rp_tp2 = _rp_numeric_types.get(_rp_pid)
                 if not _rp_tp2:
                     _rp_kept_attrs.append(attr)

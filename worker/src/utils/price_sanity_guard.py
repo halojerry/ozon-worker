@@ -52,13 +52,25 @@ def _positive_number(val: Any) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0
 
 
-def check_price_sanity(final_price: float, discovery_meta: Optional[dict]) -> Tuple[str, Dict[str, Any]]:
+def check_price_sanity(
+    final_price: float,
+    discovery_meta: Optional[dict],
+    final_currency: str = "RUB",
+) -> Tuple[str, Dict[str, Any]]:
     """校验定价终价与选品锚价的倍数关系。
+
+    final_currency = 终价货币码（pricing_node 的 currency_code；缺省 "RUB" =
+    生产主形态，旧调用方行为零变化）。
 
     Returns:
         ("ok"|"warn"|"block", evidence)。
         - 无锚 / final_price 非法 ≤0 → ("ok", {})；
-        - 有锚 → evidence = {anchor_price, anchor_source, final_price, ratio,
+        - 币种不可比（final_currency 非 RUB）→ ("ok", {skipped:
+          "currency_mismatch", anchor_price, ...})——锚价恒 RUB（Ozon 站内价），
+          非 RUB 终价与锚不同单位，直接比倍数是跨币种假阳性（实测 gate：
+          608₽÷30¥=20× 冤杀六卡，真实可比 608×0.075≈45.6¥ vs 30¥ 仅 1.52×）。
+          币种不可比 = 不比（对齐「无锚恒 ok 零误杀」教义）。
+        - 有锚可比 → evidence = {anchor_price, anchor_source, final_price, ratio,
           block_ratio, warn_ratio}（ok 档也带，供审计留痕）。
         - ratio >= block_ratio → "block"；ratio >= warn_ratio → "warn"；否则 "ok"。
     """
@@ -76,6 +88,16 @@ def check_price_sanity(final_price: float, discovery_meta: Optional[dict]) -> Tu
             break
     if anchor is None:
         return "ok", {}
+
+    # ✅ v0.77.3：币种可比性校验——非 RUB 终价不与 RUB 锚比倍数（见 docstring）
+    if str(final_currency or "RUB").strip().upper() != "RUB":
+        return "ok", {
+            "skipped": "currency_mismatch",
+            "anchor_price": anchor,
+            "anchor_source": anchor_source,
+            "final_price": float(final_price),
+            "final_currency": str(final_currency).strip().upper(),
+        }
 
     block_ratio, warn_ratio = get_ratios()
     ratio = anchor / float(final_price)

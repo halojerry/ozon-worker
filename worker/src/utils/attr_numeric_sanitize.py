@@ -224,6 +224,25 @@ def _resolve_effective_bounds(attr_id: Any) -> Optional[Tuple[Optional[float], O
     return get_learned_bounds(attr_id)
 
 
+def limit_error_attr_needs_drop(error_code: Any, attr_id: Any) -> bool:
+    """✅ v0.77.3（gate 发现修复）：VALUE_MAX/MIN_LIMIT 且属性无任何可用界值 → True。
+
+    实测（task c9b6d16f）：6949=97 越限拒单，拒单原文不含具体界值 → 学习表学不到
+    （置信门正确拦截）→ repair 无界可夹 → 原值重传 → 再拒 → 卡被 Ozon 移除。
+    该场景唯一安全动作 = 丢弃该可选属性（错填→不填）。有静态/学习界值时返回
+    False（走夹取路径）。非 LIMIT 错误码恒 False。
+    """
+    if str(error_code or "") not in ("VALUE_MAX_LIMIT", "VALUE_MIN_LIMIT"):
+        return False
+    try:
+        aid = int(attr_id) if str(attr_id).strip().isdigit() else 0
+    except (TypeError, ValueError):
+        return False
+    if aid <= 0:
+        return False
+    return _resolve_effective_bounds(aid) is None
+
+
 def _fmt_num(v: Any) -> str:
     """界值/夹取目标格式化：整值浮点不带 .0 尾巴（5000.0 → "5000"，防
     Integer 属性夹取后产出 "5000.0" 再吃 VALUE_MUST_BE_INTEGER 拒单）。"""
