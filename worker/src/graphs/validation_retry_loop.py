@@ -53,6 +53,10 @@ from utils.volume_weight_guard import (
     compute_density_g_cc,
     ensure_volume_weight_floor,
 )
+# ✅ v0.78 批A (fix/image-source-hardgate-v1): 图来源唯一分类器（AI 载荷判定
+# _payload_has_generated_images / _prefer_generated_payload_images 消费，
+# mxou-b64/ 从 marker 盲区转明；禁止再内联 "/file/images/" 字面子串）
+from utils import image_source
 
 
 # ============================================================
@@ -3372,29 +3376,35 @@ def should_continue(state: ValidationRetryLoopState) -> str:
 
 
 def _prefer_generated_payload_images(item0_images, draft_images) -> list:
-    """R4 重建取图偏序：载荷内 AI 生成图（file/images/）> draft 原图 > 载荷余图。
+    """R4 重建取图偏序：载荷内 AI 生成图（file/images/ 或 mxou-b64/）> draft 原图 > 载荷余图。
 
     ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：原顺序
     draft 原图在前，把首传已装载的 AI 图替换回 1688 原图。
+    ✅ fix/image-source-hardgate-v1 批A：AI 判定换 utils/image_source 唯一入口——
+    旧 ``"/file/images/"`` 字面子串对 b64 兜底图（mxou-b64/ key）全盲，此处会把
+    已装载的 b64 图当「无生成图」被 draft 原图覆盖（marker 盲区根因之二）。
     """
-    _gen = [str(u) for u in (item0_images or []) if "/file/images/" in str(u)]
+    _gen = [str(u) for u in (item0_images or []) if image_source.has_generated_images((str(u),))]
     return _gen or (draft_images or item0_images or [])
 
 
 def _payload_has_generated_images(state: ValidationRetryLoopState) -> bool:
-    """载荷首 item 是否已含 AI 生成图（COS file/images/ 前缀，prepare 升级产物）。
+    """载荷首 item 是否已含 AI 生成图（COS file/images/ 或 mxou-b64/ 前缀，prepare 升级产物）。
 
     ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：首传载荷
     已装载 AI 图（prepare 日志 primary_image=file/images/…）后，pictures 类错误
     触发 _restore_draft_images_to_payload 用 draft 原图整体覆盖 → 卡上全为 1688
     原图。生成图是卡图最高优先来源，任何恢复/重建路径不得覆盖。
+    ✅ fix/image-source-hardgate-v1 批A：AI 判定换 utils/image_source 唯一入口
+    （has_generated_images）——mxou-b64/ 兜底图从盲变明，防 b64 载荷被 draft
+    原图覆盖重传。行为对 /file/images/ 完全兼容。
     """
     _items = getattr(state, "ozon_payload", None) or {}
     _items = _items.get("items") if isinstance(_items, dict) else None
     if not _items or not isinstance(_items[0], dict):
         return False
     for _u in (_items[0].get("images") or []):
-        if "/file/images/" in str(_u):
+        if image_source.has_generated_images((str(_u),)):
             return True
     return False
 

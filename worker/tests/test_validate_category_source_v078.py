@@ -247,7 +247,9 @@ def _make_prepare_state(draft, category_match_meta=None):
         dictionary_values={},
         token="sk-test",
         original_images=draft["images"],
-        main_image="https://img.test/ai-main.jpg",  # AI 主图 → 营销图非空 → 走成功出口
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key）——URL 形状
+        # 对齐生产（img.test 占位外链会被出口闸判 external 拒绝）
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/ai-main.jpg",  # AI 主图 → 营销图非空 → 走成功出口
         category_match_meta=category_match_meta or {},
     )
 
