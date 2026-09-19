@@ -2,6 +2,16 @@
 
 ## [0.78.0] — 未发版
 
+### 批A fix/skill-silent-cdp-v1 — CDP 静默化（前台弹窗根治）
+
+- **A1 静默场景全部后台 tab**（`new_tab` 接口不动，只改调用点）：`ozon_image_search`（`_fetch_aibuy_cookies_from_chrome` 前台开 1688 首页元凶 / `_read_1688_cookies_silent`）、`ozon_seller_analytics`（`_tab_for_seller` 新增 `background` 参数默认 True / `_read_seller_cookies_silent` / `_cdp_get_cookies_sequence`）、`readiness`（1688 登录探针 / DataDome 探针）、`ozon_discovery`（discover 阶段①搜索页）、`taobao_client`/`pdd_client`（fetch_product + wait_for_login 登录页兜底各 2 处）。**前台白名单不动**：`ozon_scraper` 全部、`cli._open_tab`、`wait_for_seller_login` 首次登录引导页（经 `_tab_for_seller(background=False)` 显式前台；其 5s 轮询检测随 A1 变后台）。
+- **A2 readiness 失败负缓存**：失败也写缓存（`{ok: False}`，同 600s TTL）；负缓存命中跳过探针**且跳过 prewarm 导航**，打一行「探针负缓存命中」。`cli.py` discover 非交互（`--non-interactive`）与 discover-task（天然非交互）传 `prewarm=False`；graph/follow/discover-multi 交互路径保持预热一次。
+- **A3 seller 失败负缓存窗**：`fetch_sales_analytics` / `fetch_bestseller_metrics_map` 失败/空/整体异常 → 600s 负缓存窗（进程内 + 落盘，对齐 DataDome 短路窗先例，pytest 下整体禁用防用例串扰）；窗内二次调用直接早退——不建 tab、不导航。
+- **A4 aibuy 批内熔断**：`search_by_image_aibuy` 模块级连续失败计数（空/异常 +1，成功归零）；≥3 → 熔断 600s，窗内直接返回 `[]` 且底层 mtop 零调用、只打一行日志；`_aibuy_breaker_reset()` 可测钩子；600s 过期半开放行。token 级 600s claim 闸不动。
+- **Q6 aibuy upload 前压缩（根治 HTTP 413）**：`image_preprocessor.downscale_for_upload`（最长边 >1024 才缩 + 统一 JPEG q80 + 动图取首帧 + PIL 异常原样返回绝不 raise）；`_aibuy_image_upload` 下载后过压缩再 base64（len<100 原始字节守卫与上传失败→原始 URL 直搜兜底不变；AK 通道不经此路径零影响）。
+- 测试：新增 5 文件 38 用例（`test_silent_cdp_background_v078` / `test_readiness_negative_cache_v078` / `test_seller_negcache_v078` / `test_aibuy_breaker_v078` / `test_aibuy_upload_compress_v078`），全纯 mock 零实机 CDP/网络；skill 全量 **1534 passed**（基线 1496）；ruff scripts/ 零新增（改动文件前后均 40 条存量）。
+- 修正轮1：seller_login 负缓存让位登录确认 memo（`seller_login_confirmed_recently` 双层命中→实检并覆盖负缓存，登录后重跑不再 exit 1；aibuy_token 负缓存语义不外溢，专测锁定）+ `fetch_sales_analytics` 陈旧注释对齐 A3 口径；全量 1536 passed。
+
 ### 批D fix/config-healthcheck-v1 — config 挂空 healthcheck 固化
 - **背景**：2026-09-19 生产事故三层防线的第三层（前两层随 0.77.3：scene 节点
   FileNotFoundError 永久错误化 + 启动 `_assert_critical_configs` 守卫
@@ -24,6 +34,7 @@
   worktree/会删目录起 compose 栈（bind 源必须主仓持久路径，源路径被删 =
   Docker 静默挂空目录）；②healthcheck config 哨兵语义（unhealthy + health
   端点正常 ⇒ config 挂空，查 bind 源，勿盲目重启）。
+- 修正轮1：DEPLOY.md 红线②取容器命令修正（compose 无 container_name，`docker inspect worker` 必失败 → `docker inspect --format '{{json .Mounts}}' $(docker compose ps -q worker)`）。
 
 ## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
 
