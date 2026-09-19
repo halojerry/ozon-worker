@@ -221,6 +221,8 @@ def test_prepare_russian_required_translation_failure_skipped():
         dictionary_values={},
         token="sk-test",
         original_images=_draft()["images"],
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key），防出口闸误伤
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
     )
     # 翻译失败：返回拉丁（无西里尔无中文）
     def fake_translate_latin(text, token, source_lang="auto", text_type="description"):
@@ -261,6 +263,8 @@ def test_prepare_sku_chinese_translated():
         dictionary_values={},
         token="sk-test",
         original_images=_draft()["images"],
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key），防出口闸误伤
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
     )
 
     def fake_translate_ru(text, token, source_lang="auto", text_type="description"):

@@ -7,6 +7,13 @@
 收口：补位子集只保留 `is_cos_url` 成立的本方 COS 托管图；全外链 → 诚实不补
 （走既有 IMAGE_ERROR 语义）+ warning 带来源 key 前缀；primary_image 同口径。
 
+✅ v0.78 批A (fix/image-source-hardgate-v1) 再收窄：补位资格从「本方 COS 托管」
+收窄为「classify_image_source == "ai"」（file/images/ 与 mxou-b64/）——镜像草稿
+原图（draft-images/）与 E1 salvage（ozon-1688/salvage/）不再补位（生图全败走
+prepare 硬闸 IMAGE_GEN_ALL_FAILED，原图仅作生图参考不上卡）。本文件补位用例
+的 fixture URL 已同步换 file/images/ key；builder 侧（`_cos_images`）口径未动
+（assemble items 不直接上传，上传载荷由 prepare 出口硬闸把守）。
+
 运行:
     cd worker && PYTHONPATH=src /Volumes/os/dev/ozon-worker/skill/.venv314/bin/python -m pytest tests/test_assemble_fillin_cos_only.py -q
 mock-only，无需 PG/GPU（最小 item 无属性，避开字典与 /values/search 网络路径）。
@@ -27,7 +34,9 @@ from graphs.nodes.assemble_ozon_product_node import (
     _validate_and_enrich_items,
 )
 
-_COS = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/draft-images/{}.jpg"
+# 批A 起补位 fixture 用 AI 生成图 key（file/images/）——draft-images/ 已无补位资格
+_COS = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/{}.jpg"
+_MIRROR = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/draft-images/{}.jpg"
 _ALICDN = "https://cbu01.alicdn.com/img/ibank/{}.jpg"
 
 
@@ -219,6 +228,21 @@ def test_fillin_blank_entries_dropped():
     item = _run([None, "", "   ", cos])
     assert item["images"] == [cos], f"补位子集不得含空白条目，实际: {item.get('images')}"
     assert item["primary_image"] == cos
+
+
+# ============================================================
+# v0.78 批A（fix/image-source-hardgate-v1）：补位资格收窄锁——
+# 镜像草稿/salvage 原图（本方 COS 托管但非 ai key）不再补位
+# ============================================================
+def test_fillin_mirror_draft_and_salvage_no_longer_fill():
+    """draft-images/ 与 ozon-1688/salvage/ 虽是本方 COS，但属草稿原图 1:1 副本/
+    E1 原图转存——批A 起不具备补位资格（原图仅作生图参考）。"""
+    mirror = _MIRROR.format("m1")
+    salvage = ("https://yss-1256275613.cos.ap-guangzhou.myqcloud.com"
+               "/ozon-1688/salvage/deadbeef.jpg")
+    item = _run([mirror, salvage])
+    assert not item.get("images"), f"镜像/salvage 原图不得补位，实际: {item.get('images')}"
+    assert not item.get("primary_image"), "镜像/salvage 场景 primary_image 也不得补位"
 
 
 # ============================================================

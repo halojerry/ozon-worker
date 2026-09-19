@@ -2,7 +2,46 @@
 
 ## [0.78.0] — 未发版
 
-### 批D fix/mxou-downgrade-visibility-v1 — 配置类生图错误响亮化 + ledger 成败
+### 批E fix/image-source-hardgate-v1 — 上架图来源硬闸
+
+> 生产取证（`docs/PLAN-image-source-hardening-v1.md` §0）：卡片出现 1688 原图的唯一
+> 现存来源 = ①生图全败 → E1 兜底（原图转存 COS 上卡）+ ②AI 图识别 marker 盲区
+> （`"/file/images/"` 字面子串——b64 兜底图落 `mxou-b64/` key 时 retry 守卫全盲 →
+> 草稿原图覆盖重传）。用户拍板：**生图全败 → 任务级失败（不出 1688 图卡），E1 默认
+> 停用**；原图仅作生图参考。worker 侧四件套（skill 零改动）：
+
+- **A1 图来源唯一分类器 `utils/image_source.py`（新）**：`classify_image_source`
+  （ai=本方 COS 且 key ∈ {file/images/, mxou-b64/} / salvage=ozon-1688/salvage/ /
+  mirror_draft=draft-images/ / external（含本方 COS 未知 key，保守不可上卡）/ invalid）；
+  `has_generated_images` / `IMAGE_SOURCE_ALLOWLIST_UPLOAD` /
+  `enforce_upload_policy`（全部 ∈ {ai}∪逃生门时 {salvage} 才放行，违规清单带来源标签）/
+  `salvage_fallback_enabled()`（env `IMAGE_SALVAGE_FALLBACK`，默认 "0"）。
+  is_cos_url 复用 cos_uploader re-export（不复制逻辑）。**改任何图来源判定前先读本模块，
+  禁止再内联 URL 子串判定。**
+- **A2 marker 盲区修复（retry 链）**：`validation_retry_loop._payload_has_generated_images`
+  与 `_prefer_generated_payload_images` 换唯一入口——`mxou-b64/` b64 兜底图从盲变明，
+  pictures 类错误不再用草稿原图覆盖 b64 AI 载荷；对 `/file/images/` 行为逐字兼容。
+  ⚠️ `utils/card_image_assert.py` 的 AI 载荷判定（同款 marker）归批F 接线，本批未动。
+- **A3 prepare 硬闸**：①E1 兜底默认停用——chosen_primary 为空时不再转存原图，
+  抛新错误码 `IMAGE_GEN_ALL_FAILED`（errors.py 14→15，附中文 message；承载异常
+  `ImageGenAllFailedError`(RuntimeError) **非永久** → task_processor 整任务重试一轮，
+  重试仍全败才终态 failed；`IMAGE_SALVAGE_FALLBACK=1` 逃生门保持 E1 现行为逐字不变）；
+  ②payload 出口 policy 闸（`_enforce_payload_image_policy`，加速域名改写后、全部
+  单/多 SKU 分支收口处）——items 全部 primary_image+images 必须 ∈ 允许来源，
+  违规（镜像/restore 残余路径混入 draft-images/ 等）→ 同错误码 + 违规清单 log。
+- **A4 assemble 补位收窄**：`_validate_and_enrich_items` 无图补位资格从「本方 COS
+  托管」收窄为「classify == ai」——镜像草稿原图（draft-images/）与 E1 salvage
+  产物不再补位；外链诚实不补语义保持；builder 侧 `_cos_images` 口径未动
+  （assemble items 不直接上传，上传载荷由 A3 出口闸把守）。
+- **API 文档**：错误码枚举仅运行时 `error_response` 消费、不进任何 OpenAPI schema——
+  `gen_api_docs --check --fail-on-missing-examples` 实跑零漂移（144 path/180 操作），
+  按简报口径说明后跳过快照再生成。
+- 测试：新 `test_image_source_hardgate_v078.py` 44 用例（classify 全分支/env 逃生门/
+  retry b64 盲区 RED 先行/prepare 硬闸与出口闸/assemble 收窄）；
+  `test_assemble_fillin_cos_only.py` 补位 fixture 同步换 file/images/ key + 新增
+  镜像/salvage 不补位锁。纯 mock，无网络/CDP。
+
+### 批G fix/mxou-downgrade-visibility-v1 — 配置类生图错误响亮化 + ledger 成败
 
 > 动因（取证 I5，`docs/PLAN-image-source-hardening-v1.md` §0）：生产 48h 内 69 次
 > 「模型未配价/model_not_found」类 **400 配置性错误**被当普通失败重试后**静默降级**
