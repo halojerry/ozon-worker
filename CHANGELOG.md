@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.78.0] — 未发版
+
+### 批D fix/config-healthcheck-v1 — config 挂空 healthcheck 固化
+- **背景**：2026-09-19 生产事故三层防线的第三层（前两层随 0.77.3：scene 节点
+  FileNotFoundError 永久错误化 + 启动 `_assert_critical_configs` 守卫
+  report-not-block）。compose 栈从后来被删除的 worktree 目录起 → config bind
+  源路径不存在 → Docker 静默挂空目录盖住镜像内 `/app/config` → worker
+  「健康地空跑」（对 `/api/v1/health` 依旧 200，任务确定性失败）。
+- **compose**（`deploy/docker-compose.yml` worker.healthcheck）：健康端点检查
+  追加 AND `test -f /app/config/imagegen.json` 存在性哨兵（哨兵取自
+  `_CRITICAL_CONFIG_FILES` 清单，与启动守卫同源；CMD-SHELL `&&` 链式，
+  exec 形式跑不了链式已由测试锁定）。参数 interval 30s / timeout 5s→10s /
+  retries 3 / start_period 15s→60s。**故意不配 autoheal/自动重启**——unhealthy
+  只做可见化，repair = 人工修 bind 源路径/重新部署（重启只会再次静默挂同一
+  个空目录，掩盖事故）。
+- **测试**（`tests/test_deploy_compose_hygiene.py`，TDD RED→GREEN）：新增
+  `test_worker_healthcheck_has_config_sentinel`（哨兵在位 + CMD-SHELL 形式 +
+  参数纪律 + start_period ≥60s）与 `test_worker_healthcheck_no_autoheal`
+  （全 service 禁 autoheal 触发器）；既有不变式（日志封顶 / PG 调参 /
+  mem_limit / 宿主端口禁 5433 / pg healthcheck 跟随 env）零回归。
+- **文档**（`docs/DEPLOY.md`）：新增「部署红线（必读）」一节——①禁止从临时
+  worktree/会删目录起 compose 栈（bind 源必须主仓持久路径，源路径被删 =
+  Docker 静默挂空目录）；②healthcheck config 哨兵语义（unhealthy + health
+  端点正常 ⇒ config 挂空，查 bind 源，勿盲目重启）。
+
 ## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
 
 > 动因（用户报告「直接给 1688/Ozon 链接上架非常慢」+ 全功能实跑 gate 取证）：
