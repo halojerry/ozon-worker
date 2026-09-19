@@ -34,8 +34,8 @@
   rate 缺失/≤0 维持 skip（宁缺勿假）；绝不 raise。**pricing_node 接线纠偏**：不能直接透传定价用
   `exchange_rate`（CNY 店 `_get_exchange_rate("CNY")` 恒返 1.0，透传=假阳性复活）——非 RUB 店且有锚时
   按 RUB 方向另走 fx 三级链（pg_cache→live→fallback 12）取真实换算汇率，取失败按无汇率 skip。
-- **测试**：新增 `test_validate_category_source_v078.py`（15：双分支豁免/拦截+channel 全跳声明锁定+
-  prepare 接线 mock）+ `test_price_guard_fx_v078.py`（9：ok/warn/block 三带+skip 保持+keyword-only+
+- **测试**：新增 `test_validate_category_source_v078.py`（14：双分支豁免/拦截+channel 全跳声明锁定+
+  prepare 接线 mock）+ `test_price_guard_fx_v078.py`（10：ok/warn/block 三带+skip 保持+keyword-only+
   RUB 回归+pricing_node 接线 spy 锁定传真实汇率非 1.0）。
 
 ### 批D fix/config-healthcheck-v1 — config 挂空 healthcheck 固化
