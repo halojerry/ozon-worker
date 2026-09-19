@@ -13,7 +13,9 @@
   不可用 ≠ 校验失败，Ozon 图片填充是异步的，硬拦会误杀正常单）。
 
 依赖零新增：下载复用 utils.image_url_processor._download_image（含 UA/Referer
-派发）；JPEG/PNG 头解析手写（worker 无 Pillow）；卡图 URL 仅允许 Ozon CDN 域。
+派发）；JPEG/PNG 头解析手写（worker 无 Pillow）；卡图 URL 允许 Ozon CDN 域 +
+我方 COS 域（批C fix/card-assert-cos-v1：import 刚完成时 info/list 先返回我方
+COS 源 URL，是 Ozon 转存前的合法返回，只认 CDN 会让断言恒 unverified）。
 """
 from __future__ import annotations
 
@@ -26,8 +28,17 @@ logger = logging.getLogger(__name__)
 
 # 3:4 生成图宽高比容差（896×1200=0.7467；Ozon 侧可能轻微重压缩）
 _AI_ASPECT_MIN, _AI_ASPECT_MAX = 0.70, 0.80
-# 卡图来源仅 Ozon CDN（/v3/product/info/list 返回 ir-*.ozone.ru / *.ozonstatic.cn 等）
-_ALLOWED_CARD_HOST_SUFFIXES = (".ozone.ru", ".ozonstatic.cn", ".ozonstatic.com")
+# 卡图来源白名单：Ozon CDN（/v3/product/info/list 返回 ir-*.ozone.ru / *.ozonstatic.cn 等）
+# + 我方 COS 域（批C fix/card-assert-cos-v1，2026-09-19 取证 I4）：import 刚完成时
+# info/list 先返回我方 COS 源 URL——这是 Ozon 转存 CDN 前的合法返回，不是异常；
+# 此前仅 Ozon CDN 三域 → COS 卡图拒下载 → 断言恒 unverified 静默放行。
+# .myqcloud.com 同时覆盖区域桶（cos.ap-guangzhou）与全域加速（cos.accelerate）两种形态。
+_ALLOWED_CARD_HOST_SUFFIXES = (
+    ".ozone.ru",
+    ".ozonstatic.cn",
+    ".ozonstatic.com",
+    ".myqcloud.com",
+)
 
 VERIFY_OK = "ok"
 VERIFY_MISMATCH = "mismatch"
@@ -102,7 +113,12 @@ def _default_fetch_size(url: str) -> Optional[Tuple[int, int]]:
 
 
 def is_all_ai_images(payload_images: List[str]) -> bool:
-    """载荷图是否全为本方 AI 生成图（COS file/images/ 前缀）。"""
+    """载荷图是否全为本方 AI 生成图（COS file/images/ 前缀）。
+
+    TODO(批A image_source 契约，fix/card-assert-cos-v1 登记)：并行批A 新建的
+    utils.image_source.has_generated_images 合并到 dev 后，本函数内联的
+    /file/images/ marker 应换为该唯一入口（跨批遗留，由接线方收口）。
+    """
     urls = [str(u) for u in (payload_images or []) if str(u).strip()]
     return bool(urls) and all("/file/images/" in u for u in urls)
 
