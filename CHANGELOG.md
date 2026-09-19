@@ -131,6 +131,21 @@
 cmd_discover 非交互分支**先于**交互弹窗判定（源码序锁防回归，
 `test_discover_noninteractive_select_v078` 4 用例）。交互路径行为零变化（专测锁定仍走 input()）。
 
+### 0.78.0 实机验证 gate（2026-09-19，本地 Docker + 真实 Chrome/1688/Ozon）
+
+- **零前台弹窗（批A 核心验收）**：discover 4 轮 + graph `--wait` 1 轮全程 macOS 前台采样
+  （2s 间隔 317 样本），**Chrome 前台次数 = 0**——readiness 预热/负缓存、seller/cookie 静默读、
+  discover 阶段①搜索页、aibuy token 自愈全部后台 tab 化后无一处抢焦点。
+- **discover 全链**：采集 6 品 → `🤖 非交互模式：自动全选 6/6` → aibuy 图搜 6/6×20 结果
+  （token 失效自愈，零 413 零 CDP 降级风暴）→ 提交腿自动确认 → **3 draft 真实入采集箱**
+  （2 个无 1688 URL 正确跳过）→ `📄 运行报告` 落盘；三阶段计时可见（119.9s/42.8s/0.0s）。
+- **graph `--wait`**：`📋 运行日志` 路径打印 → `💰 预估`（采购¥8.87+运费¥3.85→售价≈¥17.67，
+  率 28.0%，免责行在位）→ 提交 `task_id=75492c33…` → 轮询 running→failed → 终态一行回显
+  `❌ 任务失败…已拦截入采集箱 draft_id=d4bf24f0…` + **exit 3**。失败原因 =
+  `LOCAL_TITLE_CATEGORY_MISMATCH`（graph search_kw 非权威来源被批C 精化后的守卫**正确拦截**）
+  ——权威豁免与非权威拦截双向实证。
+- **环境收益**：回灌 suppress_origin 后全程零 Chrome 403；`/tmp` 帮助脚本零残留。
+
 ### 0.78.0 final review 登记（defer / 发版说明）
 
 - **`--wait` 轮询期间持有 heavy gate 锁**（合并语义既有代价）：graph/follow `--wait` 最长 900s、
