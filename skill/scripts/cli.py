@@ -1802,11 +1802,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     # ── 阶段③ 表格展示 + 挑选 ──
     _print_discover_table(candidates)
 
-    if getattr(args, "non_interactive", False):
-        # ✅ 0.78.0 实机验证补缺：非交互自动全选（必须先于交互弹窗判定——
-        # 先弹 input 再判 EOF = 非 tty 静默取消）
-        selected = _auto_select_noninteractive(candidates)
-    elif args.rules:
+    if args.rules:
         try:
             # ✅ v0.69 两段式：挑选期只跑采集期字段（ai 预设/月销/跟卖…）；
             # margin 等匹配期字段留到 1688 匹配后二次筛（此前 pre-match 恒 0.0
@@ -1819,6 +1815,10 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             return 1
         print(f"\n🎯 规则筛选(挑选期): {len(selected)}/{len(candidates)} 个命中",
               flush=True)
+    elif getattr(args, "non_interactive", False):
+        # ✅ 0.78.0 实机验证补缺：非交互自动全选（必须先于交互弹窗判定——
+        # 先弹 input 再判 EOF = 非 tty 静默取消）。显式 --rules 优先于本分支。
+        selected = _auto_select_noninteractive(candidates)
     else:
         selected = _interactive_select(candidates)
         if selected is None:
