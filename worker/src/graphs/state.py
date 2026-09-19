@@ -27,6 +27,10 @@ class GlobalState(BaseModel):
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")
     assembly_retry_count: int = Field(default=0, description="组装阶段类目匹配重试次数（最多2次）")
     moderation_retry_count: int = Field(default=0, description="审核轮询超时重试次数（最多3次）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 4194/4195 主图重生成防循环布尔——
+    # retry 子图执行过重生成即置位并经 wrapper Output 回写本通道，validate 与
+    # status 两次修复入口共享同一布尔（per-task 只重生成一次，二次拒单 warn-and-pass）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（跨修复入口防循环布尔闸）")
     error_type: str = Field(default="", description="错误类型分类（标签格式/尺寸重量/图片顺序/材料属性）")
     
     # Supabase配置（必须通过环境变量传入，无默认值）
@@ -818,6 +822,10 @@ class ValidationRetryWrapperInput(BaseModel):
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — 从 GlobalState 传入，避免 ozon_validate/ozon_status
     # 两次入口各自从 0 开始（合计可达 2×max_retries 却无感知）
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 主图重生成参考图 + 防循环布尔透传进子图
+    # （langgraph 按 Input model 过滤 channel，缺声明会被静默过滤——对齐 v0.66/0.73 先例）
+    original_images: List[str] = Field(default_factory=list, description="原始产品图（主图重生成参考，透传子图）")
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（跨修复入口防循环）")
 
 
 class ValidationRetryWrapperOutput(BaseModel):
@@ -854,6 +862,9 @@ class ValidationRetryWrapperOutput(BaseModel):
     # 本包装器 Output 双重过滤吞掉（生产 125 行 failed error_code 全空串的根因）。
     # GlobalState/GraphOutput 已有同名 channel——两处 Output 声明 + wrapper 透传即可。
     error_code: str = Field(default="", description="终态错误码（子图透出，成功恒空）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 子图主图重生成布尔回写主图 GlobalState
+    # （validate/status 两次修复入口共享，per-task 只重生成一次）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（子图透出，回写 GlobalState）")
 
 
 # ==================== 学习记录节点 ====================
