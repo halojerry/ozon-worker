@@ -2,6 +2,33 @@
 
 ## [0.78.0] — 未发版
 
+### 批C fix/card-assert-cos-v1 — 卡片图断言 COS 白名单与重试
+
+> 动因（取证 I4，docs/PLAN-image-source-hardening-v1.md §0）：v0.77.1 收尾卡片图断言在
+> 「import 刚完成」场景恒失效——`/v3/product/info/list` 此刻先返回我方 COS 源 URL
+> （Ozon 转存 CDN 前的合法返回），白名单仅 Ozon CDN 三域 → 拒下载 → unverified；
+> `ozon_status_node` 仅 1 次 15s 复查即放行，且 unverified 只留 warning 静默过。
+> worker 侧 2 文件小改，纯 mock 测试锁行为。
+
+- **C1 白名单放行我方 COS 域**（`utils/card_image_assert.py`）：`_ALLOWED_CARD_HOST_SUFFIXES`
+  增 `.myqcloud.com`（同时覆盖区域桶 `cos.ap-guangzhou` 与全域加速 `cos.accelerate` 两形态），
+  常量旁注明「我方 COS 源 URL 是 Ozon 转存前的合法返回」；Ozon CDN 三域与外链拒绝回归不变。
+  **TODO（跨批遗留）**：`is_all_ai_images` 内联 `/file/images/` marker 待并行批A 的
+  `utils.image_source.has_generated_images` 合并后切换（接线方收口，本批不自建该模块）。
+- **C2 复查 1×15s → 3×20s**（`graphs/nodes/ozon_status_node.py`）：mismatch/unverified 复查
+  循环化——env `CARD_ASSERT_RETRIES`（默认 3）/ `CARD_ASSERT_INTERVAL_S`（默认 20）可覆写；
+  任一次复查转 ok 提前收口；复查打点带 `复查 N/M 次`。mismatch 语义不变（走满预算仍不一致
+  → 任务 failed `CARD_IMAGE_MISMATCH`）。
+- **C3 unverified 升可见性（不 fail）**：复查用尽仍 unverified → `logger.error`（进 Sentry）
+  + `capture_task_event("card_image_assert_unverified", level="error", …)`（带 product_id/
+  卡片图数 vs 载荷图数/复查次数）+ warning 放行——**不可验证 ≠ 不一致**，硬拦会误杀异步
+  填充慢的正常单；旧实现仅 warning 静默放行、生产无法感知断言失效。
+- 测试：新增 `worker/tests/test_card_assert_cos_v078.py` 10 用例（白名单两形态/CDN·外链回归/
+  `_default_fetch_size` 真闸口/3 次校验第 3 次 ok 通过/用尽 unverified 升级放行/mismatch
+  回归/env 覆写/空载荷 skipped 不触发复查），全纯 mock 零网络零 PG；TDD（RED 6 failed →
+  GREEN 10 passed）。回归：`test_card_image_assert` + `test_ozon_status_validation` +
+  `test_status_routing_schema_v025` 共 20 用例全绿（相关文件口径，未跑全量）。
+
 ### 批B feat/skill-run-logging-v1 — 运行日志体系 + 一次性命令
 
 > 动因（用户反馈）：「运行日志没有明确，整个过程都是黑盒」+ agent 因提交后 fire-and-forget
