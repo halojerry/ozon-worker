@@ -64,6 +64,11 @@ def validation_retry_wrapper_node(
         envelope=state.envelope or {},
         # ⚠️ PR-1 (D3): 跨入口累积 — 从 GlobalState 传入已累计次数，子图在此基础上继续
         retry_count=state.retry_count,
+        # ✅ v0.78 批H (fix/attr4194-regen-v1): 主图重生成参考图 + 防循环布尔透传进子图
+        # （GlobalState.original_images 是重生成参考池；布尔跨 validate/status 两次
+        # 修复入口共享，per-task 只重生成一次）
+        original_images=list(getattr(state, "original_images", None) or []),
+        regen_main_image_done=bool(getattr(state, "regen_main_image_done", False)),
     )
 
     # 调用子图
@@ -101,6 +106,8 @@ def validation_retry_wrapper_node(
     # wrapper 不读/不回传，且 ValidationRetryWrapperOutput 未声明该字段——子图写的
     # LOCAL_TITLE_CATEGORY_MISMATCH / DESCRIPTION_DECLINE 等码双双被吞（生产根因）。
     _error_code: str = str(result.get("error_code") or "")
+    # ✅ v0.78 批H: 子图主图重生成布尔回写主图 GlobalState（跨修复入口防循环）
+    _regen_done: bool = bool(result.get("regen_main_image_done", False))
 
     logger.info(f"✅ 子图执行完成：is_valid={is_valid}, retry_count={retry_count}, upload_status={upload_status}")
 
@@ -128,4 +135,6 @@ def validation_retry_wrapper_node(
         decline_errors=_decline_errors,
         # v0.77.2: 终态错误码回传主图（成功子图返回空串，不污染成功任务）
         error_code=_error_code,
+        # v0.78 批H: 主图重生成布尔回写 GlobalState（跨修复入口防循环）
+        regen_main_image_done=_regen_done,
     )
