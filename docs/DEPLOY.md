@@ -148,6 +148,9 @@ MAX_CONCURRENT=30
 # 每分钟限流（默认300）
 RATE_LIMIT_PER_MINUTE=300
 
+# E1 原图兜底逃生门（v0.78 默认 0）：生图全败任务失败、不出原图卡；=1 恢复 E1 原图兜底，会重开两条原图上卡通道（默认别开）
+IMAGE_SALVAGE_FALLBACK=0
+
 # 日志级别
 LOG_LEVEL=INFO
 LOG_FORMAT=json

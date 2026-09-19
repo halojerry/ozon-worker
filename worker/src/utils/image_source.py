@@ -21,7 +21,8 @@ is_cos_url 复用 cos_uploader 现有实现（其本身是 utils/image_url_guard
 消费方：graphs/validation_retry_loop（AI 载荷判定，A2）、
 graphs/nodes/prepare_ozon_upload_node（上传 policy 硬闸，A3）、
 graphs/nodes/assemble_ozon_product_node（无图补位收窄，A4）。
-utils/card_image_assert.py 的 AI 载荷判定同源接线归批C（控制器统一合流）。
+utils/card_image_assert.py 的 AI 载荷判定同源接线已由批H H3 收口
+（is_all_ai_images → has_generated_images，fix/attr4194-regen-v1）。
 """
 from __future__ import annotations
 

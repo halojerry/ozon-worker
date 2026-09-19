@@ -418,3 +418,135 @@ class TestDeclarationAndWiring:
 
         src = inspect.getsource(mod.final_result)
         assert "regen_main_image_done" in src
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Fix round 1: pictures/import 与 product/import(UPDATE) 残余重传出口闸
+# ═══════════════════════════════════════════════════════════════════
+
+class TestTargetedReuploadExitGates:
+    """fix round 1（fix/attr4194-regen-v1）：批H H2 只闸了 _full_import_create
+    （CREATE 全量）——有 product_id 的两条靶向重传出口仍无闸：
+
+    - `_fix_via_pictures_import`（图片族整体替换）：仅按 is_cos_url 过滤，
+      draft-images/ 镜像与 ozon-1688/salvage/ 转存都在本方 COS → 误放行，
+      原图经 pictures/import 整体替换上卡；
+    - `_fix_via_product_import_update`（UPDATE 全量）：与 CREATE 同样把载荷
+      原样重推，无任何图来源检查。
+
+    两处补与 _full_import_create 同一 enforce_upload_policy 闸（违规 → 不 POST
+    + IMAGE_GEN_ALL_FAILED 语义 + 违规清单日志）。
+    """
+
+    def _mk_targeted_state(self, images: list, product_id: str = "123456789"):
+        from graphs.validation_retry_loop import ValidationRetryLoopState
+
+        return ValidationRetryLoopState(
+            ozon_payload={"items": [{
+                "offer_id": "sku-1",
+                "primary_image": images[0] if images else "",
+                "images": list(images),
+            }]},
+            error_code="IMAGE_ERROR",
+            token="tok-test",
+            ozon_client_id="cid",
+            ozon_api_key="key",
+            product_id=product_id,
+        )
+
+    # ── site b: _fix_via_pictures_import ──────────────────────────────
+
+    def test_pictures_import_mirror_url_blocks_post(self):
+        """镜像 draft-images/ 混入载荷（is_cos_url 会误放行）→ 不 POST，闸语义失败。"""
+        from graphs.validation_retry_loop import _fix_via_pictures_import
+
+        st = self._mk_targeted_state([COS_AI, COS_MIRROR])
+        with mock.patch("utils.ozon_client.ozon_import_product_pictures") as m_pics:
+            ok = _fix_via_pictures_import(st)
+
+        m_pics.assert_not_called()
+        assert ok is False
+        assert st.upload_status == "failed"
+        assert st.error_code == "IMAGE_GEN_ALL_FAILED"
+        assert "draft-images" in (st.error_message or "")
+
+    def test_pictures_import_salvage_url_blocks_post(self):
+        """salvage 转存同在本方 COS（is_cos_url 盲区）→ 逃生门关闭时同样拦截。"""
+        from graphs.validation_retry_loop import _fix_via_pictures_import
+
+        st = self._mk_targeted_state([COS_SALVAGE])
+        with mock.patch("utils.ozon_client.ozon_import_product_pictures") as m_pics:
+            _fix_via_pictures_import(st)
+
+        m_pics.assert_not_called()
+        assert st.error_code == "IMAGE_GEN_ALL_FAILED"
+
+    def test_pictures_import_clean_ai_posts(self):
+        """纯 AI 载荷（file/images/ + mxou-b64/）→ pictures/import 照常（回归）。"""
+        from graphs.validation_retry_loop import _fix_via_pictures_import
+
+        st = self._mk_targeted_state([COS_AI, COS_B64])
+        with mock.patch(
+            "utils.ozon_client.ozon_import_product_pictures",
+            return_value={"result": {"pictures": [{"state": "uploaded"}]}},
+        ) as m_pics:
+            ok = _fix_via_pictures_import(st)
+
+        assert ok is True
+        assert m_pics.call_count == 1
+
+    def test_pictures_import_gate_survives_caller(self):
+        """reupload_node pictures 分支：闸拦截按 failed 收口，不落 rejected_unfixable
+        （那是「无 COS 图可修」语义，闸拦截是「有图但违规」，必须可重试）。"""
+        from graphs.validation_retry_loop import reupload_node
+
+        st = self._mk_targeted_state([COS_AI, COS_MIRROR])
+        with mock.patch("utils.ozon_client.ozon_import_product_pictures"):
+            out = reupload_node(st)
+
+        assert out.upload_status == "failed"
+        assert out.error_code == "IMAGE_GEN_ALL_FAILED"
+
+    # ── site a: _fix_via_product_import_update ────────────────────────
+
+    def test_product_import_update_mirror_url_blocks_post(self):
+        """UPDATE 全量重传载荷混入镜像原图 → 不 POST，闸语义失败。"""
+        from graphs.validation_retry_loop import _fix_via_product_import_update
+
+        st = self._mk_targeted_state([COS_AI, COS_MIRROR])
+        with mock.patch("graphs.validation_retry_loop.ozon_post") as m_post:
+            task_id = _fix_via_product_import_update(st)
+
+        m_post.assert_not_called()
+        assert task_id is None
+        assert st.upload_status == "failed"
+        assert st.error_code == "IMAGE_GEN_ALL_FAILED"
+        assert "draft-images" in (st.error_message or "")
+
+    def test_product_import_update_clean_ai_posts(self):
+        """纯 AI 载荷 → UPDATE 重传照常（回归）。"""
+        from graphs.validation_retry_loop import _fix_via_product_import_update
+
+        st = self._mk_targeted_state([COS_AI, COS_B64])
+        with mock.patch(
+            "graphs.validation_retry_loop.ozon_post",
+            return_value={"result": {"task_id": "555"}},
+        ) as m_post:
+            task_id = _fix_via_product_import_update(st)
+
+        assert m_post.call_count == 1
+        assert task_id == "555"
+
+    def test_product_import_update_gate_survives_caller(self):
+        """reupload_node product_import 分支：闸的错误码与违规清单消息不被调用方
+        覆盖成 LOCAL_REUPLOAD_FAILED（语义可被 task_processor 识别整任务重试）。"""
+        from graphs.validation_retry_loop import reupload_node
+
+        st = self._mk_targeted_state([COS_AI, COS_MIRROR])
+        st.error_code = "DESCRIPTION_DECLINE"
+        with mock.patch("graphs.validation_retry_loop.ozon_post"):
+            out = reupload_node(st)
+
+        assert out.upload_status == "failed"
+        assert out.error_code == "IMAGE_GEN_ALL_FAILED"
+        assert "draft-images" in (out.error_message or "")
