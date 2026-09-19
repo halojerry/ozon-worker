@@ -431,7 +431,12 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             _ext = envelope_raw.get("extensions")
             if isinstance(_ext, dict):
                 _meta = _ext.get("discovery_meta") or {}
-        _verdict, _gap = check_price_sanity(float(price), _meta if isinstance(_meta, dict) else None)
+        # ✅ v0.77.3：传终价币种——锚价恒 RUB，非 RUB 店（如 CNY 测试店）跨币种
+        # 直接比倍数是假阳性（gate 实测 608₽÷30¥=20× 冤杀六卡），守卫内部跳比。
+        _verdict, _gap = check_price_sanity(
+            float(price), _meta if isinstance(_meta, dict) else None,
+            final_currency=str(currency_code or "RUB"),
+        )
         if _verdict == "block":
             _reason = (
                 f"价差守卫：终价 {price}{currency_unit} 与选品锚价 {_gap['anchor_price']}"

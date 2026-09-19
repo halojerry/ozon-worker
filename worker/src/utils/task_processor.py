@@ -42,8 +42,15 @@ def _is_permanent_task_error(exc: Exception) -> bool:
     Sentry 仍由 capture_task_error 上报一次（带 token 指纹定位账号），并在
     before_send 聚合为单一 fingerprint（mxou-permanent-error）防刷屏。
     除 isinstance 外按消息信号兜底（防未来异常被包装后丢失类型）。
+    ✅ v0.77.3（管线延迟）：环境级确定性异常纳入 permanent——FileNotFoundError/
+    PermissionError/ModuleNotFoundError 重试不会让文件/权限/依赖长出来（实测
+    cbbeaf03：config bind 挂空 → scene 节点 FileNotFound 被 temporary 重试
+    4 轮 × ~11s 全白烧，还重复烧 auth/类目/字典段）。直接终态 failed，
+    错误信息自证根因。
     """
     if isinstance(exc, (MxouOutOfQuotaError, MxouContentViolationError)):
+        return True
+    if isinstance(exc, (FileNotFoundError, PermissionError, ImportError, ModuleNotFoundError)):
         return True
     msg = str(exc or "")
     return msg.startswith("OUT_OF_QUOTA:") or "内容违规" in msg
