@@ -46,7 +46,7 @@
   follow --wait / discover 无人值守）；§2 速查表补 `--wait`（合并语义说明）/`--min-margin`/
   `check --logs`；「全局 flag 与运行日志」+「长任务后台」小节（job_status/job_result/
   job_list/job_cancel 四件套引导，替代手工轮询）。
-- 测试：新增 6 文件 43 用例（`test_run_logging_v078` / `test_wait_flag_v078` /
+- 测试：新增 6 文件 45 用例（43 主体 + 修正轮1 补 2：`test_run_logging_v078` / `test_wait_flag_v078` /
   `test_run_report_v078` / `test_check_logs_v078` / `test_estimate_min_margin_v078` /
   `test_skill_md_sync_v078`（SKILL.md 同步锁，先例 test_compile_frontmatter）），全纯 mock
   零实机 CDP/网络；TDD 全程（RED 38 failed → GREEN）。
@@ -61,7 +61,7 @@
 - **A3 seller 失败负缓存窗**：`fetch_sales_analytics` / `fetch_bestseller_metrics_map` 失败/空/整体异常 → 600s 负缓存窗（进程内 + 落盘，对齐 DataDome 短路窗先例，pytest 下整体禁用防用例串扰）；窗内二次调用直接早退——不建 tab、不导航。
 - **A4 aibuy 批内熔断**：`search_by_image_aibuy` 模块级连续失败计数（空/异常 +1，成功归零）；≥3 → 熔断 600s，窗内直接返回 `[]` 且底层 mtop 零调用、只打一行日志；`_aibuy_breaker_reset()` 可测钩子；600s 过期半开放行。token 级 600s claim 闸不动。
 - **Q6 aibuy upload 前压缩（根治 HTTP 413）**：`image_preprocessor.downscale_for_upload`（最长边 >1024 才缩 + 统一 JPEG q80 + 动图取首帧 + PIL 异常原样返回绝不 raise）；`_aibuy_image_upload` 下载后过压缩再 base64（len<100 原始字节守卫与上传失败→原始 URL 直搜兜底不变；AK 通道不经此路径零影响）。
-- 测试：新增 5 文件 38 用例（`test_silent_cdp_background_v078` / `test_readiness_negative_cache_v078` / `test_seller_negcache_v078` / `test_aibuy_breaker_v078` / `test_aibuy_upload_compress_v078`），全纯 mock 零实机 CDP/网络；skill 全量 **1534 passed**（基线 1496）；ruff scripts/ 零新增（改动文件前后均 40 条存量）。
+- 测试：新增 5 文件 40 用例（38 主体 + 修正轮1 补 2：`test_silent_cdp_background_v078` / `test_readiness_negative_cache_v078` / `test_seller_negcache_v078` / `test_aibuy_breaker_v078` / `test_aibuy_upload_compress_v078`），全纯 mock 零实机 CDP/网络；skill 全量 **1536 passed**（基线 1496）；ruff scripts/ 零新增（改动文件前后均 40 条存量）。
 - 修正轮1：seller_login 负缓存让位登录确认 memo（`seller_login_confirmed_recently` 双层命中→实检并覆盖负缓存，登录后重跑不再 exit 1；aibuy_token 负缓存语义不外溢，专测锁定）+ `fetch_sales_analytics` 陈旧注释对齐 A3 口径；全量 1536 passed。
 
 ### 批C fix/guard-precision-v1 — 守卫精化
@@ -113,6 +113,25 @@
   Docker 静默挂空目录）；②healthcheck config 哨兵语义（unhealthy + health
   端点正常 ⇒ config 挂空，查 bind 源，勿盲目重启）。
 - 修正轮1：DEPLOY.md 红线②取容器命令修正（compose 无 container_name，`docker inspect worker` 必失败 → `docker inspect --format '{{json .Mounts}}' $(docker compose ps -q worker)`）。
+
+### 回灌 fix/backport-suppress-origin — PR#27 suppress_origin 回流 dev
+
+> **发版流程漏步实锤（0.78.0 实机验证抓到）**：PR#27（f15f66b9，CDP 握手 suppress_origin
+> 修复）当时只 PR 到了 main，dev 从未回流——main cdp_client 3 处 suppress_origin、dev 0 处。
+> 批A-D 全部基于 dev 开发，实机 discover 一跑即撞 Chrome 403（浏览器级 WS 建连被拒，
+> A1 后台 tab 路径 `cdp_client.py` browser WS 首当其冲）。本节 = cherry-pick f15f66b9
+> 回 dev（4 文件干净落位，cdp/chrome/launcher 相关 48 测试绿）。**纪律补充：发版后
+> hotfix 若直 PR main，必须同日回灌 dev**（此前 WORKFLOW 未写死，现登记）。
+
+### 0.78.0 final review 登记（defer / 发版说明）
+
+- **`--wait` 轮询期间持有 heavy gate 锁**（合并语义既有代价）：graph/follow `--wait` 最长 900s、
+  discover 批量腿逐单轮询期间，本机其他重命令排队（30s 心跳可见，非静默）——发版说明如实告知。
+- **defer：R4 重配后 `category_source` 陈旧**——validate 零交集豁免按 prepare 定稿时的来源标记，
+  R4 整卡重配后标记不重算；实践中自愈（重配类目由标题关键词牵引，零交集概率低），登记 retry-loop
+  归属 defer。
+- **defer（批A 范围外）**：`cli.py _collect_keyword_pids`（discover-multi 滚动采集）前台
+  `new_tab` 未后台化——「零前台弹窗」口径限 discover/graph/follow，discover-multi 后续批补一行。
 
 ## [0.77.3] — 上架管线延迟批：每任务白烧清理 + 两类假阳性拦截根治（2026-09-19）
 
