@@ -46,8 +46,11 @@ status: active
   （哨兵文件取自 `main.py` `_CRITICAL_CONFIG_FILES` 清单，与启动守卫
   `_assert_critical_configs` 同源；0.78.0 批D 接入）。
 - **容器 unhealthy 且 `/api/v1/health` 手动 curl 正常 ⇒ 几乎必是 config bind
-  挂空**：按红线①查 bind 源路径是否存在（`docker inspect worker | grep -A3
-  '"Source"'` 对比宿主实际路径），修复 = 恢复源目录/迁回主仓路径后重建容器。
+  挂空**：按红线①查 bind 源路径是否存在（compose 未设 container_name，先
+  `cd /opt/ozon-worker/deploy` 再用
+  `docker inspect --format '{{json .Mounts}}' $(docker compose ps -q worker)`
+  解析容器后核对 Mounts 的 Source 与宿主实际路径），修复 = 恢复源目录/迁回
+  主仓路径后重建容器。
 - 设计口径：失败**只做 unhealthy 可见化**（30s 探测/10s 超时/3 次转 unhealthy），
   **故意不配 autoheal/自动重启**——重启解决不了挂空的 bind（会再次静默挂同一
   个空目录），盲目自愈只会掩盖事故；看见 unhealthy 先修 bind 源，别重启了事。
