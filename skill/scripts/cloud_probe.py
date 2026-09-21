@@ -88,7 +88,7 @@ except Exception as e:
 # Structured Task Logging — see scripts/lib/logging_utils.py
 # ═══════════════════════════════════════════════════════════════════════════
 
-from scripts.lib.logging_utils import AuditLogger
+from scripts.lib.logging_utils import AuditLogger, log_stage
 
 
 # Backward-compatible wrapper
@@ -4104,10 +4104,34 @@ def poll_task_status(
     on_status(result): 每次非终态轮询后回调（供 --watch 打印进度中间态，
     如 "⏳ running (35%)..."）；终态不回调（终态由返回值呈现）。
     v0.73: token 可选参透传 check_task_status（端点已补 Bearer 鉴权）。
+    v0.78 批B3 可观测性增强（轮询此前完全静默）：
+      - 每次 poll 一条 DEBUG；
+      - 状态变化打一条 INFO（同状态重复 poll 不刷屏）；
+      - 连续 3 次 worker_unreachable/query_error 打一条 WARNING（同一不可达段
+        只告警一次），轮询行为照旧直到超时。
+    10s 间隔 / 900s 超时 / 终态映射逐字保持。
     """
     deadline = time.time() + timeout
+    last_status = ""
+    err_streak = 0
+    err_warned = False
     while time.time() < deadline:
         r = check_task_status(task_id, token=token)
+        status = str(r.get("status") or "")
+        logger.debug("poll task_status: task_id=%s status=%s", task_id, status)
+        if status in ("worker_unreachable", "query_error"):
+            err_streak += 1
+            if err_streak >= 3 and not err_warned:
+                logger.warning(
+                    "⚠️ Worker 连续 %d 次不可达（%s），继续重试直到超时（%ds）",
+                    err_streak, status, timeout)
+                err_warned = True
+        else:
+            err_streak = 0
+            err_warned = False
+        if status and status != last_status:
+            logger.info("⏳ 任务 %s 状态: %s", task_id, status)
+            last_status = status
         if r.get("terminal"):
             return r
         if on_status is not None:
@@ -4224,13 +4248,19 @@ def _cached_ozon_scrape(
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
                       review: bool = False, notify: bool = False,
-                      to_box: bool = False) -> dict[str, Any]:
+                      to_box: bool = False, min_margin: float = 0.0) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
       2. LLM 翻译标题 → 1688 搜索同款
       3. CDP 探针 1688 → 采购成本 + 规格
       4. (auto_submit) 组装 GraphInput(follow_sell=true) → Worker 跟卖管线
+
+    v0.78 批B6: ``min_margin``（--min-margin，默认 0.0=不拦截零变化）——信封组装
+    后、提交**前**跑预估打印（与 graph 腿同一 ``cli._estimate_and_print`` 入口，
+    此前 follow 连预估都没有）；预估利润率低于阈值 → 不提交，
+    result.blocked_reason="low_margin"（cli 腿认领 exit 3）。
+    预估结果挂 result["estimate"] 供 _out 透出。
 
     review: D3 L3 人工评审暂停——展示全部 1688 候选，人工接受/改选/拒绝；
     拒绝 → no_relevant_match（不组装信封不提交），决策写 review_log。
@@ -4274,13 +4304,36 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             _env = dict(_cached_follow["envelope"])
             if notify:
                 _env["notify"] = True
-            _sub = submit_draft(_env) if to_box else submit_envelope(_env)
-            _cached_follow["submit_result"] = _sub
-            if to_box:
-                _cached_follow["draft_id"] = _sub.get("draft_id", "")
-                _cached_follow["degraded"] = _sub.get("degraded", False)
-            else:
-                _cached_follow["task_id"] = _sub.get("task_id", "")
+            # ✅ v0.78 批B6: 缓存路径与主路径同闸——提交前预估 + --min-margin 拦截
+            # （fix round 1: 预估打印与主路径对齐为无条件——只有拦截才是 min_margin>0 的
+            # 事，缓存命中 min_margin=0 也该有 💰 预估；缓存绕过拦截 = 阈值漏洞）。
+            _cached_blocked = False
+            try:
+                from scripts.cli import _min_margin_block_reason
+                _ced = _env.get("envelope", {}).get("draft", {}) if isinstance(
+                    _env.get("envelope"), dict) else {}
+                if _ced:
+                    from scripts.cli import _estimate_and_print
+                    _cest = _estimate_and_print(_ced, store_id)
+                    if _cest:
+                        _cached_follow["estimate"] = _cest
+                        _cblock = _min_margin_block_reason(_cest, min_margin)
+                        if _cblock:
+                            _cached_blocked = True
+                            _cached_follow["blocked_reason"] = "low_margin"
+                            _cached_follow["success"] = False
+                            _cached_follow["submit_result"] = None
+                            print(_cblock, flush=True)
+            except Exception as _ce:
+                logger.debug("follow 缓存路径预估跳过(不阻断): %s", _ce)
+            if not _cached_blocked:
+                _sub = submit_draft(_env) if to_box else submit_envelope(_env)
+                _cached_follow["submit_result"] = _sub
+                if to_box:
+                    _cached_follow["draft_id"] = _sub.get("draft_id", "")
+                    _cached_follow["degraded"] = _sub.get("degraded", False)
+                else:
+                    _cached_follow["task_id"] = _sub.get("task_id", "")
         return _cached_follow
     
     # Step 2: CDP 抓取 Ozon 商品页 → 竞品图片 + 标题
@@ -4314,39 +4367,40 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     except Exception:
         pass
 
-    try:
-        # ✅ v0.36: 昂贵 CDP 抓取走磁盘缓存包装（_cached_ozon_scrape，6h）
-        cdp_data = _cached_ozon_scrape(
-            ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
-        if cdp_data.get("success"):
-            ozon_images = cdp_data.get("images", [])
-            ozon_title = cdp_data.get("title", "")
-            # ⚠️ v0.14 P0-6: 抓取 Ozon 竞品售价（scraper 已解析 price 字段），
-            # 供 Worker 跟卖定价用（避免误用 1688 采购价当竞品价）
-            ozon_price = str(cdp_data.get("price", "") or "").strip()
-            if ozon_price:
-                result["competitor_price"] = ozon_price
-                logger.info("💰 Ozon 竞品售价: %s", ozon_price)
-            result["scrape_source"] = "cdp"
-            # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
-            scraped_dc = cdp_data.get("description_category_id", "")
-            scraped_type = cdp_data.get("type_id", "") or scraped_dc
-            scraped_lang = cdp_data.get("breadcrumb_language", "")
-            scraped_path = cdp_data.get("category_path", "")
-            if scraped_dc:
-                result["ozon_category"] = {
-                    "description_category_id": str(scraped_dc),
-                    "type_id": str(scraped_type),
-                    "language": scraped_lang,
-                    "category_path": scraped_path,
-                    # v0.63: 页面面包屑（顾客命名空间）→ 标 page，为主判据（category_path）
-                    "source": "page",
-                    "namespace": "widget",
-                }
-                logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
-            logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
-    except Exception as e:
-        logger.debug("CDP Ozon scraper unavailable: %s", e)
+    with log_stage("follow · CDP 抓取 Ozon 商品页"):
+        try:
+            # ✅ v0.36: 昂贵 CDP 抓取走磁盘缓存包装（_cached_ozon_scrape，6h）
+            cdp_data = _cached_ozon_scrape(
+                ozon_url, cdp_url="http://127.0.0.1:9222", timeout=30, conn=shared_cdp)
+            if cdp_data.get("success"):
+                ozon_images = cdp_data.get("images", [])
+                ozon_title = cdp_data.get("title", "")
+                # ⚠️ v0.14 P0-6: 抓取 Ozon 竞品售价（scraper 已解析 price 字段），
+                # 供 Worker 跟卖定价用（避免误用 1688 采购价当竞品价）
+                ozon_price = str(cdp_data.get("price", "") or "").strip()
+                if ozon_price:
+                    result["competitor_price"] = ozon_price
+                    logger.info("💰 Ozon 竞品售价: %s", ozon_price)
+                result["scrape_source"] = "cdp"
+                # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
+                scraped_dc = cdp_data.get("description_category_id", "")
+                scraped_type = cdp_data.get("type_id", "") or scraped_dc
+                scraped_lang = cdp_data.get("breadcrumb_language", "")
+                scraped_path = cdp_data.get("category_path", "")
+                if scraped_dc:
+                    result["ozon_category"] = {
+                        "description_category_id": str(scraped_dc),
+                        "type_id": str(scraped_type),
+                        "language": scraped_lang,
+                        "category_path": scraped_path,
+                        # v0.63: 页面面包屑（顾客命名空间）→ 标 page，为主判据（category_path）
+                        "source": "page",
+                        "namespace": "widget",
+                    }
+                    logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
+                logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
+        except Exception as e:
+            logger.debug("CDP Ozon scraper unavailable: %s", e)
     
     result["ozon_images_count"] = len(ozon_images)
     result["images"] = ozon_images
@@ -4430,16 +4484,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         # 3a-0. aibuy mtop API 直调（v0.39 优先）— 免浏览器秒级返回结构化结果，
         # 官方排序精准（实测 guest 视图=精准图搜排序）。fail-fast：无 token/失败
         # 快速返回 [] 由下方 CDP/AK 降级承接，不阻塞。
-        try:
-            from scripts.lib.ozon_image_search import search_by_image_aibuy
-            aibuy_results = search_by_image_aibuy(image_url=main_img, page_size=20)
-            if aibuy_results:
-                matches_raw = aibuy_results
-                search_method = "aibuy"
-                logger.info("✅ aibuy图搜命中 %d 个结果", len(matches_raw))
-        except Exception as e:
-            # ✅ W5.4 (I-8): 降级出声——debug 静默 → warning 带原因（为什么走 CDP）
-            logger.warning("aibuy 图搜失败，降级 CDP 图搜: %s", e)
+        with log_stage("follow · 1688 aibuy 图搜"):
+            try:
+                from scripts.lib.ozon_image_search import search_by_image_aibuy
+                aibuy_results = search_by_image_aibuy(image_url=main_img, page_size=20)
+                if aibuy_results:
+                    matches_raw = aibuy_results
+                    search_method = "aibuy"
+                    logger.info("✅ aibuy图搜命中 %d 个结果", len(matches_raw))
+            except Exception as e:
+                # ✅ W5.4 (I-8): 降级出声——debug 静默 → warning 带原因（为什么走 CDP）
+                logger.warning("aibuy 图搜失败，降级 CDP 图搜: %s", e)
 
         # 3a-1. CDP 网页版以图搜款（aibuy 不可用时，用1688网页搜索引擎）
         if not matches_raw:
@@ -4447,43 +4502,44 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # （1688 图搜算法偶发匹配差，重搜可显著提高命中质量）
             # ✅ v0.19: page_size 20 + 仅在页面确实渲染了徽标且质量差时才重搜；
             # 无徽标（未登录/未渲染）不重搜，交给 _pick_best_match 标题相关性降级
-            try:
-                from scripts.lib.ozon_image_search import (
-                    _get_badge_score,
-                    search_by_image_cdp,
-                )
-                cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
-                # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
-                # 仍空才降级 AK API
-                if not cdp_results:
-                    logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
-                    time.sleep(3)
-                    cdp_results = search_by_image_cdp(
-                        image_url=main_img, page_size=20, wait_seconds=15,
-                        conn=shared_cdp, force_refresh=True)
-                if cdp_results:
-                    badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
-                    has_badge = any(s > 0 for s in badge_scores)
-                    top_score = max(badge_scores, default=0)
-                    _re_attempt = 0
-                    while has_badge and top_score <= 1 and _re_attempt < 2:
-                        _re_attempt += 1
-                        logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
-                        retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
-                        if not retry_results:
-                            break
-                        retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
-                        if retry_score > top_score:
-                            cdp_results = retry_results
-                            top_score = retry_score
-                    if top_score > 1:
-                        logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
-                if cdp_results:
-                    matches_raw = cdp_results
-                    search_method = "cdp"
-                    logger.info("✅ CDP图搜命中 %d 个结果", len(matches_raw))
-            except Exception as e:
-                logger.debug("CDP image search failed: %s", e)
+            with log_stage("follow · 1688 CDP 图搜"):
+                try:
+                    from scripts.lib.ozon_image_search import (
+                        _get_badge_score,
+                        search_by_image_cdp,
+                    )
+                    cdp_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=10, conn=shared_cdp)
+                    # ✅ v0.19: CDP 空结果先原地重试 1 次（页面渲染偶发失败，甩脂机案例），
+                    # 仍空才降级 AK API
+                    if not cdp_results:
+                        logger.info("🔄 CDP图搜空结果，等待后原地重试 1 次...")
+                        time.sleep(3)
+                        cdp_results = search_by_image_cdp(
+                            image_url=main_img, page_size=20, wait_seconds=15,
+                            conn=shared_cdp, force_refresh=True)
+                    if cdp_results:
+                        badge_scores = [_get_badge_score(p.get("badge", "") or "") for p in cdp_results]
+                        has_badge = any(s > 0 for s in badge_scores)
+                        top_score = max(badge_scores, default=0)
+                        _re_attempt = 0
+                        while has_badge and top_score <= 1 and _re_attempt < 2:
+                            _re_attempt += 1
+                            logger.info(f"🔄 图搜匹配质量低(badge={top_score})，重新图搜 {_re_attempt}/2...")
+                            retry_results = search_by_image_cdp(image_url=main_img, page_size=20, wait_seconds=15, conn=shared_cdp, force_refresh=True)
+                            if not retry_results:
+                                break
+                            retry_score = max((_get_badge_score(p.get("badge", "")) for p in retry_results), default=0)
+                            if retry_score > top_score:
+                                cdp_results = retry_results
+                                top_score = retry_score
+                        if top_score > 1:
+                            logger.info(f"✅ 重搜后图搜质量提升: badge={top_score}")
+                    if cdp_results:
+                        matches_raw = cdp_results
+                        search_method = "cdp"
+                        logger.info("✅ CDP图搜命中 %d 个结果", len(matches_raw))
+                except Exception as e:
+                    logger.debug("CDP image search failed: %s", e)
 
         # 3a-2. API 以图搜款（后备）
         if not matches_raw:
@@ -4502,13 +4558,14 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
 
     # 3b. 文字搜索（fallback）— LLM 翻译俄语标题 → 中文关键词
     if not matches_raw:
-        search_kw = _translate_slug_to_cn(search_text, mxou_token)
-        if not search_kw:
-            search_kw = " ".join(search_text.split()[:4])
-        result["search_keyword"] = search_kw
-        matches_raw = _search_1688_with_fallback(search_kw)
-        search_method = "text"
-        logger.info("📝 文字搜索: %s", search_kw)
+        with log_stage("follow · 1688 文字搜索"):
+            search_kw = _translate_slug_to_cn(search_text, mxou_token)
+            if not search_kw:
+                search_kw = " ".join(search_text.split()[:4])
+            result["search_keyword"] = search_kw
+            matches_raw = _search_1688_with_fallback(search_kw)
+            search_method = "text"
+            logger.info("📝 文字搜索: %s", search_kw)
 
     result["search_method"] = search_method
 
@@ -4625,17 +4682,18 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
         best_id = best.get("id", "")
         if best_id:
             try:
-                detail_url = f"https://detail.1688.com/offer/{best_id}.html"
-                # fix/image-ref-pollution: 不再把 Ozon 竞品主图传 fallback_images
-                # （竞品图进 draft.images 会做生图参考+E1 兜底直上，串成竞品卡）；
-                # 1688 api_only 无图 → 信封组装失败/校验门拦截，宁阻断不上错图
-                envelope = build_graph_envelope_with_retry(
-                    item_id=best_id,
-                    detail_url=detail_url,
-                    store_id=store_id,
-                    max_skus=DEFAULT_MULTI_SKU_MAX,
-                    cdp=shared_cdp,
-                )
+                with log_stage("follow · 组装 1688 信封（CDP 探针）"):
+                    detail_url = f"https://detail.1688.com/offer/{best_id}.html"
+                    # fix/image-ref-pollution: 不再把 Ozon 竞品主图传 fallback_images
+                    # （竞品图进 draft.images 会做生图参考+E1 兜底直上，串成竞品卡）；
+                    # 1688 api_only 无图 → 信封组装失败/校验门拦截，宁阻断不上错图
+                    envelope = build_graph_envelope_with_retry(
+                        item_id=best_id,
+                        detail_url=detail_url,
+                        store_id=store_id,
+                        max_skus=DEFAULT_MULTI_SKU_MAX,
+                        cdp=shared_cdp,
+                    )
                 if envelope and envelope.get("envelope"):
                     draft = envelope["envelope"].get("draft", {})
                     extensions = envelope["envelope"].get("extensions", {})
@@ -4765,24 +4823,50 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     envelope["token"] = mxou_token
                     result["envelope"] = envelope
                     result["envelope_built"] = True
+                    # ✅ v0.78 批B6: 提交前预估打印（与 graph 腿同一共享入口
+                    # cli._estimate_and_print——此前 follow 连预估都没有）+
+                    # --min-margin 利润率拦截（默认 0=不拦截零变化）。
+                    # 必须在提交**前**：提交后再打印/拦截就晚了。
+                    _low_margin_block = False
+                    try:
+                        from scripts.cli import (_estimate_and_print,
+                                                 _min_margin_block_reason)
+                        _est = _estimate_and_print(draft, store_id)
+                        if _est:
+                            result["estimate"] = _est
+                            _block = _min_margin_block_reason(_est, min_margin)
+                            if _block:
+                                _low_margin_block = True
+                                result["blocked_reason"] = "low_margin"
+                                result["success"] = False
+                                result["submit_result"] = None
+                                print(_block, flush=True)
+                                logger.warning(
+                                    "⛔ --min-margin 拦截（提交前）: rate=%s < %s",
+                                    _est.get("estimated_profit_rate"), min_margin)
+                    except Exception as _ee:
+                        logger.debug("follow 预估打印跳过(不阻断): %s", _ee)
                     # ⚠️ P4: success 必须在提交之后才置位——图搜命中 ≠ 上架成功
-                    if auto_submit:
-                        if notify:
-                            envelope["notify"] = True
-                        submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
-                        result["submit_result"] = submit_res
-                        if to_box:
-                            result["draft_id"] = submit_res.get("draft_id", "")
-                            result["degraded"] = submit_res.get("degraded", False)
-                            result["success"] = bool(submit_res.get("ok")) and bool(
-                                submit_res.get("draft_id") or submit_res.get("task_id")
-                            )
+                    with log_stage("follow · 提交 Worker"):
+                        if auto_submit and not _low_margin_block:
+                            if notify:
+                                envelope["notify"] = True
+                            submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
+                            result["submit_result"] = submit_res
+                            if to_box:
+                                result["draft_id"] = submit_res.get("draft_id", "")
+                                result["degraded"] = submit_res.get("degraded", False)
+                                result["success"] = bool(submit_res.get("ok")) and bool(
+                                    submit_res.get("draft_id") or submit_res.get("task_id")
+                                )
+                            else:
+                                result["task_id"] = submit_res.get("task_id", "")
+                                result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
+                        elif auto_submit and _low_margin_block:
+                            pass  # low_margin 拦截：不提交（success 已置 False）
                         else:
-                            result["task_id"] = submit_res.get("task_id", "")
-                            result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
-                    else:
-                        # dry-run：仅组装信封，构建成功即算成功
-                        result["success"] = True
+                            # dry-run：仅组装信封，构建成功即算成功
+                            result["success"] = True
                 else:
                     result["envelope_error"] = "build_graph_envelope 返回空"
                     result["success"] = False

@@ -16,6 +16,11 @@
   竞品价本就只是参考）。
 - 阈值 env 可覆盖：``PRICE_GAP_BLOCK_RATIO``（默认 10）/ ``PRICE_GAP_WARN_RATIO``
   （默认 3）。每次调用时读 env（非 import 时），热加载/测试 monkeypatch 均生效。
+- ✅ v0.78 批C（fix/guard-precision-v1）：跨币种从「直接 skip」增强为「汇率换算后
+  真比」——``exchange_rate``（keyword-only，CNY→RUB 方向，与 pricing 语义一致）
+  > 0 时 ``anchor_cmp = anchor / exchange_rate`` 折回店铺币种再走既有 ratio 判定
+  （阈值不变），evidence 记 ``anchor_converted``/``exchange_rate`` 留痕；
+  ``exchange_rate <= 0`` 维持 v0.77.3 skip 止血语义（宁缺勿假）。绝不 raise。
 """
 import os
 from typing import Any, Dict, Optional, Tuple
@@ -52,14 +57,35 @@ def _positive_number(val: Any) -> bool:
     return isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0
 
 
-def check_price_sanity(final_price: float, discovery_meta: Optional[dict]) -> Tuple[str, Dict[str, Any]]:
+def check_price_sanity(
+    final_price: float,
+    discovery_meta: Optional[dict],
+    final_currency: str = "RUB",
+    *,
+    exchange_rate: float = 0.0,
+) -> Tuple[str, Dict[str, Any]]:
     """校验定价终价与选品锚价的倍数关系。
+
+    final_currency = 终价货币码（pricing_node 的 currency_code；缺省 "RUB" =
+    生产主形态，旧调用方行为零变化）。
+    exchange_rate = CNY→RUB 汇率（keyword-only；与 pricing 的 _get_exchange_rate
+    同方向同语义）。仅跨币种（final_currency 非 RUB）时参与换算：
+    ``anchor_cmp = anchor / exchange_rate`` 折回店铺币种再比。
 
     Returns:
         ("ok"|"warn"|"block", evidence)。
         - 无锚 / final_price 非法 ≤0 → ("ok", {})；
-        - 有锚 → evidence = {anchor_price, anchor_source, final_price, ratio,
-          block_ratio, warn_ratio}（ok 档也带，供审计留痕）。
+        - 币种不可比且 exchange_rate <= 0 → ("ok", {skipped:
+          "currency_mismatch", anchor_price, ...})——锚价恒 RUB（Ozon 站内价），
+          非 RUB 终价与锚不同单位，且无汇率可换算时直接比倍数是跨币种假阳性
+          （实测 gate：608₽÷30¥=20× 冤杀六卡，真实可比 608×0.075≈45.6¥ vs 30¥
+          仅 1.52×）。宁缺勿假 = 不比。
+        - 币种不可比但 exchange_rate > 0 → 换算真比：anchor_cmp =
+          anchor / exchange_rate，ratio = anchor_cmp / final_price 走既有阈值
+          判定（block ≥10 / warn ≥3 不变）；evidence 额外带 anchor_converted /
+          exchange_rate（audit 留痕）。608₽÷13.3≈45.7¥ vs 30¥ = 1.52× → ok。
+        - 有锚可比（RUB）→ evidence = {anchor_price, anchor_source, final_price,
+          ratio, block_ratio, warn_ratio}（ok 档也带，供审计留痕）。
         - ratio >= block_ratio → "block"；ratio >= warn_ratio → "warn"；否则 "ok"。
     """
     if not _positive_number(final_price):
@@ -76,6 +102,39 @@ def check_price_sanity(final_price: float, discovery_meta: Optional[dict]) -> Tu
             break
     if anchor is None:
         return "ok", {}
+
+    # ✅ v0.77.3：币种可比性校验——非 RUB 终价不与 RUB 锚直接比倍数（见 docstring）
+    # ✅ v0.78 批C：exchange_rate > 0 时换算真比（anchor 折回店铺币种再走既有阈值）；
+    #    rate 缺失/≤0 维持 skip 止血语义（宁缺勿假）。
+    if str(final_currency or "RUB").strip().upper() != "RUB":
+        if not (isinstance(exchange_rate, (int, float))
+                and not isinstance(exchange_rate, bool)
+                and exchange_rate > 0):
+            return "ok", {
+                "skipped": "currency_mismatch",
+                "anchor_price": anchor,
+                "anchor_source": anchor_source,
+                "final_price": float(final_price),
+                "final_currency": str(final_currency).strip().upper(),
+            }
+        anchor_cmp = anchor / float(exchange_rate)
+        block_ratio, warn_ratio = get_ratios()
+        ratio = anchor_cmp / float(final_price)
+        evidence: Dict[str, Any] = {
+            "anchor_price": anchor,
+            "anchor_source": anchor_source,
+            "anchor_converted": round(anchor_cmp, 2),
+            "exchange_rate": float(exchange_rate),
+            "final_price": float(final_price),
+            "ratio": round(ratio, 2),
+            "block_ratio": block_ratio,
+            "warn_ratio": warn_ratio,
+        }
+        if ratio >= block_ratio:
+            return "block", evidence
+        if ratio >= warn_ratio:
+            return "warn", evidence
+        return "ok", evidence
 
     block_ratio, warn_ratio = get_ratios()
     ratio = anchor / float(final_price)

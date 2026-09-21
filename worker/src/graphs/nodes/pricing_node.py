@@ -431,7 +431,29 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             _ext = envelope_raw.get("extensions")
             if isinstance(_ext, dict):
                 _meta = _ext.get("discovery_meta") or {}
-        _verdict, _gap = check_price_sanity(float(price), _meta if isinstance(_meta, dict) else None)
+        # ✅ v0.77.3：传终价币种——锚价恒 RUB，非 RUB 店（如 CNY 测试店）跨币种
+        # 直接比倍数是假阳性（gate 实测 608₽÷30¥=20× 冤杀六卡），守卫内部跳比。
+        # ✅ v0.78 批C（fix/guard-precision-v1 Q8）：skip 增强为「换算真比」——
+        # ⚠️ 不能直接透传 :194 的 exchange_rate：CNY 店 _get_exchange_rate 恒返
+        # 1.0（CNY 定价路径不使用汇率），1.0 不是换算汇率，透传会把 608₽÷1.0
+        # 当 608¥ 又比出 20× 假阳性（gate 冤杀形态复活）。非 RUB 店且有锚时，
+        # 在此按 RUB 方向另取真实 CNY→RUB 汇率（fx 三级链 pg_cache → live →
+        # fallback 12）传给守卫；无锚不白查（守卫恒 ok），取汇率失败按无汇率
+        # 处理（守卫内部维持 skip，绝不 raise）。RUB 店同币种不换算，传值无影响。
+        _guard_fx_rate: float = float(exchange_rate or 0.0)
+        if (str(currency_code or "RUB").strip().upper() != "RUB"
+                and _guard_fx_rate <= 1
+                and isinstance(_meta, dict) and _meta):
+            try:
+                _guard_fx_rate = float(_get_exchange_rate(supabase_url, supabase_key, "RUB"))
+            except Exception as _fx_e:
+                logger.warning("价差守卫取换算汇率失败（按无汇率 skip 处理）: %s", _fx_e)
+                _guard_fx_rate = 0.0
+        _verdict, _gap = check_price_sanity(
+            float(price), _meta if isinstance(_meta, dict) else None,
+            final_currency=str(currency_code or "RUB"),
+            exchange_rate=_guard_fx_rate,
+        )
         if _verdict == "block":
             _reason = (
                 f"价差守卫：终价 {price}{currency_unit} 与选品锚价 {_gap['anchor_price']}"

@@ -59,6 +59,8 @@ def _run(draft, search_hits=None):
         dictionary_values={},
         token="sk-test",
         original_images=draft["images"],
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key），防出口闸误伤
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
     )
 
     def fake_search(cid, key, aid, dc, tp, value, lang="RU"):
@@ -111,6 +113,8 @@ def test_4958_search_terms_include_cat_double():
         description_category_id="17028673", type_id="95192",
         final_attributes=[], attributes_schema=_SCHEMA,
         dictionary_values={}, token="sk", original_images=_draft()["images"],
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key），防出口闸误伤
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
     )
     with mock.patch("utils.mxou_api.call_mxou_chat_api", return_value=""), \
             mock.patch("graphs.nodes.prepare_ozon_upload_node._translate_to_russian_llm",

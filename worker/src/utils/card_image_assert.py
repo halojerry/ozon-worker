@@ -5,15 +5,18 @@
 本模块在 ozon_status all_approved 出口校验「卡片图 = 载荷图」：
 
 - 数量：卡片可见图数 < 载荷图数 → mismatch；
-- 来源：载荷图全为 AI 生成图（/file/images/）→ 抽卡首图下载，宽高比须 ≈ 0.75
-  （3:4，生成图规格 896×1200；1688 原图通常 1:1）→ 不符 → mismatch；
-- 载荷为 salvage/原图兜底（非 file/images/）→ 仅数量校验（尺寸不区分来源语义）；
+- 来源：载荷图全为 AI 生成图（utils/image_source 判 ai：file/images/ 与
+  mxou-b64/，批H 接线）→ 抽卡首图下载，宽高比须 ≈ 0.75（3:4，生成图规格
+  896×1200；1688 原图通常 1:1）→ 不符 → mismatch；
+- 载荷为 salvage/镜像/原图兜底（非 ai）→ 仅数量校验（尺寸不区分来源语义）；
 - 载荷无图（跟卖 UPDATE/编辑流）→ skipped；
 - 卡图尚未异步填充 / 下载失败 → unverified（warning 不拦，诚实降级——校验
   不可用 ≠ 校验失败，Ozon 图片填充是异步的，硬拦会误杀正常单）。
 
 依赖零新增：下载复用 utils.image_url_processor._download_image（含 UA/Referer
-派发）；JPEG/PNG 头解析手写（worker 无 Pillow）；卡图 URL 仅允许 Ozon CDN 域。
+派发）；JPEG/PNG 头解析手写（worker 无 Pillow）；卡图 URL 允许 Ozon CDN 域 +
+我方 COS 域（批C fix/card-assert-cos-v1：import 刚完成时 info/list 先返回我方
+COS 源 URL，是 Ozon 转存前的合法返回，只认 CDN 会让断言恒 unverified）。
 """
 from __future__ import annotations
 
@@ -22,12 +25,25 @@ import struct
 from typing import Callable, List, Optional, Tuple
 from urllib.parse import urlparse
 
+# ✅ v0.78 批H (fix/attr4194-regen-v1): AI 判定唯一事实源（批F TODO 收口）——
+# 内联 ``/file/images/`` 字面 marker 对 mxou-b64/ 兜底图全盲，改走 image_source。
+from utils import image_source
+
 logger = logging.getLogger(__name__)
 
 # 3:4 生成图宽高比容差（896×1200=0.7467；Ozon 侧可能轻微重压缩）
 _AI_ASPECT_MIN, _AI_ASPECT_MAX = 0.70, 0.80
-# 卡图来源仅 Ozon CDN（/v3/product/info/list 返回 ir-*.ozone.ru / *.ozonstatic.cn 等）
-_ALLOWED_CARD_HOST_SUFFIXES = (".ozone.ru", ".ozonstatic.cn", ".ozonstatic.com")
+# 卡图来源白名单：Ozon CDN（/v3/product/info/list 返回 ir-*.ozone.ru / *.ozonstatic.cn 等）
+# + 我方 COS 域（批C fix/card-assert-cos-v1，2026-09-19 取证 I4）：import 刚完成时
+# info/list 先返回我方 COS 源 URL——这是 Ozon 转存 CDN 前的合法返回，不是异常；
+# 此前仅 Ozon CDN 三域 → COS 卡图拒下载 → 断言恒 unverified 静默放行。
+# .myqcloud.com 同时覆盖区域桶（cos.ap-guangzhou）与全域加速（cos.accelerate）两种形态。
+_ALLOWED_CARD_HOST_SUFFIXES = (
+    ".ozone.ru",
+    ".ozonstatic.cn",
+    ".ozonstatic.com",
+    ".myqcloud.com",
+)
 
 VERIFY_OK = "ok"
 VERIFY_MISMATCH = "mismatch"
@@ -102,9 +118,15 @@ def _default_fetch_size(url: str) -> Optional[Tuple[int, int]]:
 
 
 def is_all_ai_images(payload_images: List[str]) -> bool:
-    """载荷图是否全为本方 AI 生成图（COS file/images/ 前缀）。"""
+    """载荷图是否全为本方 AI 生成图（utils/image_source 唯一入口逐张判定）。
+
+    ✅ v0.78 批H (fix/attr4194-regen-v1)：内联 ``/file/images/`` marker 换
+    ``utils.image_source.has_generated_images``（批A 唯一事实源，批F TODO 收口）——
+    行为对 file/images/ 完全兼容，对 mxou-b64/ 兜底图从盲变明（现计 AI 产物，
+    同样受 3:4 尺寸断言约束）；salvage/镜像/外链/未知 key 均非 AI。
+    """
     urls = [str(u) for u in (payload_images or []) if str(u).strip()]
-    return bool(urls) and all("/file/images/" in u for u in urls)
+    return bool(urls) and all(image_source.has_generated_images((u,)) for u in urls)
 
 
 def verify_card_images(

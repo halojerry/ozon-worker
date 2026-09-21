@@ -95,3 +95,43 @@ def filter_product_images(urls: Iterable[object]) -> List[str]:
         if isinstance(u, str) and u.strip() and is_product_image_candidate(u):
             out.append(u.strip())
     return out
+
+
+# ── 批I（fix/follow-reference-image-v1，用户拍板 2026-09-20）──────────────
+# 跟卖（follow）语义：竞品 Ozon 图 = 生图参考（AI 按竞品参考重绘出图上卡）。
+# skill 侧 v0.33.1 设计（cloud_probe follow 组装 draft.images=竞品首图）+
+# ingest 透传 extensions.follow_sell → 生图节点据此放行竞品图进参考链。
+# **参考 ≠ 上卡**：竞品图仍被 utils/image_source 分类为 external，
+# enforce_upload_policy 恒拒出 payload（upload 侧零改动，测试锁定）。
+
+
+def _is_competitor_reference_candidate(url: str) -> bool:
+    """跟卖参考专用：Ozon 竞品 CDN 原尺寸图（质量红线与货源白名单一致）。"""
+    lowered = url.strip().lower()
+    if not lowered.startswith(("http://", "https://")):
+        return False
+    # Ozon CDN 域形态多变（ir / ir-N / cdn1 子域），按域后缀判定而非穷举
+    if not (".ozon.ru/" in lowered or ".ozone.ru/" in lowered
+            or "//ozon.ru/" in lowered or "//ozone.ru/" in lowered):
+        return False
+    if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
+        return False
+    return not _THUMBNAIL_PATTERN.search(lowered)
+
+
+def filter_reference_images(urls: Iterable[object], allow_competitor: bool = False) -> List[str]:
+    """生图参考过滤（follow 感知版 filter_product_images）。
+
+    - 默认（allow_competitor=False）逐字等价 filter_product_images——graph 信封
+      行为零变化，竞品图仍拒（防串图）。
+    - allow_competitor=True（信封 extensions.follow_sell）额外放行 Ozon 竞品
+      CDN 原尺寸图作参考；缩略/.webp 恒拒。竞品图仍禁上卡（image_source）。
+    """
+    out: List[str] = []
+    for u in urls:
+        if not (isinstance(u, str) and u.strip()):
+            continue
+        if is_product_image_candidate(u) or (
+                allow_competitor and _is_competitor_reference_candidate(u)):
+            out.append(u.strip())
+    return out

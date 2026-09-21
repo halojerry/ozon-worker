@@ -53,6 +53,13 @@ from utils.volume_weight_guard import (
     compute_density_g_cc,
     ensure_volume_weight_floor,
 )
+# ✅ v0.78 批A (fix/image-source-hardgate-v1): 图来源唯一分类器（AI 载荷判定
+# _payload_has_generated_images / _prefer_generated_payload_images 消费，
+# mxou-b64/ 从 marker 盲区转明；禁止再内联 "/file/images/" 字面子串）
+from utils import image_source
+# ✅ v0.78 批H (fix/attr4194-regen-v1): H2 重传出口闸复用批E 错误码与消息
+# （IMAGE_GEN_ALL_FAILED 语义——见 errors.py PIPELINE_ERROR_MESSAGES 注释）
+from api.errors import PIPELINE_ERROR_MESSAGES, WorkerErrorCode
 
 
 # ============================================================
@@ -141,6 +148,14 @@ class ValidationRetryLoopState(BaseModel):
     # weight_inferred: [{item_index, density_kg_m3, from_g, to_g}]）——日志之外的
     # 结构化审计，子图内节点/测试可断言（不进 Output schema，不出子图）
     repair_marks: Dict[str, Any] = Field(default_factory=dict, description="修复动作留痕（体积重反推等）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 4194/4195 主图重生成的参考图池
+    # （GlobalState.original_images 经 wrapper 透传——regen_main_image_node 消费；
+    # langgraph 按 Input model 过滤 channel，State/Input 两处都必须声明）
+    original_images: List[str] = Field(default_factory=list, description="原始产品图（主图重生成参考，wrapper 透传）")
+    # ✅ v0.78 批H: 主图重生成防循环布尔闸（一次任务仅允许重生成一次，成功失败都
+    # 置位；Input/Output 同步声明——validate 与 status 两次修复入口经 GlobalState
+    # 通道共享同一布尔，二次 4194/4195 直达 warn-and-pass）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成是否已执行（防循环布尔闸）")
 
 
 class ValidationRetryLoopInput(BaseModel):
@@ -177,6 +192,10 @@ class ValidationRetryLoopInput(BaseModel):
     envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（阻断入箱落 payload）")
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — wrapper 从 GlobalState 传入，子图在此基础上继续
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 主图重生成参考图 + 防循环布尔透传
+    # （wrapper 从 GlobalState 传入——validate/status 两次修复入口不重复重生成）
+    original_images: List[str] = Field(default_factory=list, description="原始产品图（主图重生成参考，wrapper 透传）")
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（跨入口防循环，GlobalState 透传）")
 
 
 class ValidationRetryLoopOutput(BaseModel):
@@ -211,6 +230,9 @@ class ValidationRetryLoopOutput(BaseModel):
     # 等）此前未在本 Output 声明，被 output_schema 静默吞掉 → wrapper/GraphOutput/
     # listing_result_log.error_code 恒空（生产 125 行空串根因）。成功终态清空。
     error_code: str = Field(default="", description="终态错误码（成功恒空）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 主图重生成防循环布尔透出（wrapper 回写
+    # GlobalState——validate/status 两次修复入口共享，保证 per-task 只重生成一次）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（透传 wrapper → GlobalState）")
 
 
 # v0.28.5 C2: 错误码 → 用户可读中文说明(供 task_status/最终结果展示)
@@ -849,6 +871,22 @@ def classify_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # ✅ 图片错误（attr=4195 附加图片, attr=4194 主图）无法通过属性修复解决
     # 标记为 warning 而非阻塞错误，让产品继续上架
     if error_code == "DESCRIPTION_DECLINE" and attr_id in (4194, 4195):
+        # ✅ v0.78 批H (fix/attr4194-regen-v1，取证 I2)：4194/4195（«На главном
+        # фото не показан товар» 主图未展示商品）且载荷含 AI 图且本次任务还没
+        # 重生成过 → 路由 regen_main_image（严格合规 prompt 重生成主图后经既有
+        # reupload 链重传一次）。不满足（无 AI 图 / 已重生成过）→ 下方既有
+        # warn-and-pass 逐字保持（防循环：重生成只做一次，二次拒单不再烧额度）。
+        if (
+            not getattr(state, "regen_main_image_done", False)
+            and _payload_has_generated_images(state)
+        ):
+            logger.info(
+                f"🖼️ 图片问题(attr={attr_id})：载荷含 AI 图且未重生成过 → "
+                f"路由 regen_main_image（重生成合规主图后重传一次）"
+            )
+            state.error_type = "fixable"
+            state.repair_node = "regen_main_image"
+            return state
         logger.warning(
             f"⚠️ 图片问题(attr={attr_id})，无法通过retry修复，标记为warning继续上架"
         )
@@ -898,7 +936,9 @@ def repair_node_selector(state: ValidationRetryLoopState) -> str:
     if repair_node == "reupload_direct":
         # ✅ v0.69 图片族：跳过属性/价格修复，直接靶向 reupload（pictures/import）
         return "reupload_direct"
-    if repair_node in ("error_repair_llm", "repair_pricing", "repair_prepare", "repair_dimensions"):
+    if repair_node in ("error_repair_llm", "repair_pricing", "repair_prepare",
+                       "repair_dimensions", "regen_main_image"):
+        # ✅ v0.78 批H: regen_main_image（4194/4195 主图重生成）加入可路由修复节点
         return repair_node
 
     # 默认走LLM修复
@@ -2201,6 +2241,18 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # 内嵌此处：按 state.attributes_schema 数值型 type 逐属性过唯一入口
     # sanitize_numeric_attr_value（剥单位/逗号小数/越界夹取，8962 区间 (1,10000)）。
     # 清洗失败 → 8962 回落 "1"，其余属性删空值防 error_attribute_values_empty。
+    # ✅ v0.77.3（gate 发现修复）：本轮拒单若为 VALUE_MAX/MIN_LIMIT 且该属性
+    # 静态白名单/学习表都无界值（无法夹取），原值重传必再拒（实测 c9b6d16f：
+    # 6949=97 两连拒后卡被 Ozon 移除）→ 丢弃该可选属性（错填→不填）。
+    # 8962 等有界属性不受影响（limit_error_attr_needs_drop 内部先查界值）。
+    _limit_drop_attr_id = 0
+    try:
+        from utils.attr_numeric_sanitize import limit_error_attr_needs_drop
+        if limit_error_attr_needs_drop(state.error_code, state.attribute_id):
+            _limit_drop_attr_id = int(state.attribute_id or 0)
+    except Exception:
+        _limit_drop_attr_id = 0
+
     _rp_numeric_types: Dict[int, str] = {}
     for _sa in state.attributes_schema or []:
         if not isinstance(_sa, dict):
@@ -2225,6 +2277,14 @@ def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                     _rp_pid = int(attr.get("id") or attr.get("attribute_id") or 0)
                 except (ValueError, TypeError):
                     _rp_pid = 0
+                if _limit_drop_attr_id and _rp_pid == _limit_drop_attr_id:
+                    # ✅ v0.77.3：无界值可夹的越限属性 → 整属性丢弃（可选属性，宁缺毋滥；
+                    # 实测 c9b6d16f 6949=97 原值重传两连拒后卡被 Ozon 移除）
+                    logger.warning(
+                        f"⚠️ repair_prepare 丢弃越限属性 {_rp_pid}"
+                        f"（{state.error_code} 无可用界值，原值重传必再拒）"
+                    )
+                    continue
                 _rp_tp2 = _rp_numeric_types.get(_rp_pid)
                 if not _rp_tp2:
                     _rp_kept_attrs.append(attr)
@@ -2597,6 +2657,15 @@ def _fix_via_pictures_import(state: ValidationRetryLoopState) -> bool:
 
     items = state.ozon_payload.get("items", [])
     first_item = items[0] if items else {}
+
+    # ✅ v0.78 fix round 1 (fix/attr4194-regen-v1): 重传出口闸（与 _full_import_create
+    # 同一 enforce_upload_policy 唯一入口）——下方 is_cos_url 过滤对 draft-images/
+    # 镜像与 ozon-1688/salvage/ 转存全放行（都在本方 COS），原图会经 pictures/import
+    # 整体替换上卡。违规 → 不 POST，IMAGE_GEN_ALL_FAILED 语义（调用方 reupload_node
+    # 按 failed 收口，不落 rejected_unfixable）。
+    if _reupload_gate_blocked(state):
+        return False
+
     primary = str(first_item.get("primary_image") or "")
     ordered = ([primary] if primary else []) + [
         str(u) for u in (first_item.get("images") or []) if u
@@ -2802,6 +2871,13 @@ def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[
     for item in items:
         if isinstance(item, dict):
             item["product_id"] = pid_int
+
+    # ✅ v0.78 fix round 1 (fix/attr4194-regen-v1): 重传出口闸（与 _full_import_create
+    # 同一 enforce_upload_policy 唯一入口）——UPDATE 全量重传与 CREATE 同样会把
+    # 镜像/salvage 残余原图原样推上卡，POST 前统一拦截（IMAGE_GEN_ALL_FAILED 语义，
+    # 调用方对已置语义不覆盖）。
+    if _reupload_gate_blocked(state):
+        return None
 
     try:
         data = ozon_post(
@@ -3352,29 +3428,35 @@ def should_continue(state: ValidationRetryLoopState) -> str:
 
 
 def _prefer_generated_payload_images(item0_images, draft_images) -> list:
-    """R4 重建取图偏序：载荷内 AI 生成图（file/images/）> draft 原图 > 载荷余图。
+    """R4 重建取图偏序：载荷内 AI 生成图（file/images/ 或 mxou-b64/）> draft 原图 > 载荷余图。
 
     ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：原顺序
     draft 原图在前，把首传已装载的 AI 图替换回 1688 原图。
+    ✅ fix/image-source-hardgate-v1 批A：AI 判定换 utils/image_source 唯一入口——
+    旧 ``"/file/images/"`` 字面子串对 b64 兜底图（mxou-b64/ key）全盲，此处会把
+    已装载的 b64 图当「无生成图」被 draft 原图覆盖（marker 盲区根因之二）。
     """
-    _gen = [str(u) for u in (item0_images or []) if "/file/images/" in str(u)]
+    _gen = [str(u) for u in (item0_images or []) if image_source.has_generated_images((str(u),))]
     return _gen or (draft_images or item0_images or [])
 
 
 def _payload_has_generated_images(state: ValidationRetryLoopState) -> bool:
-    """载荷首 item 是否已含 AI 生成图（COS file/images/ 前缀，prepare 升级产物）。
+    """载荷首 item 是否已含 AI 生成图（COS file/images/ 或 mxou-b64/ 前缀，prepare 升级产物）。
 
     ✅ fix/retry-image-restore-v1（2026-09-18 商品 6381680593 实证）：首传载荷
     已装载 AI 图（prepare 日志 primary_image=file/images/…）后，pictures 类错误
     触发 _restore_draft_images_to_payload 用 draft 原图整体覆盖 → 卡上全为 1688
     原图。生成图是卡图最高优先来源，任何恢复/重建路径不得覆盖。
+    ✅ fix/image-source-hardgate-v1 批A：AI 判定换 utils/image_source 唯一入口
+    （has_generated_images）——mxou-b64/ 兜底图从盲变明，防 b64 载荷被 draft
+    原图覆盖重传。行为对 /file/images/ 完全兼容。
     """
     _items = getattr(state, "ozon_payload", None) or {}
     _items = _items.get("items") if isinstance(_items, dict) else None
     if not _items or not isinstance(_items[0], dict):
         return False
     for _u in (_items[0].get("images") or []):
-        if "/file/images/" in str(_u):
+        if image_source.has_generated_images((str(_u),)):
             return True
     return False
 
@@ -3447,6 +3529,125 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     return True
 
 
+# ── v0.78 批H (fix/attr4194-regen-v1): 4194/4195 主图重生成分支 ─────────────
+# 生产取证 I2（docs/PLAN-image-source-hardening-v1.md §0）：主图未展示商品拒单
+# 原先直接 warn-and-pass，不合规 AI 主图永挂卡片。本分支用「main 槽合规单品图」
+# 严格 prompt 重生成主图后经既有 reupload 链重传一次；海报式元素允许留在 images
+# 其余槽位（本批不动它们的 prompt）。职责分离：主图=合规单品图，营销=其余槽位。
+
+# ⚠️ 严格合规 prompt 在调用参数层写死（禁改 config/*.json——与生图节点全局配置
+# 解耦；测试锁定关键词：白色背景/无文字/角标/水印/居中）。
+REGEN_MAIN_IMAGE_PROMPT = (
+    "重新生成电商主图：纯白色背景，单个商品完整居中展示并占画面绝对主体，"
+    "商品无裁切、轮廓清晰；画面中无文字、无水印、无logo角标、无促销标签、"
+    "无贴纸、无边框、无场景道具、无人物；不要多商品拼图；光照均匀，商品颜色"
+    "与参考图保持一致，真实感商品摄影风格。"
+    "Strict compliance: pure white background, single product centered as the "
+    "dominant subject, absolutely no text, no badges, no watermark, no scene props."
+)
+
+# call_mxou_image_api 契约：ref_images 最多 2 张（与 main_image_gen_node 同款 cap）
+_REGEN_REF_MAX = 2
+
+
+def _regen_reference_images(state: ValidationRetryLoopState) -> list:
+    """重生成参考图池：original_images 优先（GlobalState 透传的 1688 货源图），
+    空则回退 draft.images；filter_product_images 白名单过滤（拒缩略/竞品域），
+    封顶 2 张（API 契约）。"""
+    from utils.image_url_guard import filter_product_images
+
+    refs = filter_product_images(list(getattr(state, "original_images", None) or []))
+    if not refs:
+        _draft = getattr(state, "draft", None)
+        if isinstance(_draft, dict):
+            refs = filter_product_images(list(_draft.get("images") or []))
+    return [str(u).strip() for u in refs if str(u).strip()][:_REGEN_REF_MAX]
+
+
+def _regen_fallback_warn_and_pass(state: ValidationRetryLoopState) -> None:
+    """重生成失败的回落出口 = classify_error_node 既有 warn-and-pass 同款字段
+    （error_type/repair_node/is_valid/upload_status 四项逐字对齐）——绝不抛死任务。"""
+    state.error_type = "unfixable"
+    state.repair_node = "final_result"
+    state.is_valid = True
+    state.upload_status = "success_with_warning"
+
+
+def regen_main_image_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
+    """4194/4195 主图重生成节点（批H）。
+
+    用严格合规 prompt（REGEN_MAIN_IMAGE_PROMPT，白底/单品居中/无文字·角标·水印）
+    + 合格参考图重生成主图；成功 → 替换 payload items[0].primary_image（旧主图从
+    图廊移除、新图插首位、其余槽位不动）→ repair_node=reupload 走既有重传链；
+    失败（任何异常/None/产物非本方 AI 图）→ logger.error + 回落 warn-and-pass。
+    防循环：入口即置 regen_main_image_done=True（成功失败都置位，一次任务只做一次）。
+    """
+    state.regen_main_image_done = True
+    logger.info("🖼️ regen_main_image: 开始重生成合规主图（4194/4195 修复分支，本任务首次）")
+    try:
+        items: list = (state.ozon_payload or {}).get("items") or []
+        if not items or not isinstance(items[0], dict):
+            raise ValueError("载荷无 items[0]，无法替换主图")
+        item0: dict = items[0]
+        refs = _regen_reference_images(state)
+        if not refs:
+            logger.warning("⚠️ regen_main_image: 无合格参考图（original_images/draft 均空），试纯文本重生成")
+
+        # 主模型参数与 main 槽一致（get_image_model("main")，读 config/imagegen.json——
+        # 只读不改；prompt 走调用参数，全局配置零接触）
+        from utils.image_models import get_image_model
+        from utils.mxou_api import call_mxou_image_api
+
+        new_url = call_mxou_image_api(
+            token=state.token,
+            prompt=REGEN_MAIN_IMAGE_PROMPT,
+            ref_images=refs or None,
+            aspect_ratio="3:4",
+            timeout=180,
+            max_retries=1,
+            model=get_image_model("main"),
+        )
+        if not (new_url and isinstance(new_url, str) and new_url.strip()):
+            raise ValueError("主图重生成返回空 URL")
+        new_url = new_url.strip()
+        # 禁止回落原图红线：重生成产物必须判 ai（file/images/ 或 mxou-b64/）才准入载荷
+        if not image_source.has_generated_images((new_url,)):
+            raise ValueError(f"重生成产物非本方 AI 图（拒绝入载荷）: {new_url[:80]}")
+
+        # 载荷手术：旧主图（不合规 AI 图）从图廊整体移除（防二次 4194），新图插首位，
+        # 图廊其余槽位保持不动
+        old_primary = str(item0.get("primary_image") or "").strip()
+        images = [str(u).strip() for u in (item0.get("images") or []) if str(u).strip()]
+        if old_primary:
+            images = [u for u in images if u != old_primary]
+        images.insert(0, new_url)
+        item0["primary_image"] = new_url
+        item0["images"] = images
+        state.ozon_payload["items"] = items
+        # 与 prepare/_restore 同源：COS 区域域名 → 全球加速域名（审核抓图实测依赖）
+        try:
+            from graphs.nodes.prepare_ozon_upload_node import _rewrite_payload_images_to_accelerate
+            _rewrite_payload_images_to_accelerate(state.ozon_payload)
+        except Exception as _im_err:
+            logger.warning("⚠️ 重生成主图加速域名改写失败（保留原 URL）: %s", _im_err)
+
+        state.repair_node = "reupload"
+        logger.info("✅ regen_main_image: 主图已重生成并替换 primary_image，转 reupload 重传一次")
+        return state
+    except Exception as exc:
+        # 失败（任何异常/None/非 AI 产物）→ 回落既有 warn-and-pass，绝不抛死任务
+        logger.error("❌ regen_main_image: 主图重生成失败，回落 warn-and-pass（任务不中断）: %s", exc)
+        _regen_fallback_warn_and_pass(state)
+        return state
+
+
+def _regen_main_image_route(state: ValidationRetryLoopState) -> str:
+    """regen_main_image 条件出边：成功（repair_node=reupload）转重传链，失败转 final_result。"""
+    if state.repair_node == "final_result":
+        return "final_result"
+    return "reupload"
+
+
 def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """重新上传节点：靶向路由器。
 
@@ -3500,6 +3701,11 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             state.is_valid = True
             logger.info("✅ 图片整体替换成功（pictures/import），跳过审核轮询")
             return state
+        # ✅ v0.78 fix round 1: 出口闸拦截（IMAGE_GEN_ALL_FAILED 语义）→ 按 failed
+        # 收口（非永久码，task_processor 整任务重试），不落 rejected_unfixable——
+        # 那是「无 COS 图可修」的诚实终态，闸拦截是「有图但违规」，必须可重试。
+        if state.error_code == WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
+            return state
         # 无 COS 图可推 / API 失败 → 保持旧 unfixable 语义（诚实不硬修）
         logger.warning("⚠️ pictures/import 不可行（无 COS 图或失败），标记 rejected_unfixable")
         state.upload_status = "rejected_unfixable"
@@ -3539,9 +3745,13 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
         else:
             logger.error("❌ product/import(UPDATE) 失败")
             state.upload_status = "failed"
-            state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
-            # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
-            state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
+            # ✅ v0.78 fix round 1: 出口闸已置 IMAGE_GEN_ALL_FAILED 语义（错误码 +
+            # 违规清单消息）时不覆盖——否则码回落 LOCAL_REUPLOAD_FAILED、违规清单
+            # 丢失，task_processor 无法识别为可重试的生图全败类失败。
+            if state.error_code != WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
+                state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
+                # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
+                state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
             return state
 
     # 类型 4: 不可修复 → 直接标记成功
@@ -3556,9 +3766,62 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     return _full_import_create(state)
 
 
+def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
+    """重传出口闸统一封装（✅ v0.78 fix round 1, fix/attr4194-regen-v1）。
+
+    三处重传 POST（_full_import_create CREATE 全量 / _fix_via_product_import_update
+    UPDATE 全量 / _fix_via_pictures_import 图片整体替换）共用——items 全部
+    primary_image+images 必须过 enforce_upload_policy（批E 唯一入口，逃生门
+    IMAGE_SALVAGE_FALLBACK 时并入 salvage）。违规 → 不 POST，置 IMAGE_GEN_ALL_FAILED
+    语义（复用批E 错误码与消息；非永久 → task_processor 整任务重试一轮），
+    返回 True 表示已拦截（调用方直接收口返回）。
+    """
+    items: list = (
+        state.ozon_payload.get("items", [])
+        if isinstance(state.ozon_payload, dict) else []
+    )
+    gate_urls: list = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for field in ("primary_image", "images"):
+            val = item.get(field)
+            if isinstance(val, str):
+                if val.strip():
+                    gate_urls.append(val.strip())
+            elif isinstance(val, list):
+                gate_urls.extend(
+                    str(u).strip() for u in val
+                    if isinstance(u, str) and u.strip()
+                )
+    ok, violations = image_source.enforce_upload_policy(
+        gate_urls, allow_salvage=image_source.salvage_fallback_enabled()
+    )
+    if ok:
+        return False
+    logger.error("⛔ 重传出口闸拦截（非 ai 来源混入重传载荷，不 POST）: %s", violations)
+    state.upload_status = "failed"
+    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+    state.error_message = (
+        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
+        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
+        f"（违规图: {'; '.join(violations)}）"
+    )
+    return True
+
+
 def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """全量 product/import（CREATE 模式）— 用于无 product_id 的首次上传或回退场景。"""
     items: list = state.ozon_payload.get("items", [])
+
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 重传出口闸（批E 评审 Important#1 最后
+    # 缝隙）——restore/镜像残余把原图（draft-images/ 外链等）混进重传载荷时在此
+    # 拦截，POST 前收口。fix round 1 起三处重传 POST（CREATE 全量/UPDATE 全量/
+    # pictures 整体替换）统一走 _reupload_gate_blocked（enforce_upload_policy
+    # 批E 唯一入口，逃生门 IMAGE_SALVAGE_FALLBACK 时并入 salvage）。
+    if _reupload_gate_blocked(state):
+        return state
+
     payload: Dict[str, Any] = {"items": items}
 
     try:
@@ -3832,6 +4095,8 @@ def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationR
         category_match_meta=getattr(state, "category_match_meta", None) or {},
         errors=getattr(state, "errors", None) or [],
         decline_errors=list(getattr(state, "decline_errors", None) or []),
+        # ✅ v0.78 批H: 主图重生成防循环布尔透出（wrapper 回写 GlobalState）
+        regen_main_image_done=bool(getattr(state, "regen_main_image_done", False)),
     )
 
 
@@ -3887,6 +4152,8 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         errors=getattr(state, "errors", None) or [],
         # ✅ v0.67.1 wave①: 各轮拒绝原文累积透出（wrapper→主图→GraphOutput→留存表 moderation_texts）
         decline_errors=list(getattr(state, "decline_errors", None) or []),
+        # ✅ v0.78 批H: 主图重生成防循环布尔透出（wrapper 回写 GlobalState）
+        regen_main_image_done=bool(getattr(state, "regen_main_image_done", False)),
     )
 
 
@@ -3909,6 +4176,7 @@ def create_validation_retry_loop():
       → repair_pricing → revalidate → (同上)
       → repair_dimensions → revalidate → (同上)
       → repair_prepare → revalidate → (同上)
+      ✅ v0.78 批H: → regen_main_image → 成功 reupload（既有重传链）/ 失败 final_result
     """
     builder = StateGraph(
         ValidationRetryLoopState,
@@ -3925,6 +4193,8 @@ def create_validation_retry_loop():
     builder.add_node("repair_dimensions", repair_dimensions_node)
     builder.add_node("revalidate", revalidate_node)
     builder.add_node("reupload", reupload_node)
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 4194/4195 主图重生成节点
+    builder.add_node("regen_main_image", regen_main_image_node)
     builder.add_node("recheck_status", recheck_status_node)
     builder.add_node("final_result", final_result)
 
@@ -3944,6 +4214,7 @@ def create_validation_retry_loop():
             "repair_pricing": "repair_pricing",
             "repair_dimensions": "repair_dimensions",
             "reupload_direct": "reupload",
+            "regen_main_image": "regen_main_image",
             "final_result": "final_result",
         }
     )
@@ -3953,6 +4224,17 @@ def create_validation_retry_loop():
     builder.add_edge("repair_prepare", "revalidate")
     builder.add_edge("repair_pricing", "revalidate")
     builder.add_edge("repair_dimensions", "revalidate")
+
+    # ✅ v0.78 批H: regen_main_image 条件出边——成功转 reupload（既有重传链），
+    # 失败转 final_result（warn-and-pass 回落，绝不抛死任务）
+    builder.add_conditional_edges(
+        source="regen_main_image",
+        path=_regen_main_image_route,
+        path_map={
+            "reupload": "reupload",
+            "final_result": "final_result",
+        }
+    )
 
     # 条件分支2：重新验证后判断结果
     builder.add_conditional_edges(

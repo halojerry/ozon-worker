@@ -559,7 +559,8 @@ def fetch_product(cdp_url: str, item_url: str, target: PlatformTarget | None = N
             cdp.release(matched)
             tab = matched
         else:
-            tab = cdp.new_tab(target.canonical_url or item_url)
+            # 批A A1（fix/skill-silent-cdp-v1）：静默抓取后台建 tab，不抢前台
+            tab = cdp.new_tab(target.canonical_url or item_url, background=True)
             created_tab = True
             try:
                 tab.wait_for_load(timeout=15)
@@ -650,7 +651,9 @@ def wait_for_login(cdp_url: str, *, cdp: CdpConnection | None = None,
         if tab is not None:
             cdp.release(tab)  # 用户已开的登录页：只读复用
         else:
-            tab = cdp.new_tab(TAOBAO_LOGIN_URL)
+            # 批A A1（fix/skill-silent-cdp-v1）：登录页兜底新建也后台创建——
+            # 终端提示已告知「登录页已保留在浏览器」，用户自行切 tab 扫码即可
+            tab = cdp.new_tab(TAOBAO_LOGIN_URL, background=True)
             created_tab = True
 
         unlimited = False

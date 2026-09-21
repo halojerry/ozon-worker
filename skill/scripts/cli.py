@@ -37,6 +37,9 @@ from pathlib import Path
 # Ensure scripts/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# ✅ v0.78 批B2: 阶段计时 contextmanager（logging_utils 为轻模块，顶层导入安全）
+from scripts.lib.logging_utils import log_stage
+
 
 def _out(obj: dict) -> None:
     """输出 JSON（⚠️ v0.26: 凭证脱敏 — api_key/token 打码，防终端/日志泄漏）。"""
@@ -59,6 +62,185 @@ def _redact_keys(obj, keys: set, _depth: int = 0) -> None:
     elif isinstance(obj, list):
         for item in obj:
             _redact_keys(item, keys, _depth + 1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v0.78 批B（feat/skill-run-logging-v1）共享入口——禁止在命令腿里再内联
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
+    """提交前预估售价（v0.39 需求1 引入；v0.78 批B6 从 cmd_graph 提取为共享入口）。
+
+    复用 worker 定价公式（售价 = 总成本×(1+margin)/(1-commission)），参数与信封
+    extensions 同源。graph/follow 两腿共用本函数——**禁止再内联定价公式**。
+
+    返回 {estimated_retail_price_cny, estimated_logistics_cny, estimated_profit_cny,
+    estimated_profit_rate}；数据不足（无采购价/无重量）或异常 → None 不打印。
+    副作用：stdout 打印 💰 预估一行 + 免责一行（预估非终价，worker 实算为准）。
+    """
+    if not isinstance(draft, dict):
+        return None
+    try:
+        from scripts.lib.config_store import get_ozon_credentials as _get_oz_creds
+        from scripts.lib.ozon_discovery import _query_logistics_from_worker
+        _w = draft.get("weight") or 0
+        _cost = draft.get("purchase_cost") or 0
+        _dim = draft.get("dimensions") or {}
+        try:
+            _cost_f = float(_cost)
+            _w_f = float(_w)
+        except (TypeError, ValueError):
+            _cost_f, _w_f = 0.0, 0.0
+        if _cost_f <= 0 or _w_f <= 0:
+            return None
+        # 店铺定价参数（与信封 extensions 注入同源）
+        _margin = 0.25
+        _commission = 0.10
+        try:
+            _store_cfg = _get_oz_creds(store or "")
+            if _store_cfg:
+                _margin = float(_store_cfg.get("margin_rate") or _margin)
+                _commission = float(_store_cfg.get("commission_rate") or _commission)
+        except Exception:
+            pass
+        _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
+        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
+        _total = _cost_f + _logistics
+        _divisor = (1.0 - _commission)
+        _est_price = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
+        _est_profit = round(_est_price - _total, 2)
+        _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
+        est = {
+            "estimated_retail_price_cny": _est_price,
+            "estimated_logistics_cny": round(_logistics, 2),
+            "estimated_profit_cny": _est_profit,
+            "estimated_profit_rate": _est_rate,
+        }
+        print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
+              f"售价≈¥{_est_price:.2f} (利润¥{_est_profit:.2f}, 率{_est_rate}%)", flush=True)
+        print("   （预估非终价，以 Worker 实算为准）", flush=True)
+        return est
+    except Exception:
+        return None
+
+
+def _min_margin_block_reason(estimate: dict | None, min_margin: float) -> str:
+    """--min-margin 拦截判定（graph/follow 同语义，对齐 --min-density）。
+
+    返回拦截原因文案；空串 = 不拦截（estimate 缺失或阈值 ≤0 或利润率达标）。
+    """
+    _mm = float(min_margin or 0.0)
+    if _mm <= 0 or not isinstance(estimate, dict):
+        return ""
+    _rate = float(estimate.get("estimated_profit_rate") or 0.0)
+    if _rate >= _mm:
+        return ""
+    return (f"❌ 预估利润率 {_rate:g}% 低于 --min-margin {_mm:g}%，"
+            f"已拦截提交（预估非终价，可核价后重试或调低阈值）")
+
+
+def _wait_task_terminal(task_id: str, timeout: int = 900) -> dict:
+    """--wait 一次性命令核心（v0.78 批B3）：提交成功后轮询 Worker 到终态。
+
+    终态打印一行人话：completed → ``✅ 任务完成 task_id=.. product_id=..``；
+    failed → ``❌ 任务失败 task_id=.. 原因=<error_message 首行>``；超时/其他
+    终态各一行。product_id 从 task_status 响应的 result_json 取（worker completed
+    证据键）。返回 poll 终态 dict（调用方据此决定 exit code）。
+    """
+    from scripts.cloud_probe import poll_task_status
+    r = poll_task_status(task_id, timeout=timeout)
+    status = str(r.get("status") or "")
+    if status == "completed":
+        result = r.get("result_json") or {}
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                result = {}
+        product_id = str((result or {}).get("product_id") or "")
+        print(f"✅ 任务完成 task_id={task_id}"
+              + (f" product_id={product_id}" if product_id else ""), flush=True)
+    elif status == "failed":
+        _err = str(r.get("error_message") or "未知原因").splitlines()[0][:200]
+        print(f"❌ 任务失败 task_id={task_id} 原因={_err}", flush=True)
+    elif status == "timeout":
+        print(f"⏱️ 等待超时（{timeout}s）task_id={task_id} 尚未终态，"
+              f"请稍后 `query {task_id}` 查询（任务仍在跑）", flush=True)
+    else:
+        print(f"⏹️ 任务终态 status={status} task_id={task_id}", flush=True)
+    return r
+
+
+def _candidate_item_id(c) -> str:
+    """run 报告用：从候选提取 1688 item_id（match_1688_url 解析优先，回退 ozon pid）。"""
+    import re as _re
+    m = _re.search(r"/(\d+)\.html", getattr(c, "match_1688_url", "") or "")
+    if m:
+        return m.group(1)
+    return str(getattr(c, "ozon_product_id", "") or "")
+
+
+def _write_run_report(cmd: str, items: list[dict], summary: dict) -> str:
+    """终局 run 报告（v0.78 批B4）：``data/logs/report_{ts}_{cmd}.json``。
+
+    items 逐条 {item_id/title/status/task_id/draft_id/error_first_line}；
+    summary 汇总计数。路径 print 一行（``📄 运行报告: <path>``）；写盘失败
+    静默返回 ""（绝不阻断主流程出口）。
+    """
+    from scripts._const import LOGS_DIR
+    import re as _re
+    try:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        safe = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(cmd or "cli"))[:60]
+        path = LOGS_DIR / f"report_{ts}_{safe}.json"
+        payload = {"cmd": cmd, "ts": ts, "summary": dict(summary or {}), "items": items}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+        print(f"📄 运行报告: {path}", flush=True)
+        return str(path)
+    except Exception:
+        return ""
+
+
+def _print_logs(task_id: str = "") -> int:
+    """``check --logs`` 实现（v0.78 批B5）——只读日志通道，零 Chrome/网络。
+
+    - task_id 非空：read_task_log 读 ``data/logs/{task_id}.jsonl`` 逐行输出事件；
+    - task_id 空：列 ``data/logs/`` 最近 5 个日志文件（run_*.log / *.jsonl / report_*.json）。
+    """
+    from scripts._const import LOGS_DIR
+    from scripts.lib.logging_utils import read_task_log
+    tid = (task_id or "").strip()
+    if tid:
+        entries = read_task_log(tid)
+        if not entries:
+            print(f"（data/logs/ 下无 {tid}.jsonl 事件；该任务可能未产生审计日志）")
+            return 1
+        for e in entries:
+            print(json.dumps(e, ensure_ascii=False))
+        return 0
+    files: list = []
+    try:
+        if LOGS_DIR.exists():
+            files = sorted(
+                (p for p in LOGS_DIR.iterdir() if p.is_file()),
+                key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+    except Exception:
+        files = []
+    if not files:
+        print("（data/logs/ 下暂无日志文件）")
+        return 0
+    print("data/logs/ 最近日志文件:")
+    for p in files:
+        try:
+            _st = p.stat()
+            _mtime = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_st.st_mtime))
+            print(f"  {p.name}  {_st.st_size}B  {_mtime}")
+        except OSError:
+            continue
+    print("  → 查看任务事件: check --logs <task_id>（对应 <task_id>.jsonl）")
+    return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -489,9 +671,17 @@ def _heavy_gate(func):
 
 
 def _add_heavy_gate_args(p: argparse.ArgumentParser) -> None:
-    """给 6 个重采集子命令统一挂 --wait/--force（闸出口，语义见 _heavy_gate）。"""
+    """给 6 个重采集子命令统一挂 --wait/--force（闸出口，语义见 _heavy_gate）。
+
+    ⚠️ v0.78 批B3: --wait 合并语义（一个标志两层「不放弃等待」）——
+    ① 闸被占时排队等锁（v0.76 原语义）；② 提交类命令（graph/follow/discover/
+    discover-task）提交成功后轮询 Worker 到终态再退出，终态打一行人话
+    （缺省不带 --wait = 闸快速失败 + fire-and-forget，行为逐字不变）。
+    """
     p.add_argument("--wait", action="store_true",
-                   help="重采集串行闸被占时排队等待（每 30s 心跳报占用方）而非快速失败")
+                   help="不放弃等待：重采集串行闸被占时排队（每 30s 心跳报占用方）"
+                        "而非快速失败；提交类命令提交成功后同时轮询 Worker 到终态"
+                        "再退出（completed/failed 打一行，failed 时 exit 3）")
     p.add_argument("--force", action="store_true",
                    help="跳过重采集串行闸强制并行（多进程会互踩 Chrome/缓存，慎用）")
 
@@ -629,45 +819,19 @@ def cmd_graph(args: argparse.Namespace) -> int:
             for _k in ("description_category_id", "type_id", "source")
             if _ozc.get(_k)
         }
-    # ✅ v0.39 需求1: 提交前预估售价——复用 worker 定价公式（售价=总成本×(1+margin)/(1-commission)），
-    # 参数与信封 extensions 同源（worker 实算用同一份 margin/commission）
-    try:
-        from scripts.lib.ozon_discovery import _query_logistics_from_worker
-        from scripts.lib.config_store import get_ozon_credentials as _get_oz_creds
-        _w = draft.get("weight") or 0
-        _cost = draft.get("purchase_cost") or 0
-        _dim = draft.get("dimensions") or {}
-        try:
-            _cost_f = float(_cost)
-            _w_f = float(_w)
-        except (TypeError, ValueError):
-            _cost_f, _w_f = 0.0, 0.0
-        if _cost_f > 0 and _w_f > 0:
-            # 店铺定价参数（与信封 extensions 注入同源）
-            _margin = 0.25
-            _commission = 0.10
-            try:
-                _store_cfg = _get_oz_creds(args.store or "")
-                if _store_cfg:
-                    _margin = float(_store_cfg.get("margin_rate") or _margin)
-                    _commission = float(_store_cfg.get("commission_rate") or _commission)
-            except Exception:
-                pass
-            _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
-            _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
-            _total = _cost_f + _logistics
-            _divisor = (1.0 - _commission)
-            _est_price = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
-            _est_profit = round(_est_price - _total, 2)
-            _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
-            summary["estimated_retail_price_cny"] = _est_price
-            summary["estimated_logistics_cny"] = round(_logistics, 2)
-            summary["estimated_profit_cny"] = _est_profit
-            summary["estimated_profit_rate"] = _est_rate
-            print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
-                  f"售价≈¥{_est_price:.2f} (利润¥{_est_profit:.2f}, 率{_est_rate}%)", flush=True)
-    except Exception as _pe:
-        pass
+    # ✅ v0.39 需求1 + v0.78 批B6: 提交前预估售价——共享入口 _estimate_and_print
+    # （graph/follow 两腿同源，禁止再内联公式）；--min-margin 拦截对齐 --min-density
+    # 语义（默认 0=不拦截零变化；低于阈值 print 原因 + exit 3）。
+    _est = _estimate_and_print(draft, args.store or "")
+    if _est:
+        summary.update(_est)
+        _block = _min_margin_block_reason(_est, getattr(args, "min_margin", 0.0))
+        if _block:
+            print(_block, flush=True)
+            summary["submitted"] = False
+            summary["submit_error"] = "LOW_MARGIN"
+            _out({"summary": summary, "envelope": graph, "submit_result": None})
+            return 3
     # ✅ v0.10: 默认自动提交到 Worker（对齐 SKILL.md），--no-submit 跳过
     submit_result = None
     if not getattr(args, 'no_submit', False):
@@ -731,6 +895,15 @@ def cmd_graph(args: argparse.Namespace) -> int:
             else:
                 _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
                 summary["task_id"] = submit_result.get("task_id")
+                # ✅ v0.78 批B3: --wait 一次性命令——提交成功后轮询到终态再退出
+                # （缺省 fire-and-forget 零变化）；failed → exit 3（❌ + exit 0 是假成功）。
+                if getattr(args, "wait", False) and summary.get("task_id"):
+                    _wres = _wait_task_terminal(str(summary["task_id"]))
+                    if str(_wres.get("status")) == "failed":
+                        summary["task_status"] = "failed"
+                        _out({"summary": summary, "envelope": graph,
+                              "submit_result": submit_result})
+                        return 3
         else:
             # ✅ v0.69 T2.3: 提交失败不再静默——stdout 一行人话（error_code + 简要
             # error）+ summary 失败语义 + exit 3。生产实证：409 DUPLICATE_SUBMIT
@@ -878,11 +1051,19 @@ def _chrome_profile_dir() -> str:
 
 
 def cmd_check(args) -> int:
-    """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker"""
+    """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker
+
+    ✅ v0.78 批B5: ``--logs`` 命中即短路走只读日志通道（_print_logs），
+    不跑环境诊断（零 Chrome/网络探测）。
+    """
     import os as _os
     import shutil
 
     import requests as req
+
+    # ✅ v0.78 批B5: 只读日志通道——必须在任何诊断（Chrome/网络）之前短路
+    if getattr(args, "logs", None) is not None:
+        return _print_logs(args.logs)
 
     from scripts.capabilities.browser_probe.service import _candidate_browser_paths
     from scripts.lib.config_store import (
@@ -1303,13 +1484,24 @@ def cmd_follow(args) -> int:
                                    store_id=args.store or "",
                                    review=getattr(args, "review", False),
                                    notify=getattr(args, "notify", False),
-                                   to_box=getattr(args, "to_box", False))
+                                   to_box=getattr(args, "to_box", False),
+                                   min_margin=float(getattr(args, "min_margin", 0.0) or 0.0))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
     _out(result)
     if getattr(args, "to_box", False) and result.get("draft_id"):
         print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={result['draft_id']}", flush=True)
+    # ✅ v0.78 批B6: --min-margin 拦截在 follow_sell_cloud 内部提交前执行（预估后），
+    # 这里只认领退出码（对齐 graph 腿 exit 3 语义）。
+    if result.get("blocked_reason") == "low_margin":
+        return 3
+    # ✅ v0.78 批B3: --wait 一次性命令——直提 task_id 此前只埋 _out JSON 不打行，
+    # 现在轮询到终态并打印人话一行（缺省 fire-and-forget 零变化）。
+    if getattr(args, "wait", False) and result.get("task_id"):
+        _wres = _wait_task_terminal(str(result["task_id"]))
+        if str(_wres.get("status")) == "failed":
+            return 3
     return 0 if result.get("success") else 1
 
 
@@ -1369,6 +1561,19 @@ def _print_discover_table(candidates: list) -> None:
               f"{c.competing_sellers:>4} {create_s} {c.rating:>5.1f} "
               f"{schema_s:>6} {getattr(c, 'blue_ocean_score', 0):>5}")
     print(f"{'─' * 112}")
+
+
+def _auto_select_noninteractive(candidates: list) -> list:
+    """--non-interactive 挑选腿自动全选：只留可分析产品（ok/uncertain）。
+
+    ✅ 0.78.0 实机验证补缺：--non-interactive 下此前仍走 _interactive_select 弹
+    input("挑选: ")，非 tty EOF 被当「已取消」→ exit 0 静默不出货（P7 只修了
+    提交确认腿，挑选腿漏了）。口径 = 交互模式「回车全选可挑」同一状态集。
+    """
+    picked = [c for c in candidates if getattr(c, "status", "") in ("ok", "uncertain")]
+    print(f"\n🤖 非交互模式：自动全选 {len(picked)}/{len(candidates)} 个可分析产品",
+          flush=True)
+    return picked
 
 
 def _interactive_select(candidates: list) -> list | None:
@@ -1462,7 +1667,11 @@ def cmd_discover(args: argparse.Namespace) -> int:
     # readiness 统一预检（漏斗 v2 收尾）：Chrome 硬门 + seller 登录（交互给登录
     # 窗口，成功记 memo 免流程深处重复等待）+ aibuy 冷启动预热；结果缓存 10 分钟。
     from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
-    report = ensure_pipeline_ready("discover", profile_dir=_chrome_profile_dir())
+    # A2（fix/skill-silent-cdp-v1）：非交互路径不 prewarm（失败负缓存窗 + 免
+    # 导航预热 1688 首页）；交互路径保持预热一次
+    report = ensure_pipeline_ready(
+        "discover", profile_dir=_chrome_profile_dir(),
+        prewarm=not getattr(args, "non_interactive", False))
     print_readiness_report(report)
     if not report["ok"]:
         print("  → 请运行 `python3 scripts/cli.py check` 查看环境诊断", flush=True)
@@ -1490,37 +1699,38 @@ def cmd_discover(args: argparse.Namespace) -> int:
         mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
         print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}', flush=True)
 
-    # ── 阶段①+② 采集 + 全量数据 + 运营指标 ──
-    print("\n⏳ 阶段 1/3：采集产品列表 + 全量数据...", flush=True)
-    # 漏斗 v2 Task 7: 粗筛档位——显式 --filter-profile 优先；auto-submit 未显式
-    # 指定时默认 ai 档（上品帮两段式纪律：匹配前砍量护 aibuy 配额），交互 off。
-    _profile = resolve_filter_profile(
-        getattr(args, "filter_profile", None), bool(args.auto_submit))
-    if _profile != "off":
-        print(f"🪮 粗筛档位: {_profile}" +
-              (f" + 区间[{args.base_filter}]" if getattr(args, "base_filter", "") else ""),
-              flush=True)
-    try:
-        candidates = collect_and_analyze(
-            cdp_url=cdp_url,
-            url=args.url or "",
-            keyword=args.keyword or "",
-            max_products=args.max_products,
-            use_analytics=not args.no_analytics,
-            min_price=args.min_price,
-            max_price=args.max_price,
-            brand_filter=args.brand_filter,
-            progress_callback=_collect_progress,
-            china=(not args.local) or args.china,
-            filter_profile=_profile,
-            base_filter=getattr(args, "base_filter", "") or "",
-        )
-    except ValueError as exc:
-        print(f"❌ 粗筛参数错误: {exc}", flush=True)
-        return 2
-    except KeyboardInterrupt:
-        print("\n⚠️ 用户中断")
-        return 0
+    # ── 阶段①+② 采集 + 全量数据 + 运营指标（v0.78 批B2: 阶段计时进运行日志，
+    # stderr 同步可见；stdout 的逐条进度 print 保持不变）──
+    with log_stage("阶段 1/3：采集产品列表 + 全量数据"):
+        # 漏斗 v2 Task 7: 粗筛档位——显式 --filter-profile 优先；auto-submit 未显式
+        # 指定时默认 ai 档（上品帮两段式纪律：匹配前砍量护 aibuy 配额），交互 off。
+        _profile = resolve_filter_profile(
+            getattr(args, "filter_profile", None), bool(args.auto_submit))
+        if _profile != "off":
+            print(f"🪮 粗筛档位: {_profile}" +
+                  (f" + 区间[{args.base_filter}]" if getattr(args, "base_filter", "") else ""),
+                  flush=True)
+        try:
+            candidates = collect_and_analyze(
+                cdp_url=cdp_url,
+                url=args.url or "",
+                keyword=args.keyword or "",
+                max_products=args.max_products,
+                use_analytics=not args.no_analytics,
+                min_price=args.min_price,
+                max_price=args.max_price,
+                brand_filter=args.brand_filter,
+                progress_callback=_collect_progress,
+                china=(not args.local) or args.china,
+                filter_profile=_profile,
+                base_filter=getattr(args, "base_filter", "") or "",
+            )
+        except ValueError as exc:
+            print(f"❌ 粗筛参数错误: {exc}", flush=True)
+            return 2
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 0
 
     # ── 阶段②b 裂变选品（v3, --fission）──
     if args.fission and candidates:
@@ -1605,6 +1815,10 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             return 1
         print(f"\n🎯 规则筛选(挑选期): {len(selected)}/{len(candidates)} 个命中",
               flush=True)
+    elif getattr(args, "non_interactive", False):
+        # ✅ 0.78.0 实机验证补缺：非交互自动全选（必须先于交互弹窗判定——
+        # 先弹 input 再判 EOF = 非 tty 静默取消）。显式 --rules 优先于本分支。
+        selected = _auto_select_noninteractive(candidates)
     else:
         selected = _interactive_select(candidates)
         if selected is None:
@@ -1638,39 +1852,39 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         json_path = export_to_json(candidates, output)
         print(f"📄 JSON 已导出（全量）: {json_path}")
 
-    # ── 阶段④ 批量货源（只对选中产品花 1688 配额）──
-    print(f"\n⏳ 阶段 2/3：对选中的 {len(selected)} 个产品批量找 1688 货源...", flush=True)
-    from scripts.lib.config_store import get_store_profile
+    # ── 阶段④ 批量货源（只对选中产品花 1688 配额；v0.78 批B2 阶段计时）──
+    with log_stage(f"阶段 2/3：对选中的 {len(selected)} 个产品批量找 1688 货源"):
+        from scripts.lib.config_store import get_store_profile
 
-    store_profile = {}
-    try:
-        store_profile = get_store_profile(args.store or "")
-    except Exception:
-        pass
-    commission_rate = float(store_profile.get("commission_rate", 0) or 0)
+        store_profile = {}
+        try:
+            store_profile = get_store_profile(args.store or "")
+        except Exception:
+            pass
+        commission_rate = float(store_profile.get("commission_rate", 0) or 0)
 
-    def _match_progress(current, total, candidate):
-        mark = {'profitable': '💰', 'rejected': '⚠️', 'no_match': '❌'}.get(candidate.status, '·')
-        print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}  '
-              f'1688=¥{candidate.match_1688_price:.0f} 利润={candidate.profit_margin:.1f}%', flush=True)
+        def _match_progress(current, total, candidate):
+            mark = {'profitable': '💰', 'rejected': '⚠️', 'no_match': '❌'}.get(candidate.status, '·')
+            print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}  '
+                  f'1688=¥{candidate.match_1688_price:.0f} 利润={candidate.profit_margin:.1f}%', flush=True)
 
-    try:
-        from scripts.lib.config_store import get_mxou_token as _get_tok
-        match_selected(
-            selected,
-            cdp_url,
-            fx_rate=fx_rate,
-            min_margin_pct=args.min_margin,
-            commission_rate=commission_rate,
-            progress_callback=_match_progress,
-            mxou_token=_get_tok() or "",
-            blue_ocean_rows=blue_ocean_rows or None,
-            # cross_source v1 批3：利润过闸 top-N 淘宝/拼多多静默比价（0=关）
-            compare_sources=getattr(args, "compare_sources", None),
-        )
-    except KeyboardInterrupt:
-        print("\n⚠️ 用户中断")
-        return 0
+        try:
+            from scripts.lib.config_store import get_mxou_token as _get_tok
+            match_selected(
+                selected,
+                cdp_url,
+                fx_rate=fx_rate,
+                min_margin_pct=args.min_margin,
+                commission_rate=commission_rate,
+                progress_callback=_match_progress,
+                mxou_token=_get_tok() or "",
+                blue_ocean_rows=blue_ocean_rows or None,
+                # cross_source v1 批3：利润过闸 top-N 淘宝/拼多多静默比价（0=关）
+                compare_sources=getattr(args, "compare_sources", None),
+            )
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 0
 
     # ── 匹配期规则二次筛选（margin 等：匹配后才有真值）──
     if args.rules:
@@ -1684,9 +1898,9 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             print(f"\n🎯 匹配期规则({_match_rules}): {_before} → {len(selected)} 个",
                   flush=True)
 
-    # ── 结果展示 ──
-    print("\n📊 阶段 3/3：货源分析结果\n")
-    _print_discover_table(selected)
+    # ── 结果展示（v0.78 批B2: 阶段计时进运行日志）──
+    with log_stage("阶段 3/3：货源分析结果"):
+        _print_discover_table(selected)
 
     profitable = [c for c in selected if c.status == "profitable"]
     print(f"\n✅ 符合条件: {len(profitable)} 个 | 利润不足: {sum(1 for c in selected if c.status == 'rejected')} 个 | 无货源: {sum(1 for c in selected if c.status == 'no_match')} 个")
@@ -1784,6 +1998,29 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
 
     # ── auto-submit ──
+    # v0.78 批B4: 终局 run 报告（逐条 + 汇总落 data/logs/report_*.json）——
+    # submit_ids 记录提交出口（task_id/draft_id），报告在函数各正常出口落盘。
+    submit_ids: dict[str, str] = {}
+
+    def _emit_run_report() -> None:
+        _is_box = bool(getattr(args, "to_box", False))
+        _items = []
+        for c in selected:
+            _rid = submit_ids.get(c.ozon_product_id, "")
+            _items.append({
+                "item_id": _candidate_item_id(c),
+                "title": c.ozon_title or "",
+                "status": c.status,
+                "task_id": "" if _is_box else _rid,
+                "draft_id": _rid if _is_box else "",
+                "error_first_line": (str(c.error).splitlines()[0][:200]
+                                     if getattr(c, "error", "") else ""),
+            })
+        _counts: dict = {"total": len(_items)}
+        for _it in _items:
+            _counts[_it["status"]] = _counts.get(_it["status"], 0) + 1
+        _write_run_report(getattr(args, "command", "discover"), _items, _counts)
+
     if getattr(args, "to_box", False) and not args.auto_submit:
         # 实机测验发现：--to-box 只切换提交通道，离开 --auto-submit 是静默 no-op
         print("⚠️ --to-box 需与 --auto-submit 同用才会入采集箱（--to-box 单独使用不提交）")
@@ -1800,16 +2037,24 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                   "自动续采不重烧图搜）")
         if not to_submit:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
+            _emit_run_report()
             return 0
         print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
-        try:
-            confirm = input("确认提交？(y/N) ")
-        except (EOFError, KeyboardInterrupt):
-            print("\n已取消（非交互模式不自动确认提交）")
-            return 0
-        if confirm.lower() != 'y':
-            print("已取消")
-            return 0
+        # v0.77.3（gate 发现修复）：--non-interactive + --auto-submit 组合语义 = 无人值守
+        # 自动确认——旧实现无差别 input()，非交互管道（CI/discover 联动）读到 EOF 直接
+        # 取消，提交腿永远走不到（实测 gate：1 条 profitable 白匹配）。
+        if getattr(args, "non_interactive", False):
+            print("✅ 非交互模式：自动确认提交")
+            confirm = "y"
+        else:
+            try:
+                confirm = input("确认提交？(y/N) ")
+            except (EOFError, KeyboardInterrupt):
+                print("\n已取消（非交互模式不自动确认提交）")
+                return 0
+            if confirm.lower() != 'y':
+                print("已取消")
+                return 0
         try:
             from scripts.cloud_probe import (
                 build_envelope_from_discovery,
@@ -1869,6 +2114,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                     print(f"  ✗ 跳过（无 1688 URL）: {c.ozon_title[:40]}")
                 elif state == "ok":
                     submitted_task_ids.append(rid)
+                    submit_ids[c.ozon_product_id] = rid
                     if getattr(args, "to_box", False):
                         print(f"  📥 已入采集箱: {c.ozon_title[:40]} → draft_id={rid}")
                     else:
@@ -1876,6 +2122,16 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
                 else:
                     print(f"  ✗ 提交失败: {c.ozon_title[:40]} — {state}")
 
+        # ✅ v0.78 批B3: --wait 一次性命令——提交成功后逐个轮询到终态
+        # （缺省 fire-and-forget 零变化；--to-box 出口是 draft_id 非 worker 任务，不轮询）
+        if (getattr(args, "wait", False) and submitted_task_ids
+                and not getattr(args, "to_box", False)):
+            print(f"\n⏳ --wait: 等待 {len(submitted_task_ids)} 个任务到终态（每单最多 900s）...",
+                  flush=True)
+            for _wt in submitted_task_ids:
+                _wait_task_terminal(_wt)
+
+    _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
     return 0
 
@@ -2094,59 +2350,60 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
         mark = '✅' if candidate.status in ("ok", "uncertain") else '❌'
         print(f'  [{current}/{total}] {mark} {candidate.ozon_title[:36]}', flush=True)
 
-    # ── 阶段① 串行滚动采集（同一 Chrome，多 tab 同时滚动反爬识别）──
-    print("\n⏳ 阶段 1/3：串行滚动采集 N 关键词...", flush=True)
-    try:
-        batches: list[list[str]] = []
-        for i, kw in enumerate(keywords, 1):
-            print(f"  [{i}/{len(keywords)}] 关键词: {kw}", flush=True)
-            batches.append(_collect_keyword_pids(
-                cdp_url, kw, args.max_each,
-                china=(not args.local) or args.china))
-        pids = _merge_pids(batches)
-    except KeyboardInterrupt:
-        print("\n⚠️ 用户中断")
-        return 0
+    # ── 阶段① 串行滚动采集（同一 Chrome，多 tab 同时滚动反爬识别；B2 阶段计时）──
+    with log_stage("阶段 1/3：串行滚动采集 N 关键词"):
+        try:
+            batches: list[list[str]] = []
+            for i, kw in enumerate(keywords, 1):
+                print(f"  [{i}/{len(keywords)}] 关键词: {kw}", flush=True)
+                batches.append(_collect_keyword_pids(
+                    cdp_url, kw, args.max_each,
+                    china=(not args.local) or args.china))
+            pids = _merge_pids(batches)
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 0
     print(f"  滚动完成: {sum(len(b) for b in batches)} → 合并去重 {len(pids)} 个唯一产品", flush=True)
     if not pids:
         print("未采集到产品。检查关键词或增大 --max-each。")
         return 0
 
     # ── 阶段② 单次并行分析（ThreadPoolExecutor 吃合并 pid 列表）──
-    print(f"\n⏳ 阶段 2/3：并行分析合并候选（{len(pids)} 个 pid）...", flush=True)
-    # 漏斗 v2 Task 7: 档位解析与单关键词 discover 同语义
-    _profile = resolve_filter_profile(
-        getattr(args, "filter_profile", None), bool(args.auto_submit))
-    try:
-        candidates = _analyze_pids(
-            cdp_url, pids,
-            use_analytics=not args.no_analytics,
-            min_price=args.min_price,
-            max_price=args.max_price,
-            brand_filter=args.brand_filter,
-            filter_profile=_profile,
-            base_filter=getattr(args, "base_filter", "") or "",
-            progress_callback=_collect_progress,
-        )
-        # 漏斗 v2 对齐单关键词（collect_and_analyze 阶段尾同款两段）：ai 档/
-        # 自定义区间完整判定挂 ②b 富化后（此时月销/DRR 等字段已到位，评审 E
-        # 约定调用方收口）；sales_mode 标注过滤同样补齐——此前多关键词路径
-        # 两者皆缺（--base-filter 静默失效 / 发货模式不过滤）。
-        from scripts.lib.ozon_discovery import (_apply_profile_filter,
-                                                _apply_sales_mode_filter,
-                                                _parse_filter_expr)
-        _apply_profile_filter(
-            candidates, profile=_profile,
-            extra_rules=_parse_filter_expr(args.base_filter)
-            if getattr(args, "base_filter", "") else None)
-        _apply_sales_mode_filter(
-            candidates, str(get_store_profile().get("sales_mode", "") or ""))
-    except ValueError as exc:
-        print(f"❌ 粗筛参数错误: {exc}", flush=True)
-        return 2
-    except KeyboardInterrupt:
-        print("\n⚠️ 用户中断")
-        return 0
+    # ── 阶段② 单次并行分析（ThreadPoolExecutor 吃合并 pid 列表；B2 阶段计时）──
+    with log_stage(f"阶段 2/3：并行分析合并候选（{len(pids)} 个 pid）"):
+        # 漏斗 v2 Task 7: 档位解析与单关键词 discover 同语义
+        _profile = resolve_filter_profile(
+            getattr(args, "filter_profile", None), bool(args.auto_submit))
+        try:
+            candidates = _analyze_pids(
+                cdp_url, pids,
+                use_analytics=not args.no_analytics,
+                min_price=args.min_price,
+                max_price=args.max_price,
+                brand_filter=args.brand_filter,
+                filter_profile=_profile,
+                base_filter=getattr(args, "base_filter", "") or "",
+                progress_callback=_collect_progress,
+            )
+            # 漏斗 v2 对齐单关键词（collect_and_analyze 阶段尾同款两段）：ai 档/
+            # 自定义区间完整判定挂 ②b 富化后（此时月销/DRR 等字段已到位，评审 E
+            # 约定调用方收口）；sales_mode 标注过滤同样补齐——此前多关键词路径
+            # 两者皆缺（--base-filter 静默失效 / 发货模式不过滤）。
+            from scripts.lib.ozon_discovery import (_apply_profile_filter,
+                                                    _apply_sales_mode_filter,
+                                                    _parse_filter_expr)
+            _apply_profile_filter(
+                candidates, profile=_profile,
+                extra_rules=_parse_filter_expr(args.base_filter)
+                if getattr(args, "base_filter", "") else None)
+            _apply_sales_mode_filter(
+                candidates, str(get_store_profile().get("sales_mode", "") or ""))
+        except ValueError as exc:
+            print(f"❌ 粗筛参数错误: {exc}", flush=True)
+            return 2
+        except KeyboardInterrupt:
+            print("\n⚠️ 用户中断")
+            return 0
 
     from scripts.lib.ozon_discovery import _save_discovery_log
     _save_discovery_log(
@@ -2703,7 +2960,10 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # 无人值守预检（readiness）：seller 未登录 fail-fast 秒退（替代流程深处 90s
     # 黑等）；aibuy 冷启动预热一次；10 分钟内 --resume 重跑缓存免检测。
     from scripts.lib.readiness import ensure_pipeline_ready, print_readiness_report
-    report = ensure_pipeline_ready("discover-task", interactive=False)
+    # A2（fix/skill-silent-cdp-v1）：discover-task 天然非交互 → 不 prewarm
+    # （结合 readiness 负缓存窗，无人值守全程零导航预热）
+    report = ensure_pipeline_ready("discover-task", interactive=False,
+                                   prewarm=False)
     print_readiness_report(report)
     if not report["ok"]:
         print("  → 处理完上述 ❌ 项后重跑本命令（--resume 可续跑已有任务）", flush=True)
@@ -2766,102 +3026,102 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
             _fparts.append(f"发货模式 {'/'.join(filters['sales_schema'])}")
         print(f"   🪮 --filters: {'｜'.join(_fparts) or '（空规则，仅加载）'}", flush=True)
 
-    # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛 ──
-    print("\n⏳ 阶段 1/3：采集 + 全量数据 + 粗筛...", flush=True)
-    # --filters 的 brand/price_* 提供时覆盖同名 CLI flag（含缺省值）
-    _min_price = (filters["price_min"] if filters and filters["price_min"] is not None
-                  else getattr(args, "min_price", 0))
-    _max_price = (filters["price_max"] if filters and filters["price_max"] is not None
-                  else getattr(args, "max_price", 0))
-    _brand = (filters["brand"] if filters and filters["brand"]
-              else getattr(args, "brand_filter", "nobrand"))
-    if expend_mode:
-        # 拓店：--url 商品为唯一种子 → run_fission 一跳店铺展开（竞品卖家
-        # 评分≥4 按价排序 → 店铺产品），产出候选带全量 widget 数据回既有管线。
-        candidates = _collect_expend_shop(
-            cdp_url, seed_pid,
-            plan=expend_plan,
-            expend_shop=expend_shop,
-            brand_filter=_brand,
-            min_price=_min_price,
-            max_price=_max_price,
-            filter_profile=lib_profile,
-            session_id=task_id,
-            checkpoint_dir=str(_tasks_dir() / "fission"),
-        )
-        if not candidates:
-            print("❌ 拓店未产出候选（种子分析失败或裂变为空），任务终止")
-            return 1
-    else:
-        try:
-            candidates = collect_and_analyze(
-                cdp_url=cdp_url,
-                url=url,
-                keyword=keyword,
-                max_products=args.max_scan,
-                use_analytics=not getattr(args, "no_analytics", False),
-                filter_profile=lib_profile,
-                base_filter=args.base_filter or "",
+    # ── 阶段①+②+②b：采集 + 全量数据 + 指标富化 + 粗筛（v0.78 批B2 阶段计时）──
+    with log_stage("阶段 1/3：采集 + 全量数据 + 粗筛"):
+        # --filters 的 brand/price_* 提供时覆盖同名 CLI flag（含缺省值）
+        _min_price = (filters["price_min"] if filters and filters["price_min"] is not None
+                      else getattr(args, "min_price", 0))
+        _max_price = (filters["price_max"] if filters and filters["price_max"] is not None
+                      else getattr(args, "max_price", 0))
+        _brand = (filters["brand"] if filters and filters["brand"]
+                  else getattr(args, "brand_filter", "nobrand"))
+        if expend_mode:
+            # 拓店：--url 商品为唯一种子 → run_fission 一跳店铺展开（竞品卖家
+            # 评分≥4 按价排序 → 店铺产品），产出候选带全量 widget 数据回既有管线。
+            candidates = _collect_expend_shop(
+                cdp_url, seed_pid,
+                plan=expend_plan,
+                expend_shop=expend_shop,
+                brand_filter=_brand,
                 min_price=_min_price,
                 max_price=_max_price,
-                brand_filter=_brand,
+                filter_profile=lib_profile,
+                session_id=task_id,
+                checkpoint_dir=str(_tasks_dir() / "fission"),
             )
-        except ValueError as exc:
-            print(f"❌ 粗筛参数错误: {exc}", flush=True)
-            return 2
+            if not candidates:
+                print("❌ 拓店未产出候选（种子分析失败或裂变为空），任务终止")
+                return 1
+        else:
+            try:
+                candidates = collect_and_analyze(
+                    cdp_url=cdp_url,
+                    url=url,
+                    keyword=keyword,
+                    max_products=args.max_scan,
+                    use_analytics=not getattr(args, "no_analytics", False),
+                    filter_profile=lib_profile,
+                    base_filter=args.base_filter or "",
+                    min_price=_min_price,
+                    max_price=_max_price,
+                    brand_filter=_brand,
+                )
+            except ValueError as exc:
+                print(f"❌ 粗筛参数错误: {exc}", flush=True)
+                return 2
 
-    # ── 阶段②c+ --filters 规则判定（ai 默认补齐 + 显式区间 + 发货模式白名单）──
-    ignored_keys: list[str] = []
-    if filters:
-        _n_filtered, ignored_keys = _apply_discover_filters(
-            candidates, filters, profile_ai=(profile == "ai"))
-        if _n_filtered:
-            print(f"   🪮 --filters 规则过滤 {_n_filtered} 条", flush=True)
-        if ignored_keys:
-            print(f"   ⚠️ --filters 规则键缺底层数据未判定（不计入过滤）: "
-                  f"{', '.join(ignored_keys)}", flush=True)
-    counts: dict[str, int] = {}
-    for c in candidates:
-        counts[c.status] = counts.get(c.status, 0) + 1
-    print(f"   采集 {len(candidates)} 条：{counts}", flush=True)
+        # ── 阶段②c+ --filters 规则判定（ai 默认补齐 + 显式区间 + 发货模式白名单）──
+        ignored_keys: list[str] = []
+        if filters:
+            _n_filtered, ignored_keys = _apply_discover_filters(
+                candidates, filters, profile_ai=(profile == "ai"))
+            if _n_filtered:
+                print(f"   🪮 --filters 规则过滤 {_n_filtered} 条", flush=True)
+            if ignored_keys:
+                print(f"   ⚠️ --filters 规则键缺底层数据未判定（不计入过滤）: "
+                      f"{', '.join(ignored_keys)}", flush=True)
+        counts: dict[str, int] = {}
+        for c in candidates:
+            counts[c.status] = counts.get(c.status, 0) + 1
+        print(f"   采集 {len(candidates)} 条：{counts}", flush=True)
 
-    # ── 阶段④：自动 1688 匹配（限额 + 早停 + 节奏）──
-    print("\n⏳ 阶段 2/3：自动 1688 匹配 + 利润精筛...", flush=True)
-    match_pool = [c for c in candidates
-                  if c.status in ("ok", "uncertain")
-                  and c.ozon_product_id not in processed]
-    # v0.70 目标驱动：匹配池按达标可能性降序（rank_match_pool），图搜额度先花
-    # 在最可能 profitable 的品上，让目标尽早达成触发早停。
-    rank_match_pool(match_pool)
-    target_profitable = max(args.target_count - prior_profitable, 0)
-    if target_profitable <= 0:
-        print(f"   ✅ resume 已达标 {prior_profitable}/{args.target_count}，跳过匹配直接入箱",
+    # ── 阶段④：自动 1688 匹配（限额 + 早停 + 节奏；v0.78 批B2 阶段计时）──
+    with log_stage("阶段 2/3：自动 1688 匹配 + 利润精筛"):
+        match_pool = [c for c in candidates
+                      if c.status in ("ok", "uncertain")
+                      and c.ozon_product_id not in processed]
+        # v0.70 目标驱动：匹配池按达标可能性降序（rank_match_pool），图搜额度先花
+        # 在最可能 profitable 的品上，让目标尽早达成触发早停。
+        rank_match_pool(match_pool)
+        target_profitable = max(args.target_count - prior_profitable, 0)
+        if target_profitable <= 0:
+            print(f"   ✅ resume 已达标 {prior_profitable}/{args.target_count}，跳过匹配直接入箱",
+                  flush=True)
+        print(f"   待匹配 {len(match_pool)} 条（已处理跳过 {len(candidates) - len(match_pool) - counts.get('filtered', 0) - counts.get('error', 0)}）",
               flush=True)
-    print(f"   待匹配 {len(match_pool)} 条（已处理跳过 {len(candidates) - len(match_pool) - counts.get('filtered', 0) - counts.get('error', 0)}）",
-          flush=True)
 
-    def _match_progress(done: int, total: int, c) -> None:
-        mark = {"profitable": "✅", "matched": "🟢", "rejected": "⛔",
-                "no_match": "⚪", "error": "❌"}.get(c.status, "·")
-        print(f"   [{done}/{total}] {mark} {c.ozon_title[:36]}"
-              + (f" margin={c.profit_margin:.1f}%" if c.status == "profitable" else ""),
-              flush=True)
+        def _match_progress(done: int, total: int, c) -> None:
+            mark = {"profitable": "✅", "matched": "🟢", "rejected": "⛔",
+                    "no_match": "⚪", "error": "❌"}.get(c.status, "·")
+            print(f"   [{done}/{total}] {mark} {c.ozon_title[:36]}"
+                  + (f" margin={c.profit_margin:.1f}%" if c.status == "profitable" else ""),
+                  flush=True)
 
-    # 评审 C: 只把未处理候选交给匹配（传全量会让已入箱 pid 重烧图搜并挤占限额）
-    # 评审 H: 佣金显式来自 --store 店铺 profile（与 cmd_discover P2-6 同口径）；
-    # 未配置传 0 → match_selected 内部回落默认店铺解析链
-    match_selected(
-        match_pool if target_profitable > 0 else [], cdp_url,
-        fx_rate=fx_rate,
-        commission_rate=float((get_store_profile(args.store) or {}).get("commission_rate", 0) or 0),
-        min_margin_pct=args.min_margin,
-        max_matches=match_limit,
-        stop_on_no_match_streak=args.no_match_streak_stop,
-        pace_seconds=2.0,
-        max_workers=args.match_concurrency,
-        progress_callback=_match_progress,
-        target_profitable=target_profitable,
-    )
+        # 评审 C: 只把未处理候选交给匹配（传全量会让已入箱 pid 重烧图搜并挤占限额）
+        # 评审 H: 佣金显式来自 --store 店铺 profile（与 cmd_discover P2-6 同口径）；
+        # 未配置传 0 → match_selected 内部回落默认店铺解析链
+        match_selected(
+            match_pool if target_profitable > 0 else [], cdp_url,
+            fx_rate=fx_rate,
+            commission_rate=float((get_store_profile(args.store) or {}).get("commission_rate", 0) or 0),
+            min_margin_pct=args.min_margin,
+            max_matches=match_limit,
+            stop_on_no_match_streak=args.no_match_streak_stop,
+            pace_seconds=2.0,
+            max_workers=args.match_concurrency,
+            progress_callback=_match_progress,
+            target_profitable=target_profitable,
+        )
 
     # ── 出口：profitable → 入采集箱 / 干跑 ──
     to_submit = [c for c in candidates
@@ -2882,79 +3142,88 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     profitable_total = prior_profitable + len(to_submit)
     print(f"   [{min(profitable_total, args.target_count)}/{args.target_count}] 达标进度",
           flush=True)
-    print(f"\n⏳ 阶段 3/3：profitable {len(to_submit)} 条"
-          f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）",
-          flush=True)
-
-    state = {
-        "task_id": task_id,
-        "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "entry": {"url": url, "keyword": keyword},
-        "params": {"target_count": args.target_count, "filter_profile": profile,
-                   "min_margin": args.min_margin, "match_limit": match_limit,
-                   "match_concurrency": args.match_concurrency,
-                   "max_scan": args.max_scan,
-                   "filters": getattr(args, "filters", "") or "",
-                   "expend_shop": ({"n": expend_shop, **expend_plan,
-                                    "seed_pid": seed_pid}
-                                   if expend_mode else 0)},
-        "processed": processed,
-        "summary": {},
-    }
-    # 评审 D: 采集完成即落盘——匹配/入箱途中中断，--resume 至少有据可查
-    _save_task_state(state)
-    if args.dry_run or not (args.to_box or args.auto_submit):
-        for c in to_submit:
-            print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
-                  f" 货源={c.match_1688_url[:60]}")
-        print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）"
-              "或 --auto-submit 直接上架（submit_task）")
-    else:
-        try:
-            from scripts.cloud_probe import build_envelope_from_discovery, submit_draft, submit_envelope
-        except ModuleNotFoundError as _e:
-            print(f"❌ 缺少依赖模块 '{getattr(_e, 'name', '') or _e}'。"
-                  "请运行: pip install -r requirements.txt", flush=True)
-            return 1
-        from scripts.lib.config_store import get_store
-
-        store = get_store(args.store or "") or {}
-        store_config = {"client_id": store.get("client_id", ""),
-                        "api_key": store.get("api_key", "")}
-        store_id = args.store or ""
-        ok_n = skip_n = err_n = 0
-        for c in to_submit:
+    # v0.78 批B2/B3: 阶段 3（出口/入箱）计时 + --wait 终态轮询的 task_id 收集
+    wait_task_ids: list[str] = []
+    with log_stage(f"阶段 3/3：profitable {len(to_submit)} 条"
+                   f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）"):
+        state = {
+            "task_id": task_id,
+            "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "entry": {"url": url, "keyword": keyword},
+            "params": {"target_count": args.target_count, "filter_profile": profile,
+                       "min_margin": args.min_margin, "match_limit": match_limit,
+                       "match_concurrency": args.match_concurrency,
+                       "max_scan": args.max_scan,
+                       "filters": getattr(args, "filters", "") or "",
+                       "expend_shop": ({"n": expend_shop, **expend_plan,
+                                        "seed_pid": seed_pid}
+                                       if expend_mode else 0)},
+            "processed": processed,
+            "summary": {},
+        }
+        # 评审 D: 采集完成即落盘——匹配/入箱途中中断，--resume 至少有据可查
+        _save_task_state(state)
+        if args.dry_run or not (args.to_box or args.auto_submit):
+            for c in to_submit:
+                print(f"   [干跑] ✅ {c.ozon_title[:40]} margin={c.profit_margin:.1f}%"
+                      f" 货源={c.match_1688_url[:60]}")
+            print("\n💡 加 --to-box 真实入采集箱（POST /api/v1/drafts）"
+                  "或 --auto-submit 直接上架（submit_task）")
+        else:
             try:
-                envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
-                if not envelope:
-                    print(f"   ✗ 跳过（无 1688 item_id）: {c.ozon_title[:40]}")
-                    skip_n += 1
-                    continue
-                if args.auto_submit:
-                    # v0.70 双出口：直接走 worker 管线（真实上架，agent 侧必须确认）
-                    resp = submit_envelope(envelope)
-                    if not resp.get("ok"):
-                        raise RuntimeError(str(resp.get("error") or "submit rejected"))
-                    task_id = resp.get("task_id", "")
-                    print(f"   🚀 已提交上架: {c.ozon_title[:40]} → task_id={task_id}")
-                    processed[c.ozon_product_id] = {"status": "ok", "task_id": task_id}
-                else:
-                    # P3 批次契约：drafts 请求体带 source_batch=本次运行 task_id
-                    # （≤64 字符；Worker 落 product_drafts 供 ?batch= 查询）
-                    result = submit_draft(envelope, source_batch=state["task_id"])
-                    draft_id = result.get("draft_id", "")
-                    print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
-                    processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
-                _save_task_state(state)   # 评审 D: 逐条落盘，中断可续
-                ok_n += 1
-            except Exception as exc:
-                print(f"   ✗ 出口失败: {c.ozon_title[:40]} — {exc}")
-                processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
-                _save_task_state(state)   # 评审 D: 失败也记账，防 resume 重试风暴
-                err_n += 1
-        state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
-        _verb = "上架" if args.auto_submit else "入箱"
-        print(f"\n📦 {_verb}完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+                from scripts.cloud_probe import build_envelope_from_discovery, submit_draft, submit_envelope
+            except ModuleNotFoundError as _e:
+                print(f"❌ 缺少依赖模块 '{getattr(_e, 'name', '') or _e}'。"
+                      "请运行: pip install -r requirements.txt", flush=True)
+                return 1
+            from scripts.lib.config_store import get_store
+
+            store = get_store(args.store or "") or {}
+            store_config = {"client_id": store.get("client_id", ""),
+                            "api_key": store.get("api_key", "")}
+            store_id = args.store or ""
+            ok_n = skip_n = err_n = 0
+            for c in to_submit:
+                try:
+                    envelope = build_envelope_from_discovery(c, store_config, store_id=store_id)
+                    if not envelope:
+                        print(f"   ✗ 跳过（无 1688 item_id）: {c.ozon_title[:40]}")
+                        skip_n += 1
+                        continue
+                    if args.auto_submit:
+                        # v0.70 双出口：直接走 worker 管线（真实上架，agent 侧必须确认）
+                        resp = submit_envelope(envelope)
+                        if not resp.get("ok"):
+                            raise RuntimeError(str(resp.get("error") or "submit rejected"))
+                        _submit_task_id = resp.get("task_id", "")
+                        print(f"   🚀 已提交上架: {c.ozon_title[:40]} → task_id={_submit_task_id}")
+                        wait_task_ids.append(_submit_task_id)
+                        processed[c.ozon_product_id] = {"status": "ok", "task_id": _submit_task_id}
+                    else:
+                        # P3 批次契约：drafts 请求体带 source_batch=本次运行 task_id
+                        # （≤64 字符；Worker 落 product_drafts 供 ?batch= 查询）
+                        result = submit_draft(envelope, source_batch=state["task_id"])
+                        draft_id = result.get("draft_id", "")
+                        print(f"   📥 已入采集箱: {c.ozon_title[:40]} → draft_id={draft_id}")
+                        processed[c.ozon_product_id] = {"status": "ok", "draft_id": draft_id}
+                    _save_task_state(state)   # 评审 D: 逐条落盘，中断可续
+                    ok_n += 1
+                except Exception as exc:
+                    print(f"   ✗ 出口失败: {c.ozon_title[:40]} — {exc}")
+                    processed[c.ozon_product_id] = {"status": "error", "error": str(exc)[:200]}
+                    _save_task_state(state)   # 评审 D: 失败也记账，防 resume 重试风暴
+                    err_n += 1
+            state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
+            _verb = "上架" if args.auto_submit else "入箱"
+            print(f"\n📦 {_verb}完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+
+        # ✅ v0.78 批B3: --wait 一次性命令——auto-submit 出口逐个轮询到终态
+        # （缺省 fire-and-forget 零变化；draft_id 非 worker 任务不轮询）
+        if getattr(args, "wait", False) and wait_task_ids and args.auto_submit:
+            print(f"\n⏳ --wait: 等待 {len(wait_task_ids)} 个任务到终态（每单最多 900s）...",
+                  flush=True)
+            for _wt in wait_task_ids:
+                _wait_task_terminal(_wt)
 
     final_counts: dict[str, int] = {}
     for c in candidates:
@@ -2982,6 +3251,26 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         print(f"📄 候选 {_kind}: {args.export}")
     print(f"📁 任务状态: {_task_state_path(task_id)}（--resume 可续跑）")
     print(f"📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    # ✅ v0.78 批B4: 终局 run 报告（逐条 + 汇总落 data/logs/report_*.json）
+    _report_items = []
+    for c in candidates:
+        _pr = processed.get(c.ozon_product_id) or {}
+        _report_items.append({
+            "item_id": _candidate_item_id(c),
+            "title": c.ozon_title or "",
+            "status": c.status,
+            "task_id": str(_pr.get("task_id", "") or ""),
+            "draft_id": str(_pr.get("draft_id", "") or ""),
+            "error_first_line": (str(c.error).splitlines()[0][:200]
+                                 if getattr(c, "error", "") else ""),
+        })
+    _report_summary: dict = {"total": len(_report_items)}
+    for _it in _report_items:
+        _report_summary[_it["status"]] = _report_summary.get(_it["status"], 0) + 1
+    for _sk, _sv in (state.get("summary") or {}).items():
+        if not isinstance(_sv, dict):
+            _report_summary[_sk] = _sv
+    _write_run_report("discover-task", _report_items, _report_summary)
     # v0.70 结构化出口：后台任务（MCP background=true）靠尾部 JSON 定案收割，
     # agent/任务中心也直接机读 summary（_out 自带凭证脱敏）
     _out({
@@ -3107,6 +3396,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # check (诊断)
     cp = sub.add_parser("check", help="诊断前置条件（Chrome / 凭证 / Worker / Ozon API）")
+    # ✅ v0.78 批B5: --logs 只读日志通道（缺省 None=跑全量环境诊断；不带值=列最近
+    # 5 个日志文件；带 task_id=打印该任务 JSONL 事件），命中即短路不碰 Chrome/网络。
+    cp.add_argument("--logs", nargs="?", const="", default=None, metavar="TASK_ID",
+                    help="只读日志（不跑环境诊断）：`--logs <task_id>` 打印该任务 "
+                         "JSONL 事件；`--logs`（不带值）列 data/logs/ 最近 5 个日志文件")
     cp.set_defaults(func=cmd_check)
 
     # search
@@ -3161,6 +3455,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     gp.add_argument("--min-density", type=float, default=0.0,
                     help="T3.1: 密度下限拦截，单位 g/cm³（默认 0=不拦截仅告警；"
                          "如 0.1 可拦下泡脚包 950g/14190cm³=0.07 这类疑似单位错误）")
+    # ✅ v0.78 批B6: 预估利润率拦截（默认 0=不拦截零变化；低于阈值 print 原因 + exit 3）
+    gp.add_argument("--min-margin", type=float, default=0.0,
+                    help="预估利润率下限 %%（默认 0=不拦截；提交前按预估打印，"
+                         "低于阈值 → 打印拦截原因并 exit 3。预估非终价，"
+                         "以 Worker 实算为准；注意与 discover --min-margin 的"
+                         "「匹配期筛选」语义不同）")
     gp.add_argument("--to-box", action="store_true",
                     help="T9: 组装后入采集箱（POST /api/v1/drafts，WebUI 认领后再上架），替代直接提交")
     gp.add_argument("--ozon-ref-url", default="", help="Ozon 竞品参考链接(抓同类目属性复用, 可选, v0.29.x)")
@@ -3198,6 +3498,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="人工评审暂停：展示全部 1688 候选，人工接受/改选/拒绝")
     fp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    # ✅ v0.78 批B6: 预估利润率拦截（与 graph 腿同语义；提交前在 follow_sell_cloud
+    # 内部拦——提交后再打印就晚了）
+    fp.add_argument("--min-margin", type=float, default=0.0,
+                    help="预估利润率下限 %%（默认 0=不拦截；提交前按预估打印，"
+                         "低于阈值 → 打印拦截原因并 exit 3。预估非终价，"
+                         "以 Worker 实算为准）")
     _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 
@@ -3519,6 +3825,19 @@ def main() -> int:
     if not args.command:
         parser.print_help()
         return 0
+
+    # ✅ v0.78 批B1: 统一运行日志——stderr(INFO) + 文件(DEBUG) 双通道，启动即打
+    # 一行日志路径（data/logs/run_*.log），命令全程可追溯（黑盒抱怨根治第一半）。
+    # 必须先于重 import（cloud_probe 的 basicConfig 兜底见其头部守卫）。
+    # pytest 下跳过（密闭：测试进程不产生 run 日志/不持有 FileHandler）。
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from scripts.lib.logging_utils import setup_run_logging
+            _runlog = setup_run_logging(args.command)
+            if _runlog:
+                print(f"📋 运行日志: {_runlog}", flush=True)
+        except Exception:
+            pass  # 日志初始化绝不阻断命令
 
     # ⚠️ PR-3: 顶层 runtime preflight — Python 版本 + 核心依赖探测。
     # 在 _silent_update_check 之前（update check 本身也 import 依赖），缺则立即退出。
