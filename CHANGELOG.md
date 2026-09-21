@@ -1,6 +1,30 @@
 # Changelog
 
-## [0.78.0] — 未发版
+## [0.78.0] — 2026-09-20（生产发版；含未单独 tag 的 0.77.3 全部内容）
+
+> **升级必读（行为变更七条，按影响面排序）**
+>
+> 1. **E1 原图兜底默认停用**：生图全部失败时**不再**把 1688/竞品原图转存上卡，改为
+>    任务级失败（新错误码 `IMAGE_GEN_ALL_FAILED`，errors.py 14→15；非永久 → 整任务重试
+>    一轮，仍全败才终态 failed）。逃生门 `IMAGE_SALVAGE_FALLBACK=1` 恢复旧行为。
+>    **不出原图卡是有意方向**（宁失败不上错图）。
+> 2. **跟卖（follow）竞品图 = 生图参考**（批I，用户拍板）：follow 信封
+>    `extensions.follow_sell` 时放行 Ozon 竞品 CDN 原尺寸图进生图参考链（缩略/.webp 仍拒），
+>    AI 按竞品参考重绘出图**上卡**；竞品图本身恒禁出 payload（参考≠上卡）。graph 信封行为零变化。
+> 3. **生图配置类错误响亮化**：模型未配价/不存在等（`MxouModelConfigError`）零重试快速
+>    降级下一模型 + 每小时去重上报；`mxou_call_ledger` 补 outcome/duration_ms 列
+>    （**升级须跑 `init_data.py`**，见文末部署注意）。
+> 4. **主图拒单自动重生成**：Ozon 拒审 4194/4195（主图不显示商品）且有 AI 图时自动重生成
+>    主图再传；三条重传出口（create/product-import/pictures-import）统一过图片出口闸。
+> 5. **卡片图断言**：白名单放行本方 COS 源 URL，复查 1×15s → 3×20s（env 可调），
+>    用尽仍 unverified 升 error 可见性但不 fail（不可验证 ≠ 不一致）。
+> 6. **skill 侧**：graph/follow 新增预估打印 + `--min-margin` 拦截（exit 3）、`--wait`
+>    合并语义（闸排队 + 提交后轮询，最长 900s）；CDP 全链静默化（零前台弹窗）；
+>    运行日志落 `data/logs/run_*.log` + stderr INFO；`discover --non-interactive` 挑选腿
+>    自动全选修复。⚠️ `--wait` 轮询期间持 heavy gate 锁，本机其他重命令排队（30s 心跳可见）。
+> 7. **0.77.3 内容随本版发出**（每任务 Supabase 白烧 4s 清理 + 两类假阳性拦截根治）；
+>    **升级须跑 `init_data.py`**（`mxou_call_ledger` 迁移；cos-update 路径自带，手工
+>    `docker compose up --build` 不带）。
 
 ### 批E fix/image-source-hardgate-v1 — 上架图来源硬闸
 
@@ -304,7 +328,7 @@ cmd_discover 非交互分支**先于**交互弹窗判定（源码序锁防回归
 - **defer（批A 范围外）**：`cli.py _collect_keyword_pids`（discover-multi 滚动采集）前台
   `new_tab` 未后台化——「零前台弹窗」口径限 discover/graph/follow，discover-multi 后续批补一行。
 
-### 0.78.0 实机验证记录（2026-09-19 晚，本地 Docker dev 5c491c65）+ follow 语义冲突发现
+### 0.78.0 实机验证记录（2026-09-19 晚，本地 Docker）+ follow 参考图语义拍板/落地
 
 - **graph（1688 源）✅**：真实上架同 offer 覆写（UPSERT_BY_OFFER），Ozon 过审 approved；
   上传图 5 张全为 AI（`file/images/` key），E1 salvage 零触发、出口闸零违规日志；

@@ -44,6 +44,37 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
 
+## 最近更新（v0.78.0 — 静默化/日志/守卫精化四批 + 上架图来源加固四批 + 跟卖参考图语义）
+
+> 2026-09-20 发版（含未单独 tag 的 **0.77.3** 全部内容）。**改 CDP 静默链 / 生图参考 /
+> 图片出口 / 上传闸 / skill CLI 前先读 CHANGELOG 0.78.0 的「升级必读七条」与对应批节。**
+
+- **图来源硬闸（批E，改图片链前必读）**：`utils/image_source.py` 是图来源判定唯一入口
+  （ai=本方 COS 且 key ∈ {`file/images/`, `mxou-b64/`} / salvage / mirror_draft / external /
+  invalid）；**E1 原图兜底默认停用**——生图全败抛 `IMAGE_GEN_ALL_FAILED`（errors.py 14→15，
+  非永久→整任务重试一轮），逃生门 `IMAGE_SALVAGE_FALLBACK=1`；payload 出口闸
+  `_enforce_payload_image_policy` 拦一切非 AI 图上卡。**禁止再内联 URL 子串判定图来源。**
+- **跟卖竞品图 = 生图参考（批I，用户拍板）**：`image_url_guard.filter_reference_images`
+  在信封 `extensions.follow_sell` 时放行 Ozon 竞品 CDN 原尺寸图作参考（缩略/.webp 恒拒），
+  graph 信封逐字等价旧白名单；**参考≠上卡**（竞品图仍被 `enforce_upload_policy` 恒拒）。
+  改 follow 图链/参考链前先读该函数注释。
+- **生图错误响亮化（批G）**：`MxouModelConfigError`（未配价/模型不存在）零重试降级下一模型
+  + 每小时去重上报；`mxou_call_ledger` 补 outcome/duration_ms 列——**升级须跑
+  `init_data.py`**（`docker compose up --build` 不跑；cos-update 自带；漏跑只 WARNING 不阻断）。
+- **主图拒单重生成（批H）**：Ozon 4194/4195 + 有 AI 图 → `regen_main_image` 重生成再传；
+  三条重传出口统一过 `_reupload_gate_blocked`。**卡片图断言（批F）**：白名单含本方 COS 源
+  URL，复查 3×20s（`CARD_ASSERT_RETRIES`/`CARD_ASSERT_INTERVAL_S`），用尽 unverified 升
+  error 不 fail。
+- **skill 侧（批A/B/C/D）**：CDP 静默化（零前台弹窗，`new_tab` 后台化 + readiness 负缓存）；
+  运行日志 `data/logs/run_*.log` + stderr INFO（`logging_utils`）；graph/follow 预估打印 +
+  `--min-margin`（exit 3）+ `--wait` 合并语义（⚠️ 轮询期间持 `heavy_cdp.lock`）；
+  `discover --non-interactive` 挑选腿自动全选；守卫精化（类目信任源/价差跨币种假阳性）。
+- **实机验证（2026-09-19/20，本地 Docker + 真实 Chrome/1688/Ozon）**：graph 单 approved 且
+  上传图 5 张全 AI；follow 单 CREATE 新卡（批I 后）卡图 6 张全 AI、竞品图零上卡；
+  批E 首实机触发（follow 生图全败 → 诚实失败，零原图卡）。⚠️ 事故留痕：一单因未设
+  `WORKER_URL` 误打生产（skill `_const.py` 默认 `worker.mxou.cn`）——**实机测试必须显式
+  设置 `WORKER_URL=http://localhost:8080`**。
+
 ## 最近更新（v0.77.2 — store 同步 S1/S2/S3 根治 + 零图闸 + error_code 全线 + 观测/运维批）
 
 > 2026-09-19 发版（PR #38 → dev，生产库只读取证 + 本地真凭证实机驱动；worker 侧，skill 零改动）。
