@@ -45,6 +45,9 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
     white_bg_image = state.white_bg_image
     
     if not draft or not token:
+        # 批D v0.78: 入口静默分支补日志（原样 return 无任何痕迹，排障只能靠猜）
+        logger.info("social_proof_gen: 入口前置缺失，跳过生图 (draft=%s, token=%s)",
+                    "缺失" if not draft else "有", "缺失" if not token else "有")
         return SocialProofOutput(social_proof_image=None)
     
     # ✅ v0.26/v0.41: 重跑不重烧生图 + force_regen 绕过缓存读（webui 重生成）

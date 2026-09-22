@@ -239,11 +239,31 @@ def auth_node(state: AuthInput, config: RunnableConfig, runtime: Runtime) -> Aut
         token_query_url = f"{supabase_url}/rest/v1/tokens?key=eq.{clean_token}&select=*"
         
         # 增加重试机制，应对Supabase临时超时
+        # ✅ v0.77.3（管线延迟）：确定性错误零重试——
+        #   ① SUPABASE_URL 未配置/非 http(s)：URL 必然 MissingSchema，旧逻辑重试
+        #     3 次 × 2s 退避 = 每任务固定白烧 4.0s（g3 实测 17:59:36.13→40.13）；
+        #   ② URL 合法但 MissingSchema/InvalidURL：同样不会因重试变合法。
+        #   只有连接超时/5xx 才值得重试。配置缺失时直接走既有降级分支。
         response = None
         supabase_unreachable = False
-        for _retry_idx in range(3):
+        _url_valid = bool(supabase_url) and str(supabase_url).lower().startswith(("http://", "https://"))
+        if not _url_valid:
+            logger.warning(
+                f"Supabase URL 未配置或非 http(s)（len={len(supabase_url or '')}），"
+                "跳过 token 查询直接降级（零重试）"
+            )
+            supabase_unreachable = True
+        for _retry_idx in range(0 if supabase_unreachable else 3):
             try:
                 response = session.get(token_query_url, headers=headers, timeout=45)
+                break
+            except requests.exceptions.MissingSchema as retry_err:
+                logger.warning(f"Supabase URL 无 scheme（确定性错误，不重试），降级处理: {retry_err}")
+                supabase_unreachable = True
+                break
+            except requests.exceptions.InvalidURL as retry_err:
+                logger.warning(f"Supabase URL 非法（确定性错误，不重试），降级处理: {retry_err}")
+                supabase_unreachable = True
                 break
             except Exception as retry_err:
                 if _retry_idx < 2:

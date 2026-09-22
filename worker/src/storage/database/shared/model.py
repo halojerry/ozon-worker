@@ -1392,6 +1392,14 @@ class MxouCallLedger(Base):
     整体吞错，**绝不影响业务调用路径**（写失败只损失一条观测数据）。
     token_fp 是指纹（非明文 key）；endpoint 截 200；tenant_id 可空
     （匿名/解析失败场景）。append-only，无唯一键。
+    v0.77.2：补 model 列（按模型对账费用）——image endpoint 'image_gen:<model>'
+    拆分写入；chat 走请求参数 model。旧行 NULL（不回填，语义上无 model 可指）。
+    批D v0.78（取证 I5）：成败观测——record_call 插入 outcome='pending'，
+    mxou_api 在 POST 返回/异常处 finish_call 回写终态（ok/failed/config_error）
+    + duration_ms（该模型段耗时毫秒）。行不删改、无重写（单向 pending→终态）；
+    存量历史行由 init_data.migrate_ledger_outcome_v078 幂等迁移回填 'ok'
+    （迁移时刻无法区分历史成败，按成功口径回填保持可读——批D 拍板口径）。
+    ⚠️ 库内不编造 cost 金额——真钱数只有网关侧有，本表只做调用计数观测。
     """
     __tablename__ = "mxou_call_ledger"
 
@@ -1401,9 +1409,19 @@ class MxouCallLedger(Base):
     token_fp: Mapped[str] = mapped_column(
         String(64), nullable=False, comment="token 指纹（sha256 hex 截 64，绝不明文 key）")
     endpoint: Mapped[str] = mapped_column(String(200), nullable=False, comment="网关端点路径（写入侧截 200）")
+    model: Mapped[Optional[str]] = mapped_column(
+        String(80), nullable=True,
+        comment="模型 id（v0.77.2；image endpoint 拆出/chat 请求参数；旧行 NULL）")
+    outcome: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending",
+        comment="调用结局（批D v0.78）：pending=进行中/未回写 → ok/failed/config_error；历史行迁移回填 'ok'")
+    duration_ms: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True,
+        comment="该模型段耗时毫秒（finish_call 回写；可空=未知）")
 
     __table_args__ = (
         Index("idx_mxou_call_ledger_called_at", "called_at"),
         Index("idx_mxou_call_ledger_tenant", "tenant_id"),
         Index("idx_mxou_call_ledger_token_fp", "token_fp"),
+        Index("idx_mxou_call_ledger_model", "model"),
     )

@@ -520,6 +520,117 @@ def ozon_status_node(
                                 else:
                                     logger.info(f"✅ model_info验证通过: model_id={list(model_ids)}, counts={model_counts}（变体已合并）")
 
+                            # ✅ fix/upload-image-assertion-v1（2026-09-18 用户②，商品 6381680593 实证）：
+                            # 上架收尾卡片图断言——卡上图必须与上传载荷一致。此前重传链曾用
+                            # draft 原图覆盖 AI 图静默上线，零收尾校验。详见 utils/card_image_assert。
+                            try:
+                                from utils.card_image_assert import (
+                                    VERIFY_MISMATCH,
+                                    VERIFY_OK,
+                                    VERIFY_SKIPPED,
+                                    VERIFY_UNVERIFIED,
+                                    verify_card_images,
+                                )
+
+                                _payload_items = (getattr(state, "ozon_payload", None) or {}).get("items") or []
+                                _payload_imgs = (
+                                    [str(u) for u in (_payload_items[0].get("images") or []) if str(u).strip()]
+                                    if _payload_items and isinstance(_payload_items[0], dict) else []
+                                )
+                                _card_urls = [str(u) for u in (info_items[0].get("images") or []) if str(u).strip()] \
+                                    if info_items and isinstance(info_items[0], dict) else []
+                                _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+                                # ✅ 批C fix/card-assert-cos-v1（2026-09-19 取证 I4）：mismatch/unverified
+                                # 复查从 1 次 15s 升级为 CARD_ASSERT_RETRIES 次 × CARD_ASSERT_INTERVAL_S 秒
+                                # （默认 3×20，env 可覆写）。动因：①import 刚完成时 info/list 先返回我方
+                                # COS 源 URL（白名单已同步放行，见 utils/card_image_assert）；②审核通过
+                                # 瞬间 CDN 对象常未就绪（图片数组已出但对象 404/异步填充未完成）——单次
+                                # 15s 复查覆盖不了这类异步窗口，断言对本类事故恒 unverified 静默放行。
+                                try:
+                                    _card_retries = int(os.getenv("CARD_ASSERT_RETRIES", "3"))
+                                    _card_interval = float(os.getenv("CARD_ASSERT_INTERVAL_S", "20"))
+                                except ValueError:
+                                    _card_retries, _card_interval = 3, 20.0
+                                _recheck_used = 0
+                                while (
+                                    _v_status in (VERIFY_MISMATCH, VERIFY_UNVERIFIED)
+                                    and _payload_imgs
+                                    and _recheck_used < _card_retries
+                                ):
+                                    _recheck_used += 1
+                                    time.sleep(_card_interval)
+                                    _recheck: Dict[str, Any] = {}
+                                    try:
+                                        _recheck = ozon_post(
+                                            ozon_client_id, ozon_api_key,
+                                            "/v3/product/info/list", info_payload, timeout=60,
+                                        )
+                                    except OzonError:
+                                        pass
+                                    _ri = (_recheck.get("items") or [{}])[0] if isinstance(_recheck, dict) else {}
+                                    _card_urls = [str(u) for u in (_ri.get("images") or []) if str(u).strip()]
+                                    _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+                                    if _v_status == VERIFY_OK:
+                                        break
+                                logger.info(
+                                    f"🖼️ 收尾卡片图断言: {_v_status} — {_v_detail}（复查 {_recheck_used}/{_card_retries} 次）"
+                                )
+                                if _v_status == VERIFY_MISMATCH:
+                                    logger.error("❌ 卡片图与上传载荷不一致（拒绝假成功）: %s", _v_detail)
+                                    return OzonStatusOutput(
+                                        product_id=real_product_ids[0],
+                                        product_ids=real_product_ids,
+                                        status="failed",
+                                        moderation_status="approved",  # 审核确实过了——失败在图
+                                        upload_status="failed",
+                                        error_code="CARD_IMAGE_MISMATCH",
+                                        errors=[{"code": "CARD_IMAGE_MISMATCH", "message": _v_detail}],
+                                        purchase_url=purchase_url,
+                                        purchase_cost=purchase_cost,
+                                        sku_id=sku_id,
+                                        profit_estimation=profit_estimation,
+                                        error_message=f"[CARD_IMAGE_MISMATCH] {_v_detail}",
+                                        failed_stage="ozon_status",
+                                        stages={"ozon_status": "image_mismatch"},
+                                    )
+                                if _v_status == VERIFY_UNVERIFIED:
+                                    # ✅ 批C fix/card-assert-cos-v1：不可验证 ≠ 不一致——unverified
+                                    # 不拦任务（不 fail，防误杀异步填充慢的正常单），但复查用尽仍
+                                    # 不可验证必须大声留痕：logger.error 进 Sentry + capture_task_event
+                                    # 打标（旧实现仅 warning 静默放行，生产无法感知断言失效）。
+                                    # 留痕带 task/product/卡片图数 vs 载荷图数，便于生产取证。
+                                    logger.error(
+                                        "❌ 收尾卡片图断言复查 %s/%s 次后仍不可验证（放行不拦任务——不可验证≠不一致）"
+                                        ": %s | product_id=%s import_task=%s 卡片图 %s 张 vs 载荷图 %s 张",
+                                        _recheck_used, _card_retries, _v_detail,
+                                        real_product_ids[0] if real_product_ids else product_id,
+                                        task_id_to_poll, len(_card_urls), len(_payload_imgs),
+                                        extra={"namespace": "image.verify"},
+                                    )
+                                    try:
+                                        from utils.sentry_setup import capture_task_event
+                                        capture_task_event(
+                                            "card_image_assert_unverified",
+                                            f"收尾卡片图断言不可验证（放行）: {_v_detail}",
+                                            task_id=str(task_id_to_poll),
+                                            level="error",
+                                            product_id=str(real_product_ids[0] if real_product_ids else product_id),
+                                            card_image_count=len(_card_urls),
+                                            payload_image_count=len(_payload_imgs),
+                                            rechecks_used=_recheck_used,
+                                        )
+                                    except Exception:
+                                        pass
+                                    logger.warning(
+                                        "⚠️ 收尾卡片图断言不可用（异步填充/下载失败），放行并留痕: %s",
+                                        _v_detail,
+                                        extra={"namespace": "image.verify"},
+                                    )
+                            except Exception as _assert_exc:
+                                # 断言自身异常绝不拦成功（防误杀），留痕即可
+                                logger.warning("⚠️ 收尾卡片图断言异常（放行）: %s", _assert_exc,
+                                               extra={"namespace": "image.verify"})
+
                             return OzonStatusOutput(
                                 product_id=real_product_ids[0],
                                 product_ids=real_product_ids,

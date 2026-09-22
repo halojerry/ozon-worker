@@ -1,6 +1,11 @@
 # 本地/CI 测试环境(PRD M5):PG + worker-test(init_data → pytest)
 # 用法: docker compose -f docker-compose.test.yml up -d postgres
 #       bash scripts/test-docker.sh
+# ✅ v0.77.2: 显式 project name 隔离——本文件与 docker-compose.yml 同目录，默认
+#    project 名同为 `deploy`，test-docker.sh 的 `up -d postgres` 会把 deploy 栈的
+#    postgres 容器按测试配置重建（实测翻转 5433/15433 端口与凭证，deploy worker
+#    因 DB 换台 unhealthy）。加 name 后测试容器归 ozon-worker-test 项目，互不可见。
+name: ozon-worker-test
 services:
   postgres:
     image: postgres:16-alpine

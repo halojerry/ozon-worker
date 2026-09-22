@@ -6,8 +6,8 @@ seller 登录等待可能在一条命令里被触发多次。本模块提供：
 
 - ``probe_*`` 原子探针：只检测不修复（check 与业务命令共用同一实现）；
 - ``ensure_pipeline_ready(pipeline)``：按管线裁剪所需探针 + 磁盘缓存
-  （成功才缓存，TTL 600s）+ 静默修复（aibuy 冷启动预热一次 / seller
-  未登录时交互等待或无人值守 fail-fast）；
+  （成功/失败都缓存，TTL 600s——负缓存窗内不重试/不预热）+ 静默修复
+  （aibuy 冷启动预热一次 / seller 未登录时交互等待或无人值守 fail-fast）；
 - ``print_readiness_report``：一行就绪摘要 + 修复/指引明细。
 
 纪律：除 Chrome CDP 与 discover-task 的 seller 登录外，一切失败都是
@@ -23,7 +23,7 @@ import sys
 logger = logging.getLogger(__name__)
 
 CDP_URL = "http://127.0.0.1:9222"
-READINESS_TTL_SECONDS = 600  # 成功结果缓存 10 分钟：10 分钟内重跑免重复检测
+READINESS_TTL_SECONDS = 600  # 探针结果（成功/失败）缓存 10 分钟：窗内免重复检测/预热
 
 
 def _under_pytest() -> bool:
@@ -77,7 +77,9 @@ def probe_alibaba_login(cdp_url: str = CDP_URL) -> bool:
     try:
         from scripts.lib.cdp_client import CdpConnection
         conn = CdpConnection(cdp_url)
-        tab = conn.new_tab("about:blank")
+        # 批A A1（fix/skill-silent-cdp-v1）：探针只读 cookie 罐，about:blank
+        # 后台 tab 即可，不得激活到前台
+        tab = conn.new_tab("about:blank", background=True)
         msg_id = tab._send("Network.getCookies",
                            {"urls": ["https://www.1688.com/"]})
         resp = tab._recv_until_id(msg_id, timeout=10) or {}
@@ -115,7 +117,8 @@ def probe_ozon_datadome(cdp_url: str = CDP_URL) -> bool:
             pass
         if tab is None:
             conn = CdpConnection(cdp_url)
-            tab = conn.new_tab("https://www.ozon.ru/")
+            # 批A A1：DataDome 探测是静默检测，临时 tab 后台导航 ozon.ru
+            tab = conn.new_tab("https://www.ozon.ru/", background=True)
             tab.wait_for_load(timeout=10)
             tab_is_new = True
         return bool(tab.evaluate(
@@ -177,23 +180,48 @@ _PROBES = {
 }
 
 
-# ── 缓存（成功才写；任何失败/异常都不缓存，下次重跑现检）──
+# ── 缓存（成功/失败都写，TTL 同 600s；负缓存窗内不重试探针、不预热）──
+# 批A A2（fix/skill-silent-cdp-v1）：此前只缓存成功——探针失败每条命令现检 +
+# 冷启动反复触发 prewarm 导航 1688 首页（前台弹窗根因之一）。失败也落缓存
+# （值 {ok: False}），600s 窗内跳过探针**且跳过 prewarm 导航**。
+
+
+def _cached_entry(probe: str) -> dict | None:
+    """读探针缓存条目（成功 {ok:True} / 失败 {ok:False}）；无/损坏 → None。"""
+    from scripts.lib.cache import cache_get
+    try:
+        value = cache_get("readiness", probe)
+        return value if isinstance(value, dict) else None
+    except Exception:
+        return None
 
 
 def _cached_ok(probe: str) -> bool:
-    from scripts.lib.cache import cache_get
-    try:
-        return cache_get("readiness", probe) is not None
-    except Exception:
-        return False
+    entry = _cached_entry(probe)
+    return bool(entry and entry.get("ok"))
 
 
-def _mark_ok(probe: str) -> None:
+def _mark_ok(probe: str, ok: bool = True) -> None:
     from scripts.lib.cache import cache_set
     try:
-        cache_set("readiness", probe, {"ok": True}, ttl=READINESS_TTL_SECONDS)
+        cache_set("readiness", probe, {"ok": bool(ok)}, ttl=READINESS_TTL_SECONDS)
     except Exception:
         pass
+
+
+def _seller_login_memo_confirmed() -> bool:
+    """seller 登录确认 memo 是否近期在案（进程内 30min / 落盘 600s 双层）。
+
+    修正轮（批A 评审 Important）：seller_login 负缓存命中时必须先问 memo——
+    用户刚完成登录（上一条命令的 wait_for_seller_login / 流程内等待成功都会
+    mark_seller_login_confirmed 落盘）时，负缓存窗不得压过登录事实，否则
+    discover-task 会拿陈旧失败 exit 1 继续让用户「登录后重跑」。
+    """
+    try:
+        from scripts.lib.ozon_seller_analytics import seller_login_confirmed_recently
+        return bool(seller_login_confirmed_recently())
+    except Exception:
+        return False
 
 
 # ── 管线就绪入口 ──
@@ -241,10 +269,25 @@ def ensure_pipeline_ready(pipeline: str, *, profile_dir: str | None = None,
                 hints[probe] = _HINTS[probe]
             continue
 
-        if use_cache and _cached_ok(probe):
-            results[probe] = True
-            cached.append(probe)
-            continue
+        if use_cache:
+            entry = _cached_entry(probe)
+            if entry is not None:
+                if entry.get("ok"):
+                    results[probe] = True
+                    cached.append(probe)
+                    continue
+                if probe == "seller_login" and _seller_login_memo_confirmed():
+                    # 修正轮：负缓存遇上「登录 memo 近期已确认」→ 视作未命中，
+                    # 落到下方正常实检（probe_seller_login 经 memo 秒回 True），
+                    # 后续修复链（auto-import/等待/fail-fast 判定）随实检结果走
+                    logger.info("探针 seller_login 负缓存但登录 memo 已确认，重探放行")
+                else:
+                    # 负缓存命中（A2）：600s 内不重试探针、不触发 prewarm 导航
+                    logger.info("探针 %s 负缓存命中（%ds 内不重试/不预热）",
+                                probe, READINESS_TTL_SECONDS)
+                    results[probe] = False
+                    hints[probe] = _HINTS.get(probe, "")
+                    continue
 
         ok = bool(_PROBES[probe](CDP_URL))
 
@@ -300,9 +343,8 @@ def ensure_pipeline_ready(pipeline: str, *, profile_dir: str | None = None,
                 hints[probe] = _HINTS[probe]
 
         results[probe] = bool(ok)
-        if ok:
-            _mark_ok(probe)
-        elif probe not in hints:
+        _mark_ok(probe, ok)  # 失败也写（负缓存，A2）；成功语义逐字保持
+        if not ok and probe not in hints:
             hints[probe] = _HINTS[probe]
 
     hard_fail = (not results.get("chrome_cdp", False)) or (

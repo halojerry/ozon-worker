@@ -120,9 +120,39 @@ def _row(eng, draft_id: str) -> tuple:
     return row
 
 
-def test_mirror_runs_and_updates_state(client):
-    """COS 配置 + 下载成功 → 异步镜像回写(mirrored + COS URL)。"""
+def test_premirror_disabled_by_default_keeps_raw_urls(client, monkeypatch):
+    """✅ fix/retry-image-restore-v1: 入箱预镜像默认停用——图保持 1688 裸链、状态空。
+
+    COS 只存「提交时按需转存 + 生成图」；DRAFT_IMAGE_MIRROR=1 才恢复入箱即镜像。
+    """
+    monkeypatch.delenv("DRAFT_IMAGE_MIRROR", raising=False)
+    monkeypatch.setenv("COS_SECRET_ID", "test")
+    monkeypatch.setenv("COS_SECRET_KEY", "test")
+    monkeypatch.setenv("COS_BUCKET", "test-bucket")
+    with patch("requests.get") as mock_get:
+        resp = client.post("/api/v1/drafts", json={
+            "token": "tokMir", "source": "webui",
+            "envelope": _envelope(),
+        })
+        assert resp.status_code == 200
+        draft_id = resp.json()["id"]
+        time.sleep(0.5)  # 若预镜像误触发，给异步线程回写窗口
+        row = _row(create_engine(DB_URL), draft_id)
+        assert row[1] == "", f"预镜像应默认停用，实际状态={row[1]!r}"
+        payload = json.loads(row[2]) if isinstance(row[2], str) else row[2]
+        assert payload["draft"]["images"] == ["https://cbu01.alicdn.com/img/ibank/2024/test.jpg"]
+        mock_get.assert_not_called()
+
+
+def test_mirror_runs_and_updates_state(client, monkeypatch):
+    """COS 配置 + 下载成功 → 异步镜像回写(mirrored + COS URL)。
+
+    ✅ fix/retry-image-restore-v1: 入箱预镜像默认停用（draft.images 保留裸链，
+    COS 只存提交时按需转存 + 生成图）——本用例验证镜像机制本身，显式开
+    DRAFT_IMAGE_MIRROR=1 走旧路径。
+    """
     eng = create_engine(DB_URL)
+    monkeypatch.setenv("DRAFT_IMAGE_MIRROR", "1")
     os.environ["COS_SECRET_ID"] = "test"
     os.environ["COS_SECRET_KEY"] = "test"
     os.environ["COS_BUCKET"] = "test-bucket"

@@ -23,6 +23,7 @@ import json
 import time
 import logging
 import re
+from urllib.parse import urlparse
 import requests
 from pathlib import Path
 from typing import Any, Optional
@@ -45,6 +46,8 @@ from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_di
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
+from utils.cos_uploader import is_cos_url  # fix/image-ref-cos-whitelist-v1 批2: 无图补位只吃本方 COS 托管图（唯一实现在 image_url_guard，经 cos_uploader re-export 防漂移）
+from utils import image_source  # ✅ v0.78 批A (fix/image-source-hardgate-v1): 无图补位收窄——只吃 classify=="ai"（镜像草稿/salvage 原图不再补位）
 from utils.blocked_draft_box import (  # ✅ v0.69 T0.3: R2b 置信度分层阈值（阻断入箱函数延迟 import 防循环）
     R2B_ADOPT_CONF_CROSS_TOP,
     R2B_ADOPT_CONF_SAME_TOP,
@@ -814,7 +817,8 @@ def _maybe_create_blocked_draft(state, draft: dict, candidates: list,
 
 
 def _blocked_exit(state, draft: dict, candidates: list, error_message: str,
-                  match_confidence: float | None = None) -> dict:
+                  match_confidence: float | None = None,
+                  error_code: str = "LOCAL_CATEGORY_MATCH_FAILED") -> dict:
     """✅ v0.69 T0.3: 类目闸阻断出口统一构造——终态失败字段（v0.69 T2.2 语义不变）
     + 尽力入采集箱（低置信/歧义/弃权场景代替无声 failed）。
 
@@ -824,9 +828,13 @@ def _blocked_exit(state, draft: dict, candidates: list, error_message: str,
     """
     out: dict[str, Any] = {
         "error_message": error_message,
+        "error_code": error_code,
         "assembly_retry_count": (getattr(state, "assembly_retry_count", 0) or 0) + 1,
         "failed_stage": "category_match",
     }
+    # ✅ v0.77.2: 类目阻断出口统一带 error_code（默认 LOCAL_CATEGORY_MATCH_FAILED）——
+    # listing_result_log.error_code 不再恒空（生产 226/239 failed 行无码根因之一）；
+    # 受限/需资质出口经 _restricted_category_exit 传 LOCAL_RESTRICTED_CATEGORY。
     if match_confidence is not None:
         out["match_confidence"] = match_confidence
     _box = _maybe_create_blocked_draft(state, draft, candidates, error_message)
@@ -853,7 +861,8 @@ def _restricted_category_exit(state, draft: dict, candidates: list,
                f"{_notice}")
     logger.error(f"   🛑 受限品类闸（双命中）: {_reason}")
     out = _blocked_exit(state, draft, candidates, _reason,
-                        match_confidence=match_confidence)
+                        match_confidence=match_confidence,
+                        error_code="LOCAL_RESTRICTED_CATEGORY")
     out["notice"] = f"{_notice}；{out['notice']}" if out.get("notice") else _notice
     return out
 
@@ -939,6 +948,8 @@ def _assemble_follow_sell(
             logger.error(f"❌ 跟卖 type_id 无效({type_id})，无法获取属性 schema（CREATE 需要类目）")
             return {
                 "error_message": f"跟卖 type_id 无效: {type_id}，请检查类目解析",
+                "error_code": "LOCAL_CATEGORY_MATCH_FAILED",
+                "failed_stage": "category_match",
                 "description_category_id": str(description_category_id),
                 "type_id": str(type_id),
                 "final_attributes": _build_hardcoded_attributes(description_category_id),
@@ -1243,6 +1254,7 @@ def assemble_ozon_product_node(
         # ✅ v0.69 T2.2: 阻断出口统一带 failed_stage——task_processor _is_failed
         # 的 (error_message 且 failed_stage) 条件据此命中，阻断不再假 completed。
         return {"error_message": "产品标题为空，无法进行类目匹配",
+                "error_code": "LOCAL_TITLE_EMPTY",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                 "failed_stage": "category_match"}
 
@@ -1711,8 +1723,13 @@ def assemble_ozon_product_node(
         # L0 会误导一致性豁免语义且审计层分不清来源。
         if match_layer != "Skill":
             match_layer = "L0"
-            match_confidence = 0.95
-        logger.info(f"   ✅ L0/Skill 命中覆盖: [{category_result['description_category_id']}/{category_result['type_id']}] (layer={match_layer})")
+        # ✅ fix/category-gate-authority-v1: 置信恢复移出 layer 守卫——
+        # 此前 L1696 无条件用文本 sim 重算 confidence（CN 标题 vs RU 类目结构性
+        # 低分），而本块只在 L0 层恢复 0.95、Skill 层跳过 → 权威直采（dc/tp 树已
+        # 解析）被 0.3 置信闸误杀（实证：manual 17027937/970896147 树中存在仍被
+        # 「置信度过低(0.25)」阻断）。树/学习表 ID 命中即权威，文本 sim 不适用。
+        match_confidence = 0.95
+        logger.info(f"   ✅ L0/Skill 命中覆盖: [{category_result['description_category_id']}/{category_result['type_id']}] (layer={match_layer}, conf={match_confidence:.2f})")
 
     # ✅ 关键词重叠验证（L0未命中时执行）
     # 例如 "烟灰缸" 被 pg_trgm 误匹配到 "珠宝秤" → 无重叠词 → 丢弃该候选
@@ -1862,6 +1879,7 @@ def assemble_ozon_product_node(
         # 保持 failed + 人工处理（红线：R1 语义零放松）。
         return {"error_message": "类目匹配失败：候选类目为敏感类目(成人用品/18+/烟草/药品等)"
                                  "但商品来源无对应敏感信号词，需人工确认类目",
+                "error_code": "LOCAL_SENSITIVE_CATEGORY",
                 "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1,
                 "match_confidence": 0.0,
                 "failed_stage": "category_match"}
@@ -2107,6 +2125,7 @@ def assemble_ozon_product_node(
             except Exception:
                 pass
             return {"error_message": f"属性 Schema 获取失败: 尝试了 {len(tried_category_ids)} 个类目对均无效",
+                    "error_code": "LOCAL_ATTRIBUTE_SCHEMA_FAILED",
                     "assembly_retry_count": (getattr(state, 'assembly_retry_count', 0) or 0) + 1}
         logger.info(f"   ✅ Ozon API 返回: {len(attr_list)} 个属性")
 
@@ -2115,24 +2134,13 @@ def assemble_ozon_product_node(
     logger.info(f"   其中 {len(required_attrs)} 个必填属性")
 
     # =====================================================
-    # Step 3: 预加载字典值（PG 缓存优先，Ozon API 回退）
+    # Step 3: 预加载字典值（PG 缓存优先，Ozon API 回退；v0.77.3 并行化）
     # =====================================================
     logger.info("📖 Step 3: 预加载字典值")
 
-    dict_lookup: dict[int, list[dict[str, Any]]] = {}
-    for attr in attr_list:
-        dict_id = attr.get("dictionary_id", 0)
-        if dict_id and dict_id > 0:
-            attr_id = int(attr.get("id", 0))
-            # ✅ v0.75 C1：读穿一站式（含负缓存/单飞防击穿/三桶落档），失败返回 None
-            values = _get_dict_values_sf(
-                attr_id, description_category_id, type_id,
-                attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
-            )
-            if values and isinstance(values, list) and len(values) > 0:
-                dict_lookup[attr_id] = values
-            elif isinstance(values, dict) and values.get("result"):
-                dict_lookup[attr_id] = values["result"]
+    dict_lookup: dict[int, list[dict[str, Any]]] = _preload_dict_values(
+        attr_list, description_category_id, type_id, ozon_client_id, ozon_api_key,
+    )
 
     dict_attr_count = sum(1 for a in attr_list if a.get("dictionary_id", 0) > 0)
     cached_dict_count = len(dict_lookup)
@@ -2164,6 +2172,7 @@ def assemble_ozon_product_node(
         logger.error("❌ 确定性组装失败，返回空 items")
         return {
             "error_message": "确定性组装失败：未生成有效的 items",
+            "error_code": "LOCAL_ASSEMBLY_EMPTY_ITEMS",
             "description_category_id": str(description_category_id),
             "type_id": str(type_id),
             "attributes_schema": attr_list,
@@ -2642,21 +2651,10 @@ def _rebuild_for_new_category(
         
         logger.info(f"   ✅ 新类目 schema: {len(new_attr_list)} 个属性")
         
-        # Step 3'': 预加载字典值（ZH_HANS，与初始逻辑一致）
-        new_dict_lookup: dict[int, list[dict[str, Any]]] = {}
-        for attr in new_attr_list:
-            dict_id = attr.get("dictionary_id", 0)
-            if dict_id and dict_id > 0:
-                attr_id = int(attr.get("id", 0))
-                # ✅ v0.75 C1：读穿一站式（同 Step 3 初始链，new_dc/new_type 键）
-                values = _get_dict_values_sf(
-                    attr_id, new_dc, new_type,
-                    attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
-                )
-                if values and isinstance(values, list) and len(values) > 0:
-                    new_dict_lookup[attr_id] = values
-                elif isinstance(values, dict) and values.get("result"):
-                    new_dict_lookup[attr_id] = values["result"]
+        # Step 3'': 预加载字典值（ZH_HANS，与初始逻辑一致；v0.77.3 并行化）
+        new_dict_lookup: dict[int, list[dict[str, Any]]] = _preload_dict_values(
+            new_attr_list, new_dc, new_type, ozon_client_id, ozon_api_key,
+        )
         
         logger.info(f"   ✅ 新类目字典值: {len(new_dict_lookup)} 个字典属性")
         
@@ -2955,7 +2953,21 @@ def _build_items_deterministically(
     variant_list: list[dict[str, Any]] = variants if is_multi else [{}]
     
     items: list[dict[str, Any]] = []
-    
+
+    # ── 图片白名单（fix/image-ref-cos-whitelist-v1 批2补强：builder 同闸）──
+    # 「payload 只进本方 COS 图」的 builder 侧一半：镜像未跑/失败时 draft.images
+    # 仍是 1688 裸 alicdn 原图（Ozon 抓不到外链），builder 直填会绕过下游补位闸
+    # 直达 payload（2026-09-16 原图上卡事故批2）。子集算一次全变体共享；
+    # 任何被闸掉的图（全外链或混合中的外链）warning 带来源 key 前缀便于取证。
+    _all_images = images or []
+    _cos_images = [u for u in _all_images if _is_cos_hosted_str(u)][:15]
+    _dropped_images = [u for u in _all_images if not _is_cos_hosted_str(u)]
+    if _dropped_images:
+        logger.warning(
+            "   ⚠️ draft 图含非本方 COS 托管图，不进 items（Ozon 抓不到外链）: 来源 key 前缀=%s",
+            _image_source_key_prefixes(_dropped_images),
+        )
+
     for idx, variant in enumerate(variant_list):
         # 确定 offer_id
         if is_multi:
@@ -2982,8 +2994,8 @@ def _build_items_deterministically(
             "width": dimensions.get("width", 100),
             "height": dimensions.get("height", 50),
             "weight": weight_grams,
-            "images": (images or [])[:15],
-            "primary_image": images[0] if images else "",
+            "images": _cos_images,
+            "primary_image": _cos_images[0] if _cos_images else "",
             "complex_attributes": [],
             "images360": [],
             "pdf_list": [],
@@ -3056,6 +3068,35 @@ def _build_items_deterministically(
     return items
 
 
+def _is_cos_hosted_str(u: object) -> bool:
+    """builder/补位共用子集准入：非空白字符串 且 本方 COS 托管。
+
+    ⚠️ isinstance+非空白必须前置——is_cos_url 对非 str/空串返 True 是迁移自
+    cos_uploader 的既有契约，直接用会让 None/""/"  " 混进 items（2026-09-16
+    终审修复波）。不用 is_product_image_candidate：它会放行 alicdn 等货源
+    白名单域，破坏本闸「只吃本方 COS」不变式。缩略/.webp 不在本闸拒绝
+    （历史语义，下游 prepare「不使用 alicdn 原图」/E1 salvage 兜底）。
+    """
+    return isinstance(u, str) and bool(u.strip()) and is_cos_url(u)
+
+
+def _image_source_key_prefixes(urls: list[Any]) -> str:
+    """提取图片 URL path 首段作为来源 key 前缀（如 draft-images / ozon-1688）。
+
+    fix/image-ref-cos-whitelist-v1 批2：补位放弃时 warning 带此前缀，出事可一眼
+    定位图来自哪条写入链（draft_image_mirror=draft-images / E1 salvage=ozon-1688）。
+    解析不出段落的条目跳过；全空返回 "?"（占位，避免空 %s 难取证）。
+    """
+    prefixes: list[str] = []
+    for u in urls:
+        if not isinstance(u, str) or not u.strip():
+            continue
+        seg = urlparse(u).path.strip("/").split("/", 1)[0]
+        if seg and seg not in prefixes:
+            prefixes.append(seg)
+    return ",".join(prefixes) or "?"
+
+
 def _validate_and_enrich_items(
     items: list[dict[str, Any]],
     attr_list: list[dict[str, Any]],
@@ -3109,11 +3150,27 @@ def _validate_and_enrich_items(
         if not item.get("weight") or item.get("weight") == 0:
             item["weight"] = weight_grams
 
-        # 图片
+        # 图片（fix/image-ref-cos-whitelist-v1 批2：无图补位只吃本方 COS 托管图）
+        # 事故链：镜像未跑/失败时 draft.images 仍是 1688 裸 alicdn 原图，未过滤补位
+        # = 原图直接塞 payload——Ozon 抓不到外链，且与 prepare「不使用 alicdn 原图」
+        # 纪律矛盾（2026-09-16 原图上卡事故）。补位子集只保留 is_cos_url 成立的本方
+        # COS 托管图（镜像/E1/AI 生成产物）；全外链 → 诚实不补（走既有 IMAGE_ERROR
+        # 语义），warning 带来源 key 前缀便于取证。已有图路径不触碰（不重过滤）。
+        # ✅ v0.78 批A (fix/image-source-hardgate-v1) 再收窄：只吃 classify ==
+        # "ai"（file/images/ 与 mxou-b64/）——镜像草稿原图（draft-images/，货源原图
+        # 1:1 副本）与 E1 salvage（ozon-1688/salvage/）不再具备补位资格；生图全败
+        # 走 prepare 硬闸（IMAGE_GEN_ALL_FAILED），原图仅作生图参考不上卡。
+        _cos_fill = [u for u in images if image_source.classify_image_source(u) == "ai"][:15]
         if not item.get("images"):
-            item["images"] = images[:15]
-        if not item.get("primary_image") and images:
-            item["primary_image"] = images[0] if images else ""
+            if _cos_fill:
+                item["images"] = _cos_fill
+            elif images:
+                logger.warning(
+                    "   ⚠️ draft 图非本方 COS 托管，不补位（Ozon 抓不到外链）: 来源 key 前缀=%s",
+                    _image_source_key_prefixes(images),
+                )
+        if not item.get("primary_image") and _cos_fill:
+            item["primary_image"] = _cos_fill[0]
 
         # 数组字段
         item.setdefault("complex_attributes", [])
@@ -3747,6 +3804,54 @@ def _fetch_dict_values_from_ozon(
 
 class _DictFetchFailed(Exception):
     """Ozon 字典拉取失败（区别于确认空 []）：单飞等待者共享失败，绝不落负缓存。"""
+
+
+# ✅ v0.77.3（管线延迟）：字典预载并行helper——Step 3 与 R4 重配 Step 3'' 共用。
+# 旧链串行逐 attr 调 _get_dict_values_sf：PG 命中 ~ms 级无感，miss 时每次
+# ~0.5s Ozon RTT × 7-16 个字典属性/任务（g3 实测 assemble 段 7 连发 0.49s 间隔）。
+# 各 attr 键互不相干 + dict_value_cache 单飞锁 per-key → 有界线程池安全并行；
+# 结果按 attr_id 归位，行为与串行逐键等价（含 list/dict["result"] 双兼容）。
+_DICT_PRELOAD_WORKERS = 4
+
+
+def _preload_dict_values(
+    attr_list: list[dict[str, Any]],
+    description_category_id: int,
+    type_id: int,
+    ozon_client_id: str,
+    ozon_api_key: str,
+) -> dict[int, list[dict[str, Any]]]:
+    """并行预载字典属性值（PG 读穿优先，miss 并行回源 Ozon）。
+
+    Returns: {attr_id: values_list}，与旧串行循环同形（空/失败键不进表）。
+    """
+    dict_rows: list[tuple[int, dict[str, Any]]] = []
+    for attr in attr_list or []:
+        dict_id = (attr or {}).get("dictionary_id", 0)
+        if dict_id and dict_id > 0:
+            dict_rows.append((int(attr.get("id", 0)), attr))
+    if not dict_rows:
+        return {}
+
+    def _load_one(row: tuple[int, dict[str, Any]]):
+        attr_id, attr = row
+        values = _get_dict_values_sf(
+            attr_id, description_category_id, type_id,
+            attr_row=attr, fetch_args=(ozon_client_id, ozon_api_key),
+        )
+        if values and isinstance(values, list) and len(values) > 0:
+            return attr_id, values
+        if isinstance(values, dict) and values.get("result"):
+            return attr_id, values["result"]
+        return attr_id, None
+
+    lookup: dict[int, list[dict[str, Any]]] = {}
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(_DICT_PRELOAD_WORKERS, len(dict_rows))) as pool:
+        for attr_id, values in pool.map(_load_one, dict_rows):
+            if values is not None:
+                lookup[attr_id] = values
+    return lookup
 
 
 def _get_dict_values_sf(

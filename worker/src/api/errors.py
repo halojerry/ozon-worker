@@ -8,6 +8,7 @@
     TASK_*    — 任务相关
     RATE_*    — 限流相关
     SYSTEM_*  — 系统内部错误
+    其余       — 上架管线内部错误码（见各成员注释；PIPELINE_ERROR_MESSAGES 带中文文案）
 """
 
 from enum import Enum
@@ -42,6 +43,20 @@ class WorkerErrorCode(str, Enum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     INVALID_REQUEST = "INVALID_REQUEST"
+
+    # 上架管线内部错误码（v0.78 批A fix/image-source-hardgate-v1）
+    # 生图全败硬闸：E1 原图兜底默认停用，生图全败 → 任务级失败（绝不出 1688 原图卡）。
+    # ⚠️ 非永久错误——task_processor._is_permanent_task_error 对其判 False，
+    # 整任务自动重试一轮，重试仍全败才终态 failed（承载异常 ImageGenAllFailedError，
+    # 见 utils/image_source.py；禁止加进永久错误清单）。
+    IMAGE_GEN_ALL_FAILED = "IMAGE_GEN_ALL_FAILED"
+
+
+# v0.78 批A：管线内部错误码默认中文文案（随异常消息/任务 error_message 透出，
+# 非 HTTP 错误信封——image_source.ImageGenAllFailedError 的 raise 文案唯一来源）
+PIPELINE_ERROR_MESSAGES: dict = {
+    WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value: "生图全部失败，任务将重试后终态失败；不出原始图卡片",
+}
 
 
 # 错误码 → HTTP 状态码映射

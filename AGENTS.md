@@ -60,6 +60,116 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **CI**：actions 全量 pin SHA、gitleaks 全树扫描已修复真正生效（首跑翻出新结果属生效非回归）、coscli 下载 sha256 pin。
 - **已知 pre-existing**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 在 main/dev 基线即红（两名实现者独立实证，疑似涉 v0.75「回源失败不落负缓存」红线语义）——待独立排查任务，勿在本批修。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
 
+## 最近更新（v0.78.0 — 静默化/日志/守卫精化四批 + 上架图来源加固四批 + 跟卖参考图语义）
+
+> 2026-09-20 发版（含未单独 tag 的 **0.77.3** 全部内容）。**改 CDP 静默链 / 生图参考 /
+> 图片出口 / 上传闸 / skill CLI 前先读 CHANGELOG 0.78.0 的「升级必读七条」与对应批节。**
+
+- **图来源硬闸（批E，改图片链前必读）**：`utils/image_source.py` 是图来源判定唯一入口
+  （ai=本方 COS 且 key ∈ {`file/images/`, `mxou-b64/`} / salvage / mirror_draft / external /
+  invalid）；**E1 原图兜底默认停用**——生图全败抛 `IMAGE_GEN_ALL_FAILED`（errors.py 14→15，
+  非永久→整任务重试一轮），逃生门 `IMAGE_SALVAGE_FALLBACK=1`；payload 出口闸
+  `_enforce_payload_image_policy` 拦一切非 AI 图上卡。**禁止再内联 URL 子串判定图来源。**
+- **跟卖竞品图 = 生图参考（批I，用户拍板）**：`image_url_guard.filter_reference_images`
+  在信封 `extensions.follow_sell` 时放行 Ozon 竞品 CDN 原尺寸图作参考（缩略/.webp 恒拒），
+  graph 信封逐字等价旧白名单；**参考≠上卡**（竞品图仍被 `enforce_upload_policy` 恒拒）。
+  改 follow 图链/参考链前先读该函数注释。
+- **生图错误响亮化（批G）**：`MxouModelConfigError`（未配价/模型不存在）零重试降级下一模型
+  + 每小时去重上报；`mxou_call_ledger` 补 outcome/duration_ms 列——**升级须跑
+  `init_data.py`**（`docker compose up --build` 不跑；cos-update 自带；漏跑只 WARNING 不阻断）。
+- **主图拒单重生成（批H）**：Ozon 4194/4195 + 有 AI 图 → `regen_main_image` 重生成再传；
+  三条重传出口统一过 `_reupload_gate_blocked`。**卡片图断言（批F）**：白名单含本方 COS 源
+  URL，复查 3×20s（`CARD_ASSERT_RETRIES`/`CARD_ASSERT_INTERVAL_S`），用尽 unverified 升
+  error 不 fail。
+- **skill 侧（批A/B/C/D）**：CDP 静默化（零前台弹窗，`new_tab` 后台化 + readiness 负缓存）；
+  运行日志 `data/logs/run_*.log` + stderr INFO（`logging_utils`）；graph/follow 预估打印 +
+  `--min-margin`（exit 3）+ `--wait` 合并语义（⚠️ 轮询期间持 `heavy_cdp.lock`）；
+  `discover --non-interactive` 挑选腿自动全选；守卫精化（类目信任源/价差跨币种假阳性）。
+- **实机验证（2026-09-19/20，本地 Docker + 真实 Chrome/1688/Ozon）**：graph 单 approved 且
+  上传图 5 张全 AI；follow 单 CREATE 新卡（批I 后）卡图 6 张全 AI、竞品图零上卡；
+  批E 首实机触发（follow 生图全败 → 诚实失败，零原图卡）。⚠️ 事故留痕：一单因未设
+  `WORKER_URL` 误打生产（skill `_const.py` 默认 `worker.mxou.cn`）——**实机测试必须显式
+  设置 `WORKER_URL=http://localhost:8080`**。
+
+## 最近更新（v0.77.2 — store 同步 S1/S2/S3 根治 + 零图闸 + error_code 全线 + 观测/运维批）
+
+> 2026-09-19 发版（PR #38 → dev，生产库只读取证 + 本地真凭证实机驱动；worker 侧，skill 零改动）。
+> **改同步窗口构造 / ozon GET 调用 / 上传图片闸 / error_code 出口前先读 CHANGELOG 0.77.2 对应节。**
+
+- **同步窗口 UTC 收口（改 `_orders_since`/`_sync_orders`/`_sync_returns` 前必读）**：timestamptz
+  列经 psycopg2 取回带**会话时区**（生产 Asia/Shanghai +08:00），裸 `strftime("…Z")` 会把 +08
+  挂钟标成 UTC → since 落到真实未来 8h → Ozon 400 "filter.to must be after the filter.since"
+  （S1 事故根因）。窗口构造唯一出口 `_fmt_utc`/`_as_utc`（store_sync_service），禁裸 strftime；
+  防御 clamp 保 since<to 恒成立。
+- **`/v1/actions` 是 GET-only**（swagger method=GET、无请求体；200 响应 `result` 是**数组**）——
+  促销同步已改 `ozon_get`（新共享封装，与 ozon_post 同构）+ 数组优先解析；`promo_client.list_actions`
+  同款 POST→405 一并切换。写 Ozon GET 调用前先用 mcp `ozon_describe_method` 核对 method，
+  GET-only 一律走 `ozon_get`（POST 永久 405）。
+- **上传零图硬闸（LOCAL_IMAGES_MISSING）**：`ozon_upload_node` 在 offer upsert **之后**、import
+  POST 之前——CREATE 项（无 product_id）images 缺失/全空 → 显式 failed 不发请求（防 Ozon
+  IMAGE_ERROR 白烧配额，生产 5 例实锤）；UPDATE/跟卖项（product_id 在手）豁免（0 图=不动
+  卡上图片，合法）；upsert 注入 product_id 的死卡不受误伤。与 validate 硬失败/0.77.1 收尾
+  断言闸互补（本闸管上传节点最后一道，防绕过 validate 的直调/重发路径）。
+  `OzonUploadOutput` 补 error_code 字段（channel 全链已在）。三个存量上传测试 `_payload()`
+  已补 images 键。
+- **无商品佐证 failed 带取证三元组**：T0.4 闸命中时 `_mark_no_real_product_failure` 补
+  `error_code=PRODUCT_NOT_CREATED` + `failed_stage=final_product_evidence_check` + error_message
+  进终态 result + listing_result_log（此前 46 条 failed 行两列全空，失败点无留痕）。
+- **S3 残留点补修（改 `_sync_rating` 前必读）**：`/v1/rating/summary` 的 `localization_index`
+  官方是**数组**（`[{calculation_date, localization_percentage}]`，14 天无销售为空），不是标量——
+  旧标量直塞列每轮炸 can't adapt 'dict'（09-12 S3 的真炸点，0.77.0 只修了另一处）。
+  唯一出口 `_extract_localization_index`；存量标量 mock 形态兼容不回归。
+- **生产分析驱动批（改 error_code 出口 / 同步域观测 / ledger 前必读）**：①failed 终态 16 出口
+  全带 LOCAL_* 错误码；**langgraph 出口 Output model 不声明 error_code 即被 channel 静默吞**
+  （PricingOutput/ValidationRetryLoopOutput/ValidationRetryWrapperOutput 已补——新增失败出口必须
+  声明+透传，LOCAL_TITLE_CATEGORY_MISMATCH 曾因此生产恒空串）。②credential_sync_state 域错误列
+  复活：_set_sync_error 反 RMW-clobber（成功清己侧不清对侧）、失败双写 jobs+state
+  （mark_sync_failure 只填空列）。③**_sync_products 失败绝不 _archive_missing**（空集=全店软删，
+  已拆雷）。④mxou_call_ledger 有 model 列+tenant（ContextVar 透传，调用点显式传优先）。
+  ⑤store_metrics_history 90 天保留（env 可调）。⑥S2 生产反常定论：405 的 str(exc) 是空串，
+  旧代码把空 error 写进 domain_state——写 domain_state 前对空异常消息要兜底文案。
+- 测试：新增 `test_sync_window_tz_v077`（8）/`test_upload_image_guard_v077`（6）/
+  `test_no_product_error_code_v077`（3）/`test_sync_rating_s3_v077`（5）/
+  `test_error_code_wiring_v0772`（21）/`test_sync_state_observability_v0772`（9）/
+  `test_products_archive_guard_v0772`（4）/`test_ledger_model_tenant_v0772`（9）/
+  `test_metrics_retention_v0772`（7）；
+  **实机验证**：本地真凭证（测试店 5381204）五域全打真 Ozon 七端点全 200，orders 实发
+  窗口 since<to、actions count=3、rating 落库 error 空；Docker 全量 2705 passed/0 代码红。
+
+## 最近更新（v0.77.1 — 「原图上卡」根因三连修：权威类目闸 + 重传链 AI 图覆盖 + 收尾断言）
+
+> 2026-09-18 发版（PR #33/#34/#35 → dev，1bc8a5ed..e848022f）。用户硬证据驱动（6381680593：prepare
+> 装 AI 图 5 张、卡上全原图）。**改类目置信链 / 重传图片恢复 / 入箱镜像 / 上架收尾前先读 CHANGELOG 0.77.1。**
+
+- **权威类目置信闸（改 assemble 采纳块前必读）**：L0/Skill 采纳命中即无条件恢复 match_confidence=0.95
+  （树/学习表 ID 命中即权威，文本 sim 不适用）——曾因恢复困在 layer 守卫内，权威 (dc,tp) 被 0.3 闸误杀。
+- **重传链 AI 图保护（改 retry 图片路径前必读）**：载荷含 `file/images/` 生成图 → `_restore_draft_images_to_payload`
+  拒恢复（只救空载荷）；R4 重建取图偏序 = 载荷 AI 图 > draft 原图。**入箱预镜像默认停用**
+  （`DRAFT_IMAGE_MIRROR=1` 回退）——draft.images 保留 1688 裸链，COS 只存提交时按需转存 + 生成图。
+- **收尾卡片图断言（改 ozon_status all_approved 出口前必读）**：数量恒校验 + AI 载荷卡首图 3:4 比例校验
+  （`utils/card_image_assert`）；mismatch/unverified 先 15s 复查（CDN 就绪时序）；仍 mismatch →
+  `CARD_IMAGE_MISMATCH` failed 拒假成功；unverified 放行留 `image.verify` 遥测。`OzonStatusInput.ozon_payload`
+  必须声明（channel 过滤纪律）。
+- 存量 55 原图卡批量重推脚本（用户③）待部署后出；升级不治已上线卡。
+
+## 最近更新（v0.77.0 — 生图白名单认领本方 COS 镜像图：「原图上卡」事故修复 + gpt-image-2.5 切换）
+
+> 2026-09-17 发版（PR #30 → dev）。生产事故：批量新上产品全上 1688 原图。取证双源对账
+> （mxou_call_ledger + 网关 Supabase logs + pHash 像素比对）实锤：v0.64 M5b 镜像图被生图白名单误拒 →
+> 生图整批跳过 → 原图回填，**不是「生成了被换回」**。方案 `docs/PLAN-image-ref-cos-whitelist-fix-v1.md`。
+> **改图片白名单 / assemble 补位 / salvage 链前先读该方案 §2 设计口径。**
+
+- **白名单（改生图守卫前必读）**：`is_cos_url` 唯一实现迁 `utils/image_url_guard.py`（cos_uploader 仅
+  re-export，四消费方零改动）；`is_product_image_candidate` 放行本方 COS 镜像/生成/salvage 图（镜像与原图
+  1:1 参照等价，用户拍板；源站白名单不放宽）；`.webp`/缩略图对 COS 恒拒；非 str/空串契约不外溢。
+- **assemble 双闸（改 payload 写图路径前必读）**：builder 与 fill-in 两条写图路径只回填本方 COS 图，裸
+  alicdn 不再上卡——诚实空图本地 validate 硬失败，不再静默上原图（宁缺毋滥，有意方向）；跟卖 images=[] 锁不变。
+- **E1 salvage 直通**：已托管图 passthrough 零二次转存。
+- **批3 生图主模型**：`config/imagegen.json` main/social_proof → `gpt-image-2.5` + `PRIMARY_IMAGE_MODEL`
+  默认值对齐（热加载；回滚 sed config 两键即可）。三级降级链 fast→2-lite 不变。
+- 测试基线 worker **2681**（+35）；实机 gate（方案 §6）本地真链路 §6.1/6.3/6.4 已过（3:4 生图真卡 +
+  gen 失败对照原图卡 + ledger 恢复），§6.2 discover 全新单 defer 部署后补跑。
+
 ## 最近更新（v0.76.0 — skill 并发竞态止血 + Windows cookie 导入三层通道）
 
 > 2026-09-16 发版（纯 skill 侧，worker 零改动；skill 测试 1342→1496）。两批 Tier A：PR #24（fix/skill-concurrency-v1）/ PR #25（feat/win-cookie-import-v1），方案与 SDD 全程留痕 `docs/PLAN-skill-concurrency-and-win-cookie-import-v1.md`。**改 discover/并发链前先读该方案 §A 与 CHANGELOG 0.76.0**。

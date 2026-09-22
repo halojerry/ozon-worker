@@ -10,9 +10,10 @@ os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(
 from utils.image_models import get_image_model
 
 
-def test_main_and_social_use_image2():
-    assert get_image_model("main") == "gpt-image-2"
-    assert get_image_model("social_proof") == "gpt-image-2"
+def test_main_and_social_use_image25():
+    # v0.77 批3：主模型 gpt-image-2 → gpt-image-2.5（config/imagegen.json main/social_proof 两键）
+    assert get_image_model("main") == "gpt-image-2.5"
+    assert get_image_model("social_proof") == "gpt-image-2.5"
 
 
 def test_other_nodes_use_banana():

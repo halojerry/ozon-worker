@@ -18,6 +18,15 @@ from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_haza
 from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value  # v0.69 T1.1 数值属性清洗唯一入口
 from utils.attr_value_sanitize import cap_attribute_values, resolve_value_cap  # v0.71 值数出口闸唯一入口
+# ✅ v0.78 批A (fix/image-source-hardgate-v1): 图来源唯一分类器——生图全败硬闸
+# （IMAGE_GEN_ALL_FAILED 非永久，任务级失败不出 1688 原图卡）+ payload 出口
+# policy 闸。禁止再内联 URL 子串判定/裸抛 RuntimeError 承载此错误。
+from utils.image_source import (
+    ImageGenAllFailedError,
+    enforce_upload_policy,
+    salvage_fallback_enabled,
+)
+from api.errors import PIPELINE_ERROR_MESSAGES, WorkerErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -1630,6 +1639,92 @@ def _rewrite_payload_images_to_accelerate(payload: Dict[str, Any]) -> None:
             item["images"] = [_to_ozon_image_url(u) for u in imgs if isinstance(u, str)]
 
 
+def _raise_image_gen_all_failed(violations: List[str]) -> None:
+    """生图全败硬闸统一出口（批A）。
+
+    抛 ImageGenAllFailedError（RuntimeError 子类）——⚠️ 非永久错误：
+    task_processor._is_permanent_task_error 判 False → 整任务自动重试一轮
+    （生图抖动值得重试）；重试仍全败才终态 failed。文案即
+    errors.PIPELINE_ERROR_MESSAGES[IMAGE_GEN_ALL_FAILED]， violations（违规图
+    清单，形如 ``<来源>:<URL>``）拼进消息供任务行/取证直接看到根因。
+    """
+    msg = (
+        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
+        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
+    )
+    if violations:
+        msg += "（违规图: " + "; ".join(violations) + "）"
+    raise ImageGenAllFailedError(msg)
+
+
+def _apply_no_primary_fallback(state: Any, ozon_payload: Dict[str, Any],
+                               validation_errors: List[str]) -> None:
+    """chosen_primary 为空的收口（原 E1 块；v0.78 批A 默认停用原图兜底）。
+
+    生产取证（docs/PLAN-image-source-hardening-v1.md §0）：卡片出现 1688 原图的
+    唯一现存来源 = 生图全败 → E1 原图转存上卡。用户拍板：原图仅作生图参考，
+    生图全败 → 任务级失败（不出 1688 图卡）。
+
+    - 默认（IMAGE_SALVAGE_FALLBACK 未开）：**不转存**，抛 IMAGE_GEN_ALL_FAILED
+      （非永久 → task_processor 整任务重试一轮，重试仍全败才终态 failed）。
+    - 逃生门 IMAGE_SALVAGE_FALLBACK=1：保持 v0.28.5 E1 现行为逐字不变
+      （salvage_original_images 转存 ozon-1688/salvage/ 上卡），log 标注「逃生门启用」。
+    """
+    if not salvage_fallback_enabled():
+        logger.error(
+            "⛔ 生图全部失败且 E1 原图兜底默认停用（IMAGE_SALVAGE_FALLBACK=0）——"
+            "任务级失败，绝不出 1688 原图卡；生图抖动由 task_processor 整任务重试一轮"
+        )
+        _raise_image_gen_all_failed([])
+    logger.warning(
+        "🚪 IMAGE_SALVAGE_FALLBACK 逃生门启用：E1 原始图转存 COS 补位"
+        "（1688 原图会上卡，仅限恢复期临时开启）"
+    )
+    try:
+        from utils.cos_uploader import salvage_original_images
+        saved = salvage_original_images(getattr(state, "original_images", []) or [])
+    except Exception as _e1:
+        logger.warning("E1 原始图转存异常(忽略): %s", _e1)
+        saved = []
+    if saved:
+        ozon_payload["items"][0]["primary_image"] = saved[0]
+        ozon_payload["items"][0]["images"] = saved[1:10]
+        logger.info(f"✅ E1 原始图转存 COS 补位 {len(saved)} 张(替代不可用的 alicdn 原图)")
+    else:
+        logger.error("❌ 所有AI生成图均失败且无可用原始图，不使用alicdn原始图（Ozon无法下载），请检查mxou生图节点")
+        validation_errors.append("营销图片全部为空，生图节点可能全部失败")
+        ozon_payload["items"][0]["primary_image"] = ""
+        ozon_payload["items"][0]["images"] = []
+
+
+def _enforce_payload_image_policy(ozon_payload: Dict[str, Any], allow_salvage: bool) -> None:
+    """payload 出口硬闸（批A：所有单/多 SKU 分支收口处的最后闸）。
+
+    items 内全部 primary_image+images 必须 ∈ {ai}（逃生门开时 ∪ {salvage}）——
+    防 restore/镜像残余路径把草稿原图（draft-images/）或外链塞进上传载荷。
+    不通过 → IMAGE_GEN_ALL_FAILED + 违规清单 log（同 _raise_image_gen_all_failed，
+    非永久，任务级失败重试）。空图列表不在本闸管辖（空图走既有空图分支语义）。
+    """
+    urls: List[str] = []
+    for item in (ozon_payload or {}).get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        for _field in ("primary_image", "images"):
+            _val = item.get(_field)
+            if isinstance(_val, str):
+                if _val.strip():
+                    urls.append(_val.strip())
+            elif isinstance(_val, list):
+                urls.extend(
+                    str(_u).strip() for _u in _val
+                    if isinstance(_u, str) and _u.strip()
+                )
+    _ok, _violations = enforce_upload_policy(urls, allow_salvage=allow_salvage)
+    if not _ok:
+        logger.error("⛔ 上架图来源硬闸拦截（非 ai 来源混入上传载荷）: %s", _violations)
+        _raise_image_gen_all_failed(_violations)
+
+
 def _convert_numeric_attrs(final_attributes: list, attributes_schema) -> list:
     """v0.26 P1-2: 数字属性类型校验/转换 — 按 schema type 强制 INTEGER/DECIMAL。
 
@@ -1755,6 +1850,39 @@ def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> t
     return weight_g, depth_mm, width_mm, height_mm
 
 
+_AUTHORITATIVE_CATEGORY_SOURCES = ("page", "mapping", "what_to_sell", "manual")
+
+
+def _resolve_category_source(category_match_meta, draft) -> str:
+    """✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源判定（纯函数）。
+
+    规则（对齐 assemble 侧 ``_is_skill_authoritative`` 权威语义，widget 不在白名单——
+    命名空间数字 ID 可能是顾客空间，仅 category_path 精配才权威，而该精配定稿时
+    match_layer 已置 Skill，由第一分支覆盖）：
+      - ``category_match_meta.match_layer == "Skill"``（assemble 对权威 Skill 直采
+        定稿标记，含 manual 采纳）→ "authoritative"；
+      - 或信封 ``draft.ozon_category.source ∈ {page, mapping, what_to_sell, manual}``
+        （meta 缺失/老信封时靠信封兜底判定）→ "authoritative"；
+      - 其余（search_kw 关键词模糊 / L0 / L1 / R2b / 空）→ ""（非权威，validate
+        零交集预检照拦，行为不变）。
+
+    消费方：ozon_validate_node 标题-类目零交集预检对 "authoritative" 降级 warning
+    不拦截（面包屑=竞品在售真实类目=最高信任源，被零交集闸杀是「前门豁免后门杀」
+    误伤——盆/篮/筛家族 8+ 卡实证）。
+    """
+    try:
+        if str((category_match_meta or {}).get("match_layer") or "").strip() == "Skill":
+            return "authoritative"
+        ozon_cat = (draft or {}).get("ozon_category")
+        src = str((ozon_cat or {}).get("source") or "").strip().lower()
+        if src in _AUTHORITATIVE_CATEGORY_SOURCES:
+            return "authoritative"
+    except (AttributeError, TypeError):
+        # meta/draft 形态异常（非 dict 等）→ 按非权威处理，绝不因判定失败炸 prepare
+        return ""
+    return ""
+
+
 def prepare_ozon_upload_node(
     state: PrepareOzonUploadInput,
     config: RunnableConfig,
@@ -1816,6 +1944,9 @@ def prepare_ozon_upload_node(
     # Step 2: 提取draft数据
     draft = state.draft or {}
     source = state.source or {}  # ✅ 提取source数据（采购来源信息）
+    # ✅ v0.78 批C Q7: 权威类目标记（match_layer=Skill 或信封类目 source 白名单）
+    # → ozon_validate 零交集预检豁免。两个返回出口（成功/失败）都带，留档一致。
+    category_source = _resolve_category_source(getattr(state, "category_match_meta", None), draft)
     attributes_schema = state.attributes_schema if state.attributes_schema else []
     
     # ✅ 关键修复：构建字典属性查找表（attribute_id -> dictionary_id）
@@ -3141,23 +3272,11 @@ def prepare_ozon_upload_node(
                 ozon_payload["items"][0]["images"] = remaining_images[:29]
                 logger.info(f"✅ 单SKU产品（fallback）：images数量={len(ozon_payload['items'][0]['images'])}")
             else:
-                # v0.28.5 E1: 全部AI生图失败 → 转存原始图到 COS 补位(Ozon 可访问 COS URL)
-                # 未配置 COS 或原图全失效(404) → 保持原警告路径
-                try:
-                    from utils.cos_uploader import salvage_original_images
-                    saved = salvage_original_images(getattr(state, "original_images", []) or [])
-                except Exception as _e1:
-                    logger.warning("E1 原始图转存异常(忽略): %s", _e1)
-                    saved = []
-                if saved:
-                    ozon_payload["items"][0]["primary_image"] = saved[0]
-                    ozon_payload["items"][0]["images"] = saved[1:10]
-                    logger.info(f"✅ E1 原始图转存 COS 补位 {len(saved)} 张(替代不可用的 alicdn 原图)")
-                else:
-                    logger.error("❌ 所有AI生成图均失败且无可用原始图，不使用alicdn原始图（Ozon无法下载），请检查mxou生图节点")
-                    validation_errors.append("营销图片全部为空，生图节点可能全部失败")
-                    ozon_payload["items"][0]["primary_image"] = ""
-                    ozon_payload["items"][0]["images"] = []
+                # v0.78 批A (fix/image-source-hardgate-v1)：原 E1 块收口进
+                # _apply_no_primary_fallback——默认停用原图兜底（生图全败 →
+                # IMAGE_GEN_ALL_FAILED 任务级失败，绝不出 1688 原图卡）；
+                # IMAGE_SALVAGE_FALLBACK=1 逃生门保持 E1 现行为。
+                _apply_no_primary_fallback(state, ozon_payload, validation_errors)
     
     logger.info(f"✅ 图片设置完成：primary_image单独指定，images数组按IMG_ORDER顺序")
     
@@ -3613,6 +3732,12 @@ def prepare_ozon_upload_node(
     # primary_image_load_failed / 整卡 0 图）。加速域名经腾讯全球加速网络，
     # Ozon 服务器拉取更稳。幂等改写。
     _rewrite_payload_images_to_accelerate(ozon_payload)
+
+    # ✅ v0.78 批A (fix/image-source-hardgate-v1)：payload 出口硬闸（单/多 SKU
+    # 分支收口处的最后闸）——全部 primary_image+images 必须 ∈ {ai}（逃生门开时
+    # ∪ {salvage}），防 restore/镜像残余路径把草稿原图塞进上传载荷。
+    # 不通过 → IMAGE_GEN_ALL_FAILED（非永久，任务级失败重试）。
+    _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled())
     
     # ✅ dimension_weight_issues仅作为日志记录，不加入validation_errors（已用默认值修复）
     if dimension_weight_issues:
@@ -3641,6 +3766,8 @@ def prepare_ozon_upload_node(
             attributes_adjusted=attributes_adjusted,
             # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
             is_follow_sell=bool(is_follow_sell),
+            # ✅ v0.78 批C Q7: 权威类目标记（失败出口同带，ozon_validate 消费）
+            category_source=category_source,
         )
     
     # Step 8: 返回准备好的数据
@@ -3672,6 +3799,8 @@ def prepare_ozon_upload_node(
         attributes_adjusted=attributes_adjusted,
         # ✅ v0.69 T2.2: 跟卖标记透出（ozon_upload offer 存在性检查豁免）
         is_follow_sell=bool(is_follow_sell),
+        # ✅ v0.78 批C Q7: 权威类目标记（ozon_validate 零交集预检豁免消费）
+        category_source=category_source,
         validation_errors=[],
         error_message="",
         failed_stage=""

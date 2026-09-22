@@ -479,7 +479,9 @@ def ensure_chrome_cdp(
         cmd = [
             chrome_exe,
             f"--remote-debugging-port={port}",
-            "--remote-allow-origins=*",
+            # --remote-allow-origins=* 已移除:cdp_client 改用 suppress_origin
+            # 握手(不发 Origin),Chrome 白名单不再需要;通配 flag 让任何本地
+            # 进程可经 9222 全控这个承载登录态的浏览器,属于过度授权。
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
