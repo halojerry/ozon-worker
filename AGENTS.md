@@ -60,6 +60,15 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **CI**：actions 全量 pin SHA、gitleaks 全树扫描已修复真正生效（首跑翻出新结果属生效非回归）、coscli 下载 sha256 pin。
 - **已知 pre-existing**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 在 main/dev 基线即红（两名实现者独立实证，疑似涉 v0.75「回源失败不落负缓存」红线语义）——待独立排查任务，勿在本批修。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
 
+## 最近更新（开发中 — Windows 真机反馈 4 项：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性）
+
+> 分支 `fix/win-field-feedback-v1`（未发版）。动因：v0.76.0 Windows 真机实测 4 问题（reports 53857013/0b999d17/75b24068/22e45744，取证见用户回传 issues-for-official.md + win-cookie-takeover-fix.md）。纯 skill 侧，测试 1496→1519。
+
+- **改 `updater.py` 前必读（数据丢失事故链）**：①备份只含「包内同名条目」——`_is_preserved` 保 `data/` + 全部点开头条目（`.1688-AK`/`.workbuddy`），本地独有文件从不进备份、回滚也碰不到；②**启动时残留备份一律不回滚**（旧逻辑被 Windows 静默清理失败 + 过期快照组合出「8 月旧快照覆盖根目录」数据丢失；overlay 全量自愈，启动回滚只有风险）——回滚只保留给本次更新失败路径；③清理失败改 `.stale-<ts>`（同秒递增防撞）+ 双失败 fail-closed + 包内文件级落地自检。
+- **改 cookie_harvest 接管通道前必读（真机双缺陷已修）**：①启动参数必含 `--remote-allow-origins=*`（Chrome 111+ WS 握手 Origin 校验，漏参=探活过但握手 403 假就绪）；②源 Cookies 被运行中浏览器独占锁定（WinError 32，设计前提级）——`_is_locked` 前置探测 + 未显式 `--browser-profile` 自动改用可读 profile（`profile_dir_name` None 透传保语义，`harvest_all` 不再折叠成 "Default"）+ 显式/无替代给退出指引；异常文案三分流固定文案（明文红线不变；macOS 零变化）。
+- **check 的 seller 判定已两段**：cookie 判过再跑 `probe_seller_session_alive`（what_to_sell v3 只看状态码；死会话如实报并置 all_ok；探针零副作用不触发直调短路）——改 check/登录判定链前先看 cli.py §4.5 与 ozon_seller_analytics 探针注释。
+- defer：token 分钟级寿命根治三候选仍待拍板（v0.74 遗留）；`--wait-chrome-exit` 轮询；关 Chrome 后源库可读性真机验证。
+
 ## 最近更新（v0.78.0 — 静默化/日志/守卫精化四批 + 上架图来源加固四批 + 跟卖参考图语义）
 
 > 2026-09-20 发版（含未单独 tag 的 **0.77.3** 全部内容）。**改 CDP 静默链 / 生图参考 /

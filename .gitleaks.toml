@@ -41,6 +41,11 @@ regexes = [
     '''s3cr3t-密码-@!xYz''',
     # vendored ozon-mcp 参考库 README 占位符（docs/refs/ozon-mcp/ 只读）
     '''your-perf-secret''',
+    # seller 会话探针「响应体不泄漏」用例夹具（test_seller_session_probe.py；
+    # 该用例本身断言 DataDome 挑战串不进返回值，非凭证）。⚠️ 命中源自分支历史
+    # 提交 2a26fd56——已改名规避当前树，但 gitleaks 扫 PR 提交增量，历史行照样
+    # 命中，故按放行段登记（不引入 .gitleaksignore 的第二条无锁通道）。
+    '''SECRETCHALLENGE''',
 ]
 paths = [
     # 安全修复计划文档按设计引用漏洞样本形态（探针示例），非真实凭证

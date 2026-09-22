@@ -1289,9 +1289,16 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     # 4.5 seller.ozon.ru 卖家后台登录检查（运营数据）
     # ═══════════════════════════════════════════
-    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
+    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断
+    # 靠它）。⚠️ ISSUE-4（report 22e45744）：cookie 在 ≠ 会话活——
+    # __Secure-access_token 是分钟级寿命/用后轮换型（v0.74 实机结论），死会话下
+    # what_to_sell 全 401、运营列全空。cookie 判过 → 再跑一次最小真实探针，
+    # 死会话如实报并置 all_ok，杜绝「已登录」假阳性。
     print("\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
     seller_ok = False
+    dead_session = False
+    probe_undetermined = False
+    probe_status = None
     if session_ok:
         try:
             from scripts.lib.cdp_client import CdpConnection
@@ -1301,7 +1308,26 @@ def cmd_check(args) -> int:
             conn.close()
         except Exception:
             pass
+    if seller_ok:
+        try:
+            from scripts.lib.ozon_seller_analytics import probe_seller_session_alive
+            sess = probe_seller_session_alive()
+            if sess.get("alive") is False:
+                seller_ok = False
+                dead_session = True
+                all_ok = False
+                probe_status = sess.get("http_status")
+            elif sess.get("alive") is None:
+                probe_undetermined = True
+        except Exception:
+            probe_undetermined = True
     print(f"  {_ok(seller_ok)} seller.ozon.ru 卖家后台已登录（运营数据可用）")
+    if dead_session:
+        print(f"    ⚠️ Cookie 在但会话已失效（运营接口 HTTP {probe_status}，"
+              "token 为分钟级寿命）：请在 Chrome 刷新 https://seller.ozon.ru/ "
+              "登录，或运行 session-sync 重收割")
+    elif probe_undetermined:
+        print("    ⚠️ 会话可用性无法自动判定，以实际运行为准")
     if not seller_ok:
         print("  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
         print("    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
@@ -4653,8 +4679,9 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
         total += n
         print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
               f"{f'（{n} 条）' if n else ''}", flush=True)
-        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给人听
-        if status.startswith("takeover") and r.get("message"):
+        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给
+        # 人听；ok 也可携带备注（ISSUE-2：锁降级自动改用 profile 的说明）
+        if r.get("message") and (status.startswith("takeover") or status == "ok"):
             print(f"           {r['message']}", flush=True)
 
     if not total:

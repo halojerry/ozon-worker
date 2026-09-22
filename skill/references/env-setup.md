@@ -58,8 +58,12 @@ Keychain 首次授权弹窗请点「始终允许」（每浏览器一次）。
    profile（info_cache 显示名或目录名，如 `Default` / `Profile 1`，默认
    `Default`）；失败自动降级并提示 `--paste`。`SKILL_DISABLE_TAKEOVER=1`
    关闭接管通道（回退不支持态）。
-   ⚠️ **实验性（v0.76 口径）**：接管通道未经 Windows 真机验证——Windows 首跑建议先
-   `probe-win-cookies --takeover-test` 看可行性报告，不可行直接走 `--paste`；真机验证后转正。
+   ⚠️ **源 profile 被占用（Windows 真机实测）**：Chrome 对**使用中 profile** 的
+   Cookies 库持独占锁定（WinError 32，任何共享模式都打不开）。未显式指定
+   `--browser-profile` 时自动改用未占用的 profile 并在输出注明；显式指定或
+   无替代时提示**完全退出 Chrome（含托盘/后台进程）后重试**，或走 `--paste`。
+   （真机双缺陷已修：接管启动补 `--remote-allow-origins=*`——漏参时 HTTP 探活
+   通过但 WebSocket 握手 403「假就绪」。）
 3. **`--paste` 手动兜底**：`import-cookies --paste` 粘贴 Cookie 头（跨平台）。
 
 排障先跑 `python3 scripts/cli.py probe-win-cookies` 生成只读诊断报告

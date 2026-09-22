@@ -9,7 +9,8 @@
    （与 deploy/cos-update.sh 的 COS_UPDATE_SKIP_VERIFY 逃生门同口径）。
 3. 版本比本地新 → 提示"更新可用"，用户运行 `skill update` 或确认后应用
 4. 应用：下载 tar.gz → sha256 校验 → 备份当前 → 覆盖 scripts/ 文档 VERSION
-   → 保留 data/（凭证/登录态/缓存）→ 失败自动回滚
+   → 保留 data/ 与全部点开头条目（.1688-AK/.workbuddy 等本地状态，ISSUE-1）
+   → 失败自动回滚
 
 manifest.json 格式（CI 发布时生成，见 build-skill.yml）：
     {"version": "0.12.0", "url": "https://<bucket>.cos.<region>.myqcloud.com/skill/ozon-worker-skill-0.12.0.tar.gz",
@@ -25,6 +26,7 @@ import os
 import shutil
 import tarfile
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -52,9 +54,51 @@ DOWNLOAD_TIMEOUT = 120  # 下载超时
 #    skill manifest 无签名 → 本函数 fail-closed → skill 更新会被拦截。
 PROD_PUBKEY = ""  # 待生产公钥生成后填入
 
-# 更新时备份/保留的目录
+# 更新时保留的条目（这些名字绝不进备份/覆盖流程）
 _PRESERVE_DIRS = {"data"}          # 凭证/登录态/缓存/选品日志全部保留
 _BACKUP_DIR_NAME = "_update_backup"
+
+
+def _is_preserved(name: str) -> bool:
+    """更新流程永不触碰的根级条目：data/ + 备份目录 + 全部点开头条目。
+
+    ⚠️ ISSUE-1（report 53857013，v0.76.0 Windows 真机数据丢失）：.1688-AK/
+    .workbuddy 等本地状态目录曾被搬进 _update_backup，叠加「残留备份误回滚」
+    被 8 月过期快照覆盖、最新内容进回收站。点开头 = 本地状态约定（发布包
+    不含点条目，保留它们零副作用）。"""
+    return (name in _PRESERVE_DIRS or name == _BACKUP_DIR_NAME
+            or name.startswith("."))
+
+
+def _discard_backup(backup: Path, quiet: bool = False) -> bool:
+    """清理备份目录：删除失败（Windows 沙箱/防护拦截删除——用户机实测会把
+    shutil.rmtree 的删除改道回收站并 fail-closed）→ 原地改名为
+    ``_update_backup.stale-<ts>``（改名不触发删除拦截）；仍失败返回 False。
+
+    绝不静默：非 quiet 时打印人话提示；失败路径调用方决定中止/告警。"""
+    try:
+        shutil.rmtree(backup, ignore_errors=True)
+    except OSError:
+        pass  # 被环境 shim 替换的删除实现可能直接 raise——与 ignore_errors 同义
+    if not backup.exists():
+        return True
+    base = time.strftime("%Y%m%d_%H%M%S")
+    stale = backup.with_name(f"{_BACKUP_DIR_NAME}.stale-{base}")
+    n = 1
+    while stale.exists():  # 同秒多次清理（启动残留 + 成功后清理）名字递增防撞
+        n += 1
+        stale = backup.with_name(f"{_BACKUP_DIR_NAME}.stale-{base}-{n}")
+    try:
+        backup.rename(stale)
+    except OSError as exc:
+        logger.warning("备份目录删除与改名均失败: %s: %s", backup, exc)
+        if not quiet:
+            print(f"⚠️ 备份目录 {backup.name} 无法清理（文件被占用/沙箱限制），"
+                  "请手动删除后重试")
+        return False
+    if not quiet:
+        print(f"⚠️ 备份目录无法删除，已改名为 {stale.name}（可手动清理）")
+    return True
 
 
 def skill_dir() -> Path:
@@ -419,27 +463,36 @@ def _apply_update_locked(update_info: dict[str, Any], auto_confirm: bool,
         else:
             pkg_root = extract_dir
 
-        # 4. 备份当前（除 data/ 外）到 root/_update_backup
+        # 4. 备份将被新包替换的条目到 root/_update_backup。
+        # ⚠️ ISSUE-1（report 53857013）三防线（改这段前必读）：
+        #   ① 只备份「包内同名条目」——本地独有条目（.workbuddy/.1688-AK/普通
+        #      文件）原地不动，从不进备份，回滚也碰不到它们；
+        #   ② 残留备份一律**不再回滚**：旧逻辑按「备份有条目而 root 没有」判定
+        #      上次中断并 _rollback，但 Windows 下备份清理失败曾被 ignore_errors
+        #      静默吞掉 → 过期快照残留 → 下次更新把数月前的旧快照覆盖回根目录。
+        #      overlay 每次都是全量包，重跑即自愈——「启动时回滚」没有收益只有
+        #      数据丢失风险；
+        #   ③ 清理失败不静默：rmtree 失败改名为 .stale-<ts>（见 _discard_backup），
+        #      两个都失败则中止本次更新（fail-closed），绝不带着脏备份继续。
+        pkg_names = {item.name for item in pkg_root.iterdir()}
         backup = root / _BACKUP_DIR_NAME
-        # ⚠️ P1 中断安全：若上次更新中断残留备份（root 缺文件），先恢复旧版本
-        # 再继续，避免删除"最后一份可回滚副本"后新版本有问题回不去
         if backup.exists():
-            missing = [item.name for item in backup.iterdir()
-                       if not (root / item.name).exists()]
-            if missing:
-                print("⚠️ 检测到上次未完成的更新，先恢复旧版本...")
-                _rollback(result)
-            else:
-                shutil.rmtree(backup, ignore_errors=True)
+            print("⚠️ 检测到上次更新残留的备份（可能上次更新中断），"
+                  "已清理后重新更新；本地独有文件不受影响")
+            if not _discard_backup(backup):
+                return {**result, "error":
+                        "残留备份 _update_backup 清理失败（文件被占用/沙箱限制），"
+                        "请手动删除该目录后重试 `skill update`"}
         backup.mkdir(parents=True, exist_ok=True)
-        for item in root.iterdir():
-            if item.name in _PRESERVE_DIRS or item.name == _BACKUP_DIR_NAME:
+        for name in sorted(pkg_names):
+            item = root / name
+            if _is_preserved(name) or not item.exists():
                 continue
-            shutil.move(str(item), str(backup / item.name))
+            shutil.move(str(item), str(backup / name))
 
-        # 5. 覆盖新包（同样跳过 data/ 与备份目录）
+        # 5. 覆盖新包（同样跳过保留条目）
         for item in pkg_root.iterdir():
-            if item.name in _PRESERVE_DIRS or item.name == _BACKUP_DIR_NAME:
+            if _is_preserved(item.name):
                 continue
             target = root / item.name
             if item.is_dir():
@@ -447,8 +500,17 @@ def _apply_update_locked(update_info: dict[str, Any], auto_confirm: bool,
             else:
                 shutil.copy2(item, target)
 
-        # 6. 清理备份
-        shutil.rmtree(backup, ignore_errors=True)
+        # 5.5 自检：包内每个文件必须落地（覆盖被静默截断 → 回滚，不带病宣告成功）
+        missing_after = [str(p.relative_to(pkg_root))
+                         for p in pkg_root.rglob("*")
+                         if p.is_file() and not _is_preserved(p.parts[0])
+                         and not (root / p.relative_to(pkg_root)).exists()]
+        if missing_after:
+            raise RuntimeError(f"更新自检失败，包内条目未落地: "
+                               f"{missing_after[:5]}")
+
+        # 6. 清理备份（失败改名 .stale-<ts> 留待手动清理，绝不静默吞）
+        _discard_backup(backup, quiet=True)
         result["ok"] = True
         logger.info("✅ Skill 已更新 %s → %s", result["old_version"], result["new_version"])
         return result
@@ -491,7 +553,10 @@ def _fail_rollback(result: dict, exc: Exception) -> dict:
 
 
 def _rollback(result: dict) -> None:
-    """从备份恢复原文件（幂等，失败仅记日志不抛出）。"""
+    """从备份恢复原文件（幂等，失败仅记日志不抛出）。
+
+    ISSUE-1 后备份只含「包内同名条目」——回滚只替换包文件，本地独有条目
+    （.workbuddy/.1688-AK/散文件）不在备份里，任何失败路径都碰不到它们。"""
     root = skill_dir()
     backup = root / _BACKUP_DIR_NAME
     try:
@@ -504,7 +569,7 @@ def _rollback(result: dict) -> None:
                     else:
                         safe_unlink(target)
                 shutil.move(str(item), str(root / item.name))
-            shutil.rmtree(backup, ignore_errors=True)
+            _discard_backup(backup, quiet=True)
         logger.warning("更新失败，已回滚")
     except Exception as rollback_exc:
         logger.error("回滚也失败: %s", rollback_exc)
