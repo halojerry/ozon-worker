@@ -44,14 +44,30 @@ _RU_PATH = "Строительство и ремонт > Инструменты 
 
 
 class _Resp:
-    def __init__(self, status=200):
+    def __init__(self, status=200, headers=None, is_redirect=False,
+                 is_permanent_redirect=False):
+        # v0.76 T16 起探测走 safe_fetch：is_redirect/is_permanent_redirect 是
+        # safe_fetch 手动重定向判定要读的属性，headers 供 content-length 观测读。
         self.status_code = status
+        self.headers = headers or {}
+        self.is_redirect = is_redirect
+        self.is_permanent_redirect = is_permanent_redirect
 
 
 @pytest.fixture(autouse=True)
 def _hermetic(monkeypatch):
-    """默认：图片探测 200（不依赖网络）、RU 路径返回真实形态路径（不依赖 PG）。"""
-    monkeypatch.setattr("requests.head", lambda *a, **k: _Resp(200), raising=False)
+    """默认：图片探测 200（不依赖网络）、RU 路径返回真实形态路径（不依赖 PG）。
+    v0.76 T16 起探测走 utils.secure_fetch.safe_fetch（inj-H2）——改在
+    requests.request 层打桩（带 safe_fetch 重定向判定所需属性）+ fake DNS，
+    杜绝真实出站。"""
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda host, port=None, *a, **k:
+        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+    monkeypatch.setattr("requests.request",
+                        lambda *a, **k: _Resp(200, headers={},
+                                              is_redirect=False,
+                                              is_permanent_redirect=False))
     monkeypatch.setattr(ovn, "_fetch_ru_category_path",
                         lambda dc, tp: _RU_PATH if (dc, tp) == (_DC, _TP) else "",
                         raising=False)
@@ -114,7 +130,10 @@ def test_hazard_keyword_enters_errors():
 def test_image_all_unreachable_still_blocks(monkeypatch):
     """⑧图片可达性保持进 errors：HTTP 404（明确失效）全部不可达 → 判 critical 阻断。
     （缺陷回归：此前该错误同样被丢弃；修复后保留拦截语义。）"""
-    monkeypatch.setattr("requests.head", lambda *a, **k: _Resp(404))
+    monkeypatch.setattr("requests.request",
+                        lambda *a, **k: _Resp(404, headers={},
+                                              is_redirect=False,
+                                              is_permanent_redirect=False))
     out = _run([_item()])
     errs = [e for e in out.validation_errors if "不可访问" in e]
     assert errs, f"全部图片 HTTP≥400 必须进 errors，实际: {out.validation_errors}"
@@ -126,7 +145,7 @@ def test_image_probe_network_error_degrades_warning(monkeypatch):
     def _boom(*a, **k):
         raise TimeoutError("probe timeout")
 
-    monkeypatch.setattr("requests.head", _boom)
+    monkeypatch.setattr("requests.request", _boom)
     out = _run([_item()])
     assert not any("不可访问" in e for e in out.validation_errors), \
         f"网络异常不得计为图片失效: {out.validation_errors}"

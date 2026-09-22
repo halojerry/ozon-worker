@@ -9,6 +9,7 @@
 3. API 失败 + 无 last-good → 40/kg 兜底 + estimated=True。
 4. candidate.dimensions_mm（竞品尺寸）传入 → 请求体按 cm 转换。
 5. 无尺寸 → 请求体默认 10cm 立方（行为保持）。
+6. worker api-M4 鉴权收口联动 → 请求必须带 Authorization Bearer header。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_logistics_fallback.py -q
@@ -151,6 +152,30 @@ def test_default_dims_10cm_cube_when_none():
     assert seen.get("depth_cm") == 10.0
     assert seen.get("width_cm") == 10.0
     assert seen.get("height_cm") == 10.0
+
+
+# ── ⑥ worker api-M4 后 Bearer 必填 → 请求必须带 Authorization header ─────────
+
+def test_bearer_header_sent_with_token():
+    """worker T10(api-M4) 鉴权收口联动：请求带 ``Authorization: Bearer <token>``。
+
+    worker `/api/v1/logistics/quote` 自 v0.76 起 Bearer 必填（``_require_bearer``，
+    无 header 401）——skill 端仍只发 body token 会被拒、静默降级 last-good/本地
+    估算（失去权威费率表）。header 值直接用 body 同源 token（``_require_bearer``
+    剥 sk- 一层，有无前缀均可）。
+    """
+    _clear_caches()
+    resp = _FakeResp(payload={"logistics_cost_cny": 9.9})
+    seen_headers = {}
+
+    def _capture(url, json=None, headers=None, **kw):
+        seen_headers.update(headers or {})
+        return resp
+
+    cand = _mk(weight_g=300)
+    with _patch_token(post=_capture):
+        od._calculate_profit(cand)
+    assert seen_headers.get("Authorization") == "Bearer sk-test"
 
 
 if __name__ == "__main__":

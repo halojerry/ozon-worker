@@ -283,9 +283,10 @@ def test_invalid_item_error_not_leak_internal(monkeypatch):
 # ── T4b.1：GET /analytics/bestsellers 全局共享（无 tenant 过滤）+ 贡献者列 ──
 
 def test_bestsellers_get_global_sharing(monkeypatch):
-    """A 用户 token 可见 B 采集的榜单（全局共享），每条带 contributed_by_token_id。"""
+    """T4b.1：A 用户 token 可见 B 采集的榜单（全局共享），每条带脱敏 contributed_by_fp。"""
     import main
     from services import analytics_service
+    from services.tenant_service import token_fingerprint
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     rows = [
         ("sku-a", "品牌A", "宠物用品", 100.0, 10, 99.9, "tok-a"),
@@ -297,7 +298,10 @@ def test_bestsellers_get_global_sharing(monkeypatch):
         FakeGetRequest("sk-ok", {"limit": "50"})))
     assert resp["total"] == 2
     assert {i["sku_or_id"] for i in resp["items"]} == {"sku-a", "sku-b"}
-    assert {i["contributed_by_token_id"] for i in resp["items"]} == {"tok-a", "tok-b"}
+    # v0.76 T1(api-C1)：明文 contributed_by_token_id 停发，响应只带指纹前 8 位
+    assert {i["contributed_by_fp"] for i in resp["items"]} == {
+        token_fingerprint("tok-a")[:8], token_fingerprint("tok-b")[:8]}
+    assert all("contributed_by_token_id" not in i for i in resp["items"])
     sql = " ".join(engine.calls)
     assert "contributed_by_token_id = " not in sql  # 无 tenant 过滤
     assert "WHERE contributed_by_token_id" not in sql

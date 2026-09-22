@@ -17,7 +17,7 @@
 | skill 测试 | `cd skill && .venv314/bin/python -m pytest tests/ -q` |
 | pounding-mcp 测试（须自身 venv） | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q` |
 | webui 类型检查 + 构建 | `cd webui && bun install && bunx tsc -b && bun run build` |
-| lint | worker `ruff check src/ --select E,F,W --ignore E501`；skill `ruff check scripts/ --select E,F,W --ignore E501,E402` |
+| lint | worker `ruff check src/ --select E,F,W --ignore E501`；skill `ruff check scripts/ --select E,F,W --ignore E501,E402`。⚠️ 本表只是本地快速自查口径；**CI 门禁实为 worker 裸 `ruff check src/`（走 `worker/ruff.toml` 全规则集，含 TRY 组）与 skill `ruff check scripts/ --select F`**——`--select E,F,W` 测不出 TRY 组等回归（2026-09-16 实录：TRY401×4 差点带红 CI），提交前以 CI 口径为准 |
 | 本地 CI 全流程 | `bash scripts/ci.sh --quick`（跳 Docker；Step 5d 校验 API 文档漂移） |
 | **改 API 后必跑** | `python worker/scripts/gen_api_docs.py`（重生成 `docs/API-REFERENCE.md` + openapi 快照；`--check` 即 CI 门禁） |
 | 本地 worker | `cd deploy && docker compose up -d --build` → `http://localhost:8080`（Swagger `/docs`） |
@@ -42,7 +42,23 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`；多会话协作/分支拓扑/发版流 → `docs/WORKFLOW.md`；
 子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`。
 
-**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。
+**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
+
+## 最近更新（开发中 — 安全修复批：worker 鉴权收口 + SSRF/注入/竞态防线 + COS 升级链签名）
+
+> 分支 `fix/security-remediation-v1`（2026-09-16，基线 9959358a）。方案与 SDD 台账 `docs/PLAN-security-remediation-v1.md`（任务级审查+评审修复轮全程留痕、全闭环）。**改下述链路前先读对应任务 commit 与 CHANGELOG 0.76.0 安全修复节**；行为变更 13 条清单见 CHANGELOG（发版说明以此为准）。
+
+- **鉴权唯一入口 `_require_bearer`**（main.py）：/progress、cancel_task（+租户校验，跨租户 404）、task_statistics（+租户强制，非 admin 跨租户 403）、store/health（凭证支持 `X-Ozon-*` header、上游失败 502 固定文案）、logistics/quote（+限流）已收口；改这些端点前先读 `test_task_statistics_auth_v076.py` 等 v076 鉴权测试族。
+- **SSRF 唯一入口 `utils/secure_fetch.safe_fetch`**（改任何 worker 出站抓图/外链 fetch 前必读）：解析 IP 逐跳复核（内网拒绝、保持外链）+ 域名精确匹配 + 跨端点跳剥凭据 + 重定向 ≤3 跳；镜像链/E1 转存/validate 探测已全部接线，**新增抓取路径必须过它**（调用方须宽 except Exception 兜底——safe_fetch 对畸形 Location 可抛裸 ValueError，fail-closed 语义）。
+- **CSV 导出公式中和**：`=` `+` `-` `@` `\t` `\r` 开头加 `'` 前缀，worker/webui 同口径——新增导出列必过同一中和函数。
+- **ILIKE 用户输入一律 `escape_like`**（`utils/like_escape.py`）；SQLAlchemy `text()` 里写 `ILIKE :q ESCAPE '\\'`，ORM 用 `col.ilike(escape_like(q), escape="\\")`。
+- **8902 任务网关（pounding-mcp tasks_server）需 Bearer**：env `POUNDING_TASKS_TOKEN` 或启动 stderr `TASKS_TOKEN=<t>`；CORS `*` 已移除。**pounding-harness 联动（发版前置检查项）：网关 Bearer 透传 + TASKS_TOKEN 注入待 harness 侧核对**。
+- **`/node_run` 黑名单有状态节点**（learning_record 等 403）；`/run` 系回执日志脱敏 + 错误响应不回显 body/traceback。
+- **主密钥 KDF v2（PBKDF2-600k）**：新加密一律 v2 信封，存量 v1 密文零迁移可解——**改 `credential_cipher.py` 前必读其 docstring**（legacy 解密保持 v1 原规则，形态检测仅 v2）。
+- **备份上传默认拒明文 dump**（`backup-upload-cos.sh` 只放行 .gpg；逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）。
+- **COS 升级链签名**：`deploy/verify_manifest.sh` + `cos-update.sh` 强制 minisign 验签（逃生门 `COS_UPDATE_SKIP_VERIFY=1` 仅 warn 留痕）+ `deploy/sign_cache_hashes.sh` 缓存重签——**启用前置 7 项人工待办**（keypair/公钥入库/MINISIGN_SHA256/build-skill.yml 同款签名等）见 plan Task 32 节与 task-32-report.md；改 cos-update.sh 前先读 `test_cos_update_verify_v076.py` 的接线锁定。
+- **CI**：actions 全量 pin SHA、gitleaks 全树扫描已修复真正生效（首跑翻出新结果属生效非回归）、coscli 下载 sha256 pin。
+- **已知 pre-existing**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 在 main/dev 基线即红（两名实现者独立实证，疑似涉 v0.75「回源失败不落负缓存」红线语义）——待独立排查任务，勿在本批修。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
 
 ## 最近更新（开发中 — Windows 真机反馈 4 项：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性）
 
@@ -993,7 +1009,7 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 存储：内存优先，`_persist_progress` 2s 节流回写 PG `ozon_product_tasks.progress` 列——Worker 重启后
 `task_status` 回退读 PG，仍能拿到最近一次进度（不再是「重启即丢」）。
 
-鉴权: `token` 字段在请求体中（非 header），通过 Supabase `tokens` 表校验。
+鉴权: `submit_task`/`auth_verify` 的 `token` 字段在请求体中（非 header）；其余读/操作端点（cancel_task、task_statistics、progress、store/health、logistics/quote 等）自 v0.76 安全批起一律 header `Authorization: Bearer`——无 Bearer 一律 401（完整鉴权矩阵见 `docs/API-OVERVIEW.md`）。校验统一走 Supabase `tokens` 表。
 限流: 每 token 每分钟 ≤ 300 次（`RATE_LIMIT_PER_MINUTE` 可配置）。
 并发: 最多 50 个任务同时执行（`MAX_CONCURRENT` 可配置）。
 

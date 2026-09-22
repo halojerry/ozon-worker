@@ -257,6 +257,8 @@ def init_sentry(dsn: Optional[str] = None) -> bool:
             environment=env,
             release=release,
             traces_sample_rate=traces_sample_rate,
+            # T4(crypto-H3): 栈帧局部变量含 payload token/api_key，一律不上报
+            include_local_variables=False,
             before_send=_before_send,
         )
         _SENTRY_ENABLED = True

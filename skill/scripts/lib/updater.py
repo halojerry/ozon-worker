@@ -3,6 +3,10 @@
 流程（每次命令静默检查）：
 1. 读本地 skill/VERSION
 2. GET 远端 manifest.json（COS，超时 5s，失败静默跳过）
+   v0.76 T32(cicd-H2): PROD_PUBKEY 非空时同址拉取 manifest.sig 做 minisign
+   验签（纯 Python Ed25519，客户端无 minisign 二进制）；任何失败 → 本次检查
+   按失败处理（更新被拦截，fail-closed）。PROD_PUBKEY 为空 = 跳过验签 + warn
+   （与 deploy/cos-update.sh 的 COS_UPDATE_SKIP_VERIFY 逃生门同口径）。
 3. 版本比本地新 → 提示"更新可用"，用户运行 `skill update` 或确认后应用
 4. 应用：下载 tar.gz → sha256 校验 → 备份当前 → 覆盖 scripts/ 文档 VERSION
    → 保留 data/ 与全部点开头条目（.1688-AK/.workbuddy 等本地状态，ISSUE-1）
@@ -14,6 +18,7 @@ manifest.json 格式（CI 发布时生成，见 build-skill.yml）：
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -40,6 +45,14 @@ _DEFAULT_MANIFEST_URL = os.environ.get(
 
 CHECK_TIMEOUT = 5      # manifest 检查超时（静默失败）
 DOWNLOAD_TIMEOUT = 120  # 下载超时
+
+# ── v0.76 T32(cicd-H2): manifest 签名校验公钥（minisign 公钥文件原文）──
+# ⚠️ 待生产公钥生成后填入（一次性人工动作：`minisign -G` → 公钥原文填这里 +
+#    提交 deploy/cos-update.pub + 私钥进 CI secret + 离线冷备）。
+#    空值语义 = 跳过验签 + warn（与 deploy/cos-update.sh 的 COS_UPDATE_SKIP_VERIFY
+#    逃生门同口径）。⚠️ 填入前须先给 build-skill.yml 加 manifest 签名步骤，否则
+#    skill manifest 无签名 → 本函数 fail-closed → skill 更新会被拦截。
+PROD_PUBKEY = ""  # 待生产公钥生成后填入
 
 # 更新时保留的条目（这些名字绝不进备份/覆盖流程）
 _PRESERVE_DIRS = {"data"}          # 凭证/登录态/缓存/选品日志全部保留
@@ -117,6 +130,171 @@ def parse_manifest(text: str) -> dict[str, Any] | None:
     return data
 
 
+# ═══ v0.76 T32(cicd-H2): manifest 签名校验（minisign 同语义，纯 Python 实现）═══
+# 客户端机器没有 minisign 二进制，这里内建 Ed25519 验签（RFC 8032，仅 verify
+# 路径；stdlib-only）。参考实现形态来自 ed25519.cr.yp.to 公版代码（public
+# domain），正确性由 RFC 8032 官方测试向量锁定（tests/test_updater_manifest_sig_v076.py）。
+
+_ED_P = 2**255 - 19
+_ED_L = 2**252 + 27742317777372353535851937790883648493
+_ED_D = (-121665 * pow(121666, _ED_P - 2, _ED_P)) % _ED_P
+_ED_I = pow(2, (_ED_P - 1) // 4, _ED_P)
+_MINISIGN_ALGO = b"Ed"
+
+
+def _ed_inv(x: int) -> int:
+    return pow(x, _ED_P - 2, _ED_P)
+
+
+def _ed_xrecover(y: int) -> int:
+    xx = (y * y - 1) * _ed_inv(_ED_D * y * y + 1)
+    x = pow(xx, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - xx) % _ED_P != 0:
+        x = (x * _ED_I) % _ED_P
+    if x % 2 != 0:
+        x = _ED_P - x
+    return x
+
+
+_ED_BASE_Y = (4 * _ed_inv(5)) % _ED_P
+_ED_BASE = (_ed_xrecover(_ED_BASE_Y), _ED_BASE_Y)
+
+
+def _ed_on_curve(pt: tuple[int, int]) -> bool:
+    x, y = pt
+    return (-x * x + y * y - 1 - _ED_D * x * x * y * y) % _ED_P == 0
+
+
+def _ed_add(p1: tuple[int, int], p2: tuple[int, int]) -> tuple[int, int]:
+    x1, y1 = p1
+    x2, y2 = p2
+    x3 = (x1 * y2 + x2 * y1) * _ed_inv(1 + _ED_D * x1 * x2 * y1 * y2)
+    y3 = (y1 * y2 + x1 * x2) * _ed_inv(1 - _ED_D * x1 * x2 * y1 * y2)
+    return (x3 % _ED_P, y3 % _ED_P)
+
+
+def _ed_scalarmult(pt: tuple[int, int], e: int) -> tuple[int, int]:
+    acc = (0, 1)  # 群单位元
+    while e > 0:
+        if e & 1:
+            acc = _ed_add(acc, pt)
+        pt = _ed_add(pt, pt)
+        e >>= 1
+    return acc
+
+
+def _ed_decode_point(s: bytes) -> tuple[int, int]:
+    y = int.from_bytes(s, "little") & ((1 << 255) - 1)
+    x = _ed_xrecover(y)
+    if (x & 1) != ((s[31] >> 7) & 1):
+        x = _ED_P - x
+    pt = (x % _ED_P, y % _ED_P)
+    if not _ed_on_curve(pt):
+        raise ValueError("point not on curve")
+    return pt
+
+
+def _ed25519_verify(sig: bytes, msg: bytes, pub: bytes) -> bool:
+    """RFC 8032 Ed25519 验签（sig/pub 定长检查 + s<L 严格性防可塑性）。"""
+    if len(sig) != 64 or len(pub) != 32:
+        return False
+    try:
+        r_pt = _ed_decode_point(sig[:32])
+        a_pt = _ed_decode_point(pub)
+    except ValueError:
+        return False
+    s_val = int.from_bytes(sig[32:], "little")
+    if s_val >= _ED_L:
+        return False
+    h_val = int.from_bytes(hashlib.sha512(sig[:32] + pub + msg).digest(), "little")
+    return _ed_scalarmult(_ED_BASE, s_val) == _ed_add(r_pt, _ed_scalarmult(a_pt, h_val))
+
+
+def _parse_minisign_pubkey(pubkey_text: str) -> tuple[bytes, bytes] | None:
+    """解析 minisign 公钥（接受 deploy/cos-update.pub 文件原文或其中 base64 行）。
+
+    返回 (keynum(8B), pubkey(32B))；格式不符返回 None。
+    """
+    for line in pubkey_text.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("untrusted comment"):
+            continue
+        try:
+            raw = base64.b64decode(line, validate=True)
+        except Exception:
+            continue
+        if len(raw) == 42 and raw[:2] == _MINISIGN_ALGO:
+            return raw[2:10], raw[10:42]
+    return None
+
+
+def _parse_minisign_sig(sig_text: str) -> tuple[bytes, bytes] | None:
+    """解析 minisign 签名文件第二行 base64 blob。返回 (keynum(8B), sig(64B)) 或 None。"""
+    for line in sig_text.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith(("untrusted comment", "trusted comment")):
+            continue
+        try:
+            raw = base64.b64decode(line, validate=True)
+        except Exception:
+            continue
+        if len(raw) == 74 and raw[:2] == _MINISIGN_ALGO:
+            return raw[2:10], raw[10:74]
+    return None
+
+
+def verify_minisign_signature(pubkey_text: str, sig_text: str, message: bytes) -> bool:
+    """验 minisign 签名（与 `minisign -V -p <pub> -x <sig> -m <file>` 同语义）。
+
+    强制校验: ①主签名 Ed25519(pub=固定内置公钥, msg=manifest 原始字节)
+    ②签名 blob 的 keynum 与公钥 keynum 一致。trusted comment 的二次签名
+    不校验（展示性元数据，不影响消息认证强度——minisign -V 会验，纯 Python
+    路径省略并在测试注释留痕）。
+    """
+    pub = _parse_minisign_pubkey(pubkey_text)
+    if pub is None:
+        logger.warning("manifest 验签: 公钥格式无法解析（需 minisign 公钥文件内容）")
+        return False
+    pub_keynum, pub_key = pub
+    sig = _parse_minisign_sig(sig_text)
+    if sig is None:
+        logger.warning("manifest 验签: 签名格式无法解析（需 minisign 签名文件）")
+        return False
+    sig_keynum, sig_val = sig
+    if pub_keynum != sig_keynum:
+        logger.warning("manifest 验签: 签名 keynum 与公钥不一致")
+        return False
+    return _ed25519_verify(sig_val, message, pub_key)
+
+
+def verify_manifest_authenticity(manifest_url: str, manifest_text: str) -> bool:
+    """manifest 验签入口（语义与 deploy/cos-update.sh 一致）。
+
+    - PROD_PUBKEY 为空 → warn 跳过并放行（逃生门口径；填入公钥后自动收紧）
+    - 非空 → 拉取 `<manifest_url>.sig`，下载失败/格式错/验签不过一律 False
+      （fail-closed：调用方按「检查失败」处理，更新被拦截）
+    """
+    if not PROD_PUBKEY.strip():
+        logger.warning(
+            "PROD_PUBKEY 未配置——跳过 manifest 签名校验"
+            "（应急逃生门口径, 同 deploy/cos-update.sh COS_UPDATE_SKIP_VERIFY）"
+        )
+        return True
+    sig_url = manifest_url + ".sig"
+    try:
+        resp = requests.get(sig_url, timeout=CHECK_TIMEOUT)
+        if resp.status_code != 200:
+            logger.warning("manifest 签名拉取失败 %s (HTTP %s)", sig_url, resp.status_code)
+            return False
+        resp.encoding = "utf-8"
+        return verify_minisign_signature(
+            PROD_PUBKEY, resp.text, manifest_text.encode("utf-8")
+        )
+    except Exception as exc:
+        logger.warning("manifest 验签异常（fail-closed 拦截本次更新）: %s", exc)
+        return False
+
+
 def _fetch_manifest(manifest_url: str = "") -> tuple[dict[str, Any] | None, bool]:
     """拉取并解析远端 manifest。
 
@@ -134,6 +312,10 @@ def _fetch_manifest(manifest_url: str = "") -> tuple[dict[str, Any] | None, bool
         resp.encoding = "utf-8"
         data = parse_manifest(resp.text)
         if not data:
+            return None, False
+        # v0.76 T32(cicd-H2): 验签不过 = 检查失败（更新被拦截, fail-closed）；
+        # PROD_PUBKEY 为空时内部 warn 跳过（逃生门口径）。
+        if not verify_manifest_authenticity(url, resp.text):
             return None, False
         if _version_key(data["version"]) <= _version_key(get_local_version()):
             return None, True   # 已是最新（同版本或更旧）

@@ -58,7 +58,14 @@ def _clean_token(token: str) -> str:
 
 
 def resolve_tenant(token: str) -> str:
-    """token → user_id;未配置 Supabase → key 派生;已配置查询失败 fail-closed 503。"""
+    """token → user_id;未配置 Supabase → key 派生;已配置查询失败 fail-closed 503。
+
+    T11(race-H1): 消费 tokens.status——status != 1 → 401（与 auth/verify 同文案），
+    封禁/过期 token 不得经 submit 面提交任务。语义：1=active 放行；None/行缺该字段
+    （schema 容错/本地 mock）放行；字符串数字 int() 归一；int() 失败的脏值保守放行
+    + warning（fail-open 仅限脏值，正常封禁值 0/2/3/4 必拦）。
+    ⚠️ 已知权衡：_tenant_cache 60s TTL——封禁/解封最长延迟 60s 生效，可接受。
+    """
     if not token:
         raise HTTPException(status_code=401, detail="Token is required")
     clean = _clean_token(token)
@@ -73,15 +80,29 @@ def resolve_tenant(token: str) -> str:
     try:
         rows = (
             supabase.table("tokens")
-            .select("user_id")
+            .select("user_id, status")
             .eq("key", clean)
             .is_("deleted_at", "null")
             .limit(1)
             .execute()
         )
-        if not rows.data or not rows.data[0].get("user_id"):
+        row = rows.data[0] if rows.data else None
+        if not row or not row.get("user_id"):
             raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
-        user_id = str(rows.data[0]["user_id"])
+        status = row.get("status")
+        # T11(race-H1): status 语义与 auth/verify 对齐（1=active；None=schema 容错放行）。
+        # 字符串数字按 int() 归一（Supabase 返回形态）；脏值保守放行 + warning——
+        # fail-open 仅限脏值，正常封禁值 0/2/3/4 必拦。
+        # 封禁时效受 _tenant_cache 60s TTL 影响属已知权衡（见 docstring）。
+        if status is not None:
+            try:
+                banned = int(status) != 1
+            except (TypeError, ValueError):
+                logger.warning("tokens.status 脏值保守放行(fail-open): %r", status)
+                banned = False
+            if banned:
+                raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
+        user_id = str(row["user_id"])
     except HTTPException:
         raise
     except Exception as exc:

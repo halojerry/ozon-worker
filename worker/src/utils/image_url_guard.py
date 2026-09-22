@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from typing import Iterable, List
+from urllib.parse import urlparse
 
 # 缩略/转换后缀：搜索兜底串图特征（cbu01.alicdn.com/..._!!sellerId-0-cib.310x310.jpg
 # 或 ..._460x460q100.jpg —— 尺寸段以 . 或 _ 与主体分隔）
@@ -35,13 +36,15 @@ from typing import Iterable, List
 _THUMBNAIL_PATTERN = re.compile(r"[._]\d{2,4}x\d{2,4}")
 
 # 货源图床白名单：1688 alicdn（1688.com 覆盖 img.1688.com 等自有域）
-# + 跨平台 v1 新平台图床：淘宝系 taobaocdn / 拼多多 pddpic·yangkeduo·pinduoduo
-_SOURCE_IMAGE_HOSTS = (
+# + 跨平台 v1 新平台图床：淘宝系 taobaocdn / 拼多多 pddpic·yangkeduo·pinduoduo。
+# E1 转存/生图参考唯一放行面：cos_uploader.salvage_original_images 把它传给
+# safe_fetch 的 allowed_host_suffixes 作第二道闸（重定向跳转域复核）——
+# 增删域改这里一处即可，两处消费同步生效。
+IMAGE_HOST_SUFFIXES = (
     "alicdn.com", "1688.com",
     "taobaocdn.com",
     "pddpic.com", "yangkeduo.com", "pinduoduo.com",
 )
-
 
 def is_cos_url(url: object) -> bool:
     """判断 URL 是否已托管在本方 COS（幂等判定的唯一共享实现，自 cos_uploader 迁入）。
@@ -76,11 +79,20 @@ def is_product_image_candidate(url: object) -> bool:
     lowered = url.strip().lower()
     if not lowered.startswith(("http://", "https://")):
         return False
+    # 白名单：1688 alicdn 图床（1688.com 覆盖 img.1688.com 等自有域）
+    # + 批1 新平台图床：淘宝系 taobaocdn / 拼多多 pddpic·yangkeduo·pinduoduo。
+    # T15(inj-H1): 白名单按 hostname 精确/后缀匹配——子串 in 会被 query 垫片
+    # 绕过（审计实证 `http://127.0.0.1:8080/?pad=alicdn.com` 直通旧白名单）。
     # 顺序红线：is_cos_url 对非 str/空串返回 True 的既有契约绝不外溢——
     # 走到这里已确认是 http(s) 非空字符串，COS 放行分支只作用于该前提。
     # 放行面 = 本方 COS 托管图（镜像=货源原图 1:1 副本，参考语义等价）
-    # OR 货源图床白名单。
-    if not (is_cos_url(lowered) or any(dom in lowered for dom in _SOURCE_IMAGE_HOSTS)):
+    # OR 货源图床白名单（hostname 精确/后缀匹配，同一道闸）。
+    try:
+        host = (urlparse(lowered).hostname or "").lower()
+    except ValueError:
+        return False
+    if not (is_cos_url(lowered)
+            or any(host == d or host.endswith("." + d) for d in IMAGE_HOST_SUFFIXES)):
         return False
     # 拒缩略/转换后缀（COS 域不豁免：镜像 key 带 _310x310 之类后缀照样拒）
     if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
