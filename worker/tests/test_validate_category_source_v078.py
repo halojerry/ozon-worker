@@ -50,14 +50,34 @@ _ZERO_OVERLAP_TITLE = "Носки женские теплые"  # 与 Трещо
 
 
 class _Resp:
-    def __init__(self, status=200):
+    def __init__(self, status=200, headers=None, is_redirect=False,
+                 is_permanent_redirect=False):
+        # v0.76 T16 起探测走 safe_fetch：is_redirect/is_permanent_redirect 是
+        # safe_fetch 手动重定向判定要读的属性，headers 供 content-length 观测读。
         self.status_code = status
+        self.headers = headers or {}
+        self.is_redirect = is_redirect
+        self.is_permanent_redirect = is_permanent_redirect
 
 
 @pytest.fixture(autouse=True)
 def _hermetic(monkeypatch):
-    """默认：图片探测 200、RU 路径固定西里尔（不依赖 PG/网络）。"""
-    monkeypatch.setattr("requests.head", lambda *a, **k: _Resp(200), raising=False)
+    """默认：图片探测 200、RU 路径固定西里尔（不依赖 PG/网络）。
+
+    v0.76 T16 起图片探测走 utils.secure_fetch.safe_fetch（inj-H2）——打桩点从
+    requests.head 改为 requests.request 层（safe_fetch 经 requests.request 出网），
+    并补 fake DNS：safe_fetch 会解析 host 做内网/保留段校验，真实 DNS 在 CI 上
+    可能解析失败或落到保留段 → 探测被拒 → 误判「图片不可访问」。
+    """
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda host, port=None, *a, **k:
+        [(2, 1, 6, "", ("93.184.216.34", port or 0))])
+    monkeypatch.setattr("requests.request",
+                        lambda *a, **k: _Resp(200, headers={},
+                                              is_redirect=False,
+                                              is_permanent_redirect=False),
+                        raising=False)
     monkeypatch.setattr(ovn, "_fetch_ru_category_path",
                         lambda dc, tp: _RU_PATH if (dc, tp) == (_DC, _TP) else "",
                         raising=False)
