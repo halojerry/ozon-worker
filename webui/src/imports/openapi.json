@@ -6192,7 +6192,7 @@
                       "avg_price_rub": 3117.7,
                       "brand": "Thermos",
                       "category_path": "Дом и сад / Термосы",
-                      "contributed_by_token_id": "test-token-123",
+                      "contributed_by_fp": "a1b2c3d4",
                       "ordering_amount": 1284500.0,
                       "ordering_count": 412,
                       "sku_or_id": "1680357214"
@@ -6591,7 +6591,7 @@
     },
     "/api/v1/cancel_task/{task_id}": {
       "post": {
-        "description": "取消待处理的任务。",
+        "description": "取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。",
         "operationId": "v1_cancel_task_api_v1_cancel_task__task_id__post",
         "parameters": [
           {
@@ -6614,6 +6614,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -7216,8 +7226,7 @@
                   "items": [
                     {
                       "candidates": 23,
-                      "contributed_by_fp": "a1b2c3d4e5f60718",
-                      "contributed_by_token_id": "test-token-123",
+                      "contributed_by_fp": "a1b2c3d4",
                       "created_at": "2026-09-11T10:24:31",
                       "filters": {
                         "min_margin": 0.25
@@ -8704,7 +8713,7 @@
     },
     "/api/v1/logistics/quote": {
       "post": {
-        "description": "物流运费报价端点（v0.29.x, skill 选品利润估算用）。\n\n入参: {token?, weight_g, depth_cm, width_cm, height_cm,\n       tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}\n- 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;\n  否则默认 RETS/Standard。\n- token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。\n\n返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,\n       base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}\n\nv0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。",
+        "description": "物流运费报价端点（v0.29.x, skill 选品利润估算用）。\n\n入参: {token?, weight_g, depth_cm, width_cm, height_cm,\n       tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}\n- 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;\n  否则默认 RETS/Standard。\n- T10(api-M4): Authorization Bearer **必填**（``_require_bearer``）——\n  此前 token 走 body 可选字段，缺省直接跳过鉴权（匿名可拉费率表、可打满\n  带 Ozon 凭证的 3PL 探测），且无 rate limit；现 ``logistics:{clean_token}``\n  独立限流键（不与提交限流额度互挤），超限 429。\n- body token 保留向后兼容（有值仍校验，语义同 auth_verify）。\n\n返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,\n       base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}\n\nv0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。",
         "operationId": "logistics_quote_api_v1_logistics_quote_post",
         "responses": {
           "200": {
@@ -8731,6 +8740,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "summary": "Logistics Quote"
@@ -10001,7 +10030,7 @@
     },
     "/api/v1/resubmit_task/{task_id}": {
       "post": {
-        "description": "重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。",
+        "description": "重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。",
         "operationId": "v1_resubmit_task_api_v1_resubmit_task__task_id__post",
         "parameters": [
           {
@@ -10024,6 +10053,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Payment Required"
           },
           "404": {
             "content": {
@@ -10276,7 +10315,7 @@
     },
     "/api/v1/store/health": {
       "get": {
-        "description": "查询 Ozon 店铺配额健康状态。\n\nQuery params (可选):\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，\n不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。\nF-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源\n解析/限流/重试，移除裸 requests.post 直连。",
+        "description": "查询 Ozon 店铺配额健康状态。\n\nT9(api-M3): Bearer 必填（``_require_bearer``，无 Bearer 401 \"Token is\nrequired\"）——此前完全无鉴权，匿名可拿任意店铺凭证探测 Ozon 店铺配额/\n存在性。凭证取值：优先 ``X-Ozon-Client-Id`` / ``X-Ozon-Api-Key`` header，\n缺省回落 query（**query 传凭证已弃用**——query 会进反代/访问日志留痕面，\n仅为存量调用方向后兼容保留）。上游失败（意外异常或 Ozon error）→ 502\n固定文案，原文只进 logger——此前 ``message: str(e)`` / Ozon error 原文\n直接进 200 响应体，上游内部细节泄漏给客户端。\n\n凭证（header 或 query）:\n- client_id: Ozon Client-Id\n- api_key: Ozon Api-Key\n\nv0.63.1 架构优化 R2: sync def — 内部阻塞调用，FastAPI 自动丢线程池，\n不冻结事件循环（async def 下单个慢调用会停摆全部 worker 心跳）。\nF-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源\n解析/限流/重试，移除裸 requests.post 直连。",
         "operationId": "store_health_api_v1_store_health_get",
         "parameters": [
           {
@@ -10316,6 +10355,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -10325,6 +10374,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "upstream store health check failed"
+                }
+              }
+            },
+            "description": "Bad Gateway"
           }
         },
         "summary": "Store Health"
@@ -11234,7 +11293,7 @@
     },
     "/api/v1/task_statistics": {
       "get": {
-        "description": "获取任务统计信息。\n\n⚠️ v0.19.2: 旧路径返回 {\"status\",\"statistics\"} 包裹结构（无 response_model），\nv1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，\n否则字段对不上被 Pydantic 填默认值 → 统计恒 0。",
+        "description": "获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，\n跨租户仅 admin——语义与旧路径同源）。\n\n⚠️ v0.19.2: 旧路径返回 {\"status\",\"statistics\"} 包裹结构（无 response_model），\nv1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，\n否则字段对不上被 Pydantic 填默认值 → 统计恒 0。",
         "operationId": "v1_task_statistics_api_v1_task_statistics_get",
         "responses": {
           "200": {
@@ -11246,6 +11305,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "summary": "V1 Task Statistics",
@@ -12056,7 +12135,7 @@
     },
     "/cancel_task/{task_id}": {
       "post": {
-        "description": "取消任务（仅pending状态的任务可取消）\n\nReturns:\n    取消结果",
+        "description": "取消任务（仅pending状态的任务可取消）\n\nT6(api-H2): 补 Bearer 鉴权 + 租户校验（语义与 task_status v0.73 同源，\n复用 ``_task_status_guard``：TASK_STATUS_AUTH=0 应急关 / 无 Bearer 401 /\n跨租户 404 \"task not found\" 不泄漏存在性 / 老数据无租户宽容放行）。\n修复前匿名持有 task uuid 即可跨租户取消任意 pending 任务（安全探针实证）。\n\nReturns:\n    取消结果",
         "operationId": "http_cancel_task_cancel_task__task_id__post",
         "parameters": [
           {
@@ -12082,6 +12161,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "409": {
             "content": {
@@ -12381,7 +12480,7 @@
     },
     "/progress/{run_id}": {
       "get": {
-        "description": "查询工作流执行进度。\n\n优先从 LangGraph checkpointer 读取实时 state，\n降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。",
+        "description": "查询工作流执行进度。\n\nv0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，\n匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，\n语义见 helper docstring。\n\n优先从 LangGraph checkpointer 读取实时 state，\n降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。",
         "operationId": "http_progress_progress__run_id__get",
         "parameters": [
           {
@@ -12415,6 +12514,16 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -12441,7 +12550,7 @@
     },
     "/resubmit_task/{task_id}": {
       "post": {
-        "description": "重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。\n\n仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +\nextensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。\n\n⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），\n校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。",
+        "description": "重新提交终态任务（审核被拒/失败自动修复链入口，P0-2）。\n\n仅 rejected/failed 终态任务可重试：复制原载荷 → 注入 parent_task_id +\nextensions.image_regen=True → 重新入队（pending）。返回新任务 task_id。\n\n⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），\n校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。\n\n⚠️ race-L1（v0.76 Task 26）：与 submit_task 同款两段——入队前\n_check_mxou_balance 余额预检（欠费 → 402，重提交重跑生图/LLM 同样烧额度）；\n入队 IntegrityError（并发撞部分唯一索引）→ 干净 409 DUPLICATE_SUBMIT\n（此前冒泡成 500）。",
         "operationId": "http_resubmit_task_resubmit_task__task_id__post",
         "parameters": [
           {
@@ -12467,6 +12576,18 @@
               }
             },
             "description": "Successful Response"
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error_code": "INSUFFICIENT_BALANCE",
+                  "message": "MXOU 余额不足 (current: -5.0). 请充值",
+                  "ok": false
+                }
+              }
+            },
+            "description": "Payment Required"
           },
           "409": {
             "content": {
@@ -12630,7 +12751,7 @@
     },
     "/task_statistics": {
       "get": {
-        "description": "获取任务统计信息\n\nArgs:\n    tenant_id: 租户ID（可选，不传则查询所有租户）\n\nReturns:\n    任务统计信息（总数、成功率、平均耗时等）",
+        "description": "获取任务统计信息\n\nT7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举\n任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。\n规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：\n- 无 Authorization Bearer → 401 \"Token is required\"。\n- Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。\n- query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。\n- ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），\n  否则 403 \"admin only\"。\n\nArgs:\n    tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）\n\nReturns:\n    任务统计信息（总数、成功率、平均耗时等）",
         "operationId": "http_task_statistics_task_statistics_get",
         "responses": {
           "200": {
@@ -12652,6 +12773,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "summary": "Http Task Statistics"

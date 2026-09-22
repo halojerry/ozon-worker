@@ -119,6 +119,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
       - WEBUI_DIST=/app/webui/dist
+      # T19(race-M4): 部署重启默认不复活 failed 任务（retry_count 归零烧用户额度重复上架）；
+      # .env 显式设 SKIP_FAILED_REVIVE=0 恢复旧行为
+      - SKIP_FAILED_REVIVE=${SKIP_FAILED_REVIVE:-}
       # v0.60: COS 凭证（b64 生图转存 + E1 原始图兜底）——未配置则功能静默降级
       - COS_SECRET_ID=${COS_SECRET_ID:-}
       - COS_SECRET_KEY=${COS_SECRET_KEY:-}

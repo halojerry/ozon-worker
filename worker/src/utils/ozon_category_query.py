@@ -17,6 +17,8 @@ import logging
 from typing import Optional, Any
 from sqlalchemy import select, text, func, and_, or_
 
+from utils.like_escape import escape_like  # v0.76 inj-L1 修复波：类目链 ILIKE 通配符转义（AGENTS「一律」规则接线，覆盖 _fetch_rows_like/_search_fallback 全部用户可控 pattern）
+
 from storage.database.db import get_session
 from storage.database.shared.model import (
     CategoryTreeNode,
@@ -526,11 +528,11 @@ class OzonCategoryQuery:
             if node_type:
                 conds.append(CategoryTreeNode.node_type == node_type)
             if name_only:
-                conds.append(CategoryTreeNode.node_name.ilike(f"%{pattern}%"))
+                conds.append(CategoryTreeNode.node_name.ilike(f"%{escape_like(pattern)}%", escape="\\"))
             else:
                 conds.append(or_(
-                    CategoryTreeNode.node_name.ilike(f"%{pattern}%"),
-                    CategoryTreeNode.full_path.ilike(f"%{pattern}%"),
+                    CategoryTreeNode.node_name.ilike(f"%{escape_like(pattern)}%", escape="\\"),
+                    CategoryTreeNode.full_path.ilike(f"%{escape_like(pattern)}%", escape="\\"),
                 ))
             # v0.65.1 P1-3: 确定性排序（同分不再依赖 DB 返回顺序）
             stmt = (
@@ -821,26 +823,26 @@ class OzonCategoryQuery:
                 word_conditions = []
                 for word in words:
                     if len(word) >= 2:  # 跳过单字
-                        pattern = f"%{word}%"
-                        word_conditions.append(CategoryTreeNode.node_name.ilike(pattern))
-                        word_conditions.append(CategoryTreeNode.full_path.ilike(pattern))
+                        pattern = f"%{escape_like(word)}%"
+                        word_conditions.append(CategoryTreeNode.node_name.ilike(pattern, escape="\\"))
+                        word_conditions.append(CategoryTreeNode.full_path.ilike(pattern, escape="\\"))
                 if word_conditions:
                     conditions.append(or_(*word_conditions))
                 else:
                     # 无有效单词，回退到整体查询
-                    pattern = f"%{query_text}%"
+                    pattern = f"%{escape_like(query_text)}%"
                     conditions.append(
                         or_(
-                            CategoryTreeNode.node_name.ilike(pattern),
-                            CategoryTreeNode.full_path.ilike(pattern),
+                            CategoryTreeNode.node_name.ilike(pattern, escape="\\"),
+                            CategoryTreeNode.full_path.ilike(pattern, escape="\\"),
                         )
                     )
             else:
-                pattern = f"%{query_text}%"
+                pattern = f"%{escape_like(query_text)}%"
                 conditions.append(
                     or_(
-                        CategoryTreeNode.node_name.ilike(pattern),
-                        CategoryTreeNode.full_path.ilike(pattern),
+                        CategoryTreeNode.node_name.ilike(pattern, escape="\\"),
+                        CategoryTreeNode.full_path.ilike(pattern, escape="\\"),
                     )
                 )
 

@@ -2,9 +2,10 @@
 
 ✅ 内存优化：使用with语句确保stream响应在任何情况下都能正确关闭
 """
-import requests
 import logging
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Optional
+
+from utils.secure_fetch import safe_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -13,15 +14,14 @@ def check_url_alive(url: str, timeout: int = 10) -> bool:
     """URL 存活检查 — GET + Range bytes=0-0（与 evaluate_image_quality 同模式，兼容 1688 alicdn 拒绝 HEAD）。
 
     T14 在线商品改图重传复用：死 URL 过滤；任何异常/非 2xx → False。
+    v0.76 T16(inj-H2)：走 utils.secure_fetch.safe_fetch——解析到内网/保留段、
+    非 http(s)、重定向跳内网的 URL 抛 UnsafeUrlError → False，**绝不发起内网
+    请求**（消费方 image_service.update_product_images 的 images 是用户可控 URL，
+    裸 requests.get 曾构成盲 SSRF 探测面）。
     """
     try:
-        with requests.get(
-            url,
-            timeout=timeout,
-            allow_redirects=True,
-            stream=True,
-            headers={"Range": "bytes=0-0"},
-        ) as response:
+        with safe_fetch(url, method="get", timeout=timeout, stream=True,
+                        headers={"Range": "bytes=0-0"}) as response:
             return response.status_code in (200, 206)
     except Exception:
         return False
@@ -48,10 +48,13 @@ def evaluate_image_quality(image_urls: List[str], max_evaluation_count: int = 5)
             # ✅ 内存优化：使用with语句确保连接在任何情况下都正确关闭
             # 修复：用GET + Range代替HEAD（部分CDN如1688 alicdn不支持HEAD请求）
             # Range: bytes=0-0 只下载1字节，既能获取header又不浪费带宽
-            with requests.get(
+            # v0.76 T16(inj-H2)：裸 requests.get → safe_fetch（URL 源自信封
+            # original_images，用户可控——解析 IP 校验+逐跳复核，UnsafeUrlError
+            # 落既有 except 跳过该图，探测语义不变）。
+            with safe_fetch(
                 img_url,
+                method="get",
                 timeout=10,
-                allow_redirects=True,
                 stream=True,
                 headers={"Range": "bytes=0-0"}
             ) as response:

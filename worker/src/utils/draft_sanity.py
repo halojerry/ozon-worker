@@ -78,6 +78,14 @@ def validate_draft_sanity(draft: dict | None, extensions: dict | None = None) ->
             dim_vals.append(v)   # 双方均无效 → 维持原拒绝逻辑
     if not all(isinstance(v, (int, float)) and v > 0 for v in dim_vals):
         return "dimensions 缺失或含 0(尺寸无效)"
+    # Task 27 (race-L2): 采购成本非正数提交闸 — 负数/0 采购成本此前可入管线，
+    # compute_price 无下限 clamp 会算出非正定价。跟卖信封定价跟随竞品（可能无
+    # 1688 货源成本）豁免；purchase_cost 缺失豁免（required-fields 层对非跟卖
+    # 已强制 int/float 必填，str 等异型由该类型闸拦截，本闸只对数值型生效）。
+    if not (extensions or {}).get("follow_sell"):
+        cost = draft.get("purchase_cost")
+        if isinstance(cost, (int, float)) and cost <= 0:
+            return "purchase_cost 非正数(采购成本必须大于 0)"
     out = check_weight_suspect(draft.get("weight"), draft.get("dimensions"))
     # ⚠️ v0.37: 轻物标记（light_weight_suspect）放行——只拦截物理超限
     # （>50kg / 单边>5m）。真实轻物 <10g 是正常商品，不因疑似 kg→g 拦截。

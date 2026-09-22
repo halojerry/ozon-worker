@@ -1154,7 +1154,7 @@ Http Cancel — 取消指定run_id的执行
 ## cancel_task
 
 ### `POST /api/v1/cancel_task/{task_id}`
-V1 Cancel Task — 取消待处理的任务。
+V1 Cancel Task — 取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
 > 兼容别名：`POST /cancel_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -1168,6 +1168,7 @@ V1 Cancel Task — 取消待处理的任务。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [CancelTaskResponse](#schema-canceltaskresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
@@ -2253,6 +2254,8 @@ Logistics Quote — 物流运费报价端点（v0.29.x, skill 选品利润估算
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 429 | Too Many Requests | [ErrorBody](#schema-errorbody) |
 
 ## mappings
 
@@ -2966,13 +2969,14 @@ Http Progress — 查询工作流执行进度。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## resubmit_task
 
 ### `POST /api/v1/resubmit_task/{task_id}`
-V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
+V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。
 > 兼容别名：`POST /resubmit_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -2986,6 +2990,7 @@ V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [SubmitTaskResponse](#schema-submittaskresponse) |
+| 402 | Payment Required | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
@@ -3099,7 +3104,9 @@ Store Health — 查询 Ozon 店铺配额健康状态。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+| 502 | Bad Gateway | — |
 
 ## stores
 
@@ -3413,7 +3420,8 @@ Http Get Task — [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端
 ## task_statistics
 
 ### `GET /api/v1/task_statistics`
-V1 Task Statistics — 获取任务统计信息。
+V1 Task Statistics — 获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+跨租户仅 admin——语义与旧路径同源）。
 > 兼容别名：`GET /task_statistics`（旧裸路径，语义相同）
 
 **响应**
@@ -3421,6 +3429,8 @@ V1 Task Statistics — 获取任务统计信息。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [TaskStatisticsResponse](#schema-taskstatisticsresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 403 | Forbidden | [ErrorBody](#schema-errorbody) |
 
 响应示例：
 

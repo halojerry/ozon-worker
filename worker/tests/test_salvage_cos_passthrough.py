@@ -66,29 +66,29 @@ def test_a_mixed_list_passthrough_order_preserved(_with_cos):
     """a. [COS 镜像, alicdn 原图] → COS 直通（零下载）、alicdn 正常转存、顺序保持。"""
     uploaded = (f"https://test-bucket.cos.ap-guangzhou.myqcloud.com/"
                 f"{_stable_key(GOOD_ORIGINAL, 'ozon-1688')}")
-    with mock.patch("requests.get") as m_get, \
+    with mock.patch("utils.cos_uploader.safe_fetch") as m_fetch, \
             mock.patch("utils.cos_uploader.cos_upload_bytes") as m_up:
         m_up.side_effect = (
             lambda data, key, content_type="image/jpeg":
                 f"https://test-bucket.cos.ap-guangzhou.myqcloud.com/{key}")
-        m_get.return_value = mock.Mock(status_code=200, content=b"img-bytes")
+        m_fetch.return_value = mock.Mock(status_code=200, content=b"img-bytes")
         out = salvage_original_images([COS_MIRROR, GOOD_ORIGINAL])
     # COS URL 原样直通（不经历 下载→转存 的 URL 换皮）
     assert out == [COS_MIRROR, uploaded], out
     # alicdn 原图恰好发起 1 次下载（COS URL 零网络）
-    assert m_get.call_count == 1, m_get.call_args_list
-    assert m_get.call_args.args[0] == GOOD_ORIGINAL
+    assert m_fetch.call_count == 1, m_fetch.call_args_list
+    assert m_fetch.call_args.args[0] == GOOD_ORIGINAL
     # 转存恰好 1 次（只有 alicdn 那张）
     assert m_up.call_count == 1
 
 
 def test_b_all_cos_zero_network(_with_cos):
     """b. 输入全 COS → 零网络调用（不下载不上传），全部原样直通。"""
-    with mock.patch("requests.get") as m_get, \
+    with mock.patch("utils.cos_uploader.safe_fetch") as m_fetch, \
             mock.patch("utils.cos_uploader.cos_upload_bytes") as m_up:
         out = salvage_original_images([COS_MIRROR, COS_MIRROR_2])
     assert out == [COS_MIRROR, COS_MIRROR_2], out
-    m_get.assert_not_called()
+    m_fetch.assert_not_called()
     m_up.assert_not_called()
 
 
@@ -99,21 +99,21 @@ def test_c_cos_disabled_returns_empty():
 
 def test_d_passthrough_respects_max_n(_with_cos):
     """d. 直通结果计入 saved/max_n——max_n=2 时第 3 张 COS 被截断，零网络。"""
-    with mock.patch("requests.get") as m_get, \
+    with mock.patch("utils.cos_uploader.safe_fetch") as m_fetch, \
             mock.patch("utils.cos_uploader.cos_upload_bytes") as m_up:
         out = salvage_original_images(
             [COS_MIRROR, COS_MIRROR_2, COS_MIRROR_3], max_n=2)
     assert out == [COS_MIRROR, COS_MIRROR_2], out
-    m_get.assert_not_called()
+    m_fetch.assert_not_called()
     m_up.assert_not_called()
 
 
 def test_e_cos_thumbnail_still_skipped(_with_cos):
     """护栏：直通置于 _is_reference_image 之后——COS 域缩略后缀（_310x310）
     照样跳过（批1「缩略恒拒对 COS 域生效」不变式不因直通破口）。"""
-    with mock.patch("requests.get") as m_get, \
+    with mock.patch("utils.cos_uploader.safe_fetch") as m_fetch, \
             mock.patch("utils.cos_uploader.cos_upload_bytes") as m_up:
         out = salvage_original_images([COS_THUMBNAIL, COS_MIRROR])
     assert out == [COS_MIRROR], out
-    m_get.assert_not_called()
+    m_fetch.assert_not_called()
     m_up.assert_not_called()

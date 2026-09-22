@@ -27,6 +27,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from storage.database.db import get_session, get_engine, init_db
 from storage.database.supabase_client import get_supabase_client
+from services.tenant_service import resolve_analytics_scope  # v0.76 T7(api-H3): task_statistics admin 判定（模块级 import，测试 patch main 命名空间；resolve_tenant 仍按 _task_status_guard 惯例函数内延迟 import）
 from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import (
     Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
@@ -226,6 +227,10 @@ TIMEOUT_SECONDS = 900  # 15分钟
 # API 限流配置
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))  # 每 token 每分钟最大提交数（与 AGENTS.md/.env.example 一致）
 
+# T21(race-M5): 限流字典有界化阈值——RateLimiter._requests 键数超过该值时，
+# check() 先清扫「最后活跃已滑出 60s 窗口」的键，未认证/海量 token 洪水不再无界吃内存。
+_RATE_LIMITER_MAX_KEYS = 4096
+
 
 class RateLimiter:
     """滑动窗口限流器：按 token 限制提交频率"""
@@ -240,6 +245,12 @@ class RateLimiter:
         now = time.time()
         window_start = now - 60
         with self._lock:
+            # T21(race-M5): 字典有界化——_requests 此前永不清扫（每个新 token 一个键），
+            # 未认证洪水可无界吃内存。超阈值先清「最后活跃已滑出窗口」的键，活跃键不动。
+            if len(self._requests) > _RATE_LIMITER_MAX_KEYS:
+                stale = [k for k, ts in self._requests.items() if not ts or ts[-1] <= window_start]
+                for k in stale:
+                    del self._requests[k]
             timestamps = self._requests.get(token, [])
             # 清理过期记录
             timestamps = [t for t in timestamps if t > window_start]
@@ -526,6 +537,12 @@ def _warn_if_multi_worker() -> None:
             )
 
 
+def _revive_failed_enabled() -> bool:
+    """T19(race-M4): 部署重启默认不复活 failed 任务（retry_count 归零会烧用户额度重复上架）。
+    应急恢复旧行为：SKIP_FAILED_REVIVE=0。"""
+    return os.environ.get("SKIP_FAILED_REVIVE", "").strip() == "0"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
@@ -584,10 +601,11 @@ async def lifespan(app: FastAPI):
     # ✅ 启动时僵尸任务恢复：重置重启前的 running 任务和可重试的 failed 任务
     # ⚠️ v0.30.0:
     #   SKIP_ZOMBIE_RECOVERY=1 — 跳过全部恢复（本地/测试环境必开，防止旧 failed 任务复活真实上架）
-    #   SKIP_FAILED_REVIVE=1   — 只跳过 failed→pending 复活，保留 running→pending 恢复（云端推荐：
-    #                            部署重启时已失败任务不再重复上架，但中断任务仍可恢复）
+    # ⚠️ T19(race-M4) 语义翻转：failed 复活默认**关闭**——部署重启不再把 retry_count<max 的
+    #   failed 重置回 pending（retry_count 归零=对用户无人同意的重新上架，烧生图/上传额度）。
+    #   应急恢复旧行为：SKIP_FAILED_REVIVE=0 — failed→pending 复活（running 恢复不受影响）。
     _skip_all = os.getenv("SKIP_ZOMBIE_RECOVERY", "0") == "1"
-    _skip_failed = os.getenv("SKIP_FAILED_REVIVE", "0") == "1"
+    _skip_failed = not _revive_failed_enabled()
     if _skip_all:
         logger.info("🧹 跳过全部僵尸任务恢复（SKIP_ZOMBIE_RECOVERY=1）")
     else:
@@ -610,7 +628,8 @@ async def lifespan(app: FastAPI):
                      "completed_at=NOW(), updated_at=NOW() "
                      "WHERE status='running' AND retry_count >= max_retries")
                 ).rowcount
-                # 2. 重置可重试的 failed 任务（SKIP_FAILED_REVIVE=1 时跳过——防止部署重启复活旧任务重复上架）
+                # 2. 重置可重试的 failed 任务（T19 默认跳过——防部署重启复活旧任务重复上架；
+                #    仅 SKIP_FAILED_REVIVE=0 显式恢复旧行为）
                 zombie_failed = 0
                 if not _skip_failed:
                     zombie_failed = sess.execute(
@@ -618,7 +637,7 @@ async def lifespan(app: FastAPI):
                     ).rowcount
                 sess.commit()
                 if zombie_running or zombie_running_failed or zombie_failed:
-                    logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending{'（SKIP_FAILED_REVIVE 跳过复活）' if _skip_failed and zombie_failed == 0 else ''}")
+                    logger.info(f"🧹 启动清理: {zombie_running} 个僵尸 running → pending, {zombie_running_failed} 个 running → failed(耗尽), {zombie_failed} 个 failed → pending{'（failed 默认不复活；SKIP_FAILED_REVIVE=0 恢复旧行为）' if _skip_failed else ''}")
                     # v0.29.2 监控: 启动时任务重跑/恢复上报 Sentry(带数量)
                     try:
                         from utils.sentry_setup import capture_task_event
@@ -836,11 +855,13 @@ async def http_async_run(request: Request) -> dict:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_async_run: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON: {extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
     try:
         deadline_sec = parse_deadline_sec(request.headers)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # T2(api-M1 补): 固定语义文案，异常细节只进日志
+        logger.warning("Invalid deadline header on /async_run: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid deadline header")
 
     # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id。
     # 优先用上游 x-run-id；没传就生成 UUID。
@@ -874,7 +895,6 @@ async def http_async_run(request: Request) -> dict:
                 detail={
                     "error_code": error_response["error_code"],
                     "error_message": error_response["error_message"],
-                    "stack_trace": extract_core_stack(),
                 },
             )
 
@@ -888,8 +908,10 @@ async def http_async_run(request: Request) -> dict:
             ctx=ctx,
         )
     except AsyncTaskStorageError as e:
+        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
+        logger.warning("async-task storage unavailable: %s", e)
         raise HTTPException(status_code=503,
-                            detail=f"async-task storage unavailable: {e}")
+                            detail="async-task storage temporarily unavailable")
 
 
 @app.get("/task/{task_id}", responses={
@@ -906,8 +928,10 @@ async def http_get_task(task_id: str) -> dict:
     try:
         row = await async_runtime.get(task_id)
     except AsyncTaskStorageError as e:
+        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
+        logger.warning("async-task storage unavailable: %s", e)
         raise HTTPException(status_code=503,
-                            detail=f"async-task storage unavailable: {e}")
+                            detail="async-task storage temporarily unavailable")
     if row is None:
         raise HTTPException(status_code=404, detail="task not found")
     return row
@@ -934,10 +958,10 @@ async def http_run(request: Request) -> Dict[str, Any]:
     raw_body = await request.body()
     try:
         body_text = raw_body.decode("utf-8")
-    except Exception as e:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400,
-                            detail=f"Invalid JSON format: {body_text}, traceback: {traceback.format_exc()}, error: {e}")
+    except Exception:
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback（曾把 token 明文打进 detail）
+        logger.warning("Invalid JSON body on %s: %s", "/run", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
@@ -950,12 +974,7 @@ async def http_run(request: Request) -> Dict[str, Any]:
     run_id = ctx.run_id
     request_context.set(ctx)
 
-    logger.info(
-        f"Received request for /run: "
-        f"run_id={run_id}, "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}"
-    )
+    _log_request_receipt("/run", run_id, request, raw_body)
 
     try:
         payload = await request.json()
@@ -1007,7 +1026,7 @@ async def http_run(request: Request) -> Dict[str, Any]:
 
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format, {extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     except asyncio.CancelledError:
         logger.info(f"Request cancelled for run_id: {run_id}")
@@ -1021,12 +1040,13 @@ async def http_run(request: Request) -> Dict[str, Any]:
             f"Unexpected error in http_run: [{error_response['error_code']}] {error_response['error_message']}, "
             f"traceback: {traceback.format_exc()}", exc_info=True
         )
+        # T2(api-M1): stack_trace 移出响应 detail（此前整段 traceback 回显给客户端），只进日志
+        logger.error("run failed stack: %s", extract_core_stack())
         raise HTTPException(
             status_code=500,
             detail={
                 "error_code": error_response["error_code"],
                 "error_message": error_response["error_message"],
-                "stack_trace": extract_core_stack(),
             }
         )
     finally:
@@ -1049,10 +1069,10 @@ async def http_stream_run(request: Request):
     raw_body = await request.body()
     try:
         body_text = raw_body.decode("utf-8")
-    except Exception as e:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400,
-                            detail=f"Invalid JSON format: {body_text}, traceback: {extract_core_stack()}, error: {e}")
+    except Exception:
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback
+        logger.warning("Invalid JSON body on %s: %s", "/stream_run", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
@@ -1067,18 +1087,13 @@ async def http_stream_run(request: Request):
     request_context.set(ctx)
     run_id = ctx.run_id
     is_agent = graph_helper.is_agent_proj()
-    logger.info(
-        f"Received request for /stream_run: "
-        f"run_id={run_id}, "
-        f"is_agent_project={is_agent}, "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}"
-    )
+    _log_request_receipt("/stream_run", run_id, request, raw_body,
+                         extra={"is_agent_project": is_agent})
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_stream_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format:{extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     if is_agent:
         stream_generator = agent_stream_handler(
@@ -1119,6 +1134,15 @@ async def http_cancel(run_id: str, request: Request):
     使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
     LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
     """
+    # v0.76 终审 Fix-4: 鉴权门——/run /stream_run /node_run /v1/chat/completions
+    # 都有 _authenticate_token，唯独本端点从无鉴权（知道 run_id 可取消他人在跑
+    # 任务）。与 /run 系一致从 body JSON 取 token（空 body → 无 token → 401）。
+    raw_body = await request.body()
+    try:
+        body_text = raw_body.decode("utf-8")
+    except Exception:
+        body_text = ""
+    _authenticate_token(_extract_token_from_body(body_text))
     ctx = new_context(method="cancel", headers=request.headers)
     request_context.set(ctx)
     logger.info(f"Received cancel request for run_id: {run_id}")
@@ -1126,9 +1150,35 @@ async def http_cancel(run_id: str, request: Request):
     return result
 
 
+# T12(api-H1): 有持久化副作用的节点禁止经 /node_run 触发——learning_record 会以
+# 调用方可控的 moderation_status/user_id 写全局共享 category_mapping（W11），
+# 属跨租户投毒面。新增有状态节点时必须同步维护本清单。
+# 入列评估（2026-09-16 全 25 主图节点逐个核查 DB 写/外部持久写）：
+#   - learning_record: 写全局 category_mapping + category_commission（均 W11 跨租户共享）
+#     + product_index/product_cost/source_candidates/web_category_path → 投毒面本体
+#   - assemble_ozon_product: INSERT category_match_log + attribute/dictionary 缓存回写（共享缓存）
+#   - prepare_ozon_upload: INSERT attr_match_log（审计写）
+#   - ozon_upload: Ozon /v3/product/import 外部持久写，绕过 validate/quota 闸
+#   - validation_retry_wrapper: 整个重试子图（含 reupload → Ozon 写）
+#   - auth: AuthOutput 直出平台 Supabase service key（supabase_key = SUPABASE_KEY
+#     env，见 auth_node 全部构造路径）——任何持平台 token 的调用方经本端点即可
+#     取得跨租户库读写权限；这是凭证外泄面，不是「纯转换+只读查证」，故入列。
+#   放行：ingest/follow_sell_import/pricing（纯转换+只读查证）、LLM/生图 12 节点
+#   （计算型）、ozon_validate/check_quota/ozon_status/fetch_back（只读外部）。
+_NODE_RUN_DENIED = frozenset({
+    "auth",
+    "learning_record",
+    "assemble_ozon_product",
+    "prepare_ozon_upload",
+    "ozon_upload",
+    "validation_retry_wrapper",
+})
+
+
 @app.post(path="/node_run/{node_id}", responses={
     200: {"content": {"application/json": {"example": {
-        # 单节点直跑返回该节点 Output model 的 dict（此处以 auth 节点 AuthOutput 为例）
+        # 单节点直跑返回该节点 Output model 的 dict（示例取 auth 节点 AuthOutput
+        # 形态示意字段形状；auth 本身已在 _NODE_RUN_DENIED，不可经本端点调用）
         "progress_counter": 1,
         "user_id": "28",
         "balance": 12.5,
@@ -1140,30 +1190,34 @@ async def http_node_run(node_id: str, request: Request):
     try:
         body_text = raw_body.decode("utf-8")
     except UnicodeDecodeError:
-        body_text = str(raw_body)
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {body_text}")
+        # T2(crypto-C1/api-M1): 400 不回显 body 原文
+        logger.warning("Invalid JSON body on %s: %s", f"/node_run/{node_id}", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
     _authenticate_token(_extract_token_from_body(body_text))
 
+    # T12(api-H1): 有状态节点黑名单——403 早于 body 深度处理与任何图执行
+    if node_id in _NODE_RUN_DENIED:
+        raise HTTPException(status_code=403, detail=f"node '{node_id}' is stateful and not runnable via /node_run")
+
     ctx = new_context(method="node_run", headers=request.headers)
     request_context.set(ctx)
-    logger.info(
-        f"Received request for /node_run/{node_id}: "
-        f"query={dict(request.query_params)}, "
-        f"body={body_text}",
-    )
+    run_id = ctx.run_id
+    _log_request_receipt(f"/node_run/{node_id}", run_id, request, raw_body)
 
     try:
         payload = await request.json()
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_node_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format:{extract_core_stack()}")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
     try:
         return await service.run_node(node_id, payload, ctx)
     except KeyError:
+        # T2(api-M1): traceback 移出 404 detail，只进日志
+        logger.warning("node_run 404 stack: %s", extract_core_stack()[-500:])
         raise HTTPException(status_code=404,
-                            detail=f"node_id '{node_id}' not found or input miss required fields, traceback: {extract_core_stack()}")
+                            detail=f"node_id '{node_id}' not found or input miss required fields")
     except Exception as e:
         # 使用错误分类器获取错误信息
         error_response = service.error_classifier.get_error_response(e, {"node_name": node_id})
@@ -1171,12 +1225,13 @@ async def http_node_run(node_id: str, request: Request):
             f"Unexpected error in http_node_run: [{error_response['error_code']}] {error_response['error_message']}, "
             f"traceback: {traceback.format_exc()}", exc_info=True
         )
+        # T2(api-M1): stack_trace 移出响应 detail，只进日志
+        logger.error("node_run failed stack: %s", extract_core_stack())
         raise HTTPException(
             status_code=500,
             detail={
                 "error_code": error_response["error_code"],
                 "error_message": error_response["error_message"],
-                "stack_trace": extract_core_stack(),
             }
         )
     finally:
@@ -1549,7 +1604,8 @@ async def health_check():
 
 @app.get("/api/v1/store/health", responses={
     200: {"content": {"application/json": {"example": {
-        # status ∈ ok/warning/critical/error/unknown（缺凭证=unknown）
+        # T9(api-M3) 起 status ∈ ok/warning/critical/unknown（缺凭证=unknown）；
+        # 上游失败一律 502 固定文案，200 体不再有 error 形态
         "status": "ok",
         "total_usage": 9900,
         "total_limit": 10000,
@@ -1557,11 +1613,24 @@ async def health_check():
         "daily_usage": 40,
         "daily_limit": 200,
         "daily_remaining": 160,
+    }}}},
+    401: {"model": ErrorBody},
+    502: {"content": {"application/json": {"example": {
+        # T9(api-M3): 上游失败只回固定文案，Ozon 原文只进日志
+        "detail": "upstream store health check failed",
     }}}}})
-def store_health(client_id: str = None, api_key: str = None):
+def store_health(request: Request, client_id: str = None, api_key: str = None):
     """查询 Ozon 店铺配额健康状态。
 
-    Query params (可选):
+    T9(api-M3): Bearer 必填（``_require_bearer``，无 Bearer 401 "Token is
+    required"）——此前完全无鉴权，匿名可拿任意店铺凭证探测 Ozon 店铺配额/
+    存在性。凭证取值：优先 ``X-Ozon-Client-Id`` / ``X-Ozon-Api-Key`` header，
+    缺省回落 query（**query 传凭证已弃用**——query 会进反代/访问日志留痕面，
+    仅为存量调用方向后兼容保留）。上游失败（意外异常或 Ozon error）→ 502
+    固定文案，原文只进 logger——此前 ``message: str(e)`` / Ozon error 原文
+    直接进 200 响应体，上游内部细节泄漏给客户端。
+
+    凭证（header 或 query）:
     - client_id: Ozon Client-Id
     - api_key: Ozon Api-Key
 
@@ -1570,12 +1639,20 @@ def store_health(client_id: str = None, api_key: str = None):
     F-F01（2026-09-09 审计）：收敛 ozon_check_quota——与 submit 配额闸同源
     解析/限流/重试，移除裸 requests.post 直连。
     """
+    _require_bearer(request)
+    client_id = request.headers.get("X-Ozon-Client-Id") or client_id or ""
+    api_key = request.headers.get("X-Ozon-Api-Key") or api_key or ""
     if not client_id or not api_key:
         return {"status": "unknown", "message": "需要提供 client_id 和 api_key"}
     try:
         quota = ozon_check_quota(client_id=client_id, api_key=api_key, timeout=10)
         if quota.get("error"):
-            return {"status": "error", "message": f"Ozon API error: {quota['error']}"}
+            # T9(api-M3): Ozon 错误原文不回显（此前 f"Ozon API error: {quota['error']}"
+            # 直接进响应体）——固定文案 + 原文截断进日志
+            logger.warning("store/health upstream fail: %s",
+                           str(quota["error"])[:120])
+            raise HTTPException(status_code=502,
+                                detail="upstream store health check failed")
         total_used = int(quota.get("total_used", 0) or 0)
         total_limit = int(quota.get("total_limit", 0) or 0)
         daily_used = int(quota.get("daily_used", 0) or 0)
@@ -1592,8 +1669,13 @@ def store_health(client_id: str = None, api_key: str = None):
             "total_usage": total_used, "total_limit": total_limit, "remaining": remaining,
             "daily_usage": daily_used, "daily_limit": daily_limit, "daily_remaining": daily_remaining,
         }
+    except HTTPException:
+        raise  # 401/502 原样透传，不被兜底吞掉
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # T9(api-M3): 异常文本绝不进响应（此前 200 体 {"status":"error",
+        # "message": str(e)} 会把连接串等内部细节泄漏给客户端）
+        logger.warning("store/health upstream fail: %s", str(e)[:120])
+        raise HTTPException(status_code=502, detail="upstream store health check failed")
 
 
 def _extract_token_from_body(body_text: str) -> str:
@@ -1626,14 +1708,17 @@ def _authenticate_token(token: str) -> str:
     clean_tmp = token.replace("sk-", "", 1) if token.startswith("sk-") else token
     if clean_tmp in _revoked_tokens:
         raise HTTPException(status_code=401, detail="Token is revoked")
+    from services.tenant_service import resolve_tenant
+    user_id = resolve_tenant(token)
+    # T21(race-M5): 限流后置——通过凭证校验(resolve_tenant 的 401/503)的 token 才写
+    # 限流键，未认证洪水不再消耗限流字典内存（键形态保持 raw token 含 sk- 前缀不变）。
     allowed, _remaining = rate_limiter.check(token)
     if not allowed:
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
         )
-    from services.tenant_service import resolve_tenant
-    return resolve_tenant(token)
+    return user_id
 
 
 def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
@@ -1679,7 +1764,7 @@ def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
         ):
             try:
                 _trows = supabase.table("tokens").select(
-                    "user_id, unlimited_quota, status"
+                    "user_id, unlimited_quota"
                 ).eq("key", raw_key).is_("deleted_at", "null").limit(1).execute()
                 if _trows.data:
                     _row = _trows.data[0]
@@ -1856,13 +1941,18 @@ def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dic
         "stages": {"auth": "done", "ingest": "done", "category_match": "done"},
     }}}}, 404: {"content": {"application/json": {"example": {
         "detail": "No progress found for run_id=3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    }}}}})
-async def http_progress(run_id: str):
+    }}}}, 401: {"model": ErrorBody}})
+async def http_progress(run_id: str, request: Request):
     """查询工作流执行进度。
+
+    v0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，
+    匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，
+    语义见 helper docstring。
 
     优先从 LangGraph checkpointer 读取实时 state，
     降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
     """
+    _ = _require_bearer(request)
     # 1. 尝试 LangGraph checkpointer（实时 running state）
     if async_graph is not None:
         checkpointer = get_memory_saver()
@@ -2093,13 +2183,7 @@ async def http_submit_task(request: Request):
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
 
-        # ✅ 限流检查（按原始 token，含 sk- 前缀）
-        allowed, remaining = rate_limiter.check(token)
-        if not allowed:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
-            )
+        raw_token = token  # T21(race-M5): 限流键保持原始 token（含 sk- 前缀）形态不变
 
         # Step2: 处理sk-前缀
         if token.startswith("sk-"):
@@ -2111,6 +2195,18 @@ async def http_submit_task(request: Request):
         # 且任务 tenant_id 与全系统(WebUI/采集箱)不一致造成租户漂移。
         from services.tenant_service import resolve_tenant
         user_id = resolve_tenant(token)
+
+        # ✅ 限流检查（T21(race-M5) 后置：移到 resolve_tenant 凭证校验之后——
+        # 未认证洪水不再写限流键（与 logistics/analytics 端点 T6-T10 后的
+        # 「鉴权先行」次序对齐）；键仍按原始 token（含 sk- 前缀）。保持在余额
+        # 检查之前，超限 token 不会打到 MXOU 外部接口）
+        allowed, remaining = rate_limiter.check(raw_token)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute"
+            )
+
         balance, has_quota = _check_mxou_balance({"key": token, "user_id": user_id})
         if not has_quota:
             # v0.64.1 B3: 402 文案带来源标识便于定位误报（订阅 0 哨兵 vs 真欠费 vs
@@ -2243,12 +2339,74 @@ async def http_submit_task(request: Request):
     except HTTPException:
         raise  # 直接抛出HTTP异常
     except Exception as e:
-        logger.error(f"Submit task error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit task: {str(e)}")
+        # T2(api-M1): 500 detail 固定文案（str(e) 可能携带内部信息），异常细节只进日志
+        logger.exception("提交任务失败")
+        raise HTTPException(status_code=500, detail="Failed to submit task")
+
+
+# T3(crypto-H1): payload 内可能出现凭证的键名集合（大小写不敏感匹配）。
+_PAYLOAD_SECRET_KEYS = frozenset({"token", "ozon_api_key", "api_key", "secret", "password", "client_secret"})
+
+
+def _redact_payload(payload):
+    """T3(crypto-H1): task_status 出口对 payload 做键名级凭证脱敏（深拷贝，不改原 dict）。
+    payload JSONB 存提交时 GraphInput 原文（顶层 token / ozon_api_key 明文），原样回显
+    即泄漏。覆盖顶层与任意嵌套 dict/list；非字符串值不动（键名命中但值是 dict/list
+    → 不替换、继续下钻）；顶层非 dict（None/list/str）原样透传。REST/MCP 同源生效
+    （MCP get_task_status 走本进程 REST 回调）。"""
+    def walk(obj):
+        if isinstance(obj, dict):
+            return {k: ("[REDACTED]" if str(k).lower() in _PAYLOAD_SECRET_KEYS and isinstance(v, str) else walk(v))
+                    for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [walk(x) for x in obj]
+        return obj
+    return walk(copy.deepcopy(payload))
+
+
+def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes,
+                         extra: dict | None = None) -> None:
+    """T2(crypto-C1): /run 系请求回执日志——绝不落 body 原文（含 token/ozon_api_key），
+    只落端点/run_id/query 键名列表/字节数。extra: 附加诊断键值对（k=v 空格拼接；None 省略）。"""
+    try:
+        qkeys = ",".join(sorted(request.query_params.keys())) if request.query_params else "-"
+    except Exception:
+        qkeys = "-"
+    extra_part = ""
+    if extra:
+        extra_part = " " + " ".join(f"{k}={v}" for k, v in extra.items())
+    logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} "
+                f"body_bytes={len(raw_body)}{extra_part}")
+
+
+def _require_bearer(request: Request) -> str:
+    """T8(api-M2): Bearer 提取 + 有效性校验共享入口（/progress 已接入；
+    task_statistics 的内联已收敛至此；后续 read-only 端点同款复用）。
+
+    规则：
+    - 无 Authorization Bearer → 401 "Token is required"（与 forensics /
+      ``_task_status_guard`` 同文案）。
+    - Bearer 剥 ``sk-`` 前缀一层后走 ``_verify_analytics_token`` 有效性校验，
+      其 401/503 原样透传（本函数不吞不换）。
+    - 返回 clean token（无 sk- 前缀）。⚠️ 调用方后续若做租户解析可直传本返回值
+      ——``resolve_tenant`` 内部自剥 sk-（``_clean_token``），raw/clean 等价。
+
+    ⚠️ 应急门语义见 ``_task_status_guard``（env ``TASK_STATUS_AUTH``）——那是
+    task_status/cancel_task 专用的应急开关；本 helper **无独立开关**，接入端点
+    如需应急放行走端点级回退（镜像回滚或临时 try 包裹），勿混用 TASK_STATUS_AUTH。
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(status_code=401, detail="Token is required")
+    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
+    _verify_analytics_token(clean)
+    return clean
 
 
 def _task_status_guard(request: Request, task_row: dict) -> None:
-    """GET /task_status 鉴权 + 租户校验（v0.73 安全收口）。
+    """鉴权 + 租户校验（v0.73 为 GET /task_status 收口；v0.76 T6(api-H2) 起
+    cancel_task 同源复用——语义完全一致，见下）。
 
     此前该端点（旧路径 + /api/v1 别名）完全无鉴权——任何拿到 task uuid 的人
     可读全量任务数据（tenant_id / 采购链接 / 定价成本）。规则：
@@ -2349,13 +2507,20 @@ async def http_task_status(task_id: str, request: Request):
             if progress:
                 task_status["progress"] = progress
 
+        # ✅ T3(crypto-H1): payload 存提交时 GraphInput 原文（token/ozon_api_key 明文），
+        # 出口必须脱敏。旧路径（无 response_model）与 /api/v1 别名共用此组装点，
+        # 单点应用即双路径生效；非 dict payload 原样透传。
+        if isinstance(task_status.get("payload"), dict):
+            task_status["payload"] = _redact_payload(task_status["payload"])
+
         return task_status
 
     except HTTPException:
         raise  # v0.73: 404/401/租户 404 直通（此前被吞成 500，与 v1 docs 的 404 约定不符）
     except Exception as e:
-        logger.error(f"Get task status error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception("查询任务状态失败")
+        raise HTTPException(status_code=500, detail="Failed to get task status")
 
 
 @app.post("/cancel_task/{task_id}", responses={
@@ -2363,25 +2528,39 @@ async def http_task_status(task_id: str, request: Request):
         "status": "success",
         "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
         "message": "Task cancelled successfully",
-    }}}}, 409: {"content": {"application/json": {"example": {
+    }}}}, 401: {"model": ErrorBody}, 404: {"model": ErrorBody},
+    409: {"content": {"application/json": {"example": {
         # 不可取消（非 pending/处理异常）→ TASK_NOT_CANCELLABLE 统一错误信封
         "ok": False,
         "error_code": "TASK_NOT_CANCELLABLE",
         "message": "Task 3fa85f64-5717-4562-b3fc-2c963f66afa6 cannot be cancelled (may not in pending status)",
     }}}}})
-async def http_cancel_task(task_id: str):
+async def http_cancel_task(task_id: str, request: Request):
     """
     取消任务（仅pending状态的任务可取消）
-    
+
+    T6(api-H2): 补 Bearer 鉴权 + 租户校验（语义与 task_status v0.73 同源，
+    复用 ``_task_status_guard``：TASK_STATUS_AUTH=0 应急关 / 无 Bearer 401 /
+    跨租户 404 "task not found" 不泄漏存在性 / 老数据无租户宽容放行）。
+    修复前匿名持有 task uuid 即可跨租户取消任意 pending 任务（安全探针实证）。
+
     Returns:
         取消结果
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
-    
+
     try:
+        # ✅ T6(api-H2): 先查归属（不存在 → 404，与 task_status 同序），再
+        # 鉴权 + 租户校验，放行后才执行取消。HTTPException 由下面的
+        # except HTTPException 直通，不被兜底 except 吞成 500。
+        task_row = await task_processor.fetch_task_owner(task_id)
+        if not task_row:
+            raise HTTPException(status_code=404, detail="task not found")
+        _task_status_guard(request, task_row)
+
         success = await task_processor.cancel_task(task_id)
-        
+
         if success:
             return {
                 "status": "success",
@@ -2396,10 +2575,13 @@ async def http_cancel_task(task_id: str):
                 WorkerErrorCode.TASK_NOT_CANCELLABLE,
                 f"Task {task_id} cannot be cancelled (may not in pending status)",
             )
-            
+
+    except HTTPException:
+        raise  # T6: 401/404/租户 404 直通（同 http_task_status v0.73 处理）
     except Exception as e:
-        logger.error(f"Cancel task error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel task: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception("取消任务失败")
+        raise HTTPException(status_code=500, detail="Failed to cancel task")
 
 
 @app.post("/resubmit_task/{task_id}", responses={
@@ -2407,6 +2589,10 @@ async def http_cancel_task(task_id: str):
         "ok": True,
         "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
         "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
+    }}}}, 402: {"content": {"application/json": {"example": {
+        "ok": False,
+        "error_code": "INSUFFICIENT_BALANCE",
+        "message": "MXOU 余额不足 (current: -5.0). 请充值",
     }}}}, 409: {"content": {"application/json": {"example": {
         "ok": False,
         "error_code": "TASK_NOT_RESUBMITTABLE",
@@ -2421,6 +2607,11 @@ async def http_resubmit_task(task_id: str, request: Request):
 
     ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
     校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
+
+    ⚠️ race-L1（v0.76 Task 26）：与 submit_task 同款两段——入队前
+    _check_mxou_balance 余额预检（欠费 → 402，重提交重跑生图/LLM 同样烧额度）；
+    入队 IntegrityError（并发撞部分唯一索引）→ 干净 409 DUPLICATE_SUBMIT
+    （此前冒泡成 500）。
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
@@ -2452,6 +2643,26 @@ async def http_resubmit_task(task_id: str, request: Request):
                 detail={"task_id": task_id, "status": status},
             )
 
+        # race-L1（v0.76 Task 26）: 余额预检对齐 submit_task——重提交重跑生图/LLM
+        # 同样烧 MXOU 额度，欠费 token 不得借重提交绕过 402。在鉴权+归属+状态
+        # 校验之后、入队之前执行；key 剥 sk- 前缀 + user_id=caller 租户，与
+        # submit_task 同参形态。402 文案逐字同款（含 v0.64.1 B3 来源标识）。
+        _balance_key = token[3:] if token.startswith("sk-") else token
+        balance, has_quota = _check_mxou_balance({"key": _balance_key, "user_id": caller_user_id})
+        if not has_quota:
+            if isinstance(balance, (int, float)) and balance < 0:
+                _msg = f"MXOU 余额不足 (current: {balance}). 请充值"
+            else:
+                _src = _balance_source_label({"key": _balance_key, "user_id": caller_user_id}, balance)
+                _msg = (
+                    f"MXOU 余额不足 (current: {balance}). 请充值 "
+                    f"(source: {_src}, raw_balance: {balance})"
+                )
+            return error_response(
+                WorkerErrorCode.INSUFFICIENT_BALANCE,
+                _msg,
+            )
+
         # 深拷贝原载荷（避免改到 DB 返回的原始 dict），注入重提交标记
         payload = copy.deepcopy(task_status.get("payload") or {})
         payload["parent_task_id"] = task_id
@@ -2478,14 +2689,26 @@ async def http_resubmit_task(task_id: str, request: Request):
             f"{tenant_id}:{product_id}"
         ) if product_id else ""
 
-        new_task_id = await task_processor.submit_task(
-            tenant_id=tenant_id,
-            payload=payload,
-            priority=0,
-            timeout_seconds=int(task_status.get("timeout_seconds") or 1800),
-            max_retries=int(task_status.get("max_retries") or 3),
-            sku_key=sku_key,
-        )
+        # F-C06 同款（race-L1，v0.76 Task 26）: 去重 SELECT 与 INSERT 之间的并发
+        # 窗口由部分唯一索引 uq_ozon_product_tasks_tenant_sku 兜底——重提交撞索引
+        # 映射为与 submit_task 同款的干净 409（此前 IntegrityError 冒泡进通用
+        # except → 500，客户端重试放大窗口）。
+        try:
+            new_task_id = await task_processor.submit_task(
+                tenant_id=tenant_id,
+                payload=payload,
+                priority=0,
+                timeout_seconds=int(task_status.get("timeout_seconds") or 1800),
+                max_retries=int(task_status.get("max_retries") or 3),
+                sku_key=sku_key,
+            )
+        except IntegrityError:
+            log_task_event("duplicate_submit_blocked", task_id=task_id, user_id=tenant_id,
+                           sku_key=sku_key, status="unique_index")
+            return error_response(
+                WorkerErrorCode.DUPLICATE_SUBMIT,
+                "该商品已在提交队列（并发提交命中唯一约束），请勿重复提交",
+            )
 
         log_task_event("resubmitted", task_id=new_task_id, user_id=tenant_id,
                        parent_task_id=task_id, from_status=status)
@@ -2513,33 +2736,58 @@ async def http_resubmit_task(task_id: str, request: Request):
             "total": 130, "pending": 2, "running": 5, "completed": 120,
             "failed": 3, "cancelled": 0, "avg_duration_seconds": 210.55,
         },
-    }}}}})
+    }}}}, 401: {"model": ErrorBody}, 403: {"model": ErrorBody}})
 async def http_task_statistics(request: Request):
     """
     获取任务统计信息
-    
+
+    T7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举
+    任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。
+    规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：
+    - 无 Authorization Bearer → 401 "Token is required"。
+    - Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。
+    - query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。
+    - ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），
+      否则 403 "admin only"。
+
     Args:
-        tenant_id: 租户ID（可选，不传则查询所有租户）
-    
+        tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）
+
     Returns:
         任务统计信息（总数、成功率、平均耗时等）
     """
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
-    
+
+    # ✅ T8(api-M2): 鉴权收敛到 ``_require_bearer``（T7 内联三行 → 共享 helper；
+    # resolve_tenant 内部自剥 sk-，helper 返回的 clean token 直传等价）。仍在
+    # try 外——401/403 是 HTTPException，不会被下面的兜底 except 吞成 500
+    # （同 http_task_status 口径）。
+    own_token = _require_bearer(request)
+    from services.tenant_service import resolve_tenant
+    own_tenant = resolve_tenant(own_token)
+    q_tenant = request.query_params.get("tenant_id") or ""
+    tenant = own_tenant
+    if q_tenant and q_tenant != own_tenant:
+        scope = resolve_analytics_scope(own_token)
+        if not scope.get("is_admin"):
+            raise HTTPException(status_code=403, detail="admin only")
+        tenant = q_tenant
+
     try:
-        tenant_id = request.query_params.get("tenant_id")
-        
-        statistics = await task_processor.get_task_statistics(tenant_id)
-        
+        statistics = await task_processor.get_task_statistics(tenant)
+
         return {
             "status": "success",
             "statistics": statistics
         }
-        
+
+    except HTTPException:
+        raise  # T7: 401/403/租户语义 HTTPException 直通（同 http_task_status v0.73 处理）
     except Exception as e:
-        logger.error(f"Get task statistics error: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to get task statistics: {str(e)}")
+        # T2(api-M1 补): 500 detail 固定文案，异常细节只进日志
+        logger.exception("查询任务统计失败")
+        raise HTTPException(status_code=500, detail="Failed to get task statistics")
 
 
 @app.get(path="/graph_parameter", responses={
@@ -2568,7 +2816,8 @@ async def http_graph_inout_parameter(request: Request):
         "fallback_chain": [],
         "logistics_cost_cny": 8.0,
         "channel": "RETS_Standard_A",
-    }}}}})
+    }}}},  # 200 示例收口（example/json/content/200 四层）
+    401: {"model": ErrorBody}, 429: {"model": ErrorBody}})
 async def logistics_quote(request: Request):
     """物流运费报价端点（v0.29.x, skill 选品利润估算用）。
 
@@ -2576,13 +2825,21 @@ async def logistics_quote(request: Request):
            tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
     - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
       否则默认 RETS/Standard。
-    - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
+    - T10(api-M4): Authorization Bearer **必填**（``_require_bearer``）——
+      此前 token 走 body 可选字段，缺省直接跳过鉴权（匿名可拉费率表、可打满
+      带 Ozon 凭证的 3PL 探测），且无 rate limit；现 ``logistics:{clean_token}``
+      独立限流键（不与提交限流额度互挤），超限 429。
+    - body token 保留向后兼容（有值仍校验，语义同 auth_verify）。
 
     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
 
     v0.63.1 架构优化 R2: 阻塞 Supabase/Ozon 逻辑在 _logistics_quote_sync（to_thread）。
     """
+    clean_token = _require_bearer(request)  # T10(api-M4): 匿名拉费率面收口
+    allowed, _ = rate_limiter.check(f"logistics:{clean_token}")
+    if not allowed:
+        raise HTTPException(status_code=429, detail="rate limited")
     try:
         body = await request.json()
     except Exception:
@@ -2655,9 +2912,11 @@ async def v1_health():
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return HealthResponse(status="ok", message="Service is running", db="connected")
-    except Exception as e:
+    except Exception:
+        # T2(api-M1 补): str(e) 可能携带连接串等内部信息，只进日志；status/db 语义字段保留
+        logger.exception("health check failed")
         raise HTTPException(status_code=503, detail={
-            "status": "degraded", "message": str(e), "db": "disconnected"
+            "status": "degraded", "message": "service temporarily unavailable", "db": "disconnected"
         })
 
 
@@ -2682,22 +2941,24 @@ async def v1_task_status(task_id: str, request: Request):
 
 
 @v1.post("/cancel_task/{task_id}", response_model=CancelTaskResponse, tags=["task"],
-         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
-async def v1_cancel_task(task_id: str):
-    """取消待处理的任务。"""
-    return await http_cancel_task(task_id)
+         responses={401: {"model": ErrorBody}, 404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+async def v1_cancel_task(task_id: str, request: Request):
+    """取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。"""
+    return await http_cancel_task(task_id, request)
 
 
 @v1.post("/resubmit_task/{task_id}", response_model=SubmitTaskResponse, tags=["task"],
-         responses={404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
+         responses={402: {"model": ErrorBody}, 404: {"model": ErrorBody}, 409: {"model": ErrorBody}})
 async def v1_resubmit_task(task_id: str, request: Request):
-    """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。"""
+    """重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。"""
     return await http_resubmit_task(task_id, request)
 
 
-@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"])
+@v1.get("/task_statistics", response_model=TaskStatisticsResponse, tags=["task"],
+        responses={401: {"model": ErrorBody}, 403: {"model": ErrorBody}})
 async def v1_task_statistics(request: Request):
-    """获取任务统计信息。
+    """获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+    跨租户仅 admin——语义与旧路径同源）。
 
     ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
     v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
@@ -2974,7 +3235,7 @@ async def v1_discovery_report_run(request: Request):
             "ordering_amount": 1284500.0,
             "ordering_count": 412,
             "avg_price_rub": 3117.7,
-            "contributed_by_token_id": "test-token-123",
+            "contributed_by_fp": "a1b2c3d4",
         }],
         "total": 1, "limit": 50, "offset": 0,
     }}}},
@@ -3018,6 +3279,26 @@ async def v1_analytics_list_bestsellers(request: Request):
     )
 
 
+def _fetch_discovery_runs_rows(*, limit: int, offset: int):
+    """discovery/runs 行查询封装（v0.76 T1 抽出以便测试 monkeypatch 钉住脱敏行为）。
+
+    SQL 主体从原 v1_discovery_list_runs 内联处平移，零语义变更。返回 (rows, total)。
+    SELECT 保留 tenant_id 明文列（r[5]）供 Python 内算指纹用——明文绝不进响应 dict
+    （v0.76 api-C1：读侧只发 contributed_by_fp）。
+    """
+    from sqlalchemy import text
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
+            "FROM discovery_runs "
+            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
+        ), {"limit": limit, "offset": offset}).fetchall()
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM discovery_runs"
+        )).scalar()
+    return rows, int(total or 0)
+
+
 @v1.get("/discovery/runs", tags=["analytics"], responses={
     200: {"content": {"application/json": {"example": {
         "items": [{
@@ -3026,8 +3307,7 @@ async def v1_analytics_list_bestsellers(request: Request):
             "filters": {"min_margin": 0.25},
             "candidates": 23,
             "created_at": "2026-09-11T10:24:31",
-            "contributed_by_token_id": "test-token-123",
-            "contributed_by_fp": "a1b2c3d4e5f60718",
+            "contributed_by_fp": "a1b2c3d4",
         }],
         "total": 1, "limit": 50, "offset": 0,
     }}}},
@@ -3055,16 +3335,7 @@ async def v1_discovery_list_runs(request: Request):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
-    from sqlalchemy import text
-    with get_engine().connect() as conn:
-        rows = conn.execute(text(
-            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
-            "FROM discovery_runs "
-            "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
-        ), {"limit": limit, "offset": offset}).fetchall()
-        total = conn.execute(text(
-            "SELECT COUNT(*) FROM discovery_runs"
-        )).scalar()
+    rows, total = _fetch_discovery_runs_rows(limit=limit, offset=offset)
 
     from services.tenant_service import token_fingerprint
     items = [{
@@ -3073,13 +3344,12 @@ async def v1_discovery_list_runs(request: Request):
         "filters": r[2],
         "candidates": r[3],
         "created_at": r[4].isoformat() if r[4] is not None else None,
-        # A8 F6 展示脱敏：贡献者列新增 fp 前 8 位（明文 contributed_by_token_id
-        # 灰度期保留——webui/既有消费方逐步切换；读时从 tenant_id 现算与写侧
-        # token_fingerprint 同源等值，明文列删除后切换为读 token_fp 列）。
-        "contributed_by_token_id": str(r[5] or ""),
+        # A8 F6 展示脱敏：贡献者只回指纹前 8 位。
+        # v0.76 安全修复(api-C1): "contributed_by_token_id" 明文键已删除——读侧只发 fp
+        #（读时从 tenant_id 现算与写侧 token_fingerprint 同源等值；DB 明文列保留，defer 退役）。
         "contributed_by_fp": token_fingerprint(str(r[5] or ""))[:8],
     } for r in rows]
-    return {"items": items, "total": int(total or 0), "limit": limit, "offset": offset}
+    return {"items": items, "total": int(total), "limit": limit, "offset": offset}
 
 
 @v1.get("/mappings/lookup", tags=["analytics"], responses={
@@ -3181,7 +3451,9 @@ async def v1_categories_search(request: Request):
         rows = get_category_query().search_nodes(
             q_text, top_k=top_k, node_type="type", language="ZH_HANS")
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"category tree unavailable: {exc}")
+        # T2(api-M1 补): 503 固定文案，异常细节只进日志
+        logger.warning("category tree unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="category tree temporarily unavailable")
     return {"items": [{
         "description_category_id": str(r.get("description_category_id", "") or ""),
         "type_id": str(r.get("type_id", "") or ""),
@@ -3288,7 +3560,9 @@ async def v1_categories_attributes(request: Request):
                 int(attr_id), int(dc), int(tp), _client_id, _api_key,
             )
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"attribute values unavailable: {exc}")
+            # T2(api-M1 补): 503 固定文案，异常细节只进日志
+            logger.warning("attribute values unavailable: %s", exc)
+            raise HTTPException(status_code=503, detail="attribute values temporarily unavailable")
         return {
             "found": bool(res.get("found")),
             "cached": bool(res.get("cached")),
@@ -3304,7 +3578,9 @@ async def v1_categories_attributes(request: Request):
             get_attributes_with_lazy_fetch, int(dc), int(tp), _client_id, _api_key,
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"attribute cache unavailable: {exc}")
+        # T2(api-M1 补): 503 固定文案，异常细节只进日志
+        logger.warning("attribute cache unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="attribute cache temporarily unavailable")
     if not res.get("found"):
         out_fail = {"found": False, "cached": False, "attributes": []}
         if res.get("reason"):

@@ -25,6 +25,7 @@ from typing import List, Optional
 from utils import image_url_guard
 from utils.image_url_guard import is_cos_url  # 模块级 re-export（防漂移；F401 已在 ruff.toml 全局 ignore）
 from utils.image_url_processor import _referer_for_url
+from utils.secure_fetch import safe_fetch  # v0.76 T15 接线；T16(controller) 上提到模块顶部（评审 N1）
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +116,13 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
 
     - 未配置 COS / 下载失败(404/超时) / 参考图(竞品图+1688缩略图) → 跳过
     - 已托管本方 COS 的 URL → 直通原样收下（免二次下载-转存，计入 saved/max_n）
+    - v0.76 T15: 下载统一走 utils.secure_fetch.safe_fetch——解析到内网/保留段、
+      重定向跳白名单外域、畸形端口的 URL 同样按失败降级跳过该图
     - 全部失败 → [] (调用方保持原有警告路径)
     """
     saved: List[str] = []
     if not original_images or not cos_enabled():
         return saved
-    import requests
 
     for url in original_images:
         if len(saved) >= max_n:
@@ -145,7 +147,15 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             referer = _referer_for_url(url.strip())
             if referer:
                 headers["Referer"] = referer
-            resp = requests.get(url.strip(), timeout=15, headers=headers)
+            # v0.76 T15(controller)：裸 requests.get → safe_fetch。guard 白名单
+            # 只约束首跳 URL 的 hostname，这里补解析 IP 校验（白名单域仍可能被
+            # 内网 DNS 指向）与逐跳复核；allowed_host_suffixes 双保险——重定向
+            # 跳转域同样锁死图床白名单，防 302 跳公网外域后字节入 COS。
+            # 宽 except 是刻意的（T14 carried 同款）：safe_fetch 对畸形端口可抛
+            # 裸 ValueError（fail-closed 但类型不保证），UnsafeUrlError/ValueError
+            # 一并落 warn 降级跳过该图，绝不放行内网。
+            resp = safe_fetch(url.strip(), timeout=15, headers=headers,
+                              allowed_host_suffixes=image_url_guard.IMAGE_HOST_SUFFIXES)
             if resp.status_code != 200 or not resp.content:
                 logger.warning("E1 原始图下载失败(HTTP %s): %s", resp.status_code, url)
                 continue
@@ -153,7 +163,7 @@ def salvage_original_images(original_images: List[str], max_n: int = 8,
             if purl:
                 saved.append(purl)
         except Exception as e:
-            logger.warning("E1 原始图转存失败: %s (%s)", url, e)
+            logger.warning("E1 原始图转存失败(%s: %s): %s", type(e).__name__, e, url)
     if saved:
         logger.info("✅ E1 原始图转存成功 %d 张(共尝试 %d)", len(saved), len(original_images))
     return saved

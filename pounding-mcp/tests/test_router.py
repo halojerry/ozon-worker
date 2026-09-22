@@ -2,7 +2,9 @@
 
 覆盖 docs/PLAN-conversation-entry-v1.md Phase 1 验收：
 - route_intent：URL → A/B/C、图片 → D1、意图词 → C/D/E、多 URL → F、歧义 → unknown 追问
-- tasks_server /ask：正常路由 / 澄清 / 确认 / 长时后台 / 500 不回显 / CORS 预检
+- tasks_server /ask：正常路由 / 澄清 / 确认 / 长时后台 / 500 不回显 / OPTIONS 204 无 CORS
+- v0.76 T18 起 8902 网关强制 Bearer 鉴权：本文件所有请求默认带合法 token
+  （401/免鉴权语义专项在 test_tasks_server_auth.py）
 
 不依赖真实 skill subprocess / Chrome / fastmcp：monkeypatch run_skill_command 与 get_manager。
 """
@@ -192,7 +194,10 @@ def server(monkeypatch):
 
 def _request(method: str, port: int, path: str, body: dict | None = None) -> tuple[int, dict, http.client.HTTPResponse]:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    headers = {"Content-Type": "application/json"} if body is not None else {}
+    # v0.76 T18：8902 网关强制 Bearer 鉴权，所有请求默认带合法 token
+    headers = {"Authorization": f"Bearer {tasks_server._TASKS_TOKEN}"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
     conn.request(method, path, json.dumps(body) if body is not None else None, headers)
     resp = conn.getresponse()
     data = resp.read()
@@ -273,18 +278,17 @@ def test_ask_500_no_internal_leak(server, monkeypatch):
     assert "secret" not in json.dumps(body)
 
 
-def test_options_preflight_cors(server, monkeypatch):
-    """OPTIONS 预检 → 200 + 全量 CORS 头。"""
+def test_options_preflight_no_cors(server, monkeypatch):
+    """OPTIONS 预检 → 204 空体，无任何 Access-Control-* 头（v0.76 T18 CORS 收敛）。"""
     status, _, resp = _request("OPTIONS", server.server_port, "/ask")
-    assert status == 200
-    assert resp.getheader("Access-Control-Allow-Origin") == "*"
-    assert "POST" in (resp.getheader("Access-Control-Allow-Methods") or "")
-    assert resp.getheader("Access-Control-Allow-Headers") == "Content-Type"
-    assert resp.getheader("Access-Control-Max-Age") == "86400"
+    assert status == 204
+    assert resp.getheader("Access-Control-Allow-Origin") is None
+    assert resp.getheader("Access-Control-Allow-Methods") is None
+    assert resp.getheader("Access-Control-Allow-Headers") is None
 
 
-def test_health_has_cors(server, monkeypatch):
-    """GET /health 正常且带 CORS 头。"""
+def test_health_free_of_auth_no_cors(server, monkeypatch):
+    """GET /health 免鉴权 200 {"ok": true}，且无 CORS 头（存活探测不泄漏信息）。"""
     conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
     conn.request("GET", "/health")
     resp = conn.getresponse()
@@ -292,4 +296,4 @@ def test_health_has_cors(server, monkeypatch):
     conn.close()
     assert resp.status == 200
     assert json.loads(data) == {"ok": True}
-    assert resp.getheader("Access-Control-Allow-Origin") == "*"
+    assert resp.getheader("Access-Control-Allow-Origin") is None

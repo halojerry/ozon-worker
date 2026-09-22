@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, text
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from services.analytics_service import list_bestsellers
+from services.tenant_service import token_fingerprint
 
 DB_URL = os.environ.get(
     "PGDATABASE_URL",
@@ -69,14 +70,15 @@ def _cleanup(_pg):
 
 
 def test_list_global_sharing():
-    """T4b.1：A token 看到全部 4 条（含 B 的），每条带贡献者列。"""
+    """T4b.1：A token 看到全部 4 条（含 B 的），贡献者标注保留（v0.76 T1 脱敏为 fp 前 8 位）。"""
     result = list_bestsellers(TOKEN_A)
     assert result["total"] == 4
     skus = {i["sku_or_id"] for i in result["items"]}
     assert skus == {"sku-1", "sku-2", "sku-3", "sku-b"}
     by_sku = {i["sku_or_id"]: i for i in result["items"]}
-    assert by_sku["sku-b"]["contributed_by_token_id"] == TOKEN_B  # 贡献者标注保留
-    assert by_sku["sku-1"]["contributed_by_token_id"] == TOKEN_A
+    assert by_sku["sku-b"]["contributed_by_fp"] == token_fingerprint(TOKEN_B)[:8]  # 贡献者标注保留（指纹化）
+    assert by_sku["sku-1"]["contributed_by_fp"] == token_fingerprint(TOKEN_A)[:8]
+    assert all("contributed_by_token_id" not in i for i in result["items"])  # 明文停发
 
 
 def test_list_category_filter():
