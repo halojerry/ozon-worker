@@ -1160,9 +1160,13 @@ async def http_cancel(run_id: str, request: Request):
 #   - prepare_ozon_upload: INSERT attr_match_log（审计写）
 #   - ozon_upload: Ozon /v3/product/import 外部持久写，绕过 validate/quota 闸
 #   - validation_retry_wrapper: 整个重试子图（含 reupload → Ozon 写）
-#   放行：auth/ingest/follow_sell_import/pricing（纯转换+只读查证）、LLM/生图 12 节点
+#   - auth: AuthOutput 直出平台 Supabase service key（supabase_key = SUPABASE_KEY
+#     env，见 auth_node 全部构造路径）——任何持平台 token 的调用方经本端点即可
+#     取得跨租户库读写权限；这是凭证外泄面，不是「纯转换+只读查证」，故入列。
+#   放行：ingest/follow_sell_import/pricing（纯转换+只读查证）、LLM/生图 12 节点
 #   （计算型）、ozon_validate/check_quota/ozon_status/fetch_back（只读外部）。
 _NODE_RUN_DENIED = frozenset({
+    "auth",
     "learning_record",
     "assemble_ozon_product",
     "prepare_ozon_upload",
@@ -1173,7 +1177,8 @@ _NODE_RUN_DENIED = frozenset({
 
 @app.post(path="/node_run/{node_id}", responses={
     200: {"content": {"application/json": {"example": {
-        # 单节点直跑返回该节点 Output model 的 dict（此处以 auth 节点 AuthOutput 为例）
+        # 单节点直跑返回该节点 Output model 的 dict（示例取 auth 节点 AuthOutput
+        # 形态示意字段形状；auth 本身已在 _NODE_RUN_DENIED，不可经本端点调用）
         "progress_counter": 1,
         "user_id": "28",
         "balance": 12.5,

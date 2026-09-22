@@ -13,12 +13,22 @@ from main import _NODE_RUN_DENIED, app
 def test_blocklist_membership_locked():
     """锁定黑名单成员，防无意收窄（评估结论见 main.py _NODE_RUN_DENIED 注释块）。"""
     assert _NODE_RUN_DENIED == frozenset({
+        "auth",
         "learning_record",
         "assemble_ozon_product",
         "prepare_ozon_upload",
         "ozon_upload",
         "validation_retry_wrapper",
     })
+
+
+def test_auth_denied(monkeypatch):
+    """auth 节点入列：AuthOutput.supabase_key 是平台 Supabase service key——
+    放行等于把跨租户库读写权限发给任何持平台 token 的调用方。"""
+    monkeypatch.setattr("main._authenticate_token", lambda t: None)
+    r = TestClient(app).post("/node_run/auth",
+                             json={"token": "sk-x"}, headers={"Authorization": "Bearer sk-x"})
+    assert r.status_code == 403
 
 
 def test_learning_record_denied(monkeypatch):
