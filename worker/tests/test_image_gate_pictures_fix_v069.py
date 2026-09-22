@@ -157,19 +157,44 @@ def test_reupload_pictures_without_product_id_never_recreates():
 
 
 def test_pictures_fix_sends_cos_only_primary_first():
+    """0.78.0 批H 收口：pictures/import 只放行 AI 来源（file/images/、mxou-b64/）；
+    载荷混入外链/镜像草稿图（= 原图内容）被重传出口闸整体拦截，不 POST。"""
+    AI1 = "https://test-bucket.cos.ap-guangzhou.myqcloud.com/file/images/aa1.jpg"
+    AI2 = "https://test-bucket.cos.accelerate.myqcloud.com/file/images/bb2.jpg"
+
     captured = {}
 
     def fake(client_id, api_key, product_id, images, **kw):
         captured.update(images=list(images), pid=product_id)
         return {"result": {"pictures": [{"state": "uploaded"}]}}
 
-    # primary 为外链（死链）→ 从推送列表剔除；COS 图按序补位
-    state = _img_state(item={"offer_id": "o1", "primary_image": EXT,
-                             "images": [COS, EXT, COS2]})
+    # 全 AI 载荷 → 按序推送（primary 在首）
+    state = _img_state(item={"offer_id": "o1", "primary_image": AI1,
+                             "images": [AI1, AI2]})
     with mock.patch("utils.ozon_client.ozon_import_product_pictures", side_effect=fake):
         assert _fix_via_pictures_import(state) is True
-    assert captured["images"] == [COS, COS2], "外链必须过滤，COS 图按序推送"
+    assert captured["images"] == [AI1, AI2], "AI 图按序推送"
     assert captured["pid"] == "123"
+
+
+def test_pictures_fix_external_primary_blocked_by_gate():
+    """0.78.0 批H：外链 primary 混入重传载荷 → 出口闸整体拦截（旧「内部过滤放行」
+    语义废止——重传载荷必须先过 prepare 出口闸，此处兜底不 POST）。"""
+    AI1 = "https://test-bucket.cos.ap-guangzhou.myqcloud.com/file/images/aa1.jpg"
+    state = _img_state(item={"offer_id": "o1", "primary_image": EXT,
+                             "images": [AI1]})
+    with mock.patch("utils.ozon_client.ozon_import_product_pictures") as m_api:
+        assert _fix_via_pictures_import(state) is False
+    m_api.assert_not_called()
+
+
+def test_pictures_fix_draft_mirror_images_blocked_by_gate():
+    """0.78.0 批H：镜像草稿图（draft-images/）= 原图内容，重传出口闸拦截不 POST。"""
+    state = _img_state(item={"offer_id": "o1", "primary_image": EXT,
+                             "images": [COS, EXT, COS2]})
+    with mock.patch("utils.ozon_client.ozon_import_product_pictures") as m_api:
+        assert _fix_via_pictures_import(state) is False
+    m_api.assert_not_called()
 
 
 def test_pictures_fix_all_external_returns_false_without_call():

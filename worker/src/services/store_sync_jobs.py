@@ -283,21 +283,32 @@ def mark_sync_success(tenant_id: str, credential_id: str, job_id: int) -> None:
                 last_success_at = NOW(),
                 consecutive_failures = 0,
                 last_job_id = :jid,
+                orders_error = '',
+                products_error = '',
                 updated_at = NOW()
             """
         ), {"t": tenant_id, "c": str(credential_id), "jid": job_id})
 
 
-def mark_sync_failure(tenant_id: str, credential_id: str) -> None:
-    """job failed 后递增连续失败(退避/stale 判定用)。"""
+def mark_sync_failure(tenant_id: str, credential_id: str, error: str | None = None) -> None:
+    """job failed 后递增连续失败(退避/stale 判定用)。
+
+    ✅ v0.77.2（死列复活）：可选 `error` 落 credential_sync_state.orders_error /
+    products_error,但**只填空白列**（COALESCE(NULLIF(…,''))）——已有域级精确错误
+    （如 S1 订单原文）不被 job 层泛化文本覆盖;job 层无 error 时行为与旧版一致。
+    非致命：调用方在 except 中调用,本函数不抛业务异常。
+    """
+    err = (error or "")[:500]
     with get_engine().begin() as conn:
         conn.execute(text(
             """
             INSERT INTO credential_sync_state
                 (tenant_id, credential_id, consecutive_failures, orders_error, products_error, updated_at)
-            VALUES (:t, :c, 1, '', '', NOW())
+            VALUES (:t, :c, 1, :e, :e, NOW())
             ON CONFLICT (tenant_id, credential_id) DO UPDATE SET
                 consecutive_failures = credential_sync_state.consecutive_failures + 1,
+                orders_error = COALESCE(NULLIF(credential_sync_state.orders_error, ''), :e),
+                products_error = COALESCE(NULLIF(credential_sync_state.products_error, ''), :e),
                 updated_at = NOW()
             """
-        ), {"t": tenant_id, "c": str(credential_id)})
+        ), {"t": tenant_id, "c": str(credential_id), "e": err})

@@ -40,6 +40,10 @@ def _make_state(extensions=None, product_id=None, draft_extra=None):
     return PrepareOzonUploadInput(
         draft=draft,
         source={"purchase_url": "http://1688.test/item", "purchase_cost": "10.5"},
+        # v0.78 批A 硬闸（fix/image-source-hardgate-v1）：prepare 出口校验载荷图必须
+        # 为本方 COS AI 产物（utils/image_source classify=="ai"）——mock 同步生产形状，
+        # 防占位外链触发 ImageGenAllFailedError（与本用例主题无关）。
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
         extensions=extensions or {},
         pricing_info={"final_price": "1290", "selling_price": "1290", "variant_prices": []},
         description_category_id="17028830",

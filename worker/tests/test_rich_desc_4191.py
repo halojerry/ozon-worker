@@ -56,6 +56,8 @@ def _make_state(final_attributes, schema):
         dictionary_values={},
         token="sk-test",
         original_images=_draft()["images"],
+        # v0.78 批A 硬闸：载荷图必须为本方 COS AI 产物（file/images/ key），防出口闸误伤
+        main_image="https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/file/images/test-main.jpg",
     )
 
 

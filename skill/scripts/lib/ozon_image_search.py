@@ -668,7 +668,9 @@ def _fetch_aibuy_cookies_from_chrome(cdp_url: str = "http://127.0.0.1:9222") -> 
     conn = None
     try:
         conn = CdpConnection(cdp_url)
-        tab = conn.new_tab()
+        # 批A A1（fix/skill-silent-cdp-v1）：后台 tab 预热 cookie——new_tab 默认
+        # 前台会激活 1688 首页到用户眼前（「Chrome 反复弹前台」元凶）。
+        tab = conn.new_tab(background=True)
         # 打开 1688 首页触发 cookie 就绪（会话已有则直接读）
         tab.navigate("https://www.1688.com/", timeout=20)
         # ✅ W5.3 (I-8): mtop token 舞步等待 —— 导航后轮询 document.cookie ≤8s
@@ -722,7 +724,8 @@ def _read_1688_cookies_silent(cdp_url: str = "http://127.0.0.1:9222") -> dict[st
         from scripts.lib.cdp_client import CdpConnection
 
         conn = CdpConnection(cdp_url)
-        tab = conn.new_tab("about:blank")
+        # 批A A1：只读 cookie 检测零导航，也不得抢占前台（about:blank 后台 tab）
+        tab = conn.new_tab("about:blank", background=True)
         msg_id = tab._send("Network.getCookies", {"urls": ["https://www.1688.com/"]})
         resp = tab._recv_until_id(msg_id, timeout=10) or {}
         cookies: dict[str, str] = {}
@@ -870,6 +873,10 @@ def _aibuy_image_upload(image_url: str, token_cookies: dict[str, str]) -> str:
 
     失败返回空串（调用方降级用原始 URL 直接搜）。⚠️ API 要 imageBase64
     （base64 内容），非 imageUrl；且数百 KB base64 必须 POST body（GET 414）。
+
+    批A Q6（fix/skill-silent-cdp-v1）：下载后先过 downscale_for_upload（最长边
+    ≤1024 + JPEG q80）再 base64——原图直灌曾致 HTTP 413 静默降级。压缩失败
+    原样回退原始字节；len<100 原始字节守卫与上传失败→原始 URL 直搜兜底不变。
     """
     try:
         img_resp = requests.get(
@@ -883,7 +890,9 @@ def _aibuy_image_upload(image_url: str, token_cookies: dict[str, str]) -> str:
         if img_resp.status_code != 200 or len(img_resp.content) < 100:
             logger.warning("aibuy 图下载失败（HTTP %d），跳过 upload", img_resp.status_code)
             return ""
-        b64 = base64.b64encode(img_resp.content).decode()
+        from scripts.lib.image_preprocessor import downscale_for_upload
+        raw = downscale_for_upload(img_resp.content)
+        b64 = base64.b64encode(raw).decode()
     except Exception as e:
         logger.warning("aibuy 图下载异常: %s", e)
         return ""
@@ -952,13 +961,99 @@ def _aibuy_image_search(
     return normalized
 
 
+# ── aibuy 批内熔断（批A A4，fix/skill-silent-cdp-v1）──
+# aibuy mtop 通道整体故障时（风控/接口变更），search_by_image_aibuy 对每个候选
+# 都完整走一遍 token→upload→search 失败链再降级 CDP——一批 N 候选白烧 N 次。
+# 模块级连续失败计数：空/异常 +1，成功归零；≥3 → 熔断打开 600s，窗内调用直接
+# 返回 [] 并只打一行日志（直走 CDP/AK 通道）。与既有 token 级 600s claim 闸
+# （_try_claim_aibuy_refresh）互补：那是「导航刷新」的批间冷却，这是「整通道」
+# 的批内熔断。
+# ⚠️ pytest 下熔断整体禁用（生产语义，测试逐用例 monkeypatch `_under_pytest`
+# 验证——防既有用例的 mock 失败路径跨用例累积误触发熔断）。
+_AIBUY_BREAKER_THRESHOLD = 3
+_AIBUY_BREAKER_COOLDOWN_SECONDS = 600
+_AIBUY_BREAKER_STATE = {"fails": 0, "opened_at": 0.0}
+_AIBUY_BREAKER_LOCK = threading.Lock()
+_now = time.time  # 可测钩子：熔断窗过期判断用（测试 monkeypatch 拨时间）
+
+
+def _under_pytest() -> bool:
+    import os as _os
+    return bool(_os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _aibuy_breaker_reset() -> None:
+    """复位钩子（测试/人工）：清零连续失败计数并关断熔断窗。"""
+    with _AIBUY_BREAKER_LOCK:
+        _AIBUY_BREAKER_STATE["fails"] = 0
+        _AIBUY_BREAKER_STATE["opened_at"] = 0.0
+
+
+def _aibuy_breaker_tripped() -> int:
+    """熔断打开中 → 返回连续失败数（>0）；未开/已过期（半开复位）→ 0。"""
+    if _under_pytest():
+        return 0
+    with _AIBUY_BREAKER_LOCK:
+        st = _AIBUY_BREAKER_STATE
+        if st["fails"] < _AIBUY_BREAKER_THRESHOLD:
+            return 0
+        if _now() - st["opened_at"] >= _AIBUY_BREAKER_COOLDOWN_SECONDS:
+            # 冷却窗已过 → 半开：清零计数，放行一次真实调用试探
+            st["fails"] = 0
+            st["opened_at"] = 0.0
+            return 0
+        return st["fails"]
+
+
+def _aibuy_breaker_record(success: bool) -> None:
+    """记录一次真实调用结果：成功归零；失败 +1，达阈值即开窗。"""
+    if _under_pytest():
+        return
+    with _AIBUY_BREAKER_LOCK:
+        st = _AIBUY_BREAKER_STATE
+        if success:
+            st["fails"] = 0
+            st["opened_at"] = 0.0
+            return
+        st["fails"] += 1
+        if st["fails"] >= _AIBUY_BREAKER_THRESHOLD and st["opened_at"] <= 0.0:
+            st["opened_at"] = _now()
+
+
 def search_by_image_aibuy(
     image_url: str,
     cdp_url: str = "http://127.0.0.1:9222",
     page_size: int = 20,
     force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
-    """aibuy mtop API 直调图搜（免浏览器，v0.39）。
+    """aibuy 熔断外壳：窗内快速返回 []，窗外委托 _search_by_image_aibuy_impl。
+
+    熔断语义见上方 A4 注释块。异常路径同样计入失败（+1 后原样上抛，保持
+    既有 raise 契约不变）。
+    """
+    fails = _aibuy_breaker_tripped()
+    if fails:
+        logger.warning("aibuy 连续失败 %d 次，熔断 %ds，直走 CDP/AK 通道",
+                       fails, _AIBUY_BREAKER_COOLDOWN_SECONDS)
+        return []
+    try:
+        results = _search_by_image_aibuy_impl(
+            image_url, cdp_url=cdp_url, page_size=page_size,
+            force_refresh=force_refresh)
+    except Exception:
+        _aibuy_breaker_record(False)
+        raise
+    _aibuy_breaker_record(bool(results))
+    return results
+
+
+def _search_by_image_aibuy_impl(
+    image_url: str,
+    cdp_url: str = "http://127.0.0.1:9222",
+    page_size: int = 20,
+    force_refresh: bool = False,
+) -> list[dict[str, Any]]:
+    """aibuy mtop API 直调图搜（免浏览器，v0.39）。原 search_by_image_aibuy 本体。
 
     主路径：Chrome 会话 cookie → image.upload（base64 POST，拿 1688 托管 imageUrl）
     → imagesearch 签名直调。fail-fast 纪律（Momus 评审）：无 token / 请求失败

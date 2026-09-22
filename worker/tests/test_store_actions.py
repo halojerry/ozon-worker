@@ -240,17 +240,23 @@ def test_bulk_archive_failed_writes_log(_pg):
 
 
 # ============================================================
-# 4. promo_client.list_actions → worker ozon_post（endpoint=/v1/actions，非 Performance）
+# 4. promo_client.list_actions → worker ozon_get（/v1/actions 为 GET-only，
+#    旧 POST 恒 405——S2 同款，2026-09-18 修复；端点仍非 Performance）
 # ============================================================
 
 def test_promo_client_list_actions(_pg):
     from utils import promo_client
-    fake = _fake_ozon({"items": []})
-    with patch("utils.ozon_client.ozon_post", fake):
+    calls = []
+
+    def _fake_get(client_id, api_key, endpoint, **kw):
+        calls.append({"endpoint": endpoint})
+        return {"result": [{"id": 1}, {"id": 2}]}
+
+    with patch("utils.ozon_client.ozon_get", _fake_get):
         r = promo_client.list_actions("cid", "key", limit=5)
-    # 走 worker ozon_post，端点必须是 /v1/actions（非 /api/client/*）
-    assert fake.calls[0]["endpoint"] == "/v1/actions"
-    assert r == {"items": []}
+    # 走 worker ozon_get（GET-only 契约），端点必须是 /v1/actions（非 /api/client/*）
+    assert calls and calls[0]["endpoint"] == "/v1/actions"
+    assert r == [{"id": 1}, {"id": 2}], f"GET 响应 result 是数组，应原样返回，实际 {r!r}"
     assert promo_client.METHOD_ENDPOINTS["list_actions"] == "/v1/actions"
 
 

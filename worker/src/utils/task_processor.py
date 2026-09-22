@@ -42,8 +42,15 @@ def _is_permanent_task_error(exc: Exception) -> bool:
     Sentry 仍由 capture_task_error 上报一次（带 token 指纹定位账号），并在
     before_send 聚合为单一 fingerprint（mxou-permanent-error）防刷屏。
     除 isinstance 外按消息信号兜底（防未来异常被包装后丢失类型）。
+    ✅ v0.77.3（管线延迟）：环境级确定性异常纳入 permanent——FileNotFoundError/
+    PermissionError/ModuleNotFoundError 重试不会让文件/权限/依赖长出来（实测
+    cbbeaf03：config bind 挂空 → scene 节点 FileNotFound 被 temporary 重试
+    4 轮 × ~11s 全白烧，还重复烧 auth/类目/字典段）。直接终态 failed，
+    错误信息自证根因。
     """
     if isinstance(exc, (MxouOutOfQuotaError, MxouContentViolationError)):
+        return True
+    if isinstance(exc, (FileNotFoundError, PermissionError, ImportError, ModuleNotFoundError)):
         return True
     msg = str(exc or "")
     return msg.startswith("OUT_OF_QUOTA:") or "内容违规" in msg
@@ -106,6 +113,22 @@ def _has_real_product_evidence(graph_result: dict) -> bool:
         if _up_pid and _up_pid not in ("0", "None") and _up_pid not in _task_ids:
             return True
     return False
+
+
+def _mark_no_real_product_failure(graph_result: dict, message: str) -> None:
+    """v0.77.1: T0.4 无商品佐证闸命中时补齐取证三元组（纯函数，只改传入 dict）。
+
+    生产实证（2026-09-18 核验）：46 条「任务完成但未创建 Ozon 商品」failed 行的
+    listing_result_log.error_message/error_code 全空——_harness_error 是 harness
+    内部键（下划线前缀不进留存），writer 只读 error_code/error_message
+    （utils/listing_result_log.py :240-241）→ 失败点无留痕。补：
+    error_code=PRODUCT_NOT_CREATED / failed_stage=final_product_evidence_check /
+    error_message（已有更具体消息不覆盖）。
+    """
+    graph_result["error_code"] = "PRODUCT_NOT_CREATED"
+    graph_result["failed_stage"] = "final_product_evidence_check"
+    if not str(graph_result.get("error_message") or "").strip():
+        graph_result["error_message"] = message
 
 
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
@@ -623,9 +646,14 @@ class SupabaseTaskProcessor:
                     if _is_failed or _no_real_product:
                         graph_result["_harness_status"] = "failed"
                         if _no_real_product and not _is_failed:
-                            graph_result["_harness_error"] = (
+                            _np_msg = (
                                 "任务完成但未创建 Ozon 商品（product_id 缺失），已按失败处理"
                             )
+                            # ✅ v0.77.1: 取证三元组进终态 result + listing_result_log
+                            #（此前只写 _harness_error，留存表 error_code/message 全空——
+                            # 46 条无留痕 failed 无法定位失败点）
+                            _mark_no_real_product_failure(graph_result, _np_msg)
+                            graph_result["_harness_error"] = _np_msg
                         else:
                             graph_result["_harness_error"] = _err or f"上架失败（stage={_stg}, upload_status={_up}）"
                         log_task_event("failed", task_id=task_id, user_id=tenant_id,

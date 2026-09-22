@@ -284,6 +284,35 @@ def ozon_upload_node(
             is_follow_sell=bool(getattr(state, "is_follow_sell", False)),
         )
 
+        # ✅ v0.77.1: 上传前零图硬闸——CREATE 项 images 缺失/全空必被 Ozon 审核拒
+        #（IMAGE_ERROR: item.images 缺失）且白烧创建配额。生产实证 2026-09-18：
+        # 5 例 task_generated_images 0 行（生图零产物）仍走到 /v3/product/import。
+        # 位置在 offer upsert **之后**：upsert 注入 product_id 转 UPDATE 的卡
+        #（0 图=保留老卡既有图片）不受误伤；UPDATE/跟卖项天然豁免（product_id 在手）。
+        _no_image_items = [
+            i for i in items
+            if isinstance(i, dict) and not i.get("product_id")
+            and not [u for u in (i.get("images") or []) if str(u or "").strip()]
+        ]
+        if _no_image_items:
+            _bad_offers = [str(i.get("offer_id") or "")[:60] for i in _no_image_items[:3]]
+            logger.error("CREATE 项 images 缺失/全空，上传前阻断: offers=%s", _bad_offers)
+            return OzonUploadOutput(
+                product_id=None,
+                upload_status="failed",
+                purchase_url=purchase_url,
+                purchase_cost=purchase_cost,
+                sku_id=sku_id,
+                profit_estimation=profit_estimation,
+                error_message=(
+                    f"图片缺失阻断（LOCAL_IMAGES_MISSING）: {len(_no_image_items)} 个 CREATE 项 "
+                    f"images 为空——Ozon 审核必拒 IMAGE_ERROR，已在上传前拦截节省创建配额 "
+                    f"(offers={_bad_offers})"
+                ),
+                error_code="LOCAL_IMAGES_MISSING",
+                failed_stage="ozon_upload",
+            )
+
         # F-F01（2026-09-09 审计）：收敛 ozon_post——此前 session.post 直发无
         # 429/5xx 重试、无全局限流，Ozon 一次限流即整任务失败再走整图重试。
         # 调用日志由 ozon_post 内部记录；OzonError 带类型化 status_code/payload。

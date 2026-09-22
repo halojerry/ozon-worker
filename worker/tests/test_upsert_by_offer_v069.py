@@ -32,12 +32,17 @@ FOUND_PID = 6254565982
 
 
 def _payload(offer_id=OFFER, product_id=None):
-    """最小合法 payload（节点对缺字段只告警不阻断）"""
+    """最小合法 payload（节点对缺字段只告警不阻断）。
+
+    ⚠️ v0.77.1 起必须带 images：上传节点零图硬闸（CREATE 项 0 图上传前阻断）——
+    本文件测 upsert-by-offer 语义，与图片策略无关。
+    """
     item = {
         "name": "Тест",
         "offer_id": offer_id,
         "price": "100",
         "old_price": "120",
+        "images": ["https://img.example.com/1.jpg"],
     }
     if product_id is not None:
         item["product_id"] = product_id

@@ -150,8 +150,10 @@ def _sync_returns(tenant_id: str, credential_id: str, client_id: str, api_key: s
     except (ValueError, TypeError):
         since_dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=30)
     to_dt = datetime.datetime.now(datetime.timezone.utc)
-    since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    to = to_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # ✅ v0.77.1 (S1): 同款 strftime 直标 UTC 隐患收口——存量 last_synced_at 可能是
+    # naive 或带任意时区的 ISO 串，统一经 _fmt_utc 转真 UTC。
+    since = _fmt_utc(since_dt)
+    to = _fmt_utc(to_dt)
     synced = 0
     offset = 0
     try:
@@ -225,15 +227,25 @@ def _upsert_returns(tenant_id: str, credential_id: str, items: list) -> None:
 
 def _sync_actions(tenant_id: str, credential_id: str, client_id: str, api_key: str,
                   force: bool = False) -> dict:
-    """促销/活动计数(/v1/actions,60min 节流)→ domain_state.actions.count(快照真值)。"""
-    from utils.ozon_client import ozon_post
+    """促销/活动计数(/v1/actions,60min 节流)→ domain_state.actions.count(快照真值)。
+
+    ✅ v0.77.1 (S2 修复): /v1/actions 官方契约仅 GET（swagger method=GET、
+    parameters=[]、请求体 schema=null）——旧 ozon_post 调用永久 405（2026-09-12
+    生产实锤，每轮调度必现）。且 200 响应 `result` 是**数组**——解析 list 优先、
+    对象形态（result.actions/result.items）兼容防结构变动再断。
+    """
+    from utils.ozon_client import ozon_get
     if not _domain_due(tenant_id, credential_id, "actions", _ACTIONS_INTERVAL_MIN, force):
         return {"count": None, "error": "", "skipped": True}
     try:
-        resp = ozon_post(client_id, api_key, "/v1/actions", {"limit": 100, "offset": 0},
-                         timeout=30, language="RU")
-        result = resp.get("result") or resp
-        actions = result.get("actions") or result.get("items") or []
+        resp = ozon_get(client_id, api_key, "/v1/actions", timeout=30, language="RU")
+        result = resp.get("result") if isinstance(resp, dict) else None
+        if isinstance(result, list):
+            actions = result
+        elif isinstance(result, dict):
+            actions = result.get("actions") or result.get("items") or []
+        else:
+            actions = []
         count = len(actions)
     except Exception as exc:
         logger.warning("促销同步失败 tenant=%s store=%s: %s",
@@ -360,6 +372,35 @@ def _upsert_analytics_rows(tenant_id: str, credential_id: str, rows: list) -> in
     return synced
 
 
+def _extract_localization_index(raw) -> float | None:
+    """v0.77.2 (S3 残留点): /v1/rating/summary 的 localization_index 安全提取。
+
+    官方契约（swagger RatingAPI_RatingSummaryV1）：localization_index 是**数组**
+    [{calculation_date, localization_percentage:int}]，14 天无销售 → 空数组。
+    旧代码当标量直塞 rating_localization_index 列 → psycopg2 can't adapt 'dict'
+    （评分域每轮必炸；09-12 上报的 S3 在 0.77.0 只修了 credential_sync_state 写入点，
+    此处为评分写回 credentials 的真炸点，2026-09-18 本地真凭证实机取证）。
+
+    - list[dict] → calculation_date 最新一条的 localization_percentage（float），
+      非法元素跳过；空数组/全非法 → None（宁缺毋滥）；
+    - int/float 标量 → float 原值（兼容存量 mock/旧形态）；
+    - 其他 → None，绝不抛。
+    """
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return float(raw)
+    if not isinstance(raw, list):
+        return None
+    dated = [e for e in raw if isinstance(e, dict)]
+    dated.sort(key=lambda e: str(e.get("calculation_date") or ""), reverse=True)
+    for e in dated:
+        try:
+            v = float(e.get("localization_percentage"))
+        except (TypeError, ValueError):
+            continue
+        return v
+    return None
+
+
 def _sync_rating(tenant_id: str, credential_id: str, client_id: str, api_key: str,
                  force: bool = False) -> dict:
     """评分(/v1/rating/summary,日级节流)→ credentials.rating_*。"""
@@ -369,7 +410,9 @@ def _sync_rating(tenant_id: str, credential_id: str, client_id: str, api_key: st
     try:
         resp = ozon_post(client_id, api_key, "/v1/rating/summary", {}, timeout=30, language="RU")
         groups = resp.get("groups") or []
-        localization_index = resp.get("localization_index")
+        # ✅ v0.77.2 (S3 残留点): localization_index 官方是数组（见 _extract_localization_index），
+        # 取最新一条 percentage 存标量——旧标量直塞列每轮炸 can't adapt 'dict'。
+        localization_index = _extract_localization_index(resp.get("localization_index"))
         rating_total = None
         for g in groups:
             for it in (g.get("items") or []):
@@ -486,8 +529,17 @@ def _sync_orders(tenant_id: str, credential_id: str, client_id: str, api_key: st
         since_dt = _orders_since(tenant_id, credential_id)
         to_dt = datetime.datetime.now(datetime.timezone.utc)
         cursor = ""
-    since = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    to = to_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    # ✅ v0.77.1 (S1 修复): 窗口统一转真 UTC 再格式化——水位/续传窗口可能带 +08:00
+    # 会话时区，旧 strftime("…Z") 直标 UTC → since > to → Ozon 400（S1 事故）。
+    # 防御 clamp：水位异常落到未来（时钟漂移/脏数据）→ since 收敛到 to−重叠，
+    # 绝不发出 since>=to（同格式字符串字典序=时间序）。
+    to_s = _fmt_utc(to_dt)
+    since_s = _fmt_utc(since_dt)
+    if since_s >= to_s:
+        since_dt = _as_utc(to_dt) - datetime.timedelta(hours=_SYNC_OVERLAP_HOURS)
+        since_s = _fmt_utc(since_dt)
+    since = since_s
+    to = to_s
 
     synced = 0
     truncated = False
@@ -598,8 +650,51 @@ def _set_orders_error_no_watermark(tenant_id: str, credential_id: str, error: st
         ), {"t": tenant_id, "c": credential_id, "e": error})
 
 
+def _set_products_error_no_watermark(tenant_id: str, credential_id: str, error: str) -> None:
+    """商品错误回写,但**不推进** products_last_synced_at(商品全量同步失败不推进水位)。
+
+    ✅ v0.77.2（死列复活）：与 `_set_orders_error_no_watermark` 对称。此前 `_sync_products`
+    失败分支只返回局部 error、**从不落库** products_error（只在成功分支调
+    `_set_sync_error(…, "")`）——products_error 全库恒空的直接原因之一。
+    """
+    with get_engine().begin() as conn:
+        conn.execute(text(
+            """
+            INSERT INTO credential_sync_state
+                (tenant_id, credential_id, orders_error, products_error, updated_at)
+            VALUES (:t, :c, '', :e, NOW())
+            ON CONFLICT (tenant_id, credential_id) DO UPDATE SET
+                products_error = :e,
+                updated_at = NOW()
+            """
+        ), {"t": tenant_id, "c": credential_id, "e": error})
+
+
+def _as_utc(dt: datetime.datetime) -> datetime.datetime:
+    """v0.77.1 (S1): 任意 datetime → UTC aware。naive 按 UTC 解释（历史值兜底），
+    aware 一律 astimezone——timestamptz 列经 psycopg2 取回带**会话时区**
+    （生产 Asia/Shanghai +08:00），不是 UTC。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(datetime.timezone.utc)
+
+
+def _fmt_utc(dt: datetime.datetime) -> str:
+    """v0.77.1 (S1): 任意 datetime → "YYYY-MM-DDTHH:MM:SSZ"（真 UTC，同格式可字典序比较）。
+
+    ⚠️ 同步窗口构造必须经此——禁裸 strftime("…Z")：把 +08 挂钟时间硬标成 UTC，
+    since 落到真实未来 8 小时 → Ozon 400 "filter.to must be after the filter.since"
+    （2026-09-12 生产实锤，每轮调度必现）。回归：tests/test_sync_window_tz_v077.py。
+    """
+    return _as_utc(dt).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _orders_since(tenant_id: str, credential_id: str) -> datetime.datetime:
-    """增量起点：上次同步 − 1h 重叠；从未同步 → 90 天前。"""
+    """增量起点：上次同步 − 1h 重叠；从未同步 → 90 天前。
+
+    ⚠️ v0.77.1: 返回值可能带会话时区（timestamptz 取回 +08:00）——消费方必须经
+    _fmt_utc/_as_utc 转真 UTC，不得直接 strftime。
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
     row = _sync_state_row(tenant_id, credential_id)
     last = (row.orders_last_synced_at if row else None)
@@ -817,8 +912,16 @@ def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: 
         if len(items) < _PRODUCT_PAGE:
             break
 
-    _archive_missing(tenant_id, credential_id, seen_ids)
+    # ✅ v0.77.2（归档地雷拆除）：同步失败（含首页炸/部分分页炸）绝不归档——
+    # 空/残缺 seen_ids 会让 _archive_missing 的 NOT (product_id = ANY(...)) 匹配全部，
+    # 一次网络抖动即把全店缓存商品标记 archived=TRUE（软删全店）。数据保真优先：
+    # 宁可归档状态滞后，不可错杀。空店成功（total=0, seen 空）仍照常归档（合法语义）。
     if not error:
+        _archive_missing(tenant_id, credential_id, seen_ids)
+    if error:
+        # ✅ v0.77.2（死列复活）：失败必须落 products_error（非致命，不推进水位）
+        _set_products_error_no_watermark(tenant_id, credential_id, error)
+    else:
         _set_sync_error(tenant_id, credential_id, "products", "")
     return {"synced": len(seen_ids), "error": error}
 
@@ -1013,6 +1116,12 @@ def _set_sync_error(tenant_id: str, credential_id: str, kind: str, error: str) -
     """同步状态 upsert（orders/products 各自的最后时间 + 错误）。
 
     两列错误字段都必须写入（另一列置空），否则 NOT NULL 约束报错。
+
+    ✅ v0.77.2（死列复活）：ON CONFLICT 只更新**本域**列,绝不 `other_err = ''`——
+    `sync_store` 无条件依次跑 `_sync_orders`→`_sync_products`,旧写法会让后跑的
+    products 成功写把前一步 `_set_orders_error_no_watermark` 刚落库的订单错误原地抹掉,
+    生产 credential_sync_state 全库 13 行 orders_error 恒空的元凶。INSERT 分支保留
+    `other_err` 置空仅为满足 NOT NULL 缺省。
     """
     col_ts = "orders_last_synced_at" if kind == "orders" else "products_last_synced_at"
     col_err = "orders_error" if kind == "orders" else "products_error"
@@ -1025,7 +1134,6 @@ def _set_sync_error(tenant_id: str, credential_id: str, kind: str, error: str) -
             ON CONFLICT (tenant_id, credential_id) DO UPDATE SET
                 {col_ts} = NOW(),
                 {col_err} = :err,
-                {other_err} = '',
                 updated_at = NOW()
             """
         ), {"t": tenant_id, "c": credential_id, "err": error})

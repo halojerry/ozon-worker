@@ -27,6 +27,10 @@ class GlobalState(BaseModel):
     retry_count: int = Field(default=0, description="验证失败重试次数（最多3次）")
     assembly_retry_count: int = Field(default=0, description="组装阶段类目匹配重试次数（最多2次）")
     moderation_retry_count: int = Field(default=0, description="审核轮询超时重试次数（最多3次）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 4194/4195 主图重生成防循环布尔——
+    # retry 子图执行过重生成即置位并经 wrapper Output 回写本通道，validate 与
+    # status 两次修复入口共享同一布尔（per-task 只重生成一次，二次拒单 warn-and-pass）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（跨修复入口防循环布尔闸）")
     error_type: str = Field(default="", description="错误类型分类（标签格式/尺寸重量/图片顺序/材料属性）")
     
     # Supabase配置（必须通过环境变量传入，无默认值）
@@ -88,6 +92,12 @@ class GlobalState(BaseModel):
     # 分档（match_layer=L0 且 dc/tp 未变 → L0 自证跳过；Skill→0.9；L1/R2b→0.7）。
     # last-write-wins（无自定义 reducer 需求，对齐 pricing_info dict 字段风格）。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict, description="类目匹配元数据（match_layer/confidence/dc/tp，L0 自证防护 + 写侧信任分档）")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源标记——prepare
+    # 计算（match_layer=Skill 或 draft.ozon_category.source ∈ 权威白名单 →
+    # "authoritative"），ozon_validate 消费（零交集预检对权威来源降级 warning 不拦）。
+    # last-write-wins（对齐 category_match_meta 风格）；prepare→validate 每一跳
+    # Input/Output 均已声明（AGENTS「input schema 纪律」，漏一跳被 channel 静默过滤）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
     # ✅ v0.67.1 wave②: prepare 归一后真值通道（last-write-wins，GraphOutput 透传
     # 供留存表记实际上传重量/尺寸——信封 draft 可能是 1688 原始垃圾值）
     final_weight_g: int = Field(default=0, description="prepare 归一后重量(g)，0=未走到 prepare")
@@ -425,6 +435,10 @@ class PricingOutput(BaseModel):
     # ✅ v0.73: 价差守卫 block 出口入采集箱结果（format_box_notice 生成；task_processor
     # 失败信息 notice 优先）——GlobalState/GraphOutput 已有该通道，补声明即可透传
     notice: str = Field(default="", description="中文可读失败说明（价差守卫入箱结果）")
+    # ✅ v0.77.2: 错误码透出（GlobalState/GraphOutput 已有同名 channel——加字段即透传，
+    # listing_result_log.error_code 自动取到）。失败出口：LOCAL_PRICE_GAP_BLOCKED（价差
+    # 守卫）/ LOCAL_PRICING_FAILED（定价异常）。对齐 v0.77.1 OzonUploadOutput 先例。
+    error_code: str = Field(default="", description="错误码（LOCAL_PRICE_GAP_BLOCKED / LOCAL_PRICING_FAILED）")
 
 
 # ==================== 属性获取节点 ====================
@@ -476,6 +490,11 @@ class PrepareOzonUploadInput(BaseModel):
         default_factory=dict,
         description="Ozon属性字典值缓存（来自attributes_fetch_node，key=attribute_id字符串, value=字典值列表[{id,value,info}...]）"
     )
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: prepare 要读 assemble 写入的
+    # match_layer 计算权威类目标记（category_source）——langgraph 按节点 Input model
+    # 过滤 channel，不声明则恒空（v0.66/0.27 教训，AGENTS 红线）。类型对齐 GlobalState 同名字段。
+    category_match_meta: Dict[str, Any] = Field(default_factory=dict,
+                                                description="类目匹配元数据（match_layer/confidence，Q7 权威类目判定读 match_layer）")
 
 
 class PrepareOzonUploadOutput(BaseModel):
@@ -505,6 +524,10 @@ class PrepareOzonUploadOutput(BaseModel):
     # ✅ v0.69 T2.2: 跟卖标记（draft.ozon_product_id 派生）→ GlobalState → ozon_upload
     # offer 存在性检查豁免（跟卖本就要并卡，不查不转）
     is_follow_sell: bool = Field(default=False, description="跟卖标记（ozon_upload 消费）")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: 权威类目标记（_resolve_category_source
+    # 计算）→ GlobalState → ozon_validate 零交集预检豁免消费。prepare→validate 每一跳
+    # Output/Input 都声明（漏一跳被 langgraph channel 静默过滤，历史事故两次）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
 
 
 # ==================== Ozon上传节点 ====================
@@ -556,6 +579,9 @@ class OzonUploadOutput(BaseModel):
     # ✅ v0.73 Task8: 默认值归零（operator.add 拼接粘连根治，见 PricingOutput 同注释）——
     # 失败出口由 ozon_upload_node 显式带 "ozon_upload"，成功恒空。
     failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 ozon_upload，成功恒空）")
+    # ✅ v0.77.1: 错误码透出（GlobalState/GraphOutput 已有同名 channel——加字段即透传，
+    # listing_result_log.error_code 列自动取到）。首个使用者：零图硬闸 LOCAL_IMAGES_MISSING。
+    error_code: str = Field(default="", description="错误码（Ozon 错误码或内部错误码）")
     stages: Dict[str, str] = Field(default_factory=dict, description="节点状态标记")
 
 
@@ -578,6 +604,12 @@ class OzonValidateInput(BaseModel):
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     is_valid: bool = Field(default=True, description="是否验证通过")
     error_message: str = Field(default="", description="错误信息")
+    # ✅ v0.78 批C Q7（fix/guard-precision-v1）: payload 类目定稿来源（prepare 写入，
+    # GlobalState 同名 channel 透传）。"authoritative"=权威来源（match_layer=Skill 或
+    # 信封 draft.ozon_category.source ∈ page/mapping/what_to_sell/manual）——零交集
+    # 预检对权威来源降级 warning 不拦截（前门豁免后门杀根治）。不声明则被 channel
+    # 过滤恒空 → 权威豁免永不生效（AGENTS「input schema 纪律」）。
+    category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
 
 
 class OzonValidateOutput(BaseModel):
@@ -636,6 +668,9 @@ class OzonStatusInput(BaseModel):
     # pricing_info（promo_price/price/old_price）由 pricing_node 产出、GlobalState 累积，需在此声明
     # 才会进入 ozon_status 的 input channel（否则被 schema 过滤剥掉，同 v0.27 moderation_status 教训）。
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（含 promo_price 促销底线）")
+    # ✅ fix/upload-image-assertion-v1: 收尾卡片图断言要读上传载荷 items[0].images
+    # （同 v0.27 教训——不声明进 Input 会被 langgraph channel 过滤静默剥掉，断言恒 skipped）。
+    ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="上传载荷（收尾卡片图断言读取 items[0].images）")
 
 
 class OzonStatusOutput(BaseModel):
@@ -787,6 +822,10 @@ class ValidationRetryWrapperInput(BaseModel):
     # ⚠️ PR-1 (D3): 跨入口累积重试次数 — 从 GlobalState 传入，避免 ozon_validate/ozon_status
     # 两次入口各自从 0 开始（合计可达 2×max_retries 却无感知）
     retry_count: int = Field(default=0, description="已累计重试次数（跨入口不重置）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 主图重生成参考图 + 防循环布尔透传进子图
+    # （langgraph 按 Input model 过滤 channel，缺声明会被静默过滤——对齐 v0.66/0.73 先例）
+    original_images: List[str] = Field(default_factory=list, description="原始产品图（主图重生成参考，透传子图）")
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（跨修复入口防循环）")
 
 
 class ValidationRetryWrapperOutput(BaseModel):
@@ -817,6 +856,15 @@ class ValidationRetryWrapperOutput(BaseModel):
     # ✅ v0.67.1 wave①: 子图各轮拒绝原文累积回传主图（GlobalState → GraphOutput → 留存表）
     decline_errors: list = Field(default_factory=list, description="每轮审核/校验拒绝原文累积（append-only，含俄语 texts）")
     notice: str = Field(default="", description="中文可读失败说明（子图 _build_notice 透出）")
+    # ✅ v0.77.2: 错误码透出（子图终态 error_code → wrapper → GlobalState → GraphOutput
+    # → listing_result_log.error_code）。根因修复：子图 state.error_code（如
+    # LOCAL_TITLE_CATEGORY_MISMATCH / DESCRIPTION_DECLINE）此前被子图 output_schema 与
+    # 本包装器 Output 双重过滤吞掉（生产 125 行 failed error_code 全空串的根因）。
+    # GlobalState/GraphOutput 已有同名 channel——两处 Output 声明 + wrapper 透传即可。
+    error_code: str = Field(default="", description="终态错误码（子图透出，成功恒空）")
+    # ✅ v0.78 批H (fix/attr4194-regen-v1): 子图主图重生成布尔回写主图 GlobalState
+    # （validate/status 两次修复入口共享，per-task 只重生成一次）
+    regen_main_image_done: bool = Field(default=False, description="主图重生成已执行（子图透出，回写 GlobalState）")
 
 
 # ==================== 学习记录节点 ====================

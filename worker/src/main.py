@@ -453,6 +453,58 @@ async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
 task_processor: Optional[SupabaseTaskProcessor] = None
 
+# ✅ v0.77.3：启动关键配置校验清单——缺失即大声报（ERROR+Sentry）。
+# 必需 = 节点硬依赖（缺了任务确定性失败）；可选 = 有内置降级（仅 WARNING）。
+_CRITICAL_CONFIG_FILES = (
+    "scene_generation_llm_cfg.json",
+    "visual_vars_llm_cfg.json",
+    "category_match_v2_cfg.json",
+    "attributes_llm_cfg.json",
+    "translate_russian_cfg.json",
+    "error_repair_llm_cfg.json",
+    "imagegen.json",
+    "image_prompts.json",
+)
+_OPTIONAL_CONFIG_FILES = (
+    "restricted_keywords.json",   # 缺失回退内置默认词表（受限闸降级）
+    "attr_synonyms.json",         # 同义词组缺失=匹配质量降级，非失败
+    "category_synonyms.json",
+)
+
+
+def _assert_critical_configs(base_dir: str | None = None) -> None:
+    """启动即校验 /app/config 关键文件在位（bind mount 挂空秒级暴露）。
+
+    实测事故（2026-09-19 gate 取证）：compose 栈从已删除 worktree 启动 →
+    config bind 源路径不存在 → Docker 静默创建空目录 → 镜像内配置被空目录
+    遮蔽 → 任务在 scene 节点 FileNotFoundError 被重试 4 轮白烧 40s+。
+    校验只报不拦（repair = 修 bind/重新部署，热路径不受影响）。
+    base_dir 参数供测试注入（缺省 /app/config）。
+    """
+    base = base_dir or os.path.join(os.sep, "app", "config")
+    if not os.path.isdir(base):
+        logger.warning("⚠️ 配置目录 %s 不存在（源码态运行可忽略）", base)
+        return
+    missing = [f for f in _CRITICAL_CONFIG_FILES if not os.path.isfile(os.path.join(base, f))]
+    if missing:
+        logger.error(
+            "🚨 关键配置文件缺失 %d 个（bind mount 挂空/镜像残缺？任务将确定性失败）: %s",
+            len(missing), ", ".join(missing),
+        )
+        try:
+            from utils.sentry_setup import capture_task_event
+            capture_task_event(
+                "critical_configs_missing",
+                f"关键配置缺失: {', '.join(missing)}",
+                level="error",
+            )
+        except Exception:
+            pass
+    for f in _OPTIONAL_CONFIG_FILES:
+        if not os.path.isfile(os.path.join(base, f)):
+            logger.warning("⚠️ 可选配置缺失（走内置降级）: %s", f)
+
+
 def _warn_if_multi_worker() -> None:
     """B4 BL-31（2026-09-11 仓库治理）：多 worker 部署探测告警（只告警不改行为）。
 
@@ -478,6 +530,12 @@ def _warn_if_multi_worker() -> None:
 async def lifespan(app: FastAPI):
     # ✅ B4 BL-31: 启动即探测多 worker 误部署（内存态组件非多副本安全，见函数注释）
     _warn_if_multi_worker()
+    # ✅ v0.77.3（管线延迟同批运维守卫）：启动即校验关键 config 文件在位。
+    # 实测事故（2026-09-19 gate）：栈从已删除的 worktree 启动 → config bind 挂到
+    # 死路径 → Docker 静默挂空目录遮住镜像内配置 → scene 节点 FileNotFound、
+    # 受限词表静默回退内置、任务 4 轮重试白烧。缺文件大声报（ERROR + Sentry），
+    # 不 crash（可热修 bind 后重启）；restricted_keywords 属可选降级仅 WARNING。
+    _assert_critical_configs()
     engine = get_engine()
     # 自动建表（幂等，CREATE TABLE IF NOT EXISTS）
     init_db()
@@ -1178,6 +1236,67 @@ _SWEEP_CACHE_TABLES = ("dictionary_value_cache", "attribute_cache")
 _SWEEP_BATCH_LIMIT = 5000  # 每批 ctid 删除上限（防长事务锁表）
 _SWEEP_MAX_BATCHES = 20    # 单表迭代批数封顶（防病态大量过期行拖死清理循环）
 
+# ✅ v0.77.2（运维修复）: store_metrics_history 保留策略默认天数——_append_metrics_snapshot
+# 每次同步 append 一条快照，是唯一高速增长表（生产 15,557 行 / ~650 行/店/天，无保留策略）。
+# env STORE_METRICS_RETENTION_DAYS 可覆盖；非法值回落 90。
+STORE_METRICS_RETENTION_DAYS = 90
+_STORE_METRICS_RETENTION_ENV = "STORE_METRICS_RETENTION_DAYS"
+
+
+def _store_metrics_retention_days() -> int:
+    """保留天数（运行时读 env，故 ops 改环境变量即生效；非法值回落 90）。"""
+    try:
+        days = int(os.getenv(_STORE_METRICS_RETENTION_ENV, str(STORE_METRICS_RETENTION_DAYS)))
+    except (TypeError, ValueError):
+        return STORE_METRICS_RETENTION_DAYS
+    return days if days >= 1 else STORE_METRICS_RETENTION_DAYS
+
+
+def _sweep_store_metrics_history(conn, retention_days: int | None = None) -> int:
+    """删 snapshot_at 早于 NOW()-N 天的店铺指标快照，返回删除行数（v0.77.2）。
+
+    实现细节：
+    - 天数经 int() 强转后传入 **绑定参数**，SQL 用 ``make_interval(days => :days)``
+      组装——不用 f-string 拼字面量（避免 sqlalchemy text() 裸 cast 家族坑，见
+      AGENTS 记忆 sqlalchemy-jsonb-cast-trap；也免注入面）。
+    - 幂等：删过的行不再命中 → 每轮清理循环调用安全。
+    - 失败由调用方（:func:`_maybe_sweep_store_metrics`）处理——本函数把异常如实抛出。
+    """
+    from sqlalchemy import text
+
+    days = retention_days if retention_days is not None else _store_metrics_retention_days()
+    days = max(1, int(days))
+    res = conn.execute(
+        text(
+            "DELETE FROM store_metrics_history "
+            "WHERE snapshot_at < NOW() - make_interval(days => :days)"
+        ),
+        {"days": days},
+    )
+    return int(res.rowcount or 0)
+
+
+def _maybe_sweep_store_metrics(conn) -> int:
+    """每轮清理 store_metrics_history 超期快照（默认 90 天，v0.77.2）。
+
+    - 每轮（非节流）执行——单语句 DELETE 成本低，且增长最快表需及时回收；
+    - **SAVEPOINT（begin_nested）隔离**：sweep 失败只回滚本语句，绝不污染同轮
+      r1/r1f/r2/r3 等其它清理写入，也不中止主循环；
+    - 失败仅 warning（非致命），返回 0。
+    """
+    try:
+        with conn.begin_nested():
+            n = _sweep_store_metrics_history(conn)
+        if n:
+            logger.info(
+                f"🧹 定期清理: {n} 行过期店铺指标快照已删除"
+                f"（store_metrics_history > {_store_metrics_retention_days()} 天）"
+            )
+        return n
+    except Exception:
+        logger.warning("store_metrics_history 保留清理失败（非致命，下轮重试）", exc_info=True)
+        return 0
+
 
 def _sweep_expired_caches(conn) -> int:
     """物理删除两缓存表的过期行（expires_at 为 int 秒），返回删除总数。
@@ -1328,6 +1447,10 @@ async def _periodic_task_cleanup(interval_seconds: int = 60):
                     "AND ds.status IN ('pending','uploading') "
                     "AND t.status IN ('completed','failed','rejected','cancelled')"
                 )).rowcount
+                # ✅ v0.77.2（运维修复）: store_metrics_history 保留策略——每店每次同步
+                # append 快照，唯一高速增长表（生产 15,557 行 / ~650 行/店/天）。每轮清理
+                # 超期行（默认 90 天，env 可覆盖），savepoint 隔离 + 失败仅 warning。
+                _maybe_sweep_store_metrics(conn)
                 conn.commit()
                 if r1 or r1f or r2 or r3:
                     logger.info(f"🧹 定期清理: {r1} stale running → pending(重试+1), {r1f} stale running → failed(耗尽), {r2} old completed deleted (结果已留存 listing_result_log), {r3} submission 对账归位")
