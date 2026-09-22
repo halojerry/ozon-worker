@@ -4,8 +4,13 @@
 S3已移除 — 图片直接从 MXOU API 返回 URL，无需重新上传。
 所有图片URL直接返回，由MXOU API处理。
 """
+import logging
 from typing import List, Optional
 from collections import OrderedDict
+
+from utils.secure_fetch import safe_fetch
+
+logger = logging.getLogger(__name__)
 
 # ✅ 内存优化：使用OrderedDict实现LRU缓存，最多100条，超过自动清理
 _URL_CACHE_MAX_SIZE: int = 100
@@ -47,12 +52,29 @@ def _referer_for_url(url) -> Optional[str]:
 
 # S3 存储已移除 — 图片直接从 MXOU API 返回 URL，无需重新上传
 
-# v0.76 T16(controller)：`_download_image` 已删除——全仓零生产调用方的死代码
-# （T15 评审 N2），且是裸 requests.get（用户可控 URL 一旦误接即盲 SSRF）。
-# Referer 分派唯一事实源 `_referer_for_url` 保留，活链消费方：
-# utils/cos_uploader.salvage_original_images（E1 转存）与
-# services/draft_image_mirror._mirror_one（草稿镜像）——两条链 v0.76 T14/T15
-# 起均走 utils.secure_fetch.safe_fetch。
+# v0.76 T16 曾删除本函数（当时全仓零生产调用方的死代码 + 裸 requests.get 盲
+# SSRF 面）。合并 dev 后 v0.78 批F `card_image_assert._default_fetch_size` 依赖
+# 它取卡图字节做 3:4 比例断言——删掉会让该断言恒降级 unverified（宽 except 会
+# 静默吞 ImportError），故按「下载唯一安全出口」原则恢复：对外契约（签名、
+# Referer 防盗链分派、bytes|None 返回）逐字保持，内部改走 safe_fetch。
+# Referer 分派唯一事实源仍为 `_referer_for_url`。
+def _download_image(url: str, timeout: int = 30) -> Optional[bytes]:
+    """下载图片字节（安全出口：解析 IP 校验 + 逐跳复核；不再有裸 requests 调用）。"""
+    try:
+        headers = {}
+        referer = _referer_for_url(url)
+        if referer:
+            headers["Referer"] = referer
+            headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+        resp = safe_fetch(url, timeout=timeout, headers=headers)
+        if resp.status_code == 200 and len(resp.content or b"") > 0:
+            return resp.content
+        logger.warning(f"下载图片失败: url={url[:100]}, status={resp.status_code}")
+        return None
+    except Exception as e:
+        logger.warning(f"下载图片异常: url={url[:100]}, error={e}")
+        return None
 
 
 def process_image_url(url: str) -> str:

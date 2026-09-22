@@ -188,9 +188,33 @@ def test_validate_probe_http404_still_blocks(monkeypatch):
     assert out.is_valid is False
 
 
-# ── 4) 死代码删除锁：image_url_processor._download_image（T16 controller）──
+# ── 4) 下载出口安全锁：image_url_processor._download_image（T16 + v0.78 合并）──
+#
+# T16 曾以「零生产调用方 + 裸 requests.get」删除该函数；合并 dev 后 v0.78 批F
+# card_image_assert 需要它取卡图字节做 3:4 比例断言（删除会让断言恒 unverified，
+# 宽 except 静默吞 ImportError），故恢复为 safe_fetch 包装。安全属性不得回退：
+# 本锁从「函数不存在」升级为「存在但只走 safe_fetch、源码零裸 requests」。
 
-def test_download_image_dead_code_removed():
-    """全仓零生产调用方的裸 requests.get 下载函数已删（未来误接风险归零）；
-    Referer 分派行为由 _referer_for_url 纯函数测试 + 两条活链测试锁定。"""
-    assert not hasattr(image_url_processor, "_download_image")
+def test_download_image_routes_through_safe_fetch(monkeypatch):
+    """_download_image 必须经 secure_fetch.safe_fetch 下载，且保持 Referer 分派。"""
+    import inspect
+
+    src = inspect.getsource(image_url_processor._download_image)
+    assert "requests." not in src, f"下载函数出现裸 requests 调用: {src}"
+
+    calls = {}
+
+    class _Resp:
+        status_code = 200
+        content = b"img-bytes"
+
+    def _fake_fetch(url, timeout=30, headers=None, **kw):
+        calls["url"] = url
+        calls["headers"] = headers or {}
+        return _Resp()
+
+    monkeypatch.setattr(image_url_processor, "safe_fetch", _fake_fetch)
+    assert image_url_processor._download_image("https://cbu01.alicdn.com/a.jpg") == b"img-bytes"
+    assert calls["url"] == "https://cbu01.alicdn.com/a.jpg"
+    # Referer 防盗链分派保持（1688 域 → detail.1688.com）
+    assert calls["headers"].get("Referer") == "https://detail.1688.com/"

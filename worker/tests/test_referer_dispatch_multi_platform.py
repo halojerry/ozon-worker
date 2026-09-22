@@ -5,11 +5,11 @@ pdd 图床有热链校验(无 Referer 可能 403,PLAN §2 A4);淘宝系 taobaocd
 ——天猫/淘宝主图床,不重派淘宝 Referer);taobaocdn → item.taobao.com;
 pdd 系三域 → mobile.yangkeduo.com。无规则命中不加头(行为同今日)。
 
-⚠️ v0.76 T16(controller)：`image_url_processor._download_image` 死代码已删
-（全仓零生产调用方 + 裸 requests.get 误接风险），批1 的下载路径测试随之清退；
-`_referer_for_url` 行为现在由 test_referer_helper_pure + 下方两条**活链**测试
-（cos_uploader.salvage_original_images 与 draft_image_mirror._mirror_one，
-均走 safe_fetch）锁定，覆盖不缩水。
+⚠️ v0.76 T16 曾删 `image_url_processor._download_image`（当时零生产调用方 +
+裸 requests.get 误接风险）；合并 dev 后 v0.78 批F card_image_assert 需要它取
+卡图尺寸，故恢复为 safe_fetch 包装（安全口径与分派行为由
+test_probe_points_ssrf_v076 的「下载出口安全锁」+ 下方两条**活链**测试共同
+锁定，覆盖不缩水）。
 
 运行(无需 PG/GPU):
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_referer_dispatch_multi_platform.py -q
