@@ -213,6 +213,8 @@ EXPECTED_CUSTOM_RULE_ALLOWLIST_REGEXES: dict[str, frozenset[str]] = {
         "password123",
         "s3cr3t-密码-@!xYz",
         "your-perf-secret",
+        # seller 会话探针不泄漏用例夹具（历史提交命中，见 .gitleaks.toml 同条注释）
+        "SECRETCHALLENGE",
     }),
     "ozon-custom-high-entropy-blob": frozenset({
         "sha512-[A-Za-z0-9+/=]{16,}",
