@@ -23,12 +23,15 @@ status: active
 
 1. **离线冷备私钥**：把 `~/.ozon-minisign/cos-update.key` 复制到离线介质（密码管理器/加密 U 盘）。
    生成机磁盘损坏 + GitHub secret 丢失 = 信任根灭失，需换钥重发（所有旧验签客户端要同步公钥）。
-2. **服务器首次带外放置**（每台服务器一次性）：旧版 cos-update.sh 尚无验签逻辑，首次跑新版会在
-   §1.5 因缺 `deploy/cos-update.pub` + `deploy/verify_manifest.sh` exit 3。**这是有意的信任根设计，
-   不能从升级包里自动解压这两个文件**（从待验包取信任根 = 没有信任根）。手动三件：
-   ① 服务器装 minisign（`apt install minisign` 或官方静态二进制——verify_manifest.sh 依赖
-   `command -v minisign`，缺失 exit 2）；② `scp deploy/cos-update.pub deploy/verify_manifest.sh
-   <server>:<安装目录>/deploy/`；③ 重跑 cos-update.sh。
+2. **服务器信任根就位**：
+   - **新服务器（同事装机）**：`deploy.sh` 已内置自动就位（2026-09-23 追加）——apt 优先装
+     minisign、无 apt 用与 CI 同款 pin 静态二进制兜底，并强校验 `cos-update.pub` +
+     `verify_manifest.sh` 在位（缺失 = checkout 不完整即 fail）。装机即就绪，零手动步骤。
+   - **存量服务器（首次跑新版 cos-update.sh 前，一次性手动）**：§1.5 会因缺件 exit 3——
+     **这是有意的信任根设计，不能从升级包里自动解压这两个文件**（从待验包取信任根 =
+     没有信任根）。手动三件：① 装 minisign（`apt-get install -y minisign`）；
+     ② `scp deploy/cos-update.pub deploy/verify_manifest.sh <server>:<安装目录>/deploy/`；
+     ③ 重跑 cos-update.sh。
 3. 轮换预案：换 keypair → 新公钥入库 + secret 更新 → 服务器/客户端（updater PROD_PUBKEY 硬编码）
    随下一版更新接管——过渡期旧客户端验新 manifest 会失败，需先发含新公钥的版本再切换签名钥。
 

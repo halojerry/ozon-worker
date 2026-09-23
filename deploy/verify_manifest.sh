@@ -36,7 +36,7 @@ EXPECTED_VERSION="${4:-}"
 [ -f "$SIG" ]      || { echo "verify_manifest: 签名文件不存在: $SIG" >&2; exit 2; }
 [ -s "$SIG" ]      || { echo "verify_manifest: 签名文件为空: $SIG" >&2; exit 2; }
 command -v minisign >/dev/null 2>&1 \
-  || { echo "verify_manifest: minisign 不可用——服务器需安装 minisign(opkg/apt/brew 或静态二进制)" >&2; exit 2; }
+  || { echo "verify_manifest: minisign 不可用——安装: apt-get install -y minisign（deploy.sh 已内置自动安装与 pin 静态兜底）" >&2; exit 2; }
 
 # ── 1. 签名校验(信任根 = 公钥文件) ──
 if ! minisign -V -q -p "$PUB" -x "$SIG" -m "$MANIFEST" >/dev/null 2>&1; then
