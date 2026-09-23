@@ -75,9 +75,13 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **harness 侧（halo-harness 已合 main）**：dsh spawn 注入 `$SKILL_DIR` + python3.12 PATH（dev-up.sh / src-tauri main.rs）——改 spawn 环境两处同步；专家 seed 口径=二分法 + NEXT 纪律。
 - 实测验收（2026-09-24）：老会话 3 调用全环境探测 0 业务 → 新会话 2 调用直达业务（graph --no-submit 展示态 + NEXT 遵守）；`ps eww` 实证 dsh 进程 SKILL_DIR 非空。
 
-### 实机 gate（v0.79.0）
+### 实机 gate（v0.79.0，2026-09-24，本地 Docker + 测试店 5381204，4 单）
 
-本地 Docker（deploy 栈 @8080）+ 测试店 5381204，graph 直提 ≥3 单：待跑（tag 前完成，结果回填本节）。
+- 972380291961 → **completed approved**，OzonID 6438474042（4.5min 全管线，类目 17027907/92359）。
+- 1053294385785 → **completed**，OzonID 6438491643（审核在途"—"时点留痕；卡已在、价格/利润率齐）。
+- 624819867672 / 803507401422 → **诚实拦截入箱**（推荐类目正确「沥水篮」但置信 0.14 → 宁阻断不错挂，draft 2bde8564/5f118fc8，exit 3 + NEXT 恢复指引）——设计内安全路径，非回归（9-18 批次同 URL 终态已不可对账，DB 截断）。
+- **零假 completed**；NEXT 行全形态实证（成功终态/失败终态/query 出口/展示态）；`--wait` 心跳与 fire-and-forget task_id 句柄行均正常。
+- 人体工学验收另记：弱意图 `--no-submit` 展示态实测（子代理 2 调用直达业务，零环境探测）。
 
 ## 最近更新（v0.78.0 — 静默化/日志/守卫精化四批 + 上架图来源加固四批 + 跟卖参考图语义）
 
