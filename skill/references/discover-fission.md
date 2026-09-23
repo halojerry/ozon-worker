@@ -1,6 +1,6 @@
 # 裂变选品（discover --fission）
 
-> 从 SKILL.md §1 与 command-reference.md 管线 C 增强抽取。在种子选品基础上再往深挖一层（种子商品 → 跟卖卖家 → 卖家店铺产品），适合「找更多同类 / 挖同行货源」的意图。
+> 从 SKILL.md §1 与 references/commands-discovery.md 管线 C 增强抽取。在种子选品基础上再往深挖一层（种子商品 → 跟卖卖家 → 卖家店铺产品），适合「找更多同类 / 挖同行货源」的意图。
 
 ## 用法
 
