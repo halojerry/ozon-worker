@@ -225,6 +225,8 @@ EXPECTED_CUSTOM_RULE_ALLOWLIST_REGEXES: dict[str, frozenset[str]] = {
         "BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6",
         # ak_callback AK 字符合法集常量（跨版本熵漂移误报，见 .gitleaks.toml 同条注释）
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+        # minisign 公钥 printline（公开信任根非凭证，2026-09-23 落地，见 .gitleaks.toml 同条注释）
+        "RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq",
     }),
 }
 EXPECTED_CUSTOM_RULE_ALLOWLIST_PATHS: dict[str, frozenset[str]] = {

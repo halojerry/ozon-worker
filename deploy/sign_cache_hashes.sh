@@ -96,7 +96,9 @@ fi
 mv "$_OUT_TMP" "$OUT_DIR/manifest.json"
 
 # ── 3. 重签 + 可选回验 ──
-if ! minisign -S -s "$SEC_KEY" -x "$OUT_DIR/manifest.sig" -m "$OUT_DIR/manifest.json"; then
+# 空口令私钥下 minisign -S 仍会读一次口令（非交互环境 stdin 关闭直接挂）——
+# 管道喂一个空行（2026-09-23 实测，与 cd.yml/build-skill.yml 同款）。
+if ! printf '\n' | minisign -S -s "$SEC_KEY" -x "$OUT_DIR/manifest.sig" -m "$OUT_DIR/manifest.json"; then
   fail "minisign -S 签名失败（检查私钥格式；CI 口径为无密码私钥）" 3
 fi
 if [ -n "$PUB" ]; then
