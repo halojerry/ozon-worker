@@ -62,7 +62,12 @@ def test_receipt_log_extra_field(monkeypatch):
 
 
 def test_async_storage_503_no_exception_text(monkeypatch):
-    """补②：/async_run 与 /task/{id} 的 503 不回显 AsyncTaskStorageError 原文。"""
+    """补②：/async_run 的 503 不回显 AsyncTaskStorageError 原文。
+
+    /task/{id} 已于 2026-09-23 退役为 410 墓碑（原实现调 async_runtime.get——真实
+    AsyncTaskRuntime 早已无该方法，100% 500 死代码；旧测试用 _FakeRuntime 模拟了
+    过时接口形状掩盖漂移），其 503 路径随之移除。
+    """
     import main as main_mod
     from main import app
     from runtime.async_tasks import AsyncTaskStorageError
@@ -72,9 +77,6 @@ def test_async_storage_503_no_exception_text(monkeypatch):
         async def submit(self, **kwargs):
             raise AsyncTaskStorageError("secret-bucket-internal")
 
-        async def get(self, task_id):
-            raise AsyncTaskStorageError("secret-bucket-internal")
-
     monkeypatch.setattr(main_mod, "async_runtime", _FakeRuntime())
     # 无 lifespan 时 async_task_config 是 stub（缺 RECURSION_LIMIT），补上避免无关 500
     monkeypatch.setattr(main_mod.async_task_config, "RECURSION_LIMIT", 25, raising=False)
@@ -82,9 +84,15 @@ def test_async_storage_503_no_exception_text(monkeypatch):
                     headers={"Content-Type": "application/json"})
     assert r.status_code == 503
     assert "secret-bucket-internal" not in r.text
-    r2 = client.get("/task/tid-1")
-    assert r2.status_code == 503
-    assert "secret-bucket-internal" not in r2.text
+
+
+def test_legacy_task_endpoint_returns_410():
+    """/task/{id} 墓碑语义：恒 410 + 迁移指引，不触任何运行时（退役收口断言）。"""
+    from main import app
+    client = TestClient(app, raise_server_exceptions=False)
+    r = client.get("/task/anything-dead-beef")
+    assert r.status_code == 410
+    assert "task_status" in r.text
 
 
 def test_health_503_no_exception_text(monkeypatch):
