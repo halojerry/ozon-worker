@@ -96,9 +96,19 @@ def test_cos_update_verify_invocation_takes_exactly_three_args():
 
 
 def test_updater_has_pubkey_gate():
-    """updater.py 必须有 PROD_PUBKEY 闸（空=warn 跳过，非空=fail-closed 验签）。"""
+    """updater.py 必须有 PROD_PUBKEY 闸（空=warn 跳过，非空=fail-closed 验签）。
+
+    2026-09-23 信任根落地：公钥已填入（keynum 234E049C1061DBDF，指纹登记
+    docs/audit/2026-09-23-minisign-trust-root.md）——锁定「非空 + Ed/ED 双模式
+    解析 + BLAKE2b 预哈希分支」三要素，防回退到空占位或纯 Ed 单模式（后者会
+    拒绝 CI 0.11/0.12 默认预哈希签名——链路级缺陷，真机交叉验证抓出）。
+    """
     text = UPDATER_PY.read_text(encoding="utf-8")
-    assert 'PROD_PUBKEY = ""' in text, "公钥常量占位必须存在（待生产公钥生成后填入）"
+    assert 'PROD_PUBKEY = ""' not in text, "公钥常量仍为空占位——信任根未落地"
+    assert "RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq" in text, \
+        "生产公钥 printline 必须在位（轮换时同步本断言 + 指纹文档）"
+    assert 'raw[:2] in (b"Ed", b"ED")' in text, "签名解析必须双认 Ed/ED（模式标记）"
+    assert "blake2b" in text, "预哈希分支必须存在（minisign 默认签名模式）"
     assert "def verify_manifest_authenticity" in text
     assert "def verify_minisign_signature" in text
     assert "verify_manifest_authenticity(url" in text, "_fetch_manifest 必须接线验签"

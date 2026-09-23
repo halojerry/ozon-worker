@@ -263,3 +263,34 @@ def test_cross_validation_with_minisign_binary(tmp_path):
         ["bash", str(VERIFY_SCRIPT), str(pub), str(tampered), str(sig)],
         capture_output=True, text=True)
     assert proc.returncode == 3
+
+
+@pytest.mark.skipif(shutil.which("minisign") is None,
+                    reason="minisign 未安装——交叉验证留待有 minisign 的环境")
+def test_cross_validation_legacy_mode_minisign(tmp_path):
+    """legacy（`-l` 纯 Ed25519，算法字 Ed）模式交叉验证（2026-09-23 补）。
+
+    覆盖动机：`-S` 默认产出预哈希（ED）签名，Ed 纯模式路径此前只有 RFC 向量
+    锁数学、无真机容器级覆盖——本用例防「只修预哈希、纯模式解析回退」。
+    """
+    pub = tmp_path / "unit_legacy.pub"
+    sec = tmp_path / "unit_legacy.sec"
+    subprocess.run(["minisign", "-G", "-p", str(pub), "-s", str(sec)],
+                   input="\n\n", capture_output=True, text=True, check=True)
+    manifest = tmp_path / "manifest_legacy.json"
+    manifest.write_text(MANIFEST_TEXT, encoding="utf-8")
+    sig = tmp_path / "manifest_legacy.sig"
+    subprocess.run(["minisign", "-S", "-l", "-s", str(sec), "-m", str(manifest), "-x", str(sig)],
+                   input="\n", capture_output=True, text=True, check=True)
+    # 算法字必须是 Ed（legacy 模式自检）
+    import base64 as _b64
+    sig_b64 = [l for l in sig.read_text(encoding="utf-8").splitlines()
+               if l and not l.startswith(("untrusted", "trusted"))][0].strip()
+    assert _b64.b64decode(sig_b64)[:2] == b"Ed", "-l 应产出纯 Ed 模式签名"
+    assert updater.verify_minisign_signature(
+        pub.read_text(encoding="utf-8"), sig.read_text(encoding="utf-8"),
+        MANIFEST_TEXT.encode("utf-8")) is True
+    # 篡改拒绝
+    assert updater.verify_minisign_signature(
+        pub.read_text(encoding="utf-8"), sig.read_text(encoding="utf-8"),
+        MANIFEST_TEXT.encode("utf-8") + b" ") is False

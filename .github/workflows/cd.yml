@@ -174,11 +174,12 @@ jobs:
       # 否则下载通道本身成为新信任根)。
       - name: Install minisign (pinned)
         env:
-          # ⚠️ 合并前用户必须补算（本任务环境禁出站网络无法预计算）:
-          # 下载 $MINISIGN_URL → sha256sum → 填入（见 task-32 报告「合并前用户待办」）
-          MINISIGN_SHA256: ""
+          # 2026-09-23 信任根落地时实算（gh release download 0.11 → shasum -a 256）。
+          # ⚠️ 曾有两处 URL 错误被实测纠正：release tag 是 0.11（无 v 前缀）、
+          # 资产名是 minisign-0.11-linux.tar.gz（无 -amd64）——旧 URL 404。
+          MINISIGN_SHA256: "f0a0954413df8531befed169e447a66da6868d79052ed7e892e50a4291af7ae0"
           # pin 版本源（jedisct1/minisign 官方 release 静态二进制; 换版本须重算 SHA）
-          MINISIGN_URL: "https://github.com/jedisct1/minisign/releases/download/v0.11/minisign-0.11-linux-amd64.tar.gz"
+          MINISIGN_URL: "https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux.tar.gz"
         run: |
           if [ -z "$MINISIGN_SHA256" ]; then
             echo "::error::MINISIGN_SHA256 未填——合并前须人工下载 pin 版 minisign 并补算 sha256（下载 $MINISIGN_URL → sha256sum → 填入本文件）"
@@ -188,8 +189,10 @@ jobs:
           [ -s minisign.tar.gz ] || { echo "::error::minisign 下载为空"; exit 1; }
           echo "${MINISIGN_SHA256}  minisign.tar.gz" | sha256sum -c -
           tar -xzf minisign.tar.gz
-          BIN="$(find . -type f -name minisign | head -1)"
-          [ -n "$BIN" ] || { echo "::error::minisign 压缩包内未找到二进制(检查 MINISIGN_URL 产物布局)"; exit 1; }
+          # ⚠️ 包内是 minisign-linux/{aarch64,x86_64}/ 双架构，find|head -1 会抓到
+          # aarch64（tar 条目序在前）——显式取 x86_64（runner 为 amd64）。
+          BIN="minisign-linux/x86_64/minisign"
+          [ -f "$BIN" ] || { echo "::error::minisign 压缩包内未找到 $BIN(检查 MINISIGN_URL 产物布局)"; exit 1; }
           mv "$BIN" ./minisign
           chmod 755 ./minisign
           ./minisign -v 2>&1 | head -1 || true
@@ -299,7 +302,9 @@ jobs:
           KEY_FILE="$(mktemp)"
           trap 'rm -f "$KEY_FILE"' EXIT
           printf '%s\n' "$COS_UPDATE_SIGN_KEY" > "$KEY_FILE"
-          ./minisign -S -s "$KEY_FILE" -x pkg/manifest.sig -m pkg/manifest.json
+          # ⚠️ 空口令私钥下 minisign -S 仍会读一次口令（CI stdin 关闭直接挂）
+          # ——实测必须管道喂一个空行（2026-09-23 本地 minisign 0.12 复现）。
+          printf '\n' | ./minisign -S -s "$KEY_FILE" -x pkg/manifest.sig -m pkg/manifest.json
           rm -f "$KEY_FILE"
           # 自检: 用仓库内公钥(信任根本体)回验——密钥/签名/工具任一不对当场炸在 CI
           # (verify_manifest.sh 走 PATH 上的 minisign, 把 workspace 根加进 PATH)

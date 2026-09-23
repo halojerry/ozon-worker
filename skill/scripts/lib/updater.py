@@ -47,12 +47,15 @@ CHECK_TIMEOUT = 5      # manifest 检查超时（静默失败）
 DOWNLOAD_TIMEOUT = 120  # 下载超时
 
 # ── v0.76 T32(cicd-H2): manifest 签名校验公钥（minisign 公钥文件原文）──
-# ⚠️ 待生产公钥生成后填入（一次性人工动作：`minisign -G` → 公钥原文填这里 +
-#    提交 deploy/cos-update.pub + 私钥进 CI secret + 离线冷备）。
-#    空值语义 = 跳过验签 + warn（与 deploy/cos-update.sh 的 COS_UPDATE_SKIP_VERIFY
-#    逃生门同口径）。⚠️ 填入前须先给 build-skill.yml 加 manifest 签名步骤，否则
-#    skill manifest 无签名 → 本函数 fail-closed → skill 更新会被拦截。
-PROD_PUBKEY = ""  # 待生产公钥生成后填入
+# 2026-09-23 信任根落地：keynum 234E049C1061DBDF（指纹登记
+# docs/audit/2026-09-23-minisign-trust-root.md；私钥在 CI secret
+# COS_UPDATE_SIGN_KEY + 用户离线冷备，绝不进源码树）。build-skill.yml
+# 已加同款签名步骤（manifest.sig 与包同传），本值填入即端到端收紧。
+# 逃生门口径不变：空值 = 跳过验签 + warn。
+PROD_PUBKEY = (
+    "untrusted comment: minisign public key 234E049C1061DBDF\n"
+    "RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq"
+)
 
 # 更新时保留的条目（这些名字绝不进备份/覆盖流程）
 _PRESERVE_DIRS = {"data"}          # 凭证/登录态/缓存/选品日志全部保留
@@ -194,8 +197,15 @@ def _ed_decode_point(s: bytes) -> tuple[int, int]:
     return pt
 
 
-def _ed25519_verify(sig: bytes, msg: bytes, pub: bytes) -> bool:
-    """RFC 8032 Ed25519 验签（sig/pub 定长检查 + s<L 严格性防可塑性）。"""
+def _ed25519_verify(sig: bytes, msg: bytes, pub: bytes, prehashed: bool = False) -> bool:
+    """RFC 8032 Ed25519 验签（sig/pub 定长检查 + s<L 严格性防可塑性）。
+
+    prehashed=True 走 minisign 预哈希模式（0.12+ `-S` 默认 / 0.11 `-V` 默认要求）：
+    消息先过**无键 BLAKE2b-64**（libsodium ``crypto_generichash``，digest_size=64），
+    摘要作为消息做纯 Ed25519——**不是** RFC 8032 Ed25519ph 的 dom2 构造（0.11 源码
+    ``message_load_hashed`` 实证，2026-09-23 真机交叉验证锁定，见
+    docs/audit/2026-09-23-minisign-trust-root.md）。
+    """
     if len(sig) != 64 or len(pub) != 32:
         return False
     try:
@@ -206,6 +216,8 @@ def _ed25519_verify(sig: bytes, msg: bytes, pub: bytes) -> bool:
     s_val = int.from_bytes(sig[32:], "little")
     if s_val >= _ED_L:
         return False
+    if prehashed:
+        msg = hashlib.blake2b(msg, digest_size=64).digest()
     h_val = int.from_bytes(hashlib.sha512(sig[:32] + pub + msg).digest(), "little")
     return _ed_scalarmult(_ED_BASE, s_val) == _ed_add(r_pt, _ed_scalarmult(a_pt, h_val))
 
@@ -228,8 +240,16 @@ def _parse_minisign_pubkey(pubkey_text: str) -> tuple[bytes, bytes] | None:
     return None
 
 
-def _parse_minisign_sig(sig_text: str) -> tuple[bytes, bytes] | None:
-    """解析 minisign 签名文件第二行 base64 blob。返回 (keynum(8B), sig(64B)) 或 None。"""
+def _parse_minisign_sig(sig_text: str) -> tuple[bytes, bytes, bool] | None:
+    """解析 minisign 签名文件 base64 blob。返回 (keynum(8B), sig(64B), prehashed) 或 None。
+
+    ⚠️ 算法字是**签名模式标记**（2026-09-23 真 minisign + 0.11 源码实证）：
+    ``Ed`` = 纯 Ed25519 legacy（需 ``-l`` 旗标）；``ED`` = 预哈希（**0.11 与 0.12
+    的 ``-S`` 默认**，构造 = 无键 BLAKE2b-64 摘要做纯 Ed25519）。此前只认 ``Ed``，
+    意味着**CI 真实签名（0.11 默认产出 ED）会被一律拒绝**——首个发版就会炸的
+    链路级缺陷（RFC 8032 向量测试用手搓 blob 掩盖；真机交叉验证抓出，见
+    docs/audit/2026-09-23-minisign-trust-root.md）。
+    """
     for line in sig_text.splitlines():
         line = line.strip()
         if not line or line.lower().startswith(("untrusted comment", "trusted comment")):
@@ -238,15 +258,16 @@ def _parse_minisign_sig(sig_text: str) -> tuple[bytes, bytes] | None:
             raw = base64.b64decode(line, validate=True)
         except Exception:
             continue
-        if len(raw) == 74 and raw[:2] == _MINISIGN_ALGO:
-            return raw[2:10], raw[10:74]
+        if len(raw) == 74 and raw[:2] in (b"Ed", b"ED"):
+            return raw[2:10], raw[10:74], raw[:2] == b"ED"
     return None
 
 
 def verify_minisign_signature(pubkey_text: str, sig_text: str, message: bytes) -> bool:
     """验 minisign 签名（与 `minisign -V -p <pub> -x <sig> -m <file>` 同语义）。
 
-    强制校验: ①主签名 Ed25519(pub=固定内置公钥, msg=manifest 原始字节)
+    强制校验: ①主签名 Ed25519/Ed25519ph（pub=固定内置公钥, msg=manifest 原始
+    字节；签名模式由算法字 Ed/ED 自动分流——0.11 默认纯签名，0.12+ 默认预哈希）
     ②签名 blob 的 keynum 与公钥 keynum 一致。trusted comment 的二次签名
     不校验（展示性元数据，不影响消息认证强度——minisign -V 会验，纯 Python
     路径省略并在测试注释留痕）。
@@ -260,11 +281,11 @@ def verify_minisign_signature(pubkey_text: str, sig_text: str, message: bytes) -
     if sig is None:
         logger.warning("manifest 验签: 签名格式无法解析（需 minisign 签名文件）")
         return False
-    sig_keynum, sig_val = sig
+    sig_keynum, sig_val, prehashed = sig
     if pub_keynum != sig_keynum:
         logger.warning("manifest 验签: 签名 keynum 与公钥不一致")
         return False
-    return _ed25519_verify(sig_val, message, pub_key)
+    return _ed25519_verify(sig_val, message, pub_key, prehashed=prehashed)
 
 
 def verify_manifest_authenticity(manifest_url: str, manifest_text: str) -> bool:
