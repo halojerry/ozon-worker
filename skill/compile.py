@@ -126,7 +126,12 @@ DOC_FILES = [
     "references/anti-patterns.md",
     "references/discover-fission.md",
     "references/trend-selection.md",
-    "references/command-reference.md",
+    # v0.79（PLAN-agent-ergonomics-v1 D3）：command-reference.md 按域拆四——
+    # 路由/上架/选品/运维，agent 按需加载对应域（渐进披露），不再整读 534 行
+    "references/routing.md",
+    "references/commands-listing.md",
+    "references/commands-discovery.md",
+    "references/commands-ops.md",
     "references/error-codes.md",
     "references/error-report.md",
     "references/session-sync.md",

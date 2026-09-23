@@ -5,14 +5,10 @@ agent_created: true
 compatibility: Requires Python >=3.12, Google Chrome (auto-launched via CDP), network access to 1688/Ozon/Worker
 license: Proprietary
 description: >
-  Ozon 跨境电商上架工具：1688 选品上架、Ozon 跟卖、以图搜款找同款、蓝海/趋势选品、批量处理。
-  只要用户消息出现以下任一情况，就必须使用本技能：发送 1688 商品链接（detail.1688.com/offer/…）
-  要上架到 Ozon；发送 Ozon 商品链接（ozon.ru/product/…）要跟卖或复制竞品；发送商品图片要找 1688
-  同款货源；说"选品/蓝海/热卖/爆款/趋势/有什么好卖的/卖得动"要找 Ozon 货源并匹配 1688 供应商；
-  说"自动采集/无人值守/任务式/自动跑一批选品"要全自动采集入采集箱；
-  说"上架/上货/上点/整一批/发布产品"要创建 Ozon 商品；发送多个链接要批量处理；问"任务进度/完成了吗"
-  要查询上架任务状态。即使没明确说"上架"，只要提到 1688/Ozon 商品、选品、跟卖、图搜、蓝海、趋势，
-  就用本技能。关键词：1688、Ozon、ozon.ru、跟卖、选品、蓝海、以图搜款、上架、跨境电商、自动采集、无人值守。
+  Ozon 跨境电商上架与选品工具。触发词：1688、detail.1688.com、Ozon、ozon.ru、上架、上货、
+  跟卖、选品、蓝海、爆款、热卖、趋势、以图搜款、找同款、自动采集、无人值守、批量上架、
+  任务进度。用户发 1688/Ozon 商品链接、商品图片或选品关键词，或要求上架、跟卖、找货源、
+  查任务进度时使用本技能。
 ---
 
 # pounding-ozon-probe — 工具手册
@@ -20,159 +16,126 @@ description: >
 ## 0. 定位 Skill 目录
 
 所有命令在 skill 根目录（含 `scripts/cli.py` 的目录）下执行。确定方式按优先级：
-`$SKILL_DIR` → 当前目录含 `scripts/cli.py` → 向上级目录查找。Python ≥ 3.12。
+`$SKILL_DIR`（宿主环境已注入）→ 当前目录含 `scripts/cli.py` → 向上级目录查找。Python ≥ 3.12。
+**确定一次即可，勿反复探测环境。**
 
-## 0.5 最短路径（三条 recipe）
+## 0.5 最短路径（三条 recipe，照抄跑）
 
-> **① 1688 链接→上架**（一条命令到终态）：
+> **① 1688 链接→上架**（用户明确要上架时）：
 > ```bash
 > python3 scripts/cli.py graph --url <1688商品URL> --wait
 > ```
-> 提交后轮询 Worker 到终态：`✅ 任务完成 task_id=… product_id=…` / `❌ 任务失败 task_id=… 原因=…`。
-> 提交=真实上架（用户没确认过先问）；加 `--min-margin 20` 按预估利润率拦截（预估非终价）。
+> 终态打一行（✅ task_id/product_id 或 ❌ 原因），出口带 `👉 NEXT:` 指引。
+> 用户只是"看看/评估" → 加 `--no-submit` 展示信封+预估（确认口径见 §3）。
 
-> **② Ozon 链接→跟卖**：
+> **② Ozon 链接→跟卖**（用户明确要跟卖时）：
 > ```bash
 > python3 scripts/cli.py follow --ozon-url <Ozon商品URL> --auto-submit --wait
 > ```
-> 图搜 1688 同款 → 提交前打印 💰 预估（`--min-margin` 可拦）→ 等终态打一行。
+> 提交前打 💰 预估（`--min-margin 20` 可拦）。弱意图（多少钱/评估）→ 去掉 `--auto-submit` 即展示候选。
 
-> **③ 关键词→选品上箱**（无人值守）：
+> **③ 关键词→选品入箱**（无人值守，可自动执行）：
 > ```bash
-> python3 scripts/cli.py discover --keyword <关键词> --to-box --auto-submit --non-interactive
+> python3 scripts/cli.py discover --keyword <关键词> --to-box --non-interactive
 > ```
-> `--non-interactive`（口头别名 `--yes`，同义）自动确认提交；`--to-box` 入采集箱可逆
-> （出 draft_id 即结束——`--wait` 只对直提 Worker 的 task_id 轮询，入箱模式不适用）。
-> 要「凑足 N 个达标」用 discover-task（§1 规则⑫）。
+> 要「凑足 N 个达标」用 discover-task `--target-count N`（用户没说数量先问）。
 
-## 1. 意图路由
+## 1. 意图路由（话术 → 命令）
 
-先判断用户意图，再选管线。每次操作前重新判断，不因上下文而惯性选择。
+**先查下表落位；表没有的再走 `references/routing.md` 决策树。每次操作前重新判断意图。**
 
-> 完整意图路由决策树见 `references/command-reference.md`（各管线触发条件 + 输入输出）。
-> 要点速记：① 有 URL 先判类型（1688商品页→A / Ozon商品页→B / 搜索类目页→C / 批量→F）；
-> ② 无 URL 按意图词：趋势→E（先 web_search）、跟卖→C、裂变→C `--fission`、上架→D、蓝海→C；
-> ③ 说"自动采集/无人值守跑一批"→ C2 discover-task（干跑缺省，`--to-box` 入采集箱）；
-> ④ 指代不清 / 数量不符 / 重上 → 必须追问核对，禁止猜测。
+| 用户话术 | 命令（照抄，替换尖括号） |
+|---|---|
+| 发 1688 链接 + 上架/整一批 | `graph --url <URL> --wait` |
+| 发 1688 链接 + 看看/能不能上/多少钱 | `graph --url <URL> --no-submit` |
+| 发 Ozon 链接 + 跟卖/复制 | `follow --ozon-url <URL> --auto-submit --wait` |
+| 发 Ozon 链接 + 弱意图 | `follow --ozon-url <URL>`（缺省展示候选） |
+| 发图片找 1688 同款 | `image_search --image <图片路径/URL>` |
+| 多个链接/批量处理 | `batch_test.py --urls-file <文件> --submit --wait` |
+| 关键词选品/蓝海/跟卖选品 | `discover --keyword <词>` |
+| 自动采集/无人值守/跑 N 个 | `discover-task --keyword <词> --target-count <N> --to-box` |
+| 查任务进度/完成了吗 | `query <task_id> --watch` |
+| 环境报错/首次使用 | `check` |
 
-### 关键规则
+### 关键规则（压缩版，细则全在 references/）
 
-> ① 有 URL 先判类型：搜索页/类目页走 C（discover --url），绝不去 B 跟卖单商品 ② 无 URL 按意图词：
-> 趋势→E（先 web_search）、跟卖/蓝海→C、裂变→C `--fission`、上架→D ③ 趋势选品命令层无 trend，
-> agent 先 web_search + LLM 提炼再 discover（`references/trend-selection.md`）④ 裂变硬预算默认不无限跑
-> （`references/discover-fission.md`）⑤ 管线 B 禁止复制时降级 A（直采重建，offer_id/定价会变，须说明）
-> ⑥ 复合意图（趋势+上架）→ 追问「趋势出款还是按词直接上（D）？」 ⑦ 「选 N 个」→ 追问意图 + 规模/硬性
-> ⑧ 截图：先转 URL 供 image_search；截图即目标商品 → 索要 1688 链接走 A（省图搜配额）
-> ⑨ URL+弱化词（"看看/能不能上"）→ 先 `graph --no-submit` 展示等确认 ⑩ 指代不清/数量不符/重上 → 追问核对
-> ⑪ C（跟卖选品）与 D（上架）命令相同（discover），仅 `--auto-submit` 差别；discover 无 `follow_type`
-> ⑫ 无人值守/任务式采集 → discover-task（缺省 ai 档粗筛；`--target-count` = **达标数**
->    （profitable 出口数，达标即停护图搜配额），采集上限独立由 `--max-scan`（默认 300）控制；
->    不带 `--to-box` 即干跑，入箱才真实写采集箱）。**用户没说数量先问「要多少个符合要求的产品」**
->    （router 也会追问）；交互式单轮选品仍用 discover（`--filter-profile ai` 可开同款粗筛，缺省 off 行为不变）
-> ⑬ 任务 failed 重试无解 / Ozon 拒审反复 / 未知错误码 / 假成功 → 按 `references/error-report.md`
->    上报（MCP report_issue 或 `report` 命令），把 report_id 回给用户
-> ⑭ **长任务后台纪律**：MCP 调 discover/discover-task/follow/seller/graph 等分钟级任务
->    一律 `background=true`（立即返回 task_id，不阻塞对话）→ 干别的事 → 定期 `job_status`
->    看进度 → 完成后 `job_result` 取结果（graph 的 worker_task_ids 可直接喂 `query` 查云任务）；
->    **会话关闭任务照跑**，重开会话 `job_list` 找回
-> ⑮ 免登录：1688/Ozon seller 未登录时 readiness 自动从本机其他浏览器导入 cookie
->    （每小时最多一次）；也可手动 `import-cookies` 导入，失败再走人工登录。
->    Windows 三层通道（Firefox 源 / Chromium 副本接管 / `--paste` 兜底）见 `references/env-setup.md`
-> ⑯ **双出口纪律**：所有选品管线（1688 词搜/图搜、Ozon 选品/跟卖/任务式）都有两个出口——
->    `--to-box` 入采集箱（可逆，WebUI 认领后再上架）与 `--auto-submit` 直接上架
->    （真实创建商品）。**用户没说走哪条就先问**；入箱可自动执行，直接上架必须确认
-> ⑰ **重命令串行闸**：discover/discover-multi/discover-task/graph/follow/seller 跨进程互斥，
->    闸被占 **exit 4**（报错含占用方命令/PID/时长）——如实告知用户有同类任务在跑，用 `--wait`
->    排队等它跑完；`--force` 强制并行会互踩 Chrome/缓存，仅在用户明确要求时用。
->    另：Chrome 探活为三态（up/refused/busy）——CDP 端口繁忙（其他进程正在用）时按就绪
->    等待恢复，**绝不杀正在使用的 Chrome 重启**；仅确认端口无人监听才杀带调试端口的实例重启
+1. **URL 先判类型**：1688 商品页→A / Ozon 商品页→B / 搜索类目页→C discover --url / 多 URL→batch；截图先转 URL 供 image_search。
+2. **提交确认二分法**（详见 §3）：明确上架意图→直提；弱意图→展示等确认；**选品类双出口**（`--to-box` 可自动 / `--auto-submit` 须确认）用户没说走哪条就先问。
+3. **指代不清 / 数量不符 / 重上** → 必须追问核对，禁止猜测；"选 N 个"先问要多少个达标的。
+4. **长任务后台纪律**：MCP 调 discover/discover-task/follow/seller/graph 一律 `background=true` → `job_status` 看进度（带 `next_poll_s`，按它轮询勿秒查）→ 完成后 `job_result`；会话关闭任务照跑，重开会话 `job_list` 找回；需终止用 `job_cancel`。
+5. **重命令串行闸**：六命令跨进程互斥，闸被占 **exit 4** → 加 `--wait` 排队；`--force` 仅用户明确要求时用。
+6. **趋势选品**命令层无 trend：先 web_search + LLM 提炼再 discover（`references/trend-selection.md`）。
+7. **免登录**：readiness 自动从本机浏览器导入 cookie（每小时最多一次）；手动 `import-cookies`，失败走人工登录。
+8. **任务 failed 无解 / 未知错误码 / 假成功** → `report` 上报（`references/error-report.md`），把 report_id 回给用户。
 
 ## 2. 命令速查表
 
-> **所有命令都是黑盒**：先跑 `python3 scripts/cli.py <命令> --help` 看用法，**不要读 `cli.py` 源码**（Cython 编译，读了浪费上下文）。命令输出即结果。
-> 完整参数与示例见 `references/command-reference.md`。
+> **所有命令都是黑盒**：不确定参数时跑 `--help`（recipe 命令直接跑，不必先 --help），**不要读 `cli.py` 源码**。
+> 完整参数/示例按域查：上架类 `references/commands-listing.md` · 选品类 `references/commands-discovery.md` · 运维类 `references/commands-ops.md`。
+> 自由度：**[照抄]**=用 §0.5/§1 给的模板勿改 flag；**[可调]**=分析类可按需组合。
 
-| 命令 | 用途 | 关键参数 | 副作用 | 适用场景 |
-|---|---|---|---|---|
-| `check` | 环境检查（全量诊断）；`--logs` 只读日志 | `[--logs [TASK_ID]]`（缺省=诊断；`--logs` 列最近 5 个日志文件；`--logs <task_id>` 打印该任务 JSONL 事件，零 Chrome/网络） | 无 | 首次使用 / 排错 / 查运行轨迹 |
-| `set_store` | 配置 Ozon 店铺 | `--name --client-id --api-key [--currency]` | 写 `data/config/` | 首次配置 |
-| `set_token` | 配置 MXOU_TOKEN | `--token` | 写 `data/config/` | 首次配置 |
-| `set_ak` | 配置 1688 AK | `--ak` | 写 `data/config/` | 首次配置 / AK 过期 |
-| `update` | 应用自动更新 | 无 | **覆盖 skill 文件**（备份+保留 data/） | 版本升级 |
-| `migrate_profile` | 迁移 Chrome profile 统一路径 | `[--apply] [--check]` | 复制 profile（默认 dry-run） | 升级后迁移登录态 |
-| `query` | 查询 Worker 任务状态 | `<任务ID> [--watch]` | 只读 | 查进度/成败/明细 |
-| `seller` | 卖家店铺全产品运营分析 | `--seller-id [--max-products]` | 查 seller.ozon.ru（限速） | 跟卖卖家 → 店铺选品 |
-| `get_ak` | 浏览器自动获取 1688 AK | `--timeout` | 无 | AK 过期刷新 |
-| `list_stores` | 列出已配置店铺 | 无 | 无 | 查看配置 |
-| `graph` | 1688 上架 | `--url/--item-id --store [--no-submit] [--ozon-ref-url] [--wait 提交后等终态] [--min-margin 预估利润率拦截%]` | 提交 Worker（除非 `--no-submit`） | 用户发 1688 商品链接 |
-| `follow` | Ozon 跟卖 | `--ozon-url --store [--auto-submit] [--review] [--wait 提交后等终态] [--min-margin 预估利润率拦截%]` | 提交 Worker（加 `--auto-submit`） | 用户发 Ozon 商品链接 |
-| `image_search` | 以图搜款 | `--image [--source cdp] [--sort] [--limit]` | 耗 1688 图搜配额 | 用户发图片 / 找同款 |
-| `discover` | Ozon 选品 | `--keyword/--url [--local] [--rules 挑选期,匹配期两段] [--auto-submit] [--fission] [--blue-ocean-source] [--filter-profile off\|ai] [--base-filter] [--wait]` | `--auto-submit` 提交 Worker；货源分析后生成 `data/discovery/analysis_*.md`；结束写 `data/logs/report_*.json` 运行报告 | 找蓝海 / 跟卖选品 / 趋势执行 / 裂变 |
-| `discover-task` | 任务式全自动目标驱动选品（无人值守） | `--keyword/--url [--target-count 达标数] [--max-scan 300] [--filter-profile ai] [--filters JSON规则文件（区间/品牌/价格/发货模式，FBS 含 rFBS，子串匹配，与库内口径一致，同名键覆盖 ai 默认）] [--base-filter] [--min-price/--max-price/--brand-filter] [--match-limit =目标×3] [--to-box\|--auto-submit 二选一] [--dry-run] [--resume] [--wait 等终态] [--expend-shop N 拓店（--url 须商品页种子，竞品卖家评级优先（评分≥4 展开；跟卖 widget 评分稀疏，无达标评级则不限）按价排序一跳店铺展开，预算 max(N×4,60)，与 --keyword 互斥）]` | 缺省干跑；`--to-box` 写采集箱（WebUI 认领后上架）；`--auto-submit` 直上管线（必须确认）；状态落 `data/discovery/tasks/`；粗筛池耗尽未达标会如实报缺口；结束写运行报告 | "自动采集/无人值守/任务式跑 N 个" / "以这个商品为种子拓店" |
-| `discover-multi` | 多关键词批量选品 | `--keywords a,b,c [--max-each] [--min-margin] [--wait]` | 同 discover（逐词跑） | 多词横向对比选品 |
-| `search` | 1688 关键词搜索 | `query [--page-size] [--rules 挑选期,匹配期两段] [--to-box\|--auto-submit 二选一]` | 耗 1688 搜索配额；出口 flag 触发逐个信封+提交 | 按词找货（`--rules "ai"` 一键预设） |
-| `import-cookies` | 从本机其他浏览器导入 1688/Ozon 登录态（`--paste` 手动粘贴 Cookie 头兜底） | `[--sources] [--site] [--browser-profile]` | 注入 cookie 进工具 Chrome | 未登录免手动登录（readiness 也会自动兜底）；Firefox 源全平台可用；Windows 的 Chrome/Edge/Brave 走副本接管通道（零解密，失败降级提示 `--paste`；`SKILL_DISABLE_TAKEOVER=1` 关闭；`--browser-profile` 选源 profile）；Safari 仅 macOS |
-| `probe-win-cookies` | Windows cookie 只读探针（源浏览器/加密形态/通道判定矩阵，不解密） | `[--takeover-test] [--out]` | 写 `data/probe/win_cookies_<ts>.json` 诊断报告 | Windows 上 cookie 导入三层通道排障（先跑它出诊断，再决定 Firefox/接管/--paste） |
-| `probe` | CDP 探针抓取单个 1688 商品 | `--url [--timeout]` | 无 | 调试单个商品 |
-| `queries` | what-to-sell 蓝海/榜单查询 | `--type all-queries\|ozon-bestsellers\|market-bestsellers [--keyword] [--export]` | 成功后自动上报 worker PG；可 `--export` CSV/JSON | 选品前查蓝海/畅销榜 |
-| `category` | 查询 Ozon 类目 | `<关键词> [--lang ZH_HANS\|EN\|RU] [--max N]` | 只读 | 类目确认 / 排查类目匹配 |
-| `report` | 上报问题到 worker | `--title [--severity] [--category] [--step]... [--task-ids] [--error-codes]` | 写 worker error_reports | 任务失败/未知错误/用户抱怨（模板见 `references/error-report.md`） |
-| `session-sync` | 收割 seller 会话上传 worker 代管（脱敏） | `--credential-id [--status] [--worker-url]` | 写 worker 加密会话（AES-GCM，不回显值） | worker 提示 `409 session_expired` / check 提示会话过期 / 首次启用会话代管（细则见 `references/session-sync.md`） |
-| `cleanup` | 磁盘清理 | `[--profile-cache] [--cache] [--temp] [--old-results --days N]` | 删缓存/孤儿文件（登录态保留） | 磁盘占用高 |
-| `batch_test.py` | 批量处理 URL 列表 | `--urls-file [--submit] [--wait] [--dry-run]` | 提交 Worker（加 `--submit`） | 批量上架 / 回归 |
+| 命令 | 用途 | 自由度 |
+|---|---|---|
+| `graph` | 1688 上架 | [照抄] |
+| `follow` | Ozon 跟卖 | [照抄] |
+| `image_search` | 以图搜款 | [照抄] |
+| `batch_test.py` | 批量处理 URL 列表 | [照抄] |
+| `discover` | Ozon 选品（采集→表格→货源） | [可调] |
+| `discover-task` | 任务式全自动选品（干跑缺省） | [可调] |
+| `discover-multi` | 多关键词批量选品 | [可调] |
+| `search` | 1688 关键词搜索 | [可调] |
+| `seller` | 卖家店铺全产品分析 | [可调] |
+| `queries` | what-to-sell 蓝海/榜单查询 | [可调] |
+| `category` | Ozon 类目查询（只读） | [可调] |
+| `query` | 查 Worker 任务状态 | [照抄] |
+| `check` | 环境诊断 / `--logs` 看运行轨迹 | [可调] |
+| `report` | 上报问题到 worker | [照抄] |
+| `session-sync` | 收割 seller 会话上传 worker | [照抄] |
+| `import-cookies` / `probe-win-cookies` | cookie 导入 / Windows 排障探针 | [可调] |
+| `set_store` / `set_token` / `set_ak` / `list_stores` / `get_ak` | 凭证配置 | [照抄] |
+| `update` / `migrate_profile` / `cleanup` | 升级 / profile 迁移 / 磁盘清理 | [照抄] |
+| `probe` | CDP 调试探针（单个商品） | [可调] |
 
-### 全局 flag 与运行日志（v0.78）
+### 全局 flag 与出口信号（v0.78+）
 
-- **`--wait`（graph/follow/discover/discover-multi/discover-task，缺省不带=行为不变）**：
-  一句话「不放弃等待」——① 重采集串行闸被占时排队等锁（每 30s 心跳报占用方，而非 exit 4）；
-  ② 提交成功后轮询 Worker 到终态再退出：completed 打 `✅ 任务完成 task_id=… product_id=…`、
-  failed 打 `❌ 任务失败 task_id=… 原因=…`。**exit 3 仅 graph/follow（单卡腿）**——❌ 不配 exit 0；
-  discover/discover-multi/discover-task（批量腿）逐单打 ❌ 行但整命令退出码不变（0），
-  成败看末尾汇总计数。终态前无需再手工 `query`。
-- **`--min-margin`（graph/follow 专属，缺省 0=不拦截）**：提交前打印 💰 预估
-  （售价/利润/利润率，与 worker 定价公式同源；**预估非终价，以 Worker 实算为准**），
-  预估利润率低于阈值 → 打印拦截原因 + exit 3。注意与 discover/discover-task 的
-  `--min-margin`（匹配期筛选门槛，语义不同）区分。
-- **运行日志（黑盒终结）**：每条命令启动即打 `📋 运行日志: data/logs/run_*.log`
-  （stderr 同步显示 INFO，文件含 DEBUG 全量与各阶段耗时「✅ … 完成（耗时 N s）」）。
-- **运行报告**：discover/discover-task 结束写 `data/logs/report_*.json`
-  （逐条 item/title/status/task_id/draft_id/error + 汇总），并打 `📄 运行报告: <path>` 一行——
-  汇报用例直接引用，不用逐屏翻 stdout。
-- **`check --logs`**：`--logs <task_id>` 看该任务 JSONL 事件轨迹；`--logs`（不带值）列最近 5 个日志文件。
+- **`--wait`**（graph/follow/discover 族）：不放弃等待——闸被占排队（30s 心跳）+ 提交后轮询到终态再退出。终态前无需再手工 `query`。
+- **`--min-margin`**：graph/follow=提交前预估利润率拦截（exit 3）；discover 族=匹配期筛选门槛。**语义不同，勿混用**。
+- **出口 `👉 NEXT:` 行**（v0.79）：每条命令出口末行给下一步建议（汇报/查询/修复/结束）——照它执行，不自己发明动作。
+- **运行日志**：每条命令打 `📋 运行日志: data/logs/run_*.log`；discover 族另写 `data/logs/report_*.json` 运行报告并打 `📄 运行报告: <path>`。
 
-### 长任务后台（替代手工轮询）
+## 3. 决策边界（提交确认二分法）
 
-分钟级任务（discover/discover-task/follow/seller/graph）经 pounding-mcp 调用时
-**一律 `background=true`** 立即返回，用 job_* 四件套管理，不要 sleep 干等：
-`job_status`（看进度）→ 完成后 `job_result`（取结果，含 task_id/报告路径）；
-会话中断用 `job_list` 找回；`job_cancel` 终止。CLI 侧等价物是 `--wait`
-（一次性命令，跑完自然带终态行）与 `query <task_id> --watch`（对已知任务补轮询）。
+| 意图强度 | 判定 | 动作 |
+|---|---|---|
+| **明确上架意图** | 发链接 + "上架/跟卖/整一批/发布"，或会话中已确认过提交 | `graph` / `follow --auto-submit` 直接提交，带 `--wait` 到终态，不追问 |
+| **弱意图** | "看看 / 能不能上 / 多少钱 / 评估一下" | `graph --no-submit` / `follow`（不带 --auto-submit）展示信封+预估，等用户说提交 |
+| **选品类双出口** | discover/search/discover-task | `--to-box` 入箱**可自动执行**；`--auto-submit` 直上**必须确认**；没说走哪条先问 |
+| 环境准备类 | check / pip install / set_* | 自动执行，无需确认 |
+| 数据展示类 | 候选/利润率/优劣 | 陈列数据，不替用户判断 |
 
-## 3. 决策边界
+## 4. Red Flags（绕圈念头自查）
 
-| 操作 | 策略 | 说明 |
-|------|------|------|
-| `check`、`pip install`、`set_store`、`set_token`、`set_ak` | 自动执行 | 环境准备类操作，无需确认 |
-| `graph`、`follow`（含 `--auto-submit`） | 自动执行 | 用户给了明确 URL，直接上架 |
-| `discover` 选品后的最终提交 | 必须确认 | 展示候选列表，等用户说"提交" |
-| `discover-task` 干跑 / `--to-box` 入采集箱 | 自动执行 | 干跑零副作用；入箱可逆（WebUI 人工认领后才上架） |
-| `--auto-submit` 直上管线（任何选品命令）/ 批量直接上架 | 必须确认 | 真实提交 Worker 上架任务，影响面大 |
-| 批量处理 | 必须确认 | 影响面大，需用户明确确认 |
-| 利润率高低、候选产品优劣 | 展示不表态 | 陈列数据，不替用户判断 |
-
-## 4. 常见越界行为
-
-> 越界对照表见 `references/anti-patterns.md`。核心纪律：只用本文档命令、不自己写代码抓取、
-> 提交前等用户明确确认、每次操作前重读 §1。
+| 借口 | 现实 |
+|---|---|
+| "先读一遍 cli.py 源码搞清楚" | 黑盒纪律——跑 `--help` 或查 references，读源码浪费上下文 |
+| "$SKILL_DIR 没设，我探测一下环境" | 宿主已注入；真缺就 cd 到含 scripts/cli.py 的目录。**确定一次，勿反复探测** |
+| "任务在跑，我多查几次快点" | `job_status` 返回 `next_poll_s`（20s）——分钟级任务按节奏查，秒级轮询纯浪费 |
+| "连续失败了，再重试一次" | 同一命令连续失败 **2 次即停**，按 NEXT 行修复或 `report` 上报 |
+| "上次会话用户确认过，这次直接提交" | 每次会话重新按 §3 判意图；确认不复用跨会话 |
+| "选品结果不错，直接 --auto-submit 了" | 双出口纪律——没确认不直提 |
+| "我并行跑几个 discover 快一点" | 串行闸会 exit 4；批量场景用一次调用或 `--wait` 排队 |
+| "命令输出里没写下一步，我猜一个" | 出口末行有 `👉 NEXT:`——照它执行；没有 NEXT 才需要自己判断 |
 
 ## 5. 参考文件索引
 
 按需读取，不预先加载：
-- `command-reference.md` — 路由决策树 + 各管线完整参数/示例（选管线前、执行前查）
+- `routing.md` — 意图路由决策树 + 并发限制 + 多店铺 + 双出口对比（选管线不确定时查）
+- `commands-listing.md` — graph/follow/image_search/search/batch_test 完整参数与示例
+- `commands-discovery.md` — discover 族/seller/queries/category 完整参数与示例
+- `commands-ops.md` — check/query/report/session-sync/cookie/凭证/清理/升级
 - `error-codes.md` — 错误码表 + 回复模板 + 进度口径（出错/问进度时查）
 - `error-report.md` — 出错上报模板与纪律（任务 failed/未知错误/用户抱怨时查）
-- `session-sync.md` — Ozon 卖家会话代管：worker 提示会话过期（409 session_expired）时
-  重同步的时机与闭环（对应场景查）
+- `session-sync.md` — 卖家会话代管细则（worker 提示会话过期时查）
 - `output-schema.md` — 输出字段解析 + 汇报模板（成功汇报时查）
 - `env-setup.md` — 凭证/环境/check 排查（首次使用查）
 - `trend-selection.md` / `discover-fission.md` — 趋势/裂变细则（对应场景查）

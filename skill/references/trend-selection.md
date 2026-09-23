@@ -1,6 +1,6 @@
 # 趋势选品（agent 自主分析 + discover 执行）
 
-> 从 SKILL.md §1 与 command-reference.md 管线 E 抽取。命令层已无 `trend` 命令（v0.31 移除）——趋势分析由 agent 自带 LLM + web_search 完成，skill 只负责执行。
+> 从 SKILL.md §1 与 references/commands-discovery.md 管线 E 抽取。命令层已无 `trend` 命令（v0.31 移除）——趋势分析由 agent 自带 LLM + web_search 完成，skill 只负责执行。
 
 **触发**：用户说"帮我找 {品类} 的热卖/趋势/新品风向"商品。
 注意：只说"蓝海"默认走**管线 C**（discover 跟卖选品，蓝海评分体系在 C）。
