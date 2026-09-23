@@ -17,11 +17,26 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests  # noqa: E402
 
 from scripts.lib import updater  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _mechanics_only_disable_sig_verify(monkeypatch):
+    """本文件是更新机制类测试（备份/覆盖/回滚，v0.18.0 先于签名链）。
+
+    PROD_PUBKEY 已于 2026-09-23 填入生产公钥（信任根落地）——验签路径激活后，
+    本文件未 mock 的 `<manifest_url>.sig` 拉取会被 fail-closed 拦截。签名验证
+    语义的专用覆盖在 test_updater_manifest_sig_v076.py（含真机交叉验证），
+    此处按用例粒度关闭以保持机制测试的单一关注点（勿用模块级赋值——会污染
+    同进程后续测试文件读取真实常量）。
+    """
+    monkeypatch.setattr(updater, "PROD_PUBKEY", "")
 
 
 # ── helpers ────────────────────────────────────────────────────────────────

@@ -79,6 +79,9 @@ regexes = [
     # 校验用的 65 字符全字母表，非凭证。PR #29 首跑实录：gitleaks 8.24.x 熵算法
     # 算出 6.04 误报、8.30.x <4.2——跨版本熵漂移，按内容显式豁免保确定性，不赌版本）
     '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
+    # minisign 公钥 printline（公开信任根非凭证；deploy/cos-update.pub / updater.PROD_PUBKEY /
+    # 测试断言 / 指纹文档多处同串。2026-09-23 信任根落地，PR #57 首跑实录）
+    '''RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq''',
 ]
 paths = [
     # vendored Ozon API swagger 参考快照（公开 operationId/URL path，零凭证）
