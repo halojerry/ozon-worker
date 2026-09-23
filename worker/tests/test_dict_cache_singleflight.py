@@ -283,7 +283,13 @@ def test_get_or_fetch_empty_result_records_negative():
 # ── 发版前终审 review 补测（Important#1/#3）──
 
 def test_fetch_raise_then_success_not_negatively_cached():
-    """fetch_fn 抛异常 → 不落负缓存：紧随的成功调用必须真回源拿到值。"""
+    """fetch_fn 抛异常 → 不落负缓存：紧随的成功调用必须真回源拿到值。
+
+    PG 隔离（2026-09-23 debug 定案）：必须与兄弟用例同款 mock get/set——
+    真 PG 在场时，上一轮会话的成功路径会把 (77001,1,1,RU) 真实落库，本轮
+    首查直接命中缓存、fetch 永不被调（历史「时红时绿」根因：冷库过/暖库红，
+    单跑 131s 的假慢也是真 PG 连接超时所致）。
+    """
     from utils.dict_value_cache import get_or_fetch
     calls = {"n": 0}
 
@@ -296,14 +302,18 @@ def test_fetch_raise_then_success_not_negatively_cached():
             raise _Boom("ozon down")
         return [{"id": 1, "value": "v"}]
 
-    try:
-        get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
-        raise AssertionError("should raise _Boom")
-    except _Boom:
-        pass
-    ok = get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
-    assert ok == [{"id": 1, "value": "v"}]
-    assert calls["n"] == 2  # 失败未被当成「确认空」缓存——第二次真回源
+    set_patcher, set_recorder = _patch_ldb_set()
+    with _patch_ldb_get(None), set_patcher:
+        try:
+            get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
+            raise AssertionError("should raise _Boom")
+        except _Boom:
+            pass
+        # 异常路径不落任何缓存（含空结果负缓存 sentinel）——v0.75 红线
+        assert set_recorder.call_count == 0
+        ok = get_or_fetch(77001, 1, 1, "RU", fetch_fn=fetch)
+        assert ok == [{"id": 1, "value": "v"}]
+        assert calls["n"] == 2  # 失败未被当成「确认空」缓存——第二次真回源
 
 
 def test_single_flight_no_waiter_leaves_no_slot():

@@ -58,7 +58,7 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **备份上传默认拒明文 dump**（`backup-upload-cos.sh` 只放行 .gpg；逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）。
 - **COS 升级链签名**：`deploy/verify_manifest.sh` + `cos-update.sh` 强制 minisign 验签（逃生门 `COS_UPDATE_SKIP_VERIFY=1` 仅 warn 留痕）+ `deploy/sign_cache_hashes.sh` 缓存重签——**启用前置 7 项人工待办**（keypair/公钥入库/MINISIGN_SHA256/build-skill.yml 同款签名等）见 plan Task 32 节与 task-32-report.md；改 cos-update.sh 前先读 `test_cos_update_verify_v076.py` 的接线锁定。
 - **CI**：actions 全量 pin SHA、gitleaks 全树扫描已修复真正生效（首跑翻出新结果属生效非回归）、coscli 下载 sha256 pin。
-- **已知 pre-existing**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 在 main/dev 基线即红（两名实现者独立实证，疑似涉 v0.75「回源失败不落负缓存」红线语义）——待独立排查任务，勿在本批修。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
+- **pre-existing 红已根治（2026-09-23 debug 轮）**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 历史「时红时绿」根因=用例无 PG 隔离且自污染——成功路径把 (77001,1,1,RU) 真实落库，下一轮同库首查直接命中、fetch 永不被调（冷库过/暖库红；单跑 131s 假慢=真 PG 连接超时）。已按兄弟用例同款 `_patch_ldb_get(None)`+`_patch_ldb_set()` 隔离 + 补「异常路径零落缓存」断言；v0.75 红线语义本身无罪。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
 
 ## 最近更新（开发中 — Windows 真机反馈 4 项：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性）
 
