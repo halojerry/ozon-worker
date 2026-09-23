@@ -44,30 +44,40 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 
-## 最近更新（开发中 — 安全修复批：worker 鉴权收口 + SSRF/注入/竞态防线 + COS 升级链签名）
+## 最近更新（v0.79.0 — 四批同车：安全修复批 + Windows 真机反馈 + CI/API 收口 + agent 人体工学）
 
-> 分支 `fix/security-remediation-v1`（2026-09-16，基线 9959358a）。方案与 SDD 台账 `docs/PLAN-security-remediation-v1.md`（任务级审查+评审修复轮全程留痕、全闭环）。**改下述链路前先读对应任务 commit 与 CHANGELOG 0.76.0 安全修复节**；行为变更 13 条清单见 CHANGELOG（发版说明以此为准）。
+> 2026-09-24 发版（tag v0.79.0）。dev 自 v0.78.0 共 85 commits。**改下述链路前先读 CHANGELOG 0.79.0 对应批节**；安全批 13 条行为变更全文在 CHANGELOG §0.76.0 附节。
+
+### 安全修复批（fix/security-remediation-v1，54 commits，方案 docs/PLAN-security-remediation-v1.md）
 
 - **鉴权唯一入口 `_require_bearer`**（main.py）：/progress、cancel_task（+租户校验，跨租户 404）、task_statistics（+租户强制，非 admin 跨租户 403）、store/health（凭证支持 `X-Ozon-*` header、上游失败 502 固定文案）、logistics/quote（+限流）已收口；改这些端点前先读 `test_task_statistics_auth_v076.py` 等 v076 鉴权测试族。
 - **SSRF 唯一入口 `utils/secure_fetch.safe_fetch`**（改任何 worker 出站抓图/外链 fetch 前必读）：解析 IP 逐跳复核（内网拒绝、保持外链）+ 域名精确匹配 + 跨端点跳剥凭据 + 重定向 ≤3 跳；镜像链/E1 转存/validate 探测已全部接线，**新增抓取路径必须过它**（调用方须宽 except Exception 兜底——safe_fetch 对畸形 Location 可抛裸 ValueError，fail-closed 语义）。
-- **CSV 导出公式中和**：`=` `+` `-` `@` `\t` `\r` 开头加 `'` 前缀，worker/webui 同口径——新增导出列必过同一中和函数。
-- **ILIKE 用户输入一律 `escape_like`**（`utils/like_escape.py`）；SQLAlchemy `text()` 里写 `ILIKE :q ESCAPE '\\'`，ORM 用 `col.ilike(escape_like(q), escape="\\")`。
-- **8902 任务网关（pounding-mcp tasks_server）需 Bearer**：env `POUNDING_TASKS_TOKEN` 或启动 stderr `TASKS_TOKEN=<t>`；CORS `*` 已移除。**pounding-harness 联动（发版前置检查项）：网关 Bearer 透传 + TASKS_TOKEN 注入待 harness 侧核对**。
-- **`/node_run` 黑名单有状态节点**（learning_record 等 403）；`/run` 系回执日志脱敏 + 错误响应不回显 body/traceback。
-- **主密钥 KDF v2（PBKDF2-600k）**：新加密一律 v2 信封，存量 v1 密文零迁移可解——**改 `credential_cipher.py` 前必读其 docstring**（legacy 解密保持 v1 原规则，形态检测仅 v2）。
-- **备份上传默认拒明文 dump**（`backup-upload-cos.sh` 只放行 .gpg；逃生门 `ALLOW_PLAINTEXT_BACKUP_UPLOAD=1`）。
-- **COS 升级链签名**：`deploy/verify_manifest.sh` + `cos-update.sh` 强制 minisign 验签（逃生门 `COS_UPDATE_SKIP_VERIFY=1` 仅 warn 留痕）+ `deploy/sign_cache_hashes.sh` 缓存重签——**启用前置 7 项人工待办**（keypair/公钥入库/MINISIGN_SHA256/build-skill.yml 同款签名等）见 plan Task 32 节与 task-32-report.md；改 cos-update.sh 前先读 `test_cos_update_verify_v076.py` 的接线锁定。
-- **CI**：actions 全量 pin SHA、gitleaks 全树扫描已修复真正生效（首跑翻出新结果属生效非回归）、coscli 下载 sha256 pin。
-- **pre-existing 红已根治（2026-09-23 debug 轮）**：`test_dict_cache_singleflight::test_fetch_raise_then_success_not_negatively_cached` 历史「时红时绿」根因=用例无 PG 隔离且自污染——成功路径把 (77001,1,1,RU) 真实落库，下一轮同库首查直接命中、fetch 永不被调（冷库过/暖库红；单跑 131s 假慢=真 PG 连接超时）。已按兄弟用例同款 `_patch_ldb_get(None)`+`_patch_ldb_set()` 隔离 + 补「异常路径零落缓存」断言；v0.75 红线语义本身无罪。`/node_run` 鉴权后另有 5 连存量缺陷链（Task 12 发现，呈报待立项）。
+- CSV 导出公式中和（`=` `+` `-` `@` `\t` `\r` 前缀 `'`，worker/webui 同口径）；ILIKE 用户输入一律 `escape_like`（`utils/like_escape.py`；text() 写 `ILIKE :q ESCAPE '\\'`，ORM 用 `col.ilike(escape_like(q), escape="\\")`）。
+- **8902 任务网关（pounding-mcp tasks_server）需 Bearer**：env `POUNDING_TASKS_TOKEN`；CORS `*` 已移除。harness 侧 Bearer 透传待实机核对。
+- **`/node_run` 黑名单有状态节点**（learning_record 等 403）；`/run` 系回执日志脱敏。主密钥 KDF v2（PBKDF2-600k，改 `credential_cipher.py` 前必读 docstring）；备份上传默认拒明文（只放行 .gpg）。
+- **COS 升级链签名已全量落地（本版起 CD 真签名）**：cd.yml/build-skill.yml 签名步骤 + `deploy/cos-update.pub` 入库（keynum `234E049C1061DBDF`）+ skill 验签器 Ed/ED+BLAKE2b 修复（改验签逻辑前必读 0.11 源码实证记录 `docs/audit/2026-09-23-minisign-trust-root.md`）+ deploy.sh 新机自动就位 + sign_cache_hashes.sh 空口令修复。改 cos-update.sh 前先读 `test_cos_update_verify_v076.py` 接线锁定；**存量服务器首升前一次性手动带外放置三件套**。
+- CI：actions pin SHA、gitleaks 全树生效、coscli sha256 pin；**ruff 锁 0.16.1**；**pounding-mcp 108 用例入 CI**。
+- `test_dict_cache_singleflight` 时红时绿已根治（无 PG 隔离自污染，`_patch_ldb_get/set` 隔离）；`/node_run` 鉴权后 5 连存量缺陷链（Task 12，待立项）。
 
-## 最近更新（开发中 — Windows 真机反馈 4 项：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性）
-
-> 分支 `fix/win-field-feedback-v1`（未发版）。动因：v0.76.0 Windows 真机实测 4 问题（reports 53857013/0b999d17/75b24068/22e45744，取证见用户回传 issues-for-official.md + win-cookie-takeover-fix.md）。纯 skill 侧，测试 1496→1519。
+### Windows 真机反馈批（fix/win-field-feedback-v1，纯 skill 侧，测试 1496→1519）
 
 - **改 `updater.py` 前必读（数据丢失事故链）**：①备份只含「包内同名条目」——`_is_preserved` 保 `data/` + 全部点开头条目（`.1688-AK`/`.workbuddy`），本地独有文件从不进备份、回滚也碰不到；②**启动时残留备份一律不回滚**（旧逻辑被 Windows 静默清理失败 + 过期快照组合出「8 月旧快照覆盖根目录」数据丢失；overlay 全量自愈，启动回滚只有风险）——回滚只保留给本次更新失败路径；③清理失败改 `.stale-<ts>`（同秒递增防撞）+ 双失败 fail-closed + 包内文件级落地自检。
 - **改 cookie_harvest 接管通道前必读（真机双缺陷已修）**：①启动参数必含 `--remote-allow-origins=*`（Chrome 111+ WS 握手 Origin 校验，漏参=探活过但握手 403 假就绪）；②源 Cookies 被运行中浏览器独占锁定（WinError 32，设计前提级）——`_is_locked` 前置探测 + 未显式 `--browser-profile` 自动改用可读 profile（`profile_dir_name` None 透传保语义，`harvest_all` 不再折叠成 "Default"）+ 显式/无替代给退出指引；异常文案三分流固定文案（明文红线不变；macOS 零变化）。
 - **check 的 seller 判定已两段**：cookie 判过再跑 `probe_seller_session_alive`（what_to_sell v3 只看状态码；死会话如实报并置 all_ok；探针零副作用不触发直调短路）——改 check/登录判定链前先看 cli.py §4.5 与 ozon_seller_analytics 探针注释。
 - defer：token 分钟级寿命根治三候选仍待拍板（v0.74 遗留）；`--wait-chrome-exit` 轮询；关 Chrome 后源库可读性真机验证。
+
+### agent 人体工学批（feat/agent-ergonomics-v1 + halo-harness PR#12；取证 docs/PLAN-agent-ergonomics-v1.md）
+
+- **CLI 出口 NEXT 行（改 cli.py 出口打印前必读）**：`_print_next()` 28 个出口接线（--wait 终态/入箱/锁 exit4/展示态/提交失败/check/query 六态/fire-and-forget task_id 行）——**新增命令出口必须带 NEXT 行**（`test_next_hints_v079` 锁定前缀）；错误出口文案=四件套（what/why/修复命令/下一步）。
+- **提交确认口径=二分法（唯一口径，改 SKILL.md §3/router/专家模板前对齐）**：明确上架意图→直提（--wait）；弱意图（看看/能不能上/多少钱）→ `graph --no-submit` / `follow` 缺省展示；选品类双出口不变。router `_WEAK_INTENT_WORDS` + `note` 字段。
+- **job_status 带 `next_poll_s`/`next_action`**（ pounding-mcp server.py）——改 job_* 输出保持节奏字段。
+- **SKILL.md 已重构（v0.79 起 agent 手册新形态）**：Quick Task Reference（§1 话术→命令表）/ 自由度档 [照抄]/[可调]（§2）/ Red Flags（§4）。**references 已按域拆四**（routing / commands-listing / commands-discovery / commands-ops）——新增命令文档进对应域文件 + `compile.py` DOC_FILES 登记；旧 command-reference.md 已删除勿引用。
+- **harness 侧（halo-harness 已合 main）**：dsh spawn 注入 `$SKILL_DIR` + python3.12 PATH（dev-up.sh / src-tauri main.rs）——改 spawn 环境两处同步；专家 seed 口径=二分法 + NEXT 纪律。
+- 实测验收（2026-09-24）：老会话 3 调用全环境探测 0 业务 → 新会话 2 调用直达业务（graph --no-submit 展示态 + NEXT 遵守）；`ps eww` 实证 dsh 进程 SKILL_DIR 非空。
+
+### 实机 gate（v0.79.0）
+
+本地 Docker（deploy 栈 @8080）+ 测试店 5381204，graph 直提 ≥3 单：待跑（tag 前完成，结果回填本节）。
 
 ## 最近更新（v0.78.0 — 静默化/日志/守卫精化四批 + 上架图来源加固四批 + 跟卖参考图语义）
 

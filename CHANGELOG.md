@@ -1,8 +1,24 @@
 # Changelog
 
-## [开发中] — Windows 真机反馈 4 项修复：update 数据丢失三防线 + 接管通道双缺陷 + check 假阳性（未发版）
+## [0.79.0] — 2026-09-24（生产发版；四批同车：安全修复批 + Windows 真机反馈批 + CI/API 收口 + agent 人体工学批）
 
-> 分支 `fix/win-field-feedback-v1`。动因：v0.76.0 Windows 真机实测 4 问题（reports：53857013 / 0b999d17 / 75b24068 / 22e45744，取证与复现脚本见用户回传 `issues-for-official.md` + `win-cookie-takeover-fix.md`）。纯 skill 侧，测试 **1496→1519**（+23）。
+> dev 自 v0.78.0 共 85 commits。**升级必读按批分组**；安全批 13 条行为变更全文见下方 §0.76.0 附「安全修复批次」节。
+
+### 一、安全修复批（fix/security-remediation-v1，54 commits，方案 `docs/PLAN-security-remediation-v1.md`）
+
+- **鉴权唯一入口 `_require_bearer`**：progress/cancel_task/task_statistics/store/health/logistics-quote 六面收口（无 Bearer 一律 401；cancel 跨租户 404、statistics 非 admin 恒自身租户、上游失败 502 固定文案、quote 限流）。
+- **SSRF 唯一入口 `utils/secure_fetch.safe_fetch`**：解析 IP 逐跳复核（内网拒绝）+ 域名精确匹配 + 跨端点跳剥凭据 + 重定向 ≤3 跳；镜像链/E1 转存/validate 探测全接线（新增抓取路径必须过它，调用方宽 except 兜底 fail-closed）。
+- CSV 导出公式中和（`=` `+` `-` `@` `\t` `\r` 开头加 `'`，worker/webui 同口径）；类目链 ILIKE 全部 `escape_like`。
+- **8902 任务网关（pounding-mcp tasks_server）需 Bearer**（`POUNDING_TASKS_TOKEN`；CORS `*` 已移除）——配套 harness 侧透传。
+- `/node_run` 黑名单有状态节点（403）；`/run` 系回执日志脱敏 + 错误响应不回显 body。
+- 主密钥 KDF v2（PBKDF2-600k，新加密 v2 信封；存量 v1 零迁移可解）；备份上传默认拒明文 dump（只放行 .gpg）。
+- **`SKIP_FAILED_REVIVE` 语义翻转**：部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `=0`）。
+- **COS 升级链 minisign 强制验签——本版起 CD 全链真签名**：cd.yml / build-skill.yml 签名步骤上线（minisign 0.11 sha256 pin、空口令 stdin、x86_64 显式路径），`deploy/cos-update.pub` 入库（keynum `234E049C1061DBDF`），skill 验签器双缺陷修复（算法字 Ed/ED 为模式标记 + 预哈希=无键 BLAKE2b-64 摘要做纯 Ed25519，0.11 源码实证+行为矩阵真机全绿），`deploy.sh` 新机自动就位（apt 优先 + pin 静态兜底）。
+- **⚠️ 存量服务器首次升级前一次性手动**：装 minisign + `scp deploy/cos-update.pub deploy/verify_manifest.sh <server>:<安装目录>/deploy/` + 重跑 cos-update.sh（信任根带外放置设计，不能从升级包取）；私钥离线冷备是管理员职责（`docs/audit/2026-09-23-minisign-trust-root.md`）。
+
+### 二、Windows 真机反馈 4 项修复（fix/win-field-feedback-v1，纯 skill 侧，测试 1496→1519）
+
+> 动因：v0.76.0 Windows 真机实测 4 问题（reports：53857013 / 0b999d17 / 75b24068 / 22e45744，取证与复现脚本见用户回传 `issues-for-official.md` + `win-cookie-takeover-fix.md`）。
 
 ### 修复（按严重度）
 - **[high] update 升级数据丢失（report 53857013）三防线**：①本地独有条目根本不进备份——只备份「包内同名条目」，全部点开头条目（`.1688-AK`/`.workbuddy` 等）+ `data/` 永不触碰（事故根因：本地目录被搬进 `_update_backup` → Windows 下备份清理失败被 `ignore_errors` 静默吞 → 残留 8 月过期快照 → 下次更新误判「上次中断」把旧快照回滚覆盖根目录，最新内容进回收站）；②**废除启动时残留备份回滚**（overlay 全量包重跑即自愈，「启动回滚」只有数据丢失风险没有收益——回滚语义只保留给本次更新的失败路径，且备份现在只含包内条目，回滚碰不到本地文件）；③备份清理失败不静默：rmtree 失败改名为 `_update_backup.stale-<ts>`（同秒多次递增防撞），删除+改名双失败 fail-closed 中止并指路手动删除；另加包内文件级**落地自检**（覆盖截断 → 回滚，不带病宣告 ok）。
@@ -14,6 +30,33 @@
 - 「`__Secure-access_token` 分钟级寿命」的根治方案（refresh_token 续期 / 同步后秒级消费 / 数据面留在浏览器上下文）仍待拍板（v0.74 遗留三候选）；本批 check 探针只解决「假阳性可见性」。
 - 完全退出 Chrome 后使用中 profile 的 Cookies 是否可读未实测（按未占用 profile 全可读推断应可读）——Windows 真机 gate 项。
 - `--wait-chrome-exit <秒>` 轮询等待浏览器退出（修复文档可选增强，未做）。
+
+### 三、CI / API 收口批
+
+- **`GET /task/{task_id}` 退役为 410 墓碑**（`include_in_schema=False`，恒 410 + 迁移指引到 `/task_status/{task_id}`）——实机取证 100% 500 死代码（`AsyncTaskRuntime.get` 已不存在）且无鉴权；API 路径 144→143，REFERENCE/双 openapi 快照重生成。
+- **ruff 锁版本 0.16.1**（`ignore-without-select` 全规则集解析语义随版本漂移会静默弱化门禁）；**pounding-mcp 99 用例接入 CI**（此前不在任何 workflow）。
+- gitleaks：minisign 公钥 printline 入 allowlist + ratchet（公开信任根非凭证）。
+- `test_dict_cache_singleflight` 历史「时红时绿」根治（无 PG 隔离且自污染——成功路径真实落库，下轮首查命中致 fetch 永不被调）。
+
+### 四、agent 人体工学批（feat/agent-ergonomics-v1 + halo-harness PR#12；取证驱动 `docs/PLAN-agent-ergonomics-v1.md`）
+
+> 动因：用户实测 agent 调 skill「要很久、绕圈圈、一个动作多次调用做不好事」。取证三条机制性缺陷（harness 环境承诺未兑现 / 确认口径四处分裂 / 无终止信号瞎轮询），全部修复并实测消除（对照：老会话 3 调用全环境探测 0 业务；新会话 2 调用直达业务命令）。
+
+- **命令出口 `👉 NEXT:` 行**：cli.py 28 个出口接线（--wait 四终态/入箱/锁占用/展示态/提交失败带恢复命令/check 成败/query 六态）；fire-and-forget 出口补 stdout task_id 句柄行。纯输出侧，零 CLI 语义变更。
+- **job_status 轮询节奏**：running 态带 `next_poll_s=20` + `next_action`（分钟级任务勿秒级轮询）。
+- **提交确认口径统一为二分法**：明确上架意图→直提（`--wait` 到终态）；弱意图（看看/能不能上/多少钱）→ `graph --no-submit` / `follow` 缺省展示；选品类双出口不变。router 补弱意图分支 + `note` 字段（加性）。顺手修掉旧 recipe ③ `--to-box` 与 `--auto-submit` 互斥却同写的存量矛盾。
+- **SKILL.md 重构**：frontmatter description 重写（第三人称、触发词前置、166 字符，消流程摘要陷阱）；§1 改 Quick Task Reference（话术→命令查找表）；§2 命令表加自由度档 [照抄]/[可调]；新增 §4 Red Flags 表（借口→现实 8 行）。
+- **⚠️ skill 包结构变化**：`references/command-reference.md`（534 行）按域拆四——`routing.md` / `commands-listing.md` / `commands-discovery.md` / `commands-ops.md`（渐进披露，按需加载对应域）；`compile.py` DOC_FILES 已同步；外部如有引用旧文件名需更新。
+- **harness 侧（halo-harness PR#12 已合 main）**：dsh 两个 spawn 点（dev-up.sh / Tauri main.rs）注入 `$SKILL_DIR` + python3.12 常驻 PATH——专家模板环境承诺兑现；专家 seed 三模板按二分法重写 + v0.79 出口纪律（NEXT 照做 / 连续失败 2 次即停 / 按节奏轮询）。
+- 测试：新增 `test_next_hints_v079`（19）/ `test_job_status_poll_hints_v079`（4）/ `test_router_weak_intent_v079`（5）。
+
+### 测试基线与部署注意
+
+- 测试：worker 全量 CI 绿（本地最近全量 3136 passed / 2 skipped，2026-09-23）；skill CI Docker 绿（+19 用例）；pounding-mcp **108**（99+9，CI 已接入）；webui tsc + build 绿。
+- worker 本批**无新 DDL**（0.78 的 ledger 列已含）；升级走 cos-update.sh 照旧（含 init_data）。
+- **CD 首次全签名链**：tag 构建将产出带 `manifest.sig` 的 skill 包与签名缓存 manifest——升级端（服务器三件套就位 + 客户端 updater PROD_PUBKEY 已内置本版起）自动验签。
+- 8902 网关：部署侧配 `POUNDING_TASKS_TOKEN`，调用方（harness）透传 Bearer。
+- 实机 gate：本地 Docker + 测试店 5381204 ≥3 单（记录见 AGENTS.md 0.79.0 块）。
 
 ## [0.78.0] — 2026-09-20（生产发版；含未单独 tag 的 0.77.3 全部内容）
 
