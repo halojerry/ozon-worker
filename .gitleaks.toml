@@ -1,8 +1,94 @@
 title = "ozon-worker gitleaks config"
 
+# ⚠️ path 类 allowlist（[[rules.allowlists]] 的 paths 与文末 [allowlist] paths，含
+# `^docs/...` 锚定）依赖**以仓库根为相对 source 调用**才按预期命中（CI
+# `gitleaks detect --source .` 同款）。从其他目录对子树扫描时路径锚不匹配、
+# 放行不生效——方向是 fail-closed（只多报不漏报），但会翻出一批已知误报，别当新泄漏。
+
 # 保留 gitleaks 默认全部规则,仅放行测试夹具里的假密钥
 [extend]
 useDefault = true
+
+# ── crypto-M3 自定义规则组（默认规则盲区补漏，2026-09-11 审计实测两种漏网形态）──
+# 审计取证：`password = "..."` 赋值与无关键字高熵 blob 均能 0 命中通过默认规则
+# （/tmp 探针实扫在案：Tr0ub4dour&3 与无 padding urlsafe token 均 no leaks found）。
+# 指纹 ratchet（test_leak_guard_in_tree.py）只锁已知泄漏，不防新形态——本组规则补齐。
+# 规则级 allowlist 见各规则 [[rules.allowlists]]（误报豁免，每条带原因；期望集合由
+# test_leak_guard_in_tree.py 的 EXPECTED_CUSTOM_RULE_* 锁定只减不增）。
+
+[[rules]]
+id = "ozon-custom-password-assign"
+description = "密码/口令赋值（含上下文关键字）"
+# ⚠️ 关键字组必须用非捕获 (?:...)：gitleaks 在 regex 含捕获组时取 group 1 当 secret
+# 求 entropy——捕获组写法会把 "password" 关键字本身（entropy 2.75）当 secret，恒低于
+# 阈值 3.0，规则永不命中（本机 gitleaks 8.30.1 实测在案）。非捕获组回落整段 match
+# （含关键字+引号），entropy 充裕。其余形态与计划 regex 一致。
+regex = '''(?i)(?:password|passwd|pwd|secret|passphrase)["']?\s*[:=]\s*["'][^"']{8,}["']'''
+entropy = 3.0
+keywords = ["password", "passwd", "pwd", "secret", "passphrase"]
+
+# 误报豁免（全仓实扫 2026-09-16 取证，7 命中全为假夹具/占位符/文档引用形态）。
+# 每条带原因；期望精确集合由 test_leak_guard_in_tree.py
+# EXPECTED_CUSTOM_RULE_ALLOWLIST_* 锁定只减不增。
+[[rules.allowlists]]
+description = "密码赋值规则误报：测试夹具假口令 + 占位符 + 计划文档引用样本"
+regexes = [
+    # 明文红线测试夹具（该用例本身验证「cookie 值绝不落日志」的假口令）
+    '''SUPERSECRET(VALUE123|COOKIEVALUE)''',
+    # KDF v2 测试向量：弱口令探针实证值（test_kdf_v2_v076.py）
+    '''password123''',
+    # MXOU 登录 500 重试测试假口令（test_mxou_platform.py）
+    '''s3cr3t-密码-@!xYz''',
+    # vendored ozon-mcp 参考库 README 占位符（docs/refs/ozon-mcp/ 只读）
+    '''your-perf-secret''',
+    # seller 会话探针「响应体不泄漏」用例夹具（test_seller_session_probe.py；
+    # 该用例本身断言 DataDome 挑战串不进返回值，非凭证）。⚠️ 命中源自分支历史
+    # 提交 2a26fd56——已改名规避当前树，但 gitleaks 扫 PR 提交增量，历史行照样
+    # 命中，故按放行段登记（不引入 .gitleaksignore 的第二条无锁通道）。
+    '''SECRETCHALLENGE''',
+]
+paths = [
+    # 安全修复计划文档按设计引用漏洞样本形态（探针示例），非真实凭证
+    '''^docs/PLAN-security-remediation-v1\.md$''',
+]
+
+[[rules]]
+id = "ozon-custom-high-entropy-blob"
+description = "无关键字高熵长串启发式（32+ 位混合大小写数字）"
+regex = '''["'][A-Za-z0-9+/_-]{32,}={0,2}["']'''
+entropy = 4.2
+
+# 误报豁免（全仓实扫 2026-09-16 取证，848 命中分类：lockfile 校验和 326 /
+# vendored swagger operationId+URL 502 / vendored API 文档 URL 9 / 报表文件名示例 6 /
+# JWT 规范头 1 / 测试夹具 URL+假 cookie 4）。
+[[rules.allowlists]]
+description = "高熵串规则误报：lockfile 校验和 / 公开参考快照 / 测试夹具"
+regexes = [
+    # npm/bun lockfile 完整性校验和（公共 registry 公开哈希，非凭证）
+    '''sha512-[A-Za-z0-9+/=]{16,}''',
+    # JWT 规范 HS256 头（文档/检测钩子样板；真实 JWT 含 . 分隔段，本规则匹配不到整token）
+    '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
+    # Ozon 卖家报表示例文件名（报表元数据标识，非凭证；worker/assets/ozonapi参考.md）
+    '''REPORT_seller_''',
+    # skill 测试夹具：类目 URL 常量（test_ozon_category_fix.py）
+    '''/category/mini-trenazhery-101029485/''',
+    # skill 测试夹具：假 tfstk/isg cookie（test_aibuy_search.py）
+    '''gAOImrvbD3dwTYuK2kuZ1ilQWQCS0Vl4yz''',
+    '''BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6''',
+    # ak_callback AK 字符合法集常量（skill 与 deploy/skill 打包副本同内容；AK 格式
+    # 校验用的 65 字符全字母表，非凭证。PR #29 首跑实录：gitleaks 8.24.x 熵算法
+    # 算出 6.04 误报、8.30.x <4.2——跨版本熵漂移，按内容显式豁免保确定性，不赌版本）
+    '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
+    # minisign 公钥 printline（公开信任根非凭证；deploy/cos-update.pub / updater.PROD_PUBKEY /
+    # 测试断言 / 指纹文档多处同串。2026-09-23 信任根落地，PR #57 首跑实录）
+    '''RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq''',
+]
+paths = [
+    # vendored Ozon API swagger 参考快照（公开 operationId/URL path，零凭证）
+    '''^docs/refs/ozon-mcp/data/(seller|perf)_swagger\.json$''',
+    # vendored Ozon API 文档快照（公开 URL path）
+    '''^docs/data/ozon-api-docs-2026-07-05\.json$''',
+]
 
 # ⚠️ 放行清单 = 两段，均受 worker/tests/test_leak_guard_in_tree.py 锁定（只减不增）：
 #   1) 误报段：假夹具/占位符，非真实密钥；

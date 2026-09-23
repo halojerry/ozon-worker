@@ -267,7 +267,9 @@ submit_task → pending → running → completed / failed / cancelled
   （返回 status/message/db/queue，`main.py:1122-1146`）；运行时版本经 `APP_VERSION` env
   注入（如 error_reports 响应附 `worker_version`，`main.py:2526`）。
 - 已标 DEPRECATED（未来版本移除，勿新接）：`POST /async_run`（`main.py:710-712`，改用
-  `/submit_task`）、`GET /task/{task_id}`（`main.py:774-776`，改用 `/task_status/{task_id}`）。
+  `/submit_task`）。`GET /task/{task_id}` 已于 2026-09-23 **退役为 410 墓碑**（实机取证：
+  无鉴权 + 自 async runtime 重构起 100% 500——`AsyncTaskRuntime.get` 已不存在；改用
+  `GET /task_status/{task_id}`）。
 - Skill↔Worker 接口契约版本：`docs/CONTRACT-v4.md`（v4.0）。信封结构变更必须同步该文档
   （AGENTS.md「更新联动规则」）。
 
@@ -286,12 +288,14 @@ submit_task → pending → running → completed / failed / cancelled
 | v0.63.1 | — | credentials 创建/轮换校验失败 500 → **422**（带 detail） |
 | v0.67.0 | **`/mcp` 远程 MCP 端点**（streamable-http，Bearer 鉴权），14 个工具 | — |
 | 未发版（shopbang-parity） | 店铺会话代管 `POST/GET/DELETE /api/v1/credentials/{id}/session`、会话直调 `GET /api/v1/analytics/what-to-sell`；drafts 请求体/PATCH 顶层 `notes` 运营备注（不进信封） | discovery_meta 扩 4 键（follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny） |
+| 未发版（retire-legacy-task） | — | **退役** `GET /task/{task_id}` → 恒 410 + 迁移指引（原实现无鉴权且 100% 500 死代码：`AsyncTaskRuntime.get` 已不存在；用 `GET /task_status/{task_id}`） |
 | v0.69.0 | `POST/GET /api/v1/error_reports`（错误报告；`?report_id=` 详情、`?status=` 筛选） | skill CLI 提交失败 exit 3（原静默 exit 0） |
 | v0.70.0 | `GET /api/v1/forensics/task/{task_id}`（取证一站式只读）、`GET /api/v1/categories/search`、`GET /api/v1/categories/attributes`（缓存只读不回源 Ozon） | MCP 工具 14→17（+`report_issue`/`list_error_reports`/`get_task_forensics`） |
 | 未发版（2026-09-10，数据池 v1） | `POST /api/v1/analytics/seller-sync`（贡献收包，≤12/批）+ `GET /api/v1/analytics/sku-metrics?skus=`（读侧指标+补采指令，≤50/查）——数据池贡献闭环（skill 采集 what_to_sell 顺手上报 + discover 富化读侧） | — |
 | 未发版（2026-09-10，跨平台货源 v1 批1） | — | 信封新增可选 `envelope.source.platform`（`"1688"\|"taobao"\|"tmall"\|"pdd"`，worker 零强制消费，缺失按 purchase_url 域名推断，详见 CONTRACT-v4 §1.1.2）；worker 图片白名单/Referer 兼容 taobaocdn/pdd 图床，source_candidates offer_id 解析扩淘宝/拼多多 |
 | 行为变更（2026-09-11，repo-gov B4） | ①`POST /cancel_task/{id}` 对不可取消（终态）任务从 200+failed 改为 **409 + TASK_NOT_CANCELLABLE**；②删除 shelf 三个无消费 bulk 端点（POST /products/bulk-prices、/bulk-stocks、/bulk-archive——现行 webui 零引用，路径 147→144）；③error_reports/forensics 三端点迁至租户 guard 路由（路径不变，body 坏+鉴权失败并发时错误码优先 401/429/503）；④7 个高频 POST 补 requestBody 声明、schema 示例率 11%→71%（纯文档生成面） | cancel_task 客户端需处理 409（现行 skill/MCP/webui 零调用该端点的 failed 分支，零破坏面） |
 | 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 30）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
+| 行为变更（2026-09-16，安全修复批） | — | ①`GET /task_statistics` 补鉴权+租户强制：无 Bearer 401，非 admin 恒查自身租户（`tenant_id` 参数跨租户 403）；②`POST /drafts/{id}/resubmit` 新增 **402**（低余额预检）/ **409**（并发重复提交）语义；③`GET /store/health` 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header 传递（query 传参仅为存量向后兼容保留），上游失败改 **502** 固定文案（200 体不再有 error 形态）；④`POST /logistics/quote` 补 Bearer+限流（无凭据 401、超限 429）；⑤`POST /cancel_task/{id}` 与 `GET /progress/{run_id}` 补 Bearer（无凭据 401；cancel 跨租户 404） |
 
 ## 13. 文档地图
 

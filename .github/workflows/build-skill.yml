@@ -27,9 +27,9 @@ jobs:
             platform: win32
             python-architecture: x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
           architecture: ${{ matrix.python-architecture }}
@@ -46,11 +46,12 @@ jobs:
       - name: Recompile with ARCHFLAGS for x86_64
         if: matrix.archflags != ''
         working-directory: skill
-        run: |
-          export ARCHFLAGS="${{ matrix.archflags }}"
-          python compile.py
+        run: python compile.py
         env:
           PYTHONIOENCODING: utf-8
+          # T30(cicd-M4): matrix 插值不进 shell 明文——env 间接引用（matrix 是
+          # workflow 内静态定义非用户输入，此处为纵深防御统一形态）。
+          ARCHFLAGS: ${{ matrix.archflags }}
 
       - name: Fix platform dir for Rosetta 2
         if: matrix.platform == 'darwin-x86_64'
@@ -100,7 +101,7 @@ jobs:
           EOF
 
       - name: Upload native binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-${{ matrix.platform }}
           path: skill/dist/scripts/lib/_native/
@@ -113,9 +114,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
@@ -128,7 +129,7 @@ jobs:
           PYTHONIOENCODING: utf-8
 
       - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: native-*
           path: _platforms/
@@ -263,15 +264,64 @@ jobs:
         env:
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
+      # ── manifest 签名（2026-09-23 信任根落地；与 cd.yml 同款，T32 cicd-H2）──
+      # 前置条件：updater.PROD_PUBKEY 已填入后，skill manifest 必须带 .sig，
+      # 否则客户端验签 fail-closed 会拦截一切更新。
+      - name: Install minisign (pinned)
+        working-directory: skill
+        env:
+          # 与 cd.yml 同值同源（2026-09-23 实算；升级版本两处同步重算）
+          MINISIGN_SHA256: "f0a0954413df8531befed169e447a66da6868d79052ed7e892e50a4291af7ae0"
+          MINISIGN_URL: "https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux.tar.gz"
+        run: |
+          curl -L --fail --retry 3 --retry-delay 2 -o minisign.tar.gz "$MINISIGN_URL"
+          [ -s minisign.tar.gz ] || { echo "::error::minisign 下载为空"; exit 1; }
+          echo "${MINISIGN_SHA256}  minisign.tar.gz" | sha256sum -c -
+          tar -xzf minisign.tar.gz
+          BIN="minisign-linux/x86_64/minisign"
+          [ -f "$BIN" ] || { echo "::error::未找到 $BIN"; exit 1; }
+          mv "$BIN" ./minisign
+          chmod 755 ./minisign
+          ./minisign -v 2>&1 | head -1 || true
+
+      - name: Sign manifest (minisign)
+        working-directory: skill
+        env:
+          COS_UPDATE_SIGN_KEY: ${{ secrets.COS_UPDATE_SIGN_KEY }}
+        run: |
+          [ -f ./minisign ] || { echo "::error::minisign 未就位"; exit 1; }
+          [ -f ../deploy/cos-update.pub ] || { echo "::error::deploy/cos-update.pub 不在仓库"; exit 1; }
+          if [ -z "$COS_UPDATE_SIGN_KEY" ]; then
+            echo "::error::repo secret COS_UPDATE_SIGN_KEY 未配置（与 cd.yml 同一私钥，无口令）"
+            exit 1
+          fi
+          KEY_FILE="$(mktemp)"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s\n' "$COS_UPDATE_SIGN_KEY" > "$KEY_FILE"
+          # 空口令私钥仍需喂一个空行（同 cd.yml 实测结论）
+          printf '\n' | ./minisign -S -s "$KEY_FILE" -x manifest.sig -m manifest.json
+          rm -f "$KEY_FILE"
+          export PATH="$PWD:$PATH"
+          bash ../deploy/verify_manifest.sh ../deploy/cos-update.pub manifest.json manifest.sig \
+            || { echo "::error::签名自检失败(exit $?)"; exit 1; }
+          echo "✅ skill manifest.json 已签名 + 公钥回验通过"
+
       # ⚠️ 分发直传 COS（v0.18.0 起）：不再依赖 skill-distribute 轮询
       # Release 资产（实测该链路 4 次全失败 + release 事件零运行记录）。
       # 包产出后同一 job 直接上传，带 3 次重试；失败即整体构建失败，
       # 不会出现"Release 有包但 COS 断供"的静默状态。
       - name: Install coscli
         working-directory: skill
+        env:
+          # T30(cicd-M4): coscli 二进制 sha256 pin（2026-09-16 人工一次性下载
+          # coscli-linux-amd64 算得，14,212,085 bytes）。升级 coscli 时必须重算
+          # 并同步本值（与 cd.yml / skill-distribute.yml 三处一致）。
+          COSCLI_SHA256: "a07de5ba2800147a700ed29036b0c76a4229088cee68e1682d0eae19b638a915"
         run: |
           curl -L --fail --retry 3 --retry-delay 2 -o coscli \
             https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          [ -s coscli ] || { echo "::error::coscli 下载为空"; exit 1; }
+          echo "${COSCLI_SHA256}  coscli" | sha256sum -c -
           chmod 755 coscli
           ./coscli --version
 
@@ -279,7 +329,6 @@ jobs:
         timeout-minutes: 60
         working-directory: skill
         run: |
-          PKG="${{ steps.manifest.outputs.package_name }}"
           coscli_cmd() {
             ./coscli "$@" \
               -e "cos.${COS_REGION}.myqcloud.com" \
@@ -291,11 +340,12 @@ jobs:
           # timeout 不能直接执行 shell 函数，需 bash -c 内联。
           UPLOADED=0
           for attempt in 1 2 3; do
-            echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json"
+            echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json + manifest.sig"
             # ⚠️ v0.20.0: COS 全球加速域名（cos.accelerate.myqcloud.com）——
             # 跨境上传直连广州节点极慢（实测挂 8 小时），加速域名显著提速。
             if timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "${PKG}" \
-               && timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "manifest.json"; then
+               && timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "manifest.json" \
+               && timeout 600 bash -c 'c(){ ./coscli "$@" -e "cos.accelerate.myqcloud.com" -i "$COS_SECRET_ID" -k "$COS_SECRET_KEY" --init-skip=true --disable-log=true; }; c cp "$1" "cos://${COS_BUCKET}/ozon-skill/$1"' _ "manifest.sig"; then
               UPLOADED=1
               break
             fi
@@ -305,8 +355,11 @@ jobs:
             echo "::error::COS 上传 3 次均失败"
             exit 1
           fi
-          echo "✅ 已上传: cos://${COS_BUCKET}/ozon-skill/${PKG} + manifest.json"
+          echo "✅ 已上传: cos://${COS_BUCKET}/ozon-skill/${PKG} + manifest.json + manifest.sig"
         env:
+          # T23(cicd-M3)/T30(cicd-M4): steps 输出（源自 tag refname）不进 shell
+          # 明文插值——env 间接引用。
+          PKG: ${{ steps.manifest.outputs.package_name }}
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
@@ -361,7 +414,6 @@ jobs:
         timeout-minutes: 10
         working-directory: skill
         run: |
-          PKG="${{ steps.manifest.outputs.package_name }}"
           BASE="${COS_MANIFEST_BASE_URL:-https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-skill}"
           for URL in "${BASE}/manifest.json" "${BASE}/${PKG}"; do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
@@ -376,12 +428,15 @@ jobs:
             echo "::error::COS 包 sha256 与本地不一致（上传损坏）"; exit 1; }
           echo "✅ COS 分发完成: ${PKG}（sha256 一致）"
         env:
+          # T23(cicd-M3)/T30(cicd-M4): steps 输出（源自 tag refname）不进 shell
+          # 明文插值——env 间接引用。
+          PKG: ${{ steps.manifest.outputs.package_name }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: pounding-ozon-probe
           # ⚠️ 只上传版本包：仓库根有历史遗留旧包（pounding-ozon-probe-
@@ -391,7 +446,7 @@ jobs:
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           # ⚠️ 精确匹配版本包，勿用 *.tar.gz（会带上历史遗留残缺旧包）
           files: skill/pounding-ozon-probe-v*.tar.gz

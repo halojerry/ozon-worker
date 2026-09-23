@@ -53,8 +53,8 @@ def test_rejects_random_cdn():
     assert is_product_image_candidate(OZON_COMPETITOR) is False
     assert is_product_image_candidate(
         "https://cdn1.ozone.ru/s3/multimedia/abc.jpg") is False
-    # 白名单是子串语义（与 alicdn 既有口径一致）：仅含「pddpic」字样但不含
-    # 「pddpic.com」子串的域不放行
+    # 白名单是 hostname 精确/后缀语义（v0.76 T15，防 query 垫片）：仅含
+    # 「pddpic」字样、host 非 *.pddpic.com 的域不放行
     assert is_product_image_candidate("https://pddpic.example.com/x.jpg") is False
 
 

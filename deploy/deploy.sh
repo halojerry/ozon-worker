@@ -65,6 +65,46 @@ echo "✅ CREDENTIAL_MASTER_KEY 已配置"
 
 echo "✅ 环境检查通过"
 
+# ── 2026-09-23 信任根落地: minisign + 升级链验签三件套就位 ──
+# 后续 cos-update.sh 升级依赖: ①minisign 二进制 ②deploy/cos-update.pub ③deploy/verify_manifest.sh。
+# 公钥/校验脚本从本地 git checkout 取（带外信任源——升级路径绝不能从 COS 包内取
+# 信任根，见 docs/audit/2026-09-23-minisign-trust-root.md「服务器首次带外放置」）。
+if ! command -v minisign &> /dev/null; then
+    echo "📦 安装 minisign（升级链验签依赖）..."
+    if command -v apt-get &> /dev/null; then
+        apt-get update -qq >/dev/null 2>&1 || true
+        apt-get install -y -qq minisign >/dev/null 2>&1 || true
+    fi
+    if ! command -v minisign &> /dev/null; then
+        # 无 apt / apt 无包：与 cd.yml 同款 pin 静态二进制（sha256 换版本须三处同步重算：
+        # cd.yml / build-skill.yml / 本脚本）
+        _ARCH="$(uname -m)"; case "$_ARCH" in aarch64|arm64) _ARCH="aarch64";; *) _ARCH="x86_64";; esac
+        _MS_URL="https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux.tar.gz"
+        _MS_SHA="f0a0954413df8531befed169e447a66da6868d79052ed7e892e50a4291af7ae0"
+        _TMP=$(mktemp -d)
+        if curl -fsSL --retry 3 --retry-delay 2 -o "$_TMP/minisign.tar.gz" "$_MS_URL" \
+           && echo "${_MS_SHA}  $_TMP/minisign.tar.gz" | sha256sum -c - >/dev/null 2>&1 \
+           && tar -xzf "$_TMP/minisign.tar.gz" -C "$_TMP" \
+           && install -m 755 "$_TMP/minisign-linux/${_ARCH}/minisign" /usr/local/bin/minisign 2>/dev/null; then
+            echo "   ✓ minisign 0.11 静态二进制就位 (/usr/local/bin)"
+        else
+            echo "⚠️ minisign 自动安装失败——cos-update.sh 升级验签将 exit 2"
+            echo "   手动: apt-get install -y minisign（需 root 写 /usr/local/bin；或从 ${_MS_URL} 下载校验后放 PATH）"
+        fi
+        rm -rf "$_TMP"
+    fi
+fi
+if command -v minisign &> /dev/null; then
+    echo "✅ minisign 就位: $(minisign -v 2>&1 | head -1 || true)"
+else
+    echo "⚠️ minisign 未安装（仅影响 cos-update.sh 升级验签，不阻断本次部署）"
+fi
+[ -f "$SCRIPT_DIR/cos-update.pub" ] \
+    || { echo "❌ 缺 deploy/cos-update.pub——升级链信任根（本仓库自带，检查 checkout 完整性）"; exit 1; }
+[ -f "$SCRIPT_DIR/verify_manifest.sh" ] \
+    || { echo "❌ 缺 deploy/verify_manifest.sh——校验脚本（本仓库自带，检查 checkout 完整性）"; exit 1; }
+echo "✅ 升级链信任根三件套就位（keynum 234E049C1061DBDF）"
+
 # v0.62.2: webui 已随镜像多阶段内建(worker/Dockerfile webui-builder 阶段),
 # 不再要求宿主机预构建/挂载 webui/dist。仅保留提示, 不再阻断部署。
 if [ -f "$PROJECT_DIR/webui/dist/index.html" ]; then

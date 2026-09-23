@@ -52,7 +52,7 @@ jobs:
           echo "Downloading $TARGET"
           # ⚠️ 手动兜底分发：仅用于补发已存在 Release 的旧版本。
           # v0.18.0 起正常发布由 build-skill 产包后直传 COS，不再走本工作流。
-          ASSET_URL=$(gh api "repos/${{ github.repository }}/releases/tags/${TAG}" \
+          ASSET_URL=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
             --jq ".assets[] | select(.name == \"$TARGET\") | .url" 2>/dev/null | head -1)
           if [ -z "$ASSET_URL" ]; then
             echo "::error::Release $TAG 下未找到资产 $TARGET，请确认该版本已构建完成"
@@ -66,16 +66,22 @@ jobs:
           }
 
       - name: Install coscli
+        env:
+          # T30(cicd-M4): coscli 二进制 sha256 pin（2026-09-16 人工一次性下载
+          # coscli-linux-amd64 算得，14,212,085 bytes）。升级 coscli 时必须重算
+          # 并同步本值（与 cd.yml / build-skill.yml 三处一致）。
+          COSCLI_SHA256: "a07de5ba2800147a700ed29036b0c76a4229088cee68e1682d0eae19b638a915"
         run: |
           curl -L --fail --retry 3 --retry-delay 2 -o coscli \
             https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          [ -s coscli ] || { echo "::error::coscli 下载为空"; exit 1; }
+          echo "${COSCLI_SHA256}  coscli" | sha256sum -c -
           chmod 755 coscli
           ./coscli --version
 
       - name: Compute sha256 and generate manifest
         id: manifest
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           PKG="pounding-ozon-probe-v${VERSION}.tar.gz"
           SHA=$(sha256sum "dist/$PKG" | awk '{print $1}')
           # manifest url 用 COS_MANIFEST_BASE_URL（公网域名，不带 bucket）
@@ -87,6 +93,9 @@ jobs:
           cat manifest.json
           echo "package_name=$PKG" >> "$GITHUB_OUTPUT"
         env:
+          # T23(cicd-M3)/T30(cicd-M4): workflow_dispatch 自由文本 tag 输入最终会流进
+          # steps 输出——一律不进 shell 明文插值，env 间接引用。
+          VERSION: ${{ steps.version.outputs.version }}
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
 
       - name: Upload to Tencent COS
@@ -100,7 +109,6 @@ jobs:
               --init-skip=true \
               --disable-log=true
           }
-          PKG="${{ steps.manifest.outputs.package_name }}"
           UPLOADED=0
           for attempt in 1 2 3; do
             echo "⏳ COS 上传尝试 $attempt/3: ${PKG} + manifest.json"
@@ -118,6 +126,8 @@ jobs:
           fi
           echo "✅ 已上传: /ozon-skill/${PKG} + /ozon-skill/manifest.json"
         env:
+          # T23(cicd-M3)/T30(cicd-M4): steps 输出不进 shell 明文插值——env 间接引用。
+          PKG: ${{ steps.manifest.outputs.package_name }}
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
@@ -126,7 +136,6 @@ jobs:
       - name: Verify public endpoints
         run: |
           BASE="${COS_MANIFEST_BASE_URL:-https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-skill}"
-          PKG="${{ steps.manifest.outputs.package_name }}"
           for URL in "${BASE}/manifest.json" "${BASE}/${PKG}"; do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL")
             echo "GET $URL → HTTP $CODE"
@@ -139,6 +148,8 @@ jobs:
             echo "::error::COS 包 sha256 与 Release 资产不一致"; exit 1; }
           echo "✅ COS 公网端点验证通过"
         env:
+          # T23(cicd-M3)/T30(cicd-M4): steps 输出不进 shell 明文插值——env 间接引用。
+          PKG: ${{ steps.manifest.outputs.package_name }}
           COS_MANIFEST_BASE_URL: ${{ secrets.COS_MANIFEST_BASE_URL }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}

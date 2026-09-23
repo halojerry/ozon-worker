@@ -2,7 +2,7 @@
 title: worker 远程 MCP 服务接入指南
 purpose: /mcp 端点接入、Bearer 鉴权、工具清单与客户端配置
 applies-version: ">=v0.73.0"
-last-updated: 2026-09-11
+last-updated: 2026-09-16
 owner: mcp
 depends: [API-OVERVIEW, CONTRACT-v4]
 status: active
@@ -43,8 +43,8 @@ status: active
 |---|---|---|
 | `submit_task(envelope, ozon_client_id, ozon_api_key)` | 写 | 提交上架任务（信封 {draft, source, extensions}） |
 | `get_task_status(task_id)` | 读 | 任务状态与进度 |
-| `cancel_task(task_id)` | 写 | 取消任务（仅 pending） |
-| `get_task_statistics()` | 读 | 本租户任务统计 |
+| `cancel_task(task_id)` | 写 | 取消任务（仅 pending；终态 409、跨租户 404——Bearer+租户校验，v0.76 安全批收口） |
+| `get_task_statistics()` | 读 | 本租户任务统计（非 admin 恒查自身租户，跨租户 403——v0.76 安全批收口） |
 | `list_drafts()` | 读 | 采集箱草稿列表（精简字段，不含 envelope 大字段） |
 | `get_draft(draft_id)` | 读 | 草稿全文（payload 信封 + version；v0.71）。改配类目/填属性前先取 |
 | `patch_draft(draft_id, version, payload)` | 写 | 更新草稿（乐观锁，payload=完整 envelope；v0.71）。典型：ozon_category{dc,tp,source:"manual"} + attributes |
@@ -150,6 +150,12 @@ curl -i -X POST https://worker.mxou.cn/mcp \
 - 限流计数：一次工具调用记 2 次（MCP 中间件 + 内层路由各一次），比 REST 更保守。
 - 回归：`worker/tests/test_mcp_server.py`（19 用例：工具整形/鉴权中间件/挂载面）。
 - harness 侧对接（dsh 挂载、网关瘦身、8902 退役）见 `docs/PLAN-harness-mcp-adoption-v1.md`。
+- **v0.76 安全批鉴权口径变化**（远程 MCP 工具经 Bearer 调 REST，客户端已带 key 故**无感**；错误码语义变化）：`cancel_task` 跨租户 404、终态 409；`get_task_statistics` 非 admin 恒查自身租户；`quote_logistics` 走的 `/logistics/quote` 已补 Bearer+限流（401/429）。明细见 `docs/API-OVERVIEW.md` §12。
+- **本地 8902 任务网关联动（pounding-mcp `tasks_server.py`，非本服务）**：自 0.76 安全批起需
+  `Authorization: Bearer <token>`（token 来源：env `POUNDING_TASKS_TOKEN` 优先；未设则启动时随机
+  生成并向 stderr 打一行 `TASKS_TOKEN=<t>`）；CORS `*` 已移除、params 白名单与 body 上限收口。
+  **pounding-harness 发版前置检查项**：网关 Bearer 透传与 TASKS_TOKEN 注入需 harness 侧核对
+  （浏览器侧读 `TASKS_TOKEN` 注入属 harness 改造，登记联动项）。
 
 ## 附：参数差分核查表（v0.75）— 本地 pounding-mcp 30 工具
 

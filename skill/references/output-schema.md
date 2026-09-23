@@ -76,7 +76,7 @@
 
 > **rejected/failed 重提（v0.38 N2）**：被拒/失败任务是终态但可重试——调 Worker `POST /api/v1/resubmit_task/{task_id}`（需请求体带 token，复制原载荷 + 重生成图片重新入队）。rejected 的 `task_status` 端点返回 `progress.stage="rejected"` + 重提指引。跨租户访问返回 404（不泄露任务存在性）。
 
-> CLI 单任务查询用 `query <task_id>`（v0.28.5+），`--watch` 轮询到终态；批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径与 command-reference.md 的 `query` 命令。
+> CLI 单任务查询用 `query <task_id>`（v0.28.5+），`--watch` 轮询到终态；批量查询用 `batch_test.py --wait` 自动轮询。详见 error-codes.md 进度查询口径与 references/commands-ops.md 的 `query` 命令。
 
 ## product_summary[] 字段详解
 

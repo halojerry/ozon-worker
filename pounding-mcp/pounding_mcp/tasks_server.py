@@ -1,40 +1,93 @@
 """采集任务 REST 服务（端口 8902）——任务中心前端查询/创建采集任务 + /ask 对话入口。
 
 端点：
-  GET  /tasks          任务列表（含状态/进度/摘要）
-  GET  /tasks/{id}     单个任务
-  POST /tasks          创建采集任务 {kind, params}（后台执行，返回 task_id）
-  POST /tasks/{id}/cancel  取消任务（MVP：标记 cancelling，子进程尽力中断）
-  POST /ask            （v1）自然语言 → 意图路由 → 直接执行/后台任务/追问/确认
-  OPTIONS *            CORS 预检
+  GET  /tasks          任务列表（含状态/进度/摘要）【需鉴权】
+  GET  /tasks/{id}     单个任务【需鉴权】
+  POST /tasks          创建采集任务 {kind, params}（后台执行，返回 task_id）【需鉴权】
+  POST /tasks/{id}/cancel  取消任务（MVP：标记 cancelling，子进程尽力中断）【需鉴权】
+  POST /ask            （v1）自然语言 → 意图路由 → 直接执行/后台任务/追问/确认【需鉴权】
+  GET  /health         存活探测（免鉴权，只回 {"ok": true} 不泄漏信息）
+  OPTIONS *            预检（固定 204 空体）
 
-由 pounding-harness 网关（8766）代理为 /api/pounding/tasks/* 供前端同源调用；
-/ask 直接暴露给浏览器跨源 fetch（本服务自带 CORS 头，127.0.0.1 绑定）。
+鉴权（v0.76 T18 cicd-H1）：除 OPTIONS 与 /health 外一律校验
+`Authorization: Bearer <token>`，失败 401。token 来源：env `POUNDING_TASKS_TOKEN`
+优先；未设则启动时 `secrets.token_urlsafe(24)` 生成并往 stderr 打一行
+`TASKS_TOKEN=<t>`（harness/用户从输出取）。
+
+CORS（v0.76 T18）：`Access-Control-Allow-Origin: *` 整组头已删除——同机消费方走
+非浏览器通道；此前任意网页可 drive-by 驱动 skill CLI（--auto-submit 真实下单）。
+浏览器侧属 harness 改造（读 TASKS_TOKEN 注入），登记联动项。
+
+params 白名单（v0.76 T18）：POST /tasks 的 params 只放行 `ALLOWED_PARAM_KEYS[kind]`
+声明过的键（见 skill_runner.py，按 skill CLI 真实 flag 集声明），未知键丢弃；
+白名单外的命令兜底闸在 `skill_runner._build_argv`（丢弃 + stderr 提示）。
+
+由 pounding-harness 网关（8766）代理为 /api/pounding/tasks/* 供前端同源调用。
 """
 
 from __future__ import annotations
 
+import hmac
 import json
+import os
+import secrets
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from .router import route_intent
-from .skill_runner import run_skill_command
+from .skill_runner import ALLOWED_PARAM_KEYS, _filter_params, run_skill_command
 from .tasks import _POSITIONAL, COLLECT_KINDS, get_manager
 
 PORT = 8902
+
+# 请求体上限（字节）：任务创建/对话入口都是小 JSON，1MB 已远超合理 payload
+_BODY_MAX_BYTES = 1_000_000
 
 # 直接可执行短命令（同步 subprocess）；其余长时命令走后台任务
 _DIRECT_COMMANDS = ("check", "category", "search")
 # 长时命令（分钟级）→ 后台 get_manager().create() 执行，前端轮询任务
 _LONG_COMMANDS = ("graph", "follow", "discover", "discover_multi", "discover_task")
 
-_CORS_HEADERS = [
-    ("Access-Control-Allow-Origin", "*"),
-    ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
-    ("Access-Control-Allow-Headers", "Content-Type"),
-    ("Access-Control-Max-Age", "86400"),
-]
+
+def _load_tasks_token() -> str:
+    """确定网关令牌：env `POUNDING_TASKS_TOKEN` 优先；未设则随机生成。
+
+    生成时往 stderr 打一行 `TASKS_TOKEN=<t>`（只打一次）——本服务由
+    `python -m pounding_mcp.tasks_server` 拉起，模块导入即进程启动，
+    harness/用户从输出取 token 注入调用方。"""
+    env_token = os.environ.get("POUNDING_TASKS_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    token = secrets.token_urlsafe(24)
+    print(f"TASKS_TOKEN={token}", file=sys.stderr, flush=True)
+    return token
+
+
+_TASKS_TOKEN = _load_tasks_token()
+
+
+def _check_auth(headers: dict) -> bool:
+    """Bearer 令牌校验（纯函数）：`Authorization: Bearer <_TASKS_TOKEN>` 精确匹配。
+
+    headers 是 {头名: 值} 平铺 dict（头名大小写不敏感取值）；
+    比较走 hmac.compare_digest 防时序侧信道。"""
+    auth = ""
+    for key, value in (headers or {}).items():
+        if str(key).lower() == "authorization":
+            auth = value or ""
+            break
+    expected = f"Bearer {_TASKS_TOKEN}"
+    return hmac.compare_digest(auth.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _body_size_ok(n: int) -> bool:
+    """请求体字节数是否在上限内（纯函数）。"""
+    return n <= _BODY_MAX_BYTES
+
+
+class _BodyTooLarge(Exception):
+    """请求体超过上限（_read_body 抛出，HTTP 层转 413）。"""
 
 
 class TaskHandler(BaseHTTPRequestHandler):
@@ -46,21 +99,34 @@ class TaskHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        for name, value in _CORS_HEADERS:
-            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
-    def _cors_preflight(self) -> None:
-        """CORS 预检：浏览器跨源 POST 前先 OPTIONS，只回响应头即可。"""
-        self.send_response(200)
-        for name, value in _CORS_HEADERS:
-            self.send_header(name, value)
-        self.send_header("Content-Length", "0")
-        self.end_headers()
+    def _authorized(self) -> bool:
+        """Bearer 鉴权闸：通过返回 True；失败回 401 JSON（不泄漏 token 信息）。"""
+        if _check_auth(dict(self.headers.items())):
+            return True
+        self._json(401, {"error": "unauthorized"})
+        return False
+
+    def _content_length(self) -> int:
+        try:
+            return int(self.headers.get("Content-Length", "0") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _reject_oversize(self) -> bool:
+        """POST 统一 body 上限闸：超限回 413 并返回 True（已应答）。"""
+        if _body_size_ok(self._content_length()):
+            return False
+        self._json(413, {"error": "body too large"})
+        return True
 
     def do_OPTIONS(self) -> None:
-        self._cors_preflight()
+        # CORS 已移除：预检固定 204 空体，无 Access-Control-* 头
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _args_to_params(self, args: list[str]) -> dict:
         """路由 args（--flag value 平铺）→ run_skill_command/manager 的 params dict。"""
@@ -115,6 +181,9 @@ class TaskHandler(BaseHTTPRequestHandler):
 
             if cmd in _LONG_COMMANDS:
                 params = self._args_to_params(route["args"])
+                allowed = ALLOWED_PARAM_KEYS.get(cmd)
+                if allowed is not None:
+                    params = _filter_params(params, allowed)
                 task_id = get_manager().create(cmd, params, source="ask")
                 self._json(200, {"ok": True, "task_id": task_id, "command": cmd})
                 return
@@ -122,13 +191,17 @@ class TaskHandler(BaseHTTPRequestHandler):
             # 理论不可达：router 只输出上述命令（F/D1 均带 needs_confirmation）
             self._json(200, {"ok": False, "questions": route["questions"],
                              "pipeline": "unknown"})
+        except _BodyTooLarge:
+            self._json(413, {"error": "body too large"})
         except Exception:  # noqa: BLE001 —— 统一出口，不回显内部异常
             self._json(500, {"ok": False, "error": "route failed"})
 
     def _read_body(self) -> dict:
-        size = int(self.headers.get("Content-Length", "0"))
+        size = self._content_length()
         if not size:
             return {}
+        if not _body_size_ok(size):
+            raise _BodyTooLarge()
         try:
             return json.loads(self.rfile.read(size))
         except Exception:  # noqa: BLE001 —— 非法 JSON 视为空 body
@@ -136,6 +209,12 @@ class TaskHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/health":
+            # 存活探测免鉴权：只回固定体，不泄漏 token/任务信息
+            self._json(200, {"ok": True})
+            return
+        if not self._authorized():
+            return
         mgr = get_manager()
         if path == "/tasks" or path == "/tasks/":
             self._json(200, {"items": mgr.list(), "kinds": COLLECT_KINDS})
@@ -150,12 +229,13 @@ class TaskHandler(BaseHTTPRequestHandler):
             else:
                 self._json(404, {"error": "task not found"})
             return
-        if path == "/health":
-            self._json(200, {"ok": True})
-            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        if not self._authorized():
+            return
+        if self._reject_oversize():
+            return
         path = urlparse(self.path).path
         if path == "/ask":
             self._handle_ask()
@@ -167,7 +247,15 @@ class TaskHandler(BaseHTTPRequestHandler):
             if kind not in COLLECT_KINDS:
                 self._json(400, {"error": f"unknown kind: {kind}, 可用: {list(COLLECT_KINDS)}"})
                 return
+            allowed = ALLOWED_PARAM_KEYS.get(kind)
+            if allowed is None:
+                self._json(400, {"error": f"kind 无参数白名单: {kind}"})
+                return
             params = body.get("params", {}) or {}
+            if not isinstance(params, dict):
+                self._json(400, {"error": "params 必须是对象"})
+                return
+            params = _filter_params(params, allowed)
             source = body.get("source", "manual")
             task_id = mgr.create(kind, params, source=source)
             self._json(201, {"task_id": task_id, "status": "running"})
@@ -181,7 +269,7 @@ class TaskHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    port = int(__import__("os").environ.get("POUNDING_TASKS_PORT", str(PORT)))
+    port = int(os.environ.get("POUNDING_TASKS_PORT", str(PORT)))
     server = ThreadingHTTPServer(("127.0.0.1", port), TaskHandler)
     print(f"[pounding-tasks] 采集任务服务 http://127.0.0.1:{port}")
     server.serve_forever()

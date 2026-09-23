@@ -232,7 +232,8 @@ def test_post_missing_keyword_rejected(monkeypatch):
 
 
 def test_get_global_sharing(monkeypatch):
-    """T4b.2：GET 全局共享——A 的 token 可见 A+B 全部归档，含贡献者列。"""
+    """T4b.2：GET 全局共享——A 的 token 可见 A+B 全部归档，贡献者脱敏为 fp（v0.76 T1 明文停发）。"""
+    from services.tenant_service import token_fingerprint
     rows = [
         ("1", "宠物饮水机", {"min_margin": 0.2}, [{"offerId": "111"}], datetime(2026, 8, 17, 10, 0, 0), "tenant-a"),
         ("2", "猫玩具", None, [{"offerId": "222"}], datetime(2026, 8, 17, 9, 0, 0), "tenant-a"),
@@ -243,9 +244,10 @@ def test_get_global_sharing(monkeypatch):
     keywords_a = [it["keyword"] for it in resp_a["items"]]
     assert keywords_a == ["宠物饮水机", "猫玩具", "化妆刷"]  # 含 B 的归档
     assert resp_a["total"] == 3
-    # 贡献者列：每条带 contributed_by_token_id
-    contributors = {it["contributed_by_token_id"] for it in resp_a["items"]}
-    assert contributors == {"tenant-a", "tenant-b"}
+    # 贡献者列：v0.76 T1(api-C1) 起只回脱敏 contributed_by_fp（指纹前 8 位）
+    contributors = {it["contributed_by_fp"] for it in resp_a["items"]}
+    assert contributors == {token_fingerprint("tenant-a")[:8], token_fingerprint("tenant-b")[:8]}
+    assert all("contributed_by_token_id" not in it for it in resp_a["items"])  # 明文键消失
 
     resp_b = _get("sk-tenant-b", monkeypatch, rows)
     assert resp_b["total"] == 3  # B 同样可见全部

@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.78.0 · 144 个 path / 180 个操作（155 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.78.0 · 143 个 path / 179 个操作（154 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -44,7 +44,6 @@
 - [stream_run](#stream-run) （1）
 - [submit_task](#submit-task) （1）
 - [sync-jobs](#sync-jobs) （1）
-- [task](#task) （1）
 - [task_statistics](#task-statistics) （1）
 - [task_status](#task-status) （1）
 - [tasks](#tasks) （5）
@@ -1154,7 +1153,7 @@ Http Cancel — 取消指定run_id的执行
 ## cancel_task
 
 ### `POST /api/v1/cancel_task/{task_id}`
-V1 Cancel Task — 取消待处理的任务。
+V1 Cancel Task — 取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
 > 兼容别名：`POST /cancel_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -1168,6 +1167,7 @@ V1 Cancel Task — 取消待处理的任务。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [CancelTaskResponse](#schema-canceltaskresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
@@ -2253,6 +2253,8 @@ Logistics Quote — 物流运费报价端点（v0.29.x, skill 选品利润估算
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 429 | Too Many Requests | [ErrorBody](#schema-errorbody) |
 
 ## mappings
 
@@ -2966,13 +2968,14 @@ Http Progress — 查询工作流执行进度。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## resubmit_task
 
 ### `POST /api/v1/resubmit_task/{task_id}`
-V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
+V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。
 > 兼容别名：`POST /resubmit_task/{task_id}`（旧裸路径，语义相同）
 
 **参数**
@@ -2986,6 +2989,7 @@ V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [SubmitTaskResponse](#schema-submittaskresponse) |
+| 402 | Payment Required | [ErrorBody](#schema-errorbody) |
 | 404 | Not Found | [ErrorBody](#schema-errorbody) |
 | 409 | Conflict | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
@@ -3099,7 +3103,9 @@ Store Health — 查询 Ozon 店铺配额健康状态。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+| 502 | Bad Gateway | — |
 
 ## stores
 
@@ -3392,28 +3398,11 @@ Sync Job Detail — 单个同步任务状态/进度(前端轮询目标);跨租�
 | 200 | Successful Response | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
-## task
-
-### `GET /task/{task_id}`
-Http Get Task — [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。
-
-**参数**
-
-| 名称 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `task_id` | path | string | ✓ |  |
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | dict[str, any] |
-| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
-
 ## task_statistics
 
 ### `GET /api/v1/task_statistics`
-V1 Task Statistics — 获取任务统计信息。
+V1 Task Statistics — 获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+跨租户仅 admin——语义与旧路径同源）。
 > 兼容别名：`GET /task_statistics`（旧裸路径，语义相同）
 
 **响应**
@@ -3421,6 +3410,8 @@ V1 Task Statistics — 获取任务统计信息。
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | [TaskStatisticsResponse](#schema-taskstatisticsresponse) |
+| 401 | Unauthorized | [ErrorBody](#schema-errorbody) |
+| 403 | Forbidden | [ErrorBody](#schema-errorbody) |
 
 响应示例：
 

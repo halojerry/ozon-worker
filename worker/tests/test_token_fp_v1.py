@@ -197,7 +197,7 @@ class _FakeGetRequest:
 
 
 def test_discovery_get_exposes_contributed_by_fp(monkeypatch):
-    """GET /discovery/runs：新增 contributed_by_fp（fp 前 8 位）；明文列灰度保留。"""
+    """GET /discovery/runs：contributed_by_fp（fp 前 8 位）；v0.76 T1 起明文键从响应删除。"""
     import main
 
     rows = [
@@ -233,8 +233,8 @@ def test_discovery_get_exposes_contributed_by_fp(monkeypatch):
     fp8 = token_fingerprint("tenant-a")[:8]
     assert {it["contributed_by_fp"] for it in resp["items"]} == {fp8, token_fingerprint("tenant-b")[:8]}
     assert len(fp8) == 8
-    # 明文列灰度期保留（既有消费方/测试锁定）
-    assert {it["contributed_by_token_id"] for it in resp["items"]} == {"tenant-a", "tenant-b"}
+    # v0.76 T1(api-C1)：明文键已从读端点响应删除（DB 明文列保留，defer 退役）
+    assert all("contributed_by_token_id" not in it for it in resp["items"])
 
 
 # ============================================================

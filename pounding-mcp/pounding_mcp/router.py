@@ -47,6 +47,9 @@ _COLLECT_WORDS = ("采集",)  # C
 _CATEGORY_WORDS = ("查类目", "类目")
 _CHECK_WORDS = ("检查", "诊断", "环境", "凭证")
 _SEARCH_WORDS = ("搜索", "搜一下", "查一下", "找货源", "查找", "搜")
+# v0.79 口径统一（PLAN-agent-ergonomics-v1 B2 / SKILL.md §1⑨）：URL + 弱化词 →
+# 展示态（graph --no-submit / follow 不带 --auto-submit），不上架。
+_WEAK_INTENT_WORDS = ("看看", "能不能上", "能上吗", "多少钱", "怎么样", "评估", "分析一下", "值不值得")
 
 _ALL_INTENT_WORDS = (
     _IMAGE_WORDS
@@ -85,7 +88,7 @@ def normalize_intent(text: str) -> str:
 
 def _route(pipeline: str, command: str, args: list[str], *,
            needs_confirmation: bool = False, needs_clarification: bool = False,
-           questions: list[str] | None = None) -> dict:
+           questions: list[str] | None = None, note: str = "") -> dict:
     return {
         "pipeline": pipeline,
         "command": command,
@@ -93,6 +96,7 @@ def _route(pipeline: str, command: str, args: list[str], *,
         "needs_confirmation": needs_confirmation,
         "needs_clarification": needs_clarification,
         "questions": list(questions or []),
+        "note": note,
     }
 
 
@@ -148,9 +152,17 @@ def route_intent(text: str) -> dict:
                       needs_confirmation=True)
     if hits:
         kind, url = hits[0]
+        # v0.79 口径统一：URL + 弱化词 → 展示态（§1⑨）；明确意图 → 直接提交腿
+        _weak = any(w in raw for w in _WEAK_INTENT_WORDS)
         if kind == "1688":
+            if _weak:
+                return _route("A", "graph", ["--url", url, "--no-submit"],
+                              note="弱意图——先展示信封与预估，用户确认后再提交")
             return _route("A", "graph", ["--url", url])
         if kind == "ozon_product":
+            if _weak:
+                return _route("B", "follow", ["--ozon-url", url],
+                              note="弱意图——follow 缺省即展示 1688 候选，用户确认后加 --auto-submit")
             return _route("B", "follow", ["--ozon-url", url])
         return _route("C", "discover", ["--url", url])
 

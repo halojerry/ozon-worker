@@ -140,6 +140,17 @@ def _min_margin_block_reason(estimate: dict | None, min_margin: float) -> str:
             f"已拦截提交（预估非终价，可核价后重试或调低阈值）")
 
 
+def _print_next(action: str) -> None:
+    """v0.79 agent 人体工学（PLAN-agent-ergonomics-v1 Task C1）：
+
+    每条命令出口末行打 ``👉 NEXT: <建议动作>``——把「下一步做什么」从 agent
+    推断变成工具直接告知（Anthropic《Writing effective tools for agents》：
+    输出结尾 steer agents towards more token-efficient behaviors）。
+    只打 stdout 一行，零语义变更；调用方在终态行之后调用。
+    """
+    print(f"👉 NEXT: {action}", flush=True)
+
+
 def _wait_task_terminal(task_id: str, timeout: int = 900) -> dict:
     """--wait 一次性命令核心（v0.78 批B3）：提交成功后轮询 Worker 到终态。
 
@@ -161,14 +172,18 @@ def _wait_task_terminal(task_id: str, timeout: int = 900) -> dict:
         product_id = str((result or {}).get("product_id") or "")
         print(f"✅ 任务完成 task_id={task_id}"
               + (f" product_id={product_id}" if product_id else ""), flush=True)
+        _print_next("任务已终态——直接向用户汇报 product_id 即可，无需后续命令")
     elif status == "failed":
         _err = str(r.get("error_message") or "未知原因").splitlines()[0][:200]
         print(f"❌ 任务失败 task_id={task_id} 原因={_err}", flush=True)
+        _print_next("查 references/error-codes.md 对应码与恢复路径；同一任务连续失败 2 次勿再重试，用 report 命令上报")
     elif status == "timeout":
         print(f"⏱️ 等待超时（{timeout}s）task_id={task_id} 尚未终态，"
               f"请稍后 `query {task_id}` 查询（任务仍在跑）", flush=True)
+        _print_next(f"任务仍在云端执行——稍后 `python3 scripts/cli.py query {task_id}` 查终态（分钟级，勿秒级轮询）")
     else:
         print(f"⏹️ 任务终态 status={status} task_id={task_id}", flush=True)
+        _print_next(f"终态已出——`python3 scripts/cli.py query {task_id}` 看明细后向用户汇报")
     return r
 
 
@@ -473,6 +488,12 @@ def cmd_search(args: argparse.Namespace) -> int:
                     print(f"  ✗ 提交失败 {str(_futures[_f].get('title'))[:30]}: {_msg}", flush=True)
         _verb = "入箱" if args.to_box else "提交"
         print(f"📦 批量{_verb}完成(线程 {_threads}): 成功 {_submitted} / 失败 {_failed}", flush=True)
+        # v0.79 Task C1: search 批量出口 NEXT（task_id/draft_id 见上方逐行）
+        if getattr(args, "to_box", False):
+            _print_next("批量入箱完成——draft_id 见上方逐行，上架由用户到 WebUI 认领")
+        elif not getattr(args, "wait", False):
+            _print_next(f"已提交 {_submitted} 个云任务——需要终态时 "
+                        "`python3 scripts/cli.py query <task_id> --watch` 逐个查询（分钟级，勿秒级轮询）")
 
     _out({"count": len(estimated), "products": estimated})
     return 0
@@ -658,6 +679,8 @@ def _heavy_gate(func):
                   f"   锁文件：{HEAVY_LOCK_PATH}\n"
                   f"   → 加 --wait 排队等待，或 --force 强制并行（多进程会互踩 Chrome/缓存，慎用）",
                   file=sys.stderr, flush=True)
+            _print_next("同类任务在跑——重跑本命令并加 --wait 排队（每 30s 心跳报占用方）；"
+                        "--force 仅在用户明确要求时使用")
             sys.exit(4)
         _gate_held = True
         try:
@@ -708,6 +731,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
     missing = preflight_check()
     if missing:
         print_setup_guide(missing)
+        _print_next("按上方指引补配置（set_store/set_token/set_ak）后，重跑本命令")
         return 1
 
     # Extract item_id from URL if needed
@@ -891,6 +915,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
                 summary["draft_id"] = submit_result.get("draft_id", "")
                 print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={submit_result.get('draft_id')}",
                       flush=True)
+                _print_next("draft_id 已出，本次结束（可逆入箱）——上架由用户到 WebUI 认领，无需后续命令")
                 _logger.info("✅ 已入采集箱: draft_id=%s", submit_result.get("draft_id"))
             else:
                 _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
@@ -904,6 +929,12 @@ def cmd_graph(args: argparse.Namespace) -> int:
                         _out({"summary": summary, "envelope": graph,
                               "submit_result": submit_result})
                         return 3
+                elif summary.get("task_id"):
+                    # v0.79 Task C1: fire-and-forget 也给 stdout 一行 task_id + NEXT
+                    # （此前只进 logger，agent 拿不到轮询句柄只能瞎等）。
+                    print(f"✅ 已提交 Worker: task_id={summary['task_id']}", flush=True)
+                    _print_next(f"python3 scripts/cli.py query {summary['task_id']} --watch "
+                                "等终态（分钟级，勿秒级轮询）；或下次会话直接 query 查结果")
         else:
             # ✅ v0.69 T2.3: 提交失败不再静默——stdout 一行人话（error_code + 简要
             # error）+ summary 失败语义 + exit 3。生产实证：409 DUPLICATE_SUBMIT
@@ -913,11 +944,16 @@ def cmd_graph(args: argparse.Namespace) -> int:
             _err_code = str(submit_result.get("error_code") or "")
             _err_msg = str(submit_result.get("error") or "未知错误").splitlines()[0][:120]
             print(f"❌ 提交失败 [{_err_code or 'UNKNOWN'}]: {_err_msg}", flush=True)
+            _print_next("凭证/余额类错误先跑 check 定位并补配置（set_store/set_token）；"
+                        "错误码含义查 references/error-codes.md；同一提交连续失败 2 次勿重试，用 report 上报")
             _logger.error("❌ 提交失败: %s", submit_result.get("error"))
             summary["submitted"] = False
             summary["submit_error"] = _err_code or "UNKNOWN"
             _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
             return 3
+    if getattr(args, 'no_submit', False):
+        _print_next("展示模式（--no-submit）——向用户展示信封与预估后等确认；"
+                    "确认上架则去掉 --no-submit 重跑本命令（可加 --wait 直达终态）")
     _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
     return 0
 
@@ -1289,9 +1325,16 @@ def cmd_check(args) -> int:
     # ═══════════════════════════════════════════
     # 4.5 seller.ozon.ru 卖家后台登录检查（运营数据）
     # ═══════════════════════════════════════════
-    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断靠它）
+    # www.ozon.ru 是选品端；seller.ozon.ru 是卖家后台（运营数据/月销/利润率判断
+    # 靠它）。⚠️ ISSUE-4（report 22e45744）：cookie 在 ≠ 会话活——
+    # __Secure-access_token 是分钟级寿命/用后轮换型（v0.74 实机结论），死会话下
+    # what_to_sell 全 401、运营列全空。cookie 判过 → 再跑一次最小真实探针，
+    # 死会话如实报并置 all_ok，杜绝「已登录」假阳性。
     print("\n  🔗 seller.ozon.ru 卖家后台登录检查（选品运营数据依赖）...")
     seller_ok = False
+    dead_session = False
+    probe_undetermined = False
+    probe_status = None
     if session_ok:
         try:
             from scripts.lib.cdp_client import CdpConnection
@@ -1301,7 +1344,26 @@ def cmd_check(args) -> int:
             conn.close()
         except Exception:
             pass
+    if seller_ok:
+        try:
+            from scripts.lib.ozon_seller_analytics import probe_seller_session_alive
+            sess = probe_seller_session_alive()
+            if sess.get("alive") is False:
+                seller_ok = False
+                dead_session = True
+                all_ok = False
+                probe_status = sess.get("http_status")
+            elif sess.get("alive") is None:
+                probe_undetermined = True
+        except Exception:
+            probe_undetermined = True
     print(f"  {_ok(seller_ok)} seller.ozon.ru 卖家后台已登录（运营数据可用）")
+    if dead_session:
+        print(f"    ⚠️ Cookie 在但会话已失效（运营接口 HTTP {probe_status}，"
+              "token 为分钟级寿命）：请在 Chrome 刷新 https://seller.ozon.ru/ "
+              "登录，或运行 session-sync 重收割")
+    elif probe_undetermined:
+        print("    ⚠️ 会话可用性无法自动判定，以实际运行为准")
     if not seller_ok:
         print("  → 请在 Chrome 中打开 https://seller.ozon.ru/ 登录卖家后台")
         print("    （选品去 www.ozon.ru，运营数据在 seller.ozon.ru，两个登录态都要）")
@@ -1424,6 +1486,10 @@ def cmd_check(args) -> int:
     else:
         print("❌ 请先解决以上问题")
     print(f"{'='*55}")
+    # v0.79 Task C1: check 出口 NEXT——失败给修复路径，成功给首条业务命令
+    _print_next("按上方 ❌ 项逐个补齐（凭证用 set_store/set_token/set_ak；登录态在弹出的 "
+                "Chrome 里完成），补完重跑 check 验证" if not all_ok
+                else "环境就绪——按用户意图直接进入业务命令（graph/follow/discover），无需再探环境")
 
     # Session 登录提醒
     if session_ok:
@@ -1463,6 +1529,7 @@ def cmd_follow(args) -> int:
     missing = preflight_check()
     if missing:
         print_setup_guide(missing)
+        _print_next("按上方指引补配置（set_store/set_token/set_ak）后，重跑本命令")
         return 1
 
     # ⚠️ PR-3: CDP 前置 — follow 全链路依赖 Chrome，启动失败立即报（不再 warning+continue 空跑）
@@ -1492,6 +1559,15 @@ def cmd_follow(args) -> int:
     _out(result)
     if getattr(args, "to_box", False) and result.get("draft_id"):
         print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={result['draft_id']}", flush=True)
+        _print_next("draft_id 已出，本次结束（可逆入箱）——上架由用户到 WebUI 认领，无需后续命令")
+    elif result.get("task_id") and not getattr(args, "wait", False):
+        # v0.79 Task C1: fire-and-forget 给 stdout 一行句柄 + NEXT
+        print(f"✅ 已提交 Worker: task_id={result['task_id']}", flush=True)
+        _print_next(f"python3 scripts/cli.py query {result['task_id']} --watch 等终态"
+                    "（分钟级，勿秒级轮询）")
+    elif result.get("success") and not getattr(args, "auto_submit", False):
+        _print_next("展示模式（未带 --auto-submit）——向用户展示 1688 候选与预估；"
+                    "用户确认后加 --auto-submit 重跑本命令提交（可加 --wait 直达终态）")
     # ✅ v0.78 批B6: --min-margin 拦截在 follow_sell_cloud 内部提交前执行（预估后），
     # 这里只认领退出码（对齐 graph 腿 exit 3 语义）。
     if result.get("blocked_reason") == "low_margin":
@@ -2133,6 +2209,17 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
 
     _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    # v0.79 Task C1: 出口 NEXT——按出口形态给下一步（入箱/直提/纯选品三分支）
+    if getattr(args, "to_box", False):
+        _print_next("批量入箱完成——draft_id 见上方逐行与运行报告，上架由用户到 WebUI 认领")
+    elif locals().get("submitted_task_ids"):
+        _ids = locals()["submitted_task_ids"]
+        if not getattr(args, "wait", False):
+            _print_next(f"已提交 {len(_ids)} 个云任务（task_id 见上方逐行与运行报告）——"
+                        "需要终态时 `python3 scripts/cli.py query <task_id> --watch` 逐个查询（分钟级，勿秒级轮询）")
+    else:
+        _print_next("本次为选品采集（未提交）——向用户汇报候选与运行报告；"
+                    "用户确认后按 §1⑯ 双出口选择 --to-box（可自动）或 --auto-submit（须确认）重跑")
     return 0
 
 
@@ -3280,6 +3367,15 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
         "state_path": str(_task_state_path(task_id)),
         "export_csv": args.export or None,
     })
+    # v0.79 Task C1: discover-task 出口 NEXT（干跑/入箱/直提三分支）
+    if not (getattr(args, "to_box", False) or getattr(args, "auto_submit", False)):
+        _print_next("本次为干跑（零副作用）——向用户汇报达标数/缺口与运行报告；"
+                    "确认出口后加 --to-box（入箱，可自动）或 --auto-submit（直上，须确认）重跑，--resume 续采不重烧")
+    elif getattr(args, "to_box", False):
+        _print_next("批量入箱完成——draft_id 见上方逐行与运行报告，上架由用户到 WebUI 认领")
+    elif wait_task_ids and not getattr(args, "wait", False):
+        _print_next(f"已提交 {len(wait_task_ids)} 个云任务——需要终态时 "
+                    "`python3 scripts/cli.py query <task_id> --watch` 逐个查询（分钟级，勿秒级轮询）")
     return 0
 
 
@@ -4141,6 +4237,18 @@ def _print_query_result(task_id: str, r: dict) -> None:
         print(f"  ⏳ 轮询超时（--timeout {r.get('timeout_seconds')}s 内未到终态），可稍后 query 查询")
     else:
         print("  ⏳ 处理中...")
+    # v0.79 Task C1: query 出口 NEXT——终态给汇报指引，中间态给正确的等待姿势
+    if r.get("ok"):
+        _print_next("任务已终态——按 references/output-schema.md 模板向用户汇报（product_id/采购链接），无需后续命令")
+    elif r.get("error_message"):
+        _print_next("错误码与恢复路径查 references/error-codes.md；同一任务连续失败 2 次勿再重试，用 report 上报")
+    elif status in ("processing", "queued"):
+        _print_next(f"任务在跑——`python3 scripts/cli.py query {task_id} --watch` 阻塞等终态"
+                    "（分钟级，勿秒级轮询）")
+    elif status == "not_found":
+        _print_next("核对 task_id 是否抄错/任务是否过期——用 check --logs <task_id> 看本地运行轨迹")
+    elif status == "worker_unreachable":
+        _print_next("检查本机到 Worker 的网络（WORKER_URL 配置）；恢复后重试本命令")
 
 
 def cmd_query(args: argparse.Namespace) -> int:
@@ -4653,8 +4761,9 @@ def cmd_import_cookies(args: argparse.Namespace) -> int:
         total += n
         print(f"  {name:>8}: {_STATUS_LABELS.get(status, status)}"
               f"{f'（{n} 条）' if n else ''}", flush=True)
-        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给人听
-        if status.startswith("takeover") and r.get("message"):
+        # B-T4：接管通道失败时把降级信息（指路 --paste / probe-win-cookies）讲给
+        # 人听；ok 也可携带备注（ISSUE-2：锁降级自动改用 profile 的说明）
+        if r.get("message") and (status.startswith("takeover") or status == "ok"):
             print(f"           {r['message']}", flush=True)
 
     if not total:

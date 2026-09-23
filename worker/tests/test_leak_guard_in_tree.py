@@ -12,15 +12,23 @@ CI 双闸 = ①gitleaks-action PR 增量扫描 ②全树 `gitleaks detect --no-g
 - ``skill/scripts/lib/config_store.py`` 的 DEFAULT_SENTRY_DSN 为在库设计决策
   （DSN 公开标识符非机密，注释在案），显式豁免，非欠账。
 
+crypto-M3 扩展（2026-09-16）：.gitleaks.toml 自定义规则组（密码赋值 + 无关键字
+高熵 blob，补默认规则盲区）同样在此锁定——规则存在性/entropy 阈值/合成样本实扫
+命中/规则级 allowlist 精确集合，见文件尾部「crypto-M3」节。
+
 运行（无需 PG）::
 
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_leak_guard_in_tree.py -q
 """
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+
+import pytest
 
 # ── 扫描范围常量 ──────────────────────────────────────────────────────────
 SELF_REL = "worker/tests/test_leak_guard_in_tree.py"  # 本文件含指纹常量，跳过自扫
@@ -169,3 +177,132 @@ def test_ratchet_register_consistent_and_scanner_alive(tmp_path):
     )
     planted = _scan(root, ALL_FPS, files=[str(plant)])
     assert planted == {str(plant): {F_STORE_4718259}}, f"扫描器自检失败: {planted}"
+
+
+# ── crypto-M3：gitleaks 自定义规则组（非标形态补漏）────────────────────────
+# 审计实测：`password = "..."` 赋值与无关键字高熵 blob 均能漏过 gitleaks 默认规则；
+# 上方指纹 ratchet 只锁已知泄漏，不防新形态。对策：.gitleaks.toml 追加两条自定义
+# 规则（密码赋值 + 无关键字高熵长串启发式），此处三层锁定：
+#   ① 规则存在且 entropy 阈值正确（纯 toml 解析，无需 gitleaks 二进制）；
+#   ② 合成样本必须被对应规则命中（gitleaks 子进程实扫；缺二进制 skipif 跳过）；
+#   ③ 规则级 allowlist 逐条登记进期望精确集合（只减不增，防豁免段静默扩债）。
+
+EXPECTED_CUSTOM_RULE_ENTROPY = {
+    "ozon-custom-password-assign": 3.0,
+    "ozon-custom-high-entropy-blob": 4.2,
+}
+
+# 合成样本运行时拼接（字面量故意拆段）——否则完整形态落在本文件里，CI 全树
+# gitleaks 扫描会命中测试文件自身，形成自触发泄漏。
+_SAMPLE_PWD_TAIL = "high-entropy-value-123"
+_SAMPLE_BLOB_TAIL = "Hx9pQ_w3rTy7Km2vBn5c" + "Zd8aSf4gJl6eUo0i1y2"
+SYNTHETIC_SAMPLES = {
+    "ozon-custom-password-assign": 'password = "' + _SAMPLE_PWD_TAIL + '"',
+    "ozon-custom-high-entropy-blob": 'token_blob = "' + _SAMPLE_BLOB_TAIL + '"',
+}
+
+GITLEAKS_BIN = shutil.which("gitleaks")
+
+# ③ 规则级 allowlist 期望精确集合（只减不增）。逐条豁免原因注释在 .gitleaks.toml
+# 对应条目旁；此处锁「集合恒等」，静默扩债（新增放行）即红，清欠收窄需同步删登记。
+# 2026-09-16 全仓实扫基线：password 规则 7 命中 / blob 规则 848 命中，全为
+# 假夹具/占位符/vendored 公开参考快照/lockfile 校验和，零真实凭证。
+EXPECTED_CUSTOM_RULE_ALLOWLIST_REGEXES: dict[str, frozenset[str]] = {
+    "ozon-custom-password-assign": frozenset({
+        "SUPERSECRET(VALUE123|COOKIEVALUE)",
+        "password123",
+        "s3cr3t-密码-@!xYz",
+        "your-perf-secret",
+        # seller 会话探针不泄漏用例夹具（历史提交命中，见 .gitleaks.toml 同条注释）
+        "SECRETCHALLENGE",
+    }),
+    "ozon-custom-high-entropy-blob": frozenset({
+        "sha512-[A-Za-z0-9+/=]{16,}",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "REPORT_seller_",
+        "/category/mini-trenazhery-101029485/",
+        "gAOImrvbD3dwTYuK2kuZ1ilQWQCS0Vl4yz",
+        "BKys-7El6gMgJv4_rpqToqBTfYzeZVAPkoirMwbtuNf6",
+        # ak_callback AK 字符合法集常量（跨版本熵漂移误报，见 .gitleaks.toml 同条注释）
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+        # minisign 公钥 printline（公开信任根非凭证，2026-09-23 落地，见 .gitleaks.toml 同条注释）
+        "RWTf22EQnAROI7lY39Cx8wo0BtrPA9w55wBTqTAE17AKf7WIqqS/6rYq",
+    }),
+}
+EXPECTED_CUSTOM_RULE_ALLOWLIST_PATHS: dict[str, frozenset[str]] = {
+    "ozon-custom-password-assign": frozenset({
+        r"^docs/PLAN-security-remediation-v1\.md$",
+    }),
+    "ozon-custom-high-entropy-blob": frozenset({
+        r"^docs/refs/ozon-mcp/data/(seller|perf)_swagger\.json$",
+        r"^docs/data/ozon-api-docs-2026-07-05\.json$",
+    }),
+}
+
+
+def _load_gitleaks_rules() -> dict:
+    cfg = tomllib.loads((_repo_root() / ".gitleaks.toml").read_text("utf-8"))
+    return {r["id"]: r for r in cfg.get("rules", [])}
+
+
+def test_custom_rules_defined_in_config():
+    """①自定义规则组存在且 entropy 阈值正确（无需 gitleaks 二进制即可锁）。"""
+    by_id = _load_gitleaks_rules()
+    missing = set(EXPECTED_CUSTOM_RULE_ENTROPY) - set(by_id)
+    assert not missing, f".gitleaks.toml 缺自定义规则: {sorted(missing)}"
+    for rid, ent in EXPECTED_CUSTOM_RULE_ENTROPY.items():
+        assert float(by_id[rid]["entropy"]) == ent, f"{rid} entropy 阈值漂移"
+
+
+def test_custom_rule_allowlists_ratcheted():
+    """③规则级 allowlist == 期望精确集合（豁免只能收窄不能新增，防静默扩债）。"""
+    by_id = _load_gitleaks_rules()
+    for rid in EXPECTED_CUSTOM_RULE_ENTROPY:
+        rule = by_id.get(rid, {})
+        actual_regexes: set[str] = set()
+        actual_paths: set[str] = set()
+        for al in rule.get("allowlists", []):
+            actual_regexes |= set(al.get("regexes", []))
+            actual_paths |= set(al.get("paths", []))
+        exp_regexes = set(EXPECTED_CUSTOM_RULE_ALLOWLIST_REGEXES.get(rid, frozenset()))
+        exp_paths = set(EXPECTED_CUSTOM_RULE_ALLOWLIST_PATHS.get(rid, frozenset()))
+        assert actual_regexes == exp_regexes, (
+            f"{rid} allowlist regexes 偏离登记（只能收窄）:\n"
+            f"实际: {sorted(actual_regexes)}\n期望: {sorted(exp_regexes)}"
+        )
+        assert actual_paths == exp_paths, (
+            f"{rid} allowlist paths 偏离登记（只能收窄）:\n"
+            f"实际: {sorted(actual_paths)}\n期望: {sorted(exp_paths)}"
+        )
+
+
+@pytest.mark.skipif(GITLEAKS_BIN is None, reason="gitleaks 未安装（合成样本实扫需二进制）")
+def test_custom_rules_fire_on_synthetic_samples(tmp_path):
+    """②合成非标形态必须被对应自定义规则命中（gitleaks 实扫临时样本）。
+
+    两个样本分别对应审计实测的两种漏网形态：
+    - `password = "..."` 密码赋值（默认规则 0 命中，/tmp 探针取证在案）；
+    - 无关键字高熵长串（无 padding、无 API 关键字，默认规则 0 命中）。
+    """
+    src = tmp_path / "src"
+    src.mkdir()
+    for i, sample in enumerate(SYNTHETIC_SAMPLES.values()):
+        (src / f"planted_{i}.py").write_text(sample + "\n", encoding="utf-8")
+    report = tmp_path / "report.json"
+    subprocess.run(
+        [
+            GITLEAKS_BIN, "detect", "--no-git",
+            "--source", str(src),
+            "--config", str(_repo_root() / ".gitleaks.toml"),
+            "--report-format", "json", "--report-path", str(report),
+            "--exit-code", "0",
+        ],
+        capture_output=True, check=True,
+    )
+    findings = json.loads(report.read_text("utf-8")) if report.exists() else []
+    rule_ids = {f["RuleID"] for f in findings}
+    missing = set(SYNTHETIC_SAMPLES) - rule_ids
+    assert not missing, (
+        "合成样本未被自定义规则命中（规则失效/entropy 阈值漂移/被误豁免）: "
+        f"缺 {sorted(missing)}，实得 {sorted(rule_ids)}"
+    )

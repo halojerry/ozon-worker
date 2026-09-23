@@ -77,6 +77,27 @@ def test_no_dev_port_collision(services):
                 )
 
 
+# T20(cicd-M6): 除主 compose 外，测试/e2e/dev/worker 本地栈凡映射宿主 5433
+# 必须绑 127.0.0.1——09-11 事故通道的暴露方向镜像（主栈已收 15433+回环，
+# 辅助栈不许反向开洞给局域网）。
+_LOOPBACK_PG_COMPOSES = (
+    Path(__file__).resolve().parents[2] / "deploy" / "docker-compose.test.yml",
+    Path(__file__).resolve().parents[2] / "deploy" / "docker-compose.e2e.yml",
+    Path(__file__).resolve().parents[2] / "deploy" / "docker-compose.dev.yml",
+    Path(__file__).resolve().parents[1] / "docker-compose.yml",
+)
+
+
+def test_test_e2e_compose_pg_binds_loopback():
+    """T20(cicd-M6): 测试栈 PG 不许绑非回环——09-11 事故通道的暴露方向镜像。"""
+    for path in _LOOPBACK_PG_COMPOSES:
+        for line in path.read_text().splitlines():
+            if "5433:5432" in line:
+                assert line.strip().startswith('- "127.0.0.1:5433:5432"'), (
+                    f"{path.name}: {line.strip()}"
+                )
+
+
 def test_pg_healthcheck_follows_env(services):
     """pg_isready 用户/库名跟随容器 env，不硬编码。"""
     test_cmd = str(services["postgres"]["healthcheck"]["test"])

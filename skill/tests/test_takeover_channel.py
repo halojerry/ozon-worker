@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """B-T4 副本目录 CDP 接管通道 + B1 审查遗留四小件（win-cookie-import v1 收尾）。
 
-锁定（对应简报测试节 ①-⑦）：
+锁定（对应简报测试节 ①-⑦ + Windows 真机反馈双缺陷修复）：
 1. takeover 成功链全 mock：exe 查找 / 最小复制集（Local State + Cookies*）/ Popen /
    CDP getAllCookies / 域过滤 / 进程终止 / 临时目录清理；CDP 抛错路径 finally 清理也断言。
 2. headless 失败 → 去 headless 同参重试一次。
@@ -12,6 +12,11 @@
 6. profile 枚举排除 System/Guest + --browser-profile 透传（display 名/目录名）。
 7. B1 四小件：全源 unsupported 分支真覆盖 / Firefox -wal/-shm sidecar /
    parse_cookie_header 行内前缀（#2 ini fixture 修正在 test_cookie_import_win.py）。
+8. ISSUE-3（report 75b24068）：接管启动参数必含 --remote-allow-origins=*
+   （Chrome 111+ WS 握手 Origin 校验，漏参 = 探活通过但握手 403 假就绪）。
+9. ISSUE-2（report 0b999d17）：源 Cookies 独占锁（WinError 32）——未显式
+   --browser-profile 自动改用可读 profile（message 注明）；显式指定/无替代给
+   「退出浏览器」明确指引；复制失败按锁/非锁分流；WS 握手失败人话文案。
 
 全部 mock/临时目录：不真启浏览器、不解密、不写用户目录；cookie 明文不落断言输出。
 
@@ -20,6 +25,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 import shutil
 import sqlite3
 import sys
@@ -99,7 +105,7 @@ def _patch_takeover_env(monkeypatch, tmp_path, *, exe: str | None = "C:/fake/chr
                         cdp_cookies: list | None = None,
                         cdp_error: Exception | None = None) -> dict:
     """接管通道五边界全 mock。返回记录器 dict。"""
-    rec: dict = {"cmds": [], "procs": [], "killed": [], "copied": []}
+    rec: dict = {"cmds": [], "procs": [], "killed": []}
     monkeypatch.setattr(ch, "_takeover_find_exe", lambda b: exe)
     monkeypatch.setattr(ch, "_takeover_user_data_root", lambda b: ud)
     monkeypatch.setattr(ch, "_takeover_dynamic_port", lambda: port)
@@ -123,12 +129,14 @@ def _patch_takeover_env(monkeypatch, tmp_path, *, exe: str | None = "C:/fake/chr
         monkeypatch.setattr(ch, "_cdp_read_all_cookies",
                             lambda port_: list(cdp_cookies or []))
 
-    real_copy2 = shutil.copy2
+    # 最小复制集 spy（workdir 在 finally 被清理，落盘断言只能盯复制调用本身）
+    rec["copied"] = []
+    real_copy_shared = ch._copy_shared
 
-    def spy_copy2(src, dst, **kw):
+    def spy_copy_shared(src, dst):
         rec["copied"].append((str(src), str(dst)))
-        return real_copy2(src, dst, **kw)
-    monkeypatch.setattr(ch.shutil, "copy2", spy_copy2)
+        return real_copy_shared(src, dst)
+    monkeypatch.setattr(ch, "_copy_shared", spy_copy_shared)
 
     made: list[Path] = []
 
@@ -181,6 +189,8 @@ class TestTakeoverSuccessChain:
         assert "--profile-directory=Default" in cmd
         assert "--no-first-run" in cmd
         assert "--headless=new" in cmd, "首拍 headless=new"
+        assert "--remote-allow-origins=*" in cmd, \
+            "ISSUE-3：CDP WS 握手 Origin 白名单参数（漏参=假就绪后 403）"
         assert 12345 != ch.TAKEOVER_PORT_BANNED, "动态端口绝不占 9222"
         # 最小复制集边界（Local State + Cookies + -wal；-shm 不存在不拷）
         copied_src = {Path(s).name for s, _ in rec["copied"]}
@@ -315,7 +325,8 @@ class TestHarvestChromiumWiring:
         calls = self._spy_takeover(monkeypatch)
         r = ch._harvest_chromium("chrome")
         assert r["status"] == "ok"
-        assert calls == [("chrome", "Default")]
+        assert calls == [("chrome", None)], \
+            "缺省透传 None（未显式指定语义，接管层解析 Default）"
 
     def test_win32_kill_switch_back_to_unsupported(self, monkeypatch):
         _set_platform(monkeypatch, "win32")
@@ -611,6 +622,137 @@ class TestB1Items:
         assert ch.parse_cookie_header("k=a=b=c") == [("k", "a=b=c")]
         assert ch.parse_cookie_header("novalue=") == [("novalue", "")]
         assert ch.parse_cookie_header("no-equals-token") == []
+
+
+# ═══════════ ⑧ ISSUE-2/3：源 Cookies 独占锁 + origin 参数 ═══════════
+
+
+def _locked_patch(monkeypatch, locked_dirs: set[str]) -> None:
+    """让 _copy_shared 对指定 profile 目录下的 Cookies* 抛 WinError 32 语义的
+    PermissionError；_is_locked 按同口径分类（仅锁 profile 内 Cookies 路径）。"""
+    real_copy = ch._copy_shared
+
+    def fake_copy(src, dst):
+        s = Path(src)
+        if s.name in ("Cookies", "Cookies-wal", "Cookies-shm") \
+                and s.parent.parent.name in locked_dirs:
+            raise PermissionError(13, "in use")
+        return real_copy(src, dst)
+    monkeypatch.setattr(ch, "_copy_shared", fake_copy)
+    monkeypatch.setattr(ch, "_is_locked",
+                        lambda p: Path(p).name in ("Cookies", "Cookies-wal",
+                                                   "Cookies-shm")
+                        and Path(p).parent.parent.name in locked_dirs)
+
+
+def _two_profile_ud(tmp_path: Path) -> Path:
+    """Default + Profile 3 双 profile 假 User Data（Local State + 各自 Cookies）。"""
+    ud = tmp_path / "ud2p"
+    ud.mkdir()
+    (ud / "Local State").write_bytes(b"{}")
+    for name in ("Default", "Profile 3"):
+        (ud / name / "Network").mkdir(parents=True)
+        (ud / name / "Network" / "Cookies").write_bytes(b"db-" + name.encode())
+    return ud
+
+
+class TestLockedSource:
+    def test_locked_default_auto_falls_back_to_readable_profile(
+            self, monkeypatch, tmp_path):
+        """ISSUE-2 主路径：Default 被占用 + 未显式指定 → 自动改用可读 profile。"""
+        _set_platform(monkeypatch, "win32")
+        ud = _two_profile_ud(tmp_path)
+        rec = _patch_takeover_env(monkeypatch, tmp_path, ud=ud,
+                                  cdp_cookies=[_cdp_cookie("cookie2", ".1688.com")])
+        _locked_patch(monkeypatch, locked_dirs={"Default"})
+        r = ch._harvest_chromium_via_takeover("chrome")
+        assert r["status"] == "ok"
+        assert {c["name"] for c in r["cookies"]} == {"cookie2"}
+        assert "--profile-directory=Profile 3" in rec["cmds"][0], "改用未占用 profile"
+        msg = r.get("message") or ""
+        assert "Default" in msg and "Profile 3" in msg, "改用说明对用户可见"
+        assert rec["killed"] == [rec["procs"][0]]
+        assert not rec["workdirs"][0].exists(), "临时目录照常清理"
+
+    def test_locked_explicit_profile_fixed_guidance(self, monkeypatch, tmp_path):
+        """显式 --browser-profile 命中锁 → 不静默换 profile，给退出指引。"""
+        _set_platform(monkeypatch, "win32")
+        ud = _two_profile_ud(tmp_path)
+        rec = _patch_takeover_env(monkeypatch, tmp_path, ud=ud)
+        _locked_patch(monkeypatch, locked_dirs={"Default"})
+        r = ch._harvest_chromium_via_takeover("chrome",
+                                              profile_dir_name="Default")
+        assert r["status"] == "takeover_failed"
+        assert "独占锁定" in r["message"] and "退出" in r["message"]
+        assert "--paste" in r["message"]
+        assert rec["cmds"] == [], "不启动浏览器"
+
+    def test_locked_no_alternative_fixed_guidance(self, monkeypatch, tmp_path):
+        """唯一 profile 被占（无替代）→ 明确指引而非笼统失败。"""
+        _set_platform(monkeypatch, "win32")
+        ud = _fake_user_data(tmp_path)
+        rec = _patch_takeover_env(monkeypatch, tmp_path, ud=ud)
+        _locked_patch(monkeypatch, locked_dirs={"Default"})
+        r = ch._harvest_chromium_via_takeover("chrome")
+        assert r["status"] == "takeover_failed"
+        assert "独占锁定" in r["message"] and "退出" in r["message"]
+        assert rec["cmds"] == []
+
+    def test_copy_minimal_set_classifies_lock_vs_other(self, monkeypatch,
+                                                       tmp_path):
+        """复制失败分流：锁类 → TakeoverSourceLocked；非锁类原样透传。"""
+        ud = _fake_user_data(tmp_path)
+        wd = tmp_path / "wd"
+        wd.mkdir()
+        monkeypatch.setattr(ch, "_is_locked", lambda p: True)
+
+        def boom(src, dst):
+            raise PermissionError(13, "in use")
+        monkeypatch.setattr(ch, "_copy_shared", boom)
+        with pytest.raises(ch.TakeoverSourceLocked):
+            ch._takeover_copy_minimal_set(ud, "Default", wd)
+
+        monkeypatch.setattr(ch, "_is_locked", lambda p: False)
+        with pytest.raises(PermissionError) as ei:
+            ch._takeover_copy_minimal_set(ud, "Default", wd)
+        assert not isinstance(ei.value, ch.TakeoverSourceLocked)
+
+    def test_ws_handshake_failure_human_message(self, monkeypatch, tmp_path):
+        """ISSUE-3 佐证文案：WS 握手被拒 → 人话（不甩类型名、不夹 CDP 内容）。"""
+        _set_platform(monkeypatch, "win32")
+        ud = _fake_user_data(tmp_path)
+        ws_exc = type("WebSocketBadStatusException", (Exception,), {})("403")
+        _patch_takeover_env(monkeypatch, tmp_path, ud=ud, cdp_error=ws_exc)
+        r = ch._harvest_chromium_via_takeover("chrome")
+        assert r["status"] == "takeover_failed"
+        assert "握手" in r["message"] and "Origin" in r["message"]
+        assert "WebSocketBadStatusException" not in r["message"]
+        assert "--paste" in r["message"]
+
+    def test_pick_readable_profile_skips_locked_and_empty(self, tmp_path,
+                                                          monkeypatch):
+        """替代 profile 选择：跳过被锁候选，选中首个可读者；全锁 → None。"""
+        ud = tmp_path / "ud3p"
+        ud.mkdir()
+        (ud / "Local State").write_bytes(b"{}")
+        for name in ("Profile 1", "Profile 2", "Profile 3"):
+            (ud / name / "Network").mkdir(parents=True)
+            (ud / name / "Network" / "Cookies").write_bytes(b"db")
+        monkeypatch.setattr(ch, "_is_locked", lambda p: "Profile 1" in str(p))
+        assert ch._pick_readable_profile(ud, "Default") == "Profile 2"
+        monkeypatch.setattr(ch, "_is_locked", lambda p: True)
+        assert ch._pick_readable_profile(ud, "Default") is None
+
+    def test_is_locked_semantics(self, tmp_path):
+        """_is_locked：可读 → False；缺失 → False（非锁类）；errno 13 → True。"""
+        import unittest.mock as _m
+        f = tmp_path / "ok.txt"
+        f.write_bytes(b"x")
+        assert ch._is_locked(f) is False
+        assert ch._is_locked(tmp_path / "no-such") is False
+        with _m.patch("builtins.open",
+                      side_effect=PermissionError(13, "in use")):
+            assert ch._is_locked(f) is True
 
 
 # ═══════════ 冒烟：模块红线（零解密 API）═══════════

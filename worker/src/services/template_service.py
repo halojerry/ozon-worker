@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from storage.database.db import get_engine
 
@@ -242,16 +242,37 @@ def delete_template(tenant_id: str, template_id: str) -> None:
 
 
 def set_default(tenant_id: str, template_id: str) -> dict:
-    """设默认：清旧默认 → 标记当前；返回更新后模板。"""
+    """设默认：清旧默认 → 标记当前，**单事务**（race-L3，Task 28）；返回更新后模板。
+
+    原实现三段独立事务（get 读 → _clear_default 清旧 → begin 置新），「清完未置」
+    窗口内并发切换会让后提交的置新撞部分唯一索引 uq_listing_templates_default
+    → IntegrityError 冒泡 500（审计探针并发 20 失败 10）。现清旧+置新合并进
+    单个 begin()；并发残余窗口由唯一索引兜底，两类 DB 并发伪异常同转 409
+    （与 create_template/update_template 同形态），成功形态与签名不变：
+    - IntegrityError（UniqueViolation，冲突方已提交）→ 409 默认唯一；
+    - OperationalError 40P01 DeadlockDetected（并发唯一索引插入等待环，探针
+      实证 CONTEXT: while inserting index tuple in uq_listing_templates_default）
+      → 409 可重试冲突。
+    """
     uid = _parse_id(template_id)
     get_template(tenant_id, template_id)
-    _clear_default(tenant_id, exclude=uid)
-    with get_engine().begin() as conn:
-        row = conn.execute(text(
-            "UPDATE listing_templates SET is_default=true, updated_at=NOW() "
-            "WHERE id=:id AND tenant_id=:tenant_id "
-            "RETURNING id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
-        ), {"id": uid, "tenant_id": tenant_id}).fetchone()
+    try:
+        with get_engine().begin() as conn:
+            conn.execute(text(
+                "UPDATE listing_templates SET is_default=false, updated_at=NOW() "
+                "WHERE tenant_id=:tenant_id AND is_default AND id<>:exclude"
+            ), {"tenant_id": tenant_id, "exclude": uid})
+            row = conn.execute(text(
+                "UPDATE listing_templates SET is_default=true, updated_at=NOW() "
+                "WHERE id=:id AND tenant_id=:tenant_id "
+                "RETURNING id, tenant_id, name, description, platform, is_default, config, store_overrides, created_at, updated_at"
+            ), {"id": uid, "tenant_id": tenant_id}).fetchone()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="同一租户只能有一个默认配置模板")
+    except OperationalError as exc:
+        if getattr(getattr(exc, "orig", None), "pgcode", None) == "40P01":
+            raise HTTPException(status_code=409, detail="并发切换默认冲突，请稍后重试")
+        raise
     return _row_to_dict(row)
 
 

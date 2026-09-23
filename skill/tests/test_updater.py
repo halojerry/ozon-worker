@@ -17,11 +17,26 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import requests  # noqa: E402
 
 from scripts.lib import updater  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _mechanics_only_disable_sig_verify(monkeypatch):
+    """本文件是更新机制类测试（备份/覆盖/回滚，v0.18.0 先于签名链）。
+
+    PROD_PUBKEY 已于 2026-09-23 填入生产公钥（信任根落地）——验签路径激活后，
+    本文件未 mock 的 `<manifest_url>.sig` 拉取会被 fail-closed 拦截。签名验证
+    语义的专用覆盖在 test_updater_manifest_sig_v076.py（含真机交叉验证），
+    此处按用例粒度关闭以保持机制测试的单一关注点（勿用模块级赋值——会污染
+    同进程后续测试文件读取真实常量）。
+    """
+    monkeypatch.setattr(updater, "PROD_PUBKEY", "")
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -337,6 +352,168 @@ def test_apply_update_acquires_lock_and_releases():
         _lock_path = _tmp / "data" / ".update.lock"
         assert _lock_path.exists() or True  # 锁文件是否残留不重要，重要的是无并发覆盖
         shutil.rmtree(_tmp, ignore_errors=True)
+
+
+# ── ISSUE-1（report 53857013）：升级不毁本地目录 ──────────────────────────
+# 事故链（v0.76.0 Windows 真机）：本地独有目录被搬进 _update_backup → Windows
+# 下备份清理失败被 ignore_errors 静默吞掉 → 残留过期快照 → 下次更新误判「上次
+# 中断」把 8 月旧快照回滚覆盖根目录，最新内容进回收站。三道防线各自可测。
+
+def test_update_preserves_local_dot_and_plain_entries():
+    """防线①：本地独有条目（点开头目录/普通文件）升级后原样保留——
+    不进备份、不被动、内容不变。"""
+    root = make_skill_root()
+    try:
+        wb = root / ".workbuddy"
+        wb.mkdir()
+        (wb / "MEMORY.md").write_text("项目记忆", encoding="utf-8")
+        ak = root / ".1688-AK"
+        ak.mkdir()
+        (ak / "ak.txt").write_text("AK-VALUE", encoding="utf-8")
+        (root / "local_notes.txt").write_text("本地笔记", encoding="utf-8")
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests:
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is True, result["error"]
+        assert (root / ".workbuddy" / "MEMORY.md").read_text(
+            encoding="utf-8") == "项目记忆"
+        assert (root / ".1688-AK" / "ak.txt").read_text(
+            encoding="utf-8") == "AK-VALUE"
+        assert (root / "local_notes.txt").read_text(
+            encoding="utf-8") == "本地笔记"
+        assert not (root / "_update_backup" / ".workbuddy").exists()
+    finally:
+        _cleanup(root)
+
+
+def test_stale_leftover_backup_is_discarded_not_restored():
+    """防线②：残留过期备份绝不「回滚」覆盖根目录——旧快照条目不得出现在
+    根目录，更新照常完成（overlay 全量自愈，启动回滚已废除）。"""
+    root = make_skill_root()
+    try:
+        stale = root / "_update_backup"
+        stale.mkdir()
+        (stale / "stale_junk.py").write_text("# 八月旧快照", encoding="utf-8")
+        (stale / "VERSION").write_text("0.40.0", encoding="utf-8")
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests:
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is True, f"残留备份不应阻断更新: {result['error']}"
+        assert not (root / "stale_junk.py").exists(), "旧快照条目不得回滚进根目录"
+        assert (root / "VERSION").read_text() == "9.9.9"
+    finally:
+        _cleanup(root)
+
+
+def test_undeletable_backup_renamed_to_stale_not_silent():
+    """防线③：备份目录删不掉（Windows 拦删除/沙箱）→ 改名 .stale-<ts> 留存，
+    更新继续成功；绝不静默留在 _update_backup 污染下次运行判定。"""
+    root = make_skill_root()
+    try:
+        stale = root / "_update_backup"
+        stale.mkdir()
+        (stale / "stale_junk.py").write_text("x", encoding="utf-8")
+        real_rmtree = shutil.rmtree
+
+        def failing_rmtree(path, *args, **kwargs):
+            if Path(path).name == "_update_backup":
+                raise OSError("blocked by sandbox shim")
+            return real_rmtree(path, *args, **kwargs)
+
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests, \
+             mock.patch.object(updater.shutil, "rmtree",
+                               side_effect=failing_rmtree):
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is True
+        renamed = list(root.glob("_update_backup.stale-*"))
+        assert renamed, "删不掉的备份必须改名留待手动清理"
+        assert any((d / "stale_junk.py").exists() for d in renamed), \
+            "启动残留备份的内容必须完整保留在改名目录里"
+        assert not (root / "_update_backup").exists()
+    finally:
+        _cleanup(root)
+
+
+def test_undeletable_backup_aborts_when_rename_also_fails():
+    """删除与改名都失败 → fail-closed 中止更新（人话指路手动删除），绝不带
+    脏备份继续覆盖。"""
+    root = make_skill_root()
+    try:
+        stale = root / "_update_backup"
+        stale.mkdir()
+        (stale / "stale_junk.py").write_text("x", encoding="utf-8")
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests, \
+             mock.patch.object(updater, "_discard_backup", return_value=False):
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is False
+        assert "手动删除" in result["error"]
+        assert (root / "VERSION").read_text() == "0.12.0", "未动"
+    finally:
+        _cleanup(root)
+
+
+def test_overlay_truncation_selfcheck_rolls_back():
+    """覆盖被静默截断（copytree 半途而废）→ 包内文件级自检失败必须回滚 +
+    报错，绝不带病宣告成功。"""
+    root = make_skill_root()
+    try:
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        real_copytree = shutil.copytree
+
+        def partial_copytree(src, dst, *args, **kwargs):
+            # scripts/ 目录复制时静默丢 lib 子树（模拟截断）
+            if Path(dst).name == "scripts":
+                Path(dst).mkdir(parents=True, exist_ok=True)
+                return str(dst)
+            return real_copytree(src, dst, *args, **kwargs)
+
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests, \
+             mock.patch.object(updater.shutil, "copytree",
+                               side_effect=partial_copytree):
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is False
+        assert "自检" in result["error"]
+        assert (root / "VERSION").read_text() == "0.12.0", "已回滚到旧版"
+        assert (root / "data" / "keep.txt").read_text() == "keep"
+    finally:
+        _cleanup(root)
+
+
+def test_rollback_only_touches_package_entries():
+    """回滚面收敛：本地独有文件不在备份里，失败回滚路径碰不到它们。"""
+    root = make_skill_root()
+    try:
+        (root / "precious.txt").write_text("用户数据", encoding="utf-8")
+        pkg = make_package_bytes("9.9.9")
+        manifest = make_manifest("9.9.9", pkg)
+        with mock.patch.object(updater, "skill_dir", return_value=root), \
+             mock.patch.object(updater, "requests") as fake_requests, \
+             mock.patch.object(updater.shutil, "copy2",
+                               side_effect=OSError("disk full")):
+            fake_requests.get.side_effect = fake_get_side_effect(manifest, pkg)
+            result = updater.auto_update_if_available()
+        assert result["ok"] is False
+        assert (root / "precious.txt").read_text(
+            encoding="utf-8") == "用户数据", "回滚不得触碰本地独有文件"
+    finally:
+        _cleanup(root)
 
 
 # ── 独立运行入口（无 pytest 环境）─────────────────────────────────────────

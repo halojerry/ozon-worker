@@ -295,12 +295,23 @@ def job_status(task_id: str, log_tail: int = 40) -> dict:
 
     后台任务（background=true 提交）的进度看 progress/stage 字段；卡住时看
     log_tail 最后几行。完成后 worker_task_ids 给 query 工具查云端任务；
-    job_result 取完整结果。"""
+    job_result 取完整结果。
+
+    v0.79 人体工学（PLAN-agent-ergonomics-v1 C2）：running 态附带 next_poll_s/
+    next_action——把轮询节奏从 agent 猜变成工具告知，消灭秒级无效轮询。"""
     t = get_manager().get(task_id)
     if not t:
         return {"error": f"任务不存在: {task_id}（job_list 可列出全部）"}
     t["log_tail"] = get_manager().log_tail(task_id, log_tail)
     t["worker_task_ids"] = get_manager().extract_worker_task_ids(task_id)
+    _status = str(t.get("status") or "")
+    if _status == "running":
+        t["next_poll_s"] = 20
+        t["next_action"] = ("任务在跑——建议 ≥20s 后再 job_status（分钟级任务勿秒级轮询）；"
+                            "期间可处理其他用户请求；终态后 job_result 取结果")
+    elif _status in ("completed", "failed", "cancelled", "interrupted"):
+        t["next_action"] = ("任务已终态——job_result 取完整结果；failed 先看 error 字段与"
+                            " log_tail，连续失败 2 次勿重试改 report 上报")
     return t
 
 
