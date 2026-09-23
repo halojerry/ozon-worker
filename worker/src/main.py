@@ -914,27 +914,13 @@ async def http_async_run(request: Request) -> dict:
                             detail="async-task storage temporarily unavailable")
 
 
-@app.get("/task/{task_id}", responses={
-    200: {"content": {"application/json": {"example": {
-        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
-        "status": "succeeded",
-        "result": {"output": {}},
-        "error": None,
-        "created_at": 1726000000.0,
-    }}}}})
+@app.get("/task/{task_id}", include_in_schema=False)
 async def http_get_task(task_id: str) -> dict:
-    """[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。"""
-    logger.warning("⚠️ /task/{task_id} 已弃用，请使用 GET /task_status/{task_id}")
-    try:
-        row = await async_runtime.get(task_id)
-    except AsyncTaskStorageError as e:
-        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
-        logger.warning("async-task storage unavailable: %s", e)
-        raise HTTPException(status_code=503,
-                            detail="async-task storage temporarily unavailable")
-    if row is None:
-        raise HTTPException(status_code=404, detail="task not found")
-    return row
+    """[REMOVED] 端点已删除（2026-09-23）：无鉴权且自 async runtime 重构起 100% 500
+    （AsyncTaskRuntime 无 get 方法）。真实路由已移除，此处仅占位返回 410 Gone 引导迁移。
+    """
+    raise HTTPException(status_code=410,
+                        detail="endpoint removed; use GET /task_status/{task_id}")
 
 
 HEADER_X_RUN_ID = "x-run-id"

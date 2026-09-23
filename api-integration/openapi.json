@@ -12699,56 +12699,6 @@
         "summary": "Http Submit Task"
       }
     },
-    "/task/{task_id}": {
-      "get": {
-        "description": "[DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。",
-        "operationId": "http_get_task_task__task_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "task_id",
-            "required": true,
-            "schema": {
-              "title": "Task Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "created_at": 1726000000.0,
-                  "result": {
-                    "output": {}
-                  },
-                  "status": "succeeded",
-                  "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
-                },
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Http Get Task Task  Task Id  Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Http Get Task"
-      }
-    },
     "/task_statistics": {
       "get": {
         "description": "获取任务统计信息\n\nT7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举\n任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。\n规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：\n- 无 Authorization Bearer → 401 \"Token is required\"。\n- Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。\n- query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。\n- ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），\n  否则 403 \"admin only\"。\n\nArgs:\n    tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）\n\nReturns:\n    任务统计信息（总数、成功率、平均耗时等）",

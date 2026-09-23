@@ -267,7 +267,9 @@ submit_task → pending → running → completed / failed / cancelled
   （返回 status/message/db/queue，`main.py:1122-1146`）；运行时版本经 `APP_VERSION` env
   注入（如 error_reports 响应附 `worker_version`，`main.py:2526`）。
 - 已标 DEPRECATED（未来版本移除，勿新接）：`POST /async_run`（`main.py:710-712`，改用
-  `/submit_task`）、`GET /task/{task_id}`（`main.py:774-776`，改用 `/task_status/{task_id}`）。
+  `/submit_task`）。`GET /task/{task_id}` 已于 2026-09-23 **退役为 410 墓碑**（实机取证：
+  无鉴权 + 自 async runtime 重构起 100% 500——`AsyncTaskRuntime.get` 已不存在；改用
+  `GET /task_status/{task_id}`）。
 - Skill↔Worker 接口契约版本：`docs/CONTRACT-v4.md`（v4.0）。信封结构变更必须同步该文档
   （AGENTS.md「更新联动规则」）。
 
@@ -286,6 +288,7 @@ submit_task → pending → running → completed / failed / cancelled
 | v0.63.1 | — | credentials 创建/轮换校验失败 500 → **422**（带 detail） |
 | v0.67.0 | **`/mcp` 远程 MCP 端点**（streamable-http，Bearer 鉴权），14 个工具 | — |
 | 未发版（shopbang-parity） | 店铺会话代管 `POST/GET/DELETE /api/v1/credentials/{id}/session`、会话直调 `GET /api/v1/analytics/what-to-sell`；drafts 请求体/PATCH 顶层 `notes` 运营备注（不进信封） | discovery_meta 扩 4 键（follow_profit_cny/follow_margin/ozon_old_price/match_1688_freight_cny） |
+| 未发版（retire-legacy-task） | — | **退役** `GET /task/{task_id}` → 恒 410 + 迁移指引（原实现无鉴权且 100% 500 死代码：`AsyncTaskRuntime.get` 已不存在；用 `GET /task_status/{task_id}`） |
 | v0.69.0 | `POST/GET /api/v1/error_reports`（错误报告；`?report_id=` 详情、`?status=` 筛选） | skill CLI 提交失败 exit 3（原静默 exit 0） |
 | v0.70.0 | `GET /api/v1/forensics/task/{task_id}`（取证一站式只读）、`GET /api/v1/categories/search`、`GET /api/v1/categories/attributes`（缓存只读不回源 Ozon） | MCP 工具 14→17（+`report_issue`/`list_error_reports`/`get_task_forensics`） |
 | 未发版（2026-09-10，数据池 v1） | `POST /api/v1/analytics/seller-sync`（贡献收包，≤12/批）+ `GET /api/v1/analytics/sku-metrics?skus=`（读侧指标+补采指令，≤50/查）——数据池贡献闭环（skill 采集 what_to_sell 顺手上报 + discover 富化读侧） | — |

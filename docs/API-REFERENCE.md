@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.78.0 · 144 个 path / 180 个操作（155 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.78.0 · 143 个 path / 179 个操作（154 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -44,7 +44,6 @@
 - [stream_run](#stream-run) （1）
 - [submit_task](#submit-task) （1）
 - [sync-jobs](#sync-jobs) （1）
-- [task](#task) （1）
 - [task_statistics](#task-statistics) （1）
 - [task_status](#task-status) （1）
 - [tasks](#tasks) （5）
@@ -3397,24 +3396,6 @@ Sync Job Detail — 单个同步任务状态/进度(前端轮询目标);跨租�
 | 状态码 | 说明 | Schema |
 |---|---|---|
 | 200 | Successful Response | — |
-| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
-
-## task
-
-### `GET /task/{task_id}`
-Http Get Task — [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。
-
-**参数**
-
-| 名称 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `task_id` | path | string | ✓ |  |
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | dict[str, any] |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## task_statistics
