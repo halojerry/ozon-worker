@@ -33,7 +33,7 @@
 - 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。**v0.75 起有技术闸**：生产库由 deploy/cos-update 写入 `prod_marker` 哨兵，worker 测试 conftest（`scripts/prod_db_guard.py`）探测到即拒跑 exit 2；生产 PG 宿主直连端口是 **15433**（不是 5433——5433 是本地开发惯例端口，撞车曾致测试套件连产 18h，见 `docs/audit/2026-09-11-io-avalanche.md`）。
 - Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
 - **多会话协作（2026-09-09 起，规范 `docs/WORKFLOW.md`）**：非平凡任务**一会话一分支一 worktree**（开工即 `git worktree add ../ozon-worker-<topic> -b <type>/<topic> origin/dev`，主 worktree 只做 Tier B 小改/发版/review）；分支拓扑 main=发布线（**tag 只打 main**）/dev=集成线/`<type>/<topic>`=工作流分支（合后即删）；两级门槛——Tier A（跨子系统/新 API/新表/发版/>3 文件）必须分支+PR（CI 绿才合，self-merge 合法，merge commit 保留流边界），Tier B（≤3 文件 docs/单点 fix）直提 dev 但**当日 push**。
-- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。
+- 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。**⚠️ VERSION bump 后必跑 `gen_api_docs.py` 重生成并提交**——API-REFERENCE.md 头部嵌版本号，漏跑 = CI 漂移闸红 + cd.yml tag CI 闸拦截（v0.79.0 首打实录，修复循环：重生成→dev→main→删 tag 重打）。
 - 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
 - `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
 
