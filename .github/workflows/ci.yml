@@ -124,7 +124,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: '3.12' }
-      - run: pip install ruff
+      - run: pip install ruff==0.16.1
+        # 锁版本（2026-09-23 PRR）：worker/ruff.toml 是 ignore-without-select 形态，
+        # 全规则集解析语义随 ruff 版本漂移会静默弱化门禁（本地已实证 0.16.1 全规则集生效）
       - name: Ruff check worker
         working-directory: worker
         run: ruff check src/
@@ -137,7 +139,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with: { python-version: '3.12' }
-      - run: pip install ruff
+      - run: pip install ruff==0.16.1
       - name: Ruff check skill (语法级 F 类)
         working-directory: skill
         # --select F: 未定义名/未使用 import 等真实 bug 级; --ignore F821:
@@ -145,6 +147,20 @@ jobs:
         run: ruff check scripts/ --select F --ignore F821
 
   # ═══ Unit Tests ═══
+  test-pounding-mcp:
+    name: Pounding MCP Tests
+    runs-on: ubuntu-latest
+    needs: syntax
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: '3.12' }
+      - run: pip install -e . pytest
+        working-directory: pounding-mcp
+      - name: Pounding MCP tests
+        run: python -m pytest tests/ -q --tb=short
+        working-directory: pounding-mcp
+
   test-worker:
     name: Worker Tests
     runs-on: ubuntu-latest
