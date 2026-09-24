@@ -119,11 +119,13 @@ pounding-ozon-probe/
   VERSION                     # 版本（updater 比对依据）
 ```
 
-## 与 pounding-ozon-hybrid 的关系
+## 与 pounding-ozon-hybrid 的关系（历史，v0.80 已退役）
 
-`pounding-ozon-probe` 是 `pounding-ozon-hybrid` 的数据采集子集，不含：
-- 管线执行引擎 (pipeline.py)
-- Supabase 数据库 (supabase_client.py)
-- 服装尺码映射 (size_mapping.py)
-- n8n 云端工作流
-- 自学习/验证/修复
+`pounding-ozon-probe` 最初是 `pounding-ozon-hybrid`（前代系统：pipeline.py + Supabase +
+n8n 云端工作流 + 自学习/验证/修复）的数据采集子集。**hybrid 及其 n8n/windmill 云端已退役**
+（2026-09 取证：其残留部署曾持店铺 key 绕过 worker 直调 Ozon 上卡，已处置）。
+
+现行架构唯一定义：本 skill 负责 1688/Ozon 采集与 GraphInput 信封组装，
+上架唯一入口 `submit_envelope()` → worker `/submit_task`（全闸管线：
+类目→定价→属性→生图→图源闸→校验→上传→自学习）。任何 webhook/直调 Ozon 上架路径
+均不存在于本仓库。详见 `docs/PLAN-n8n-legacy-purge-v1.md`。

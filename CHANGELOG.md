@@ -1,5 +1,27 @@
 # Changelog
 
+## [开发中] — n8n 前代残留清理（chore/purge-n8n-legacy-v1，方案 `docs/PLAN-n8n-legacy-purge-v1.md`）
+
+> 动因：2026-09-24 生产双事故取证（1688 原图上卡 + 库存自动 100）定案为前代
+> `pounding-ozon-hybrid` 云端（n8n/windmill 工作流，跑在 workbuddy 实例，持店铺 key
+> 直调 Ozon）未退场。本批清理仓库内全部 n8n 时代死代码/死资产，**零行为变更**。
+
+### 删除（全部 grep 零活调用方实证）
+- **skill `cloud_probe.py` 八处**：`_load_path_registry()`（9 个 n8n webhook 路径默认值，`path_registry.json` 文件不存在从未生效）+ `_refresh_from__discovery_api()`（n8n workflow discovery，生产 `/rest` 已 404）+ 惰性 discovery 块（零调用方）+ 8 个 `*_PATH` webhook 常量 + `submit_task()`（deprecated webhook POST，docstring 自标废弃）+ `_cloud_post()`（唯一两消费方均在待删段内）+ `lookup_category_webhook()` 的 n8n 降级分支（生产 webhook 404 永不生效，删除后返回值语义等价）+ `_error_envelope()`（仅 _cloud_post 消费）。
+- **skill `_errors.py`**：`ERR_CLOUD_*` 四常量（仅 _cloud_post 消费，连锁孤儿）。
+- **worker `assets/processor.json` → `archive/assets/`**：前代 `pounding-ozon-processor` n8n 工作流 export（Webhook→属性→定价→图→上传），grep worker 零引用，纯解剖标本。
+- 文档：`skill/README.md`「与 pounding-ozon-hybrid 的关系」改写为退役说明（正路唯一入口 `submit_envelope()` → worker `/submit_task`）。
+
+### 顺手修（本批暴露的存量缺陷）
+- **skill `batch_test.py` 补 `import requests`**：429 限流重试的 `except requests.exceptions.HTTPError`（v0.21 引入）从未有 import——真异常时 NameError 掩盖原异常。CI 门禁 `--select F --ignore F821` 为放过字符串注解把此类裸名炸弹一并放过（F821 ignore 的盲区登记 PLAN 批次 4）。
+
+### 明确不动
+- `deploy/skill/`（旧快照）：cd.yml 打包 `--exclude='deploy/skill'`，不进产物不被执行，仅 VERSION 宿主。
+- 生产侧处置（workbuddy 停 124 任务 + imgfix app / api_key 轮换 / 存量 68 卡清理 / 库存断言防御）见 PLAN 批次 0-4，非本仓代码。
+
+### 测试
+- skill 全量 **1641 passed**（v0.79 后基线，零回归）；`ruff check scripts/ --select F` 严格口径（含 F821）零错。worker 源码零改动（仅 assets 挪动）。
+
 ## [0.79.0] — 2026-09-24（生产发版；四批同车：安全修复批 + Windows 真机反馈批 + CI/API 收口 + agent 人体工学批）
 
 > dev 自 v0.78.0 共 85 commits。**升级必读按批分组**；安全批 13 条行为变更全文见下方 §0.76.0 附「安全修复批次」节。

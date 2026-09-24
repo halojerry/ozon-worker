@@ -43,6 +43,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import requests  # v0.80: 补存量缺失——429 重试 except 子句引用 requests.exceptions（曾因 CI --ignore F821 漏检为 NameError 炸弹）
+
 # Ensure skill/scripts/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
