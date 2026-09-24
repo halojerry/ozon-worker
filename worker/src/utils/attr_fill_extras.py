@@ -25,6 +25,14 @@
 
 审计：所有成功填点写 attr_match_log，match_layer ∈
   {title_evidence, class_default, title_numeric, dims_string}。
+
+⑤ build_llm_schema_prompt / apply_llm_schema_fill（v0.84 A5，用户驱动：
+  「每个类目的特征属性都缓存了，这样 LLM 就知道怎么填写了」）
+  schema 缓存驱动 LLM 兜底——把缓存中「未填属性清单」（中文名+描述+类型+字典
+  标记，属性上限 15）+ 产品证据（标题/1688 属性/dims）交给 vision LLM 提案；
+  提案逐条过确定性验证（字典唯一精确/颜色全等/布尔直通/自由文本去中文/
+  数值 sanity + 禁填清单），验证不过一律剥除。本模块只含确定性部分；
+  LLM 调用在 prepare_ozon_upload_node._llm_schema_fill（复用 call_mxou_chat_api）。
 """
 
 from __future__ import annotations
@@ -463,3 +471,217 @@ def sanitize_numeric_semantics(items: list) -> list:
     except Exception as _e:
         logger.warning("数值语义闸异常（不影响主流程）: %s", _e)
         return items
+
+
+# ---------------------------------------------------------------------------
+# ⑤ schema 驱动 LLM 兜底（v0.84 A5）：确定性 prompt 构造 + 提案验证
+# ---------------------------------------------------------------------------
+
+# 禁入 LLM 提案的属性：系统派生/商品字段/富媒体/合规/已在别链处理的
+_LLM_FILL_BANNED_ATTR_IDS = {
+    8229,   # 类型（dc/tp 派生）
+    4180, 4191,  # 名称/简介（标题描述链）
+    9048, 9024,  # 型号合并键/卖家代码（商品个体值）
+    22232,  # HS 编码（合规恒宁缺）
+    22390,  # 组合成类似的产品（A4 恒禁）
+    23536,  # 需要标记代码（系统布尔）
+    85, 5076,  # 品牌族（必填链恒 Нет бренда）
+    4389,   # 产地（恒 Китай）
+    23171,  # hashtag（assemble 生成链）
+    4497, 4383,  # 重量（商品字段链，LLM 猜重量=幻觉）
+    21845, 21841, 21837, 22273, 8789, 8790, 11254,  # 视频/PDF/JSON 富媒体
+    11650,  # 原厂包装数量（箱规渗透重灾区，A4 已剥，源头不提案）
+}
+_LLM_FILL_MAX_ATTRS = 15
+_LLM_FREE_TEXT_MAX = 120
+# 数值 sanity 上限（体积 ml/直径 mm 等物理量合理域）
+_LLM_NUMERIC_MAX = 100_000
+
+
+def build_llm_schema_prompt(items: list, schema: list, draft: dict) -> tuple[Optional[str], list[dict]]:
+    """构造 schema 驱动 prompt。返回 (prompt|None, 待填属性列表)。
+
+    待填 = 缓存 schema 中未填、非禁填、非纯噪音的属性（cap 15），
+    携带中文名+描述+类型+字典标记——LLM 由此「知道要填什么」。
+    """
+    item0 = next((it for it in items or [] if isinstance(it, dict)), None)
+    if item0 is None:
+        return None, []
+    existing = {int(a.get("id") or 0) for a in (item0.get("attributes") or []) if isinstance(a, dict)}
+    todo = []
+    for attr in schema or []:
+        if not isinstance(attr, dict):
+            continue
+        aid = int(attr.get("id") or 0)
+        if aid <= 0 or aid in existing or aid in _LLM_FILL_BANNED_ATTR_IDS:
+            continue
+        aname = str(attr.get("name") or "")
+        # 纯噪音（臭氧/PDF 同族名已 ban ID 兜底；此处按名再滤一次尺寸重量类）
+        if any(k in aname for k in ("臭氧", "视频", "PDF", "JSON", "重量", "отзыв", "видео")):
+            continue
+        todo.append({
+            "id": aid,
+            "name": aname,
+            "desc": str(attr.get("description") or "")[:80],
+            "type": str(attr.get("type") or "String"),
+            "dict": int(attr.get("dictionary_id") or 0),
+            "collection": bool(attr.get("is_collection")),
+        })
+        if len(todo) >= _LLM_FILL_MAX_ATTRS:
+            break
+    if not todo:
+        return None, []
+
+    t = draft or {}
+    attrs_dump = "; ".join(
+        f"{k}={v}" for k, v in list((t.get("attributes") or {}).items())[:20]
+        if str(v or "").strip()
+    )
+    lines = [
+        "根据商品资料，为下列 Ozon 商品特征属性给出值。规则：",
+        "1. 只填能从资料确定或有把握的属性；不确定就输出 null。",
+        "2. 字典类属性(dict>0)给出中文或俄语名称即可，系统会查字典验证。",
+        "3. 类型为 Boolean 的属性只输出 true/false（仅当资料/图片能确认）。",
+        "4. 数值属性输出纯数字（不带单位）。",
+        "5. 绝不编造：品牌/认证/专利/成分精确值等资料里没有的事实。",
+        "",
+        f"商品标题: {str(t.get('title') or '')[:120]}",
+        f"商品类目: {str(t.get('category_path') or '')[:60]}",
+        f"1688属性: {attrs_dump[:600] or '无'}",
+        f"尺寸mm: {item0.get('depth','')}x{item0.get('width','')}x{item0.get('height','')}",
+        "",
+        "待填属性（JSON 数组）:",
+        json.dumps(
+            [{"id": a["id"], "name": a["name"], "desc": a["desc"],
+              "type": a["type"], "dict": a["dict"]} for a in todo],
+            ensure_ascii=False),
+        "",
+        "只输出 JSON: {\"fills\": [{\"id\": 数字, \"value\": 值或 null}]}，值可为中文/俄语/数字/布尔。",
+    ]
+    return "\n".join(lines), todo
+
+
+def apply_llm_schema_fill(
+    items: list, todo: list[dict], raw_answer: str,
+    draft: dict, state, audit_task_id: str = "",
+) -> list:
+    """验证 LLM 提案并落卡（确定性验证，宁缺红线不变）。
+
+    字典类：search 精确唯一命中才填（颜色类沿用全等放宽）；
+    Boolean：true/false 直通；数值：纯数字 sanity；自由文本：去中文+限长。
+    """
+    try:
+        item0 = next((it for it in items or [] if isinstance(it, dict)), None)
+        if item0 is None or not raw_answer or not todo:
+            return items
+        m = re.search(r"\{[\s\S]*\}", raw_answer)
+        if not m:
+            return items
+        data = json.loads(m.group(0))
+        proposals = data.get("fills") if isinstance(data, dict) else None
+        if not isinstance(proposals, list):
+            return items
+
+        todo_by_id = {a["id"]: a for a in todo}
+        existing = {int(a.get("id") or 0) for a in (item0.get("attributes") or []) if isinstance(a, dict)}
+        attrs = item0.setdefault("attributes", [])
+        dc = str(getattr(state, "description_category_id", "") or "")
+        tp = str(getattr(state, "type_id", "") or "")
+        _cid = str(getattr(state, "ozon_client_id", "") or "")
+        _key = str(getattr(state, "ozon_api_key", "") or "")
+        _tenant = str(getattr(state, "user_id", "") or "")
+        _task = str(audit_task_id or getattr(state, "task_id", "") or "")
+
+        from utils.ozon_dict_values import search_dictionary_values
+        from utils.attr_value_matcher import unique_or_none
+
+        for p in proposals:
+            if not isinstance(p, dict):
+                continue
+            try:
+                aid = int(p.get("id") or 0)
+            except (TypeError, ValueError):
+                continue
+            val = p.get("value")
+            if aid <= 0 or aid in existing or aid in _LLM_FILL_BANNED_ATTR_IDS or aid not in todo_by_id:
+                continue
+            if val is None:
+                continue
+            meta = todo_by_id[aid]
+            aname = meta["name"]
+
+            # Boolean 直通
+            if str(meta.get("type")) == "Boolean":
+                bv = str(val).strip().lower()
+                if bv in ("true", "false"):
+                    attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": bv}]})
+                    existing.add(aid)
+                    _log_llm(_task, aid, aname, bv, _tenant)
+                continue
+
+            sval = str(val).strip()
+            if not sval or len(sval) > _LLM_FREE_TEXT_MAX:
+                continue
+
+            if meta.get("dict", 0) > 0:
+                try:
+                    hits = search_dictionary_values(
+                        _cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, sval) or []
+                except Exception:
+                    hits = []
+                if not hits:
+                    continue
+                res = unique_or_none(aid, aname, hits)
+                dict_id, final_val = 0, ""
+                if res.status == "matched" and res.dictionary_value_id > 0:
+                    dict_id, final_val = res.dictionary_value_id, res.value or sval
+                else:
+                    # 颜色类全等放宽（v082 T2 同款语义）
+                    _is_color = aid in (10096, 10097) or "цвет" in aname.lower() or "颜色" in aname
+                    _eq = next((h for h in hits if str((h or {}).get("value") or "").strip().lower()
+                                == sval.lower()), None) if _is_color else None
+                    if not (_eq and int(_eq.get("id") or 0) > 0):
+                        continue  # 多候选/无命中 → 剥
+                    dict_id, final_val = int(_eq["id"]), str(_eq.get("value") or sval)
+                if any('\u4e00' <= ch <= '\u9fff' for ch in final_val):
+                    final_val = ""  # 中文值清空，dict_id 权威
+                attrs.append({"id": aid, "values": [
+                    {"dictionary_value_id": dict_id, "value": final_val}]})
+                existing.add(aid)
+                _log_llm(_task, aid, aname, final_val or str(dict_id), _tenant, dict_id)
+                logger.info("✅ schema-LLM 补齐 %s(%s) = %s (dict_id=%s)", aname, aid, final_val, dict_id)
+                continue
+
+            # 自由文本/数值
+            if re.fullmatch(r"-?\d+(?:\.\d+)?", sval):
+                try:
+                    if not (0 < abs(float(sval)) <= _LLM_NUMERIC_MAX):
+                        continue
+                except ValueError:
+                    continue
+                if aid in {8513, 23249} and float(sval) > 200:  # 数量类语义闸前移
+                    continue
+            else:
+                if any('\u4e00' <= ch <= '\u9fff' for ch in sval):
+                    continue  # 自由文本必须非中文（Ozon RU 市场）
+            attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": sval}]})
+            existing.add(aid)
+            _log_llm(_task, aid, aname, sval, _tenant)
+            logger.info("✅ schema-LLM 补齐 %s(%s) = %s (free-text)", aname, aid, sval[:40])
+        return items
+    except Exception as _e:
+        logger.warning("schema-LLM 填充异常（不影响主流程）: %s", _e)
+        return items
+
+
+def _log_llm(task: str, aid: int, aname: str, val: str, tenant: str, dict_id: int = 0):
+    try:
+        from utils.attr_match_log import log_attr_match
+        log_attr_match(
+            task_id=task, attr_id=aid, attr_name=aname, source_value=str(val)[:60],
+            status="matched", match_layer="llm_schema",
+            dictionary_value_id=dict_id, confidence=0.8, source="attr_fill_extras",
+            tenant_id=tenant,
+        )
+    except Exception:
+        pass
