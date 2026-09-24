@@ -1522,6 +1522,97 @@ _TEMPLATE_SKIP_ATTR_IDS = {
     9024,   # 供应商货号（商品个体值——gate 实证单2 抄了单1 的值属错填）
 }
 
+# feat/follow-copy-attrs-v1 (A6): 复制卡合并时【我方权威】的属性——这些是
+# 本商品个体值/并卡键/描述链产物，竞品值绝不覆盖；其余缺口全部照抄复制卡
+# （竞品已过审 = 平台认可的真实值，比任何自动猜测都可信）。
+_COPIED_MERGE_OURS_WIN_ATTR_IDS = {
+    9048,   # 型号合并键（防并卡 hash）
+    9024,   # 卖家代码（我们的 offer 指纹）
+    4180,   # 名称（标题链）
+    4191,   # 简介（描述链）
+    85, 5076,  # 品牌族
+    23171,  # hashtag（assemble 生成链）
+}
+
+
+def _read_existing_card_attributes(state, pid: str) -> list:
+    """A6: UPDATE 形态就地读回现卡特征表（/v4，非致命）。
+
+    已存在卡的重提不经过 import-by-sku 复制点 → state.follow_copied_attributes
+    为空——此处对现卡就地 /v4 读回，语义=「未提及的属性维持现状」，防
+    /v3/product/import 全量替换把现卡特征洗掉。
+    """
+    try:
+        from utils.ozon_client import ozon_post
+        r = ozon_post(
+            str(getattr(state, "ozon_client_id", "") or ""),
+            str(getattr(state, "ozon_api_key", "") or ""),
+            "/v4/product/info/attributes",
+            {"filter": {"product_id": [str(pid)], "visibility": "ALL"}, "limit": 10},
+            timeout=15,
+        )
+        items = (r.get("result") or {}).get("items") \
+            if isinstance(r.get("result"), dict) else r.get("result")
+        for it in (items or []):
+            if int((it or {}).get("id") or 0) != int(pid):
+                continue
+            copied = [
+                {"complex_id": int(a.get("complex_id") or 0),
+                 "id": int(a.get("id") or 0),
+                 "values": a.get("values") or []}
+                for a in (it.get("attributes") or [])
+                if isinstance(a, dict) and int(a.get("id") or 0) > 0
+            ]
+            if copied:
+                logger.info("✅ A6 现卡特征就地读回: %d 个属性（UPDATE 防洗卡）", len(copied))
+            return copied
+        return []
+    except Exception as _e:
+        logger.warning("⚠️ 现卡特征读回失败（不阻断）: %s", _e)
+        return []
+
+
+def merge_copied_card_attributes(items: list, copied_attrs: list) -> list:
+    """A6: 把 import-by-sku 复制卡原带特征合并回 payload（防 import 全量替换洗卡）。
+
+    官方契约：/v3/product/import 是「完全更新」语义（完全更新特征用 import），
+    未包含在 payload 里的特征会被清掉——follow 复制卡带来的竞品整表特征
+    （已过审）此前被我们自己的稀疏 payload 洗掉（实测 6447343398: 14/34）。
+    合并规则：我方已填的属性我方权威（_COPIED_MERGE_OURS_WIN_ATTR_IDS 及
+    任何我方已填 id 恒不覆盖）；缺口全部照抄复制卡原值（dict_value_id 原样）。
+    """
+    try:
+        if not copied_attrs:
+            return items
+        merged_total = 0
+        for item in items or []:
+            if not isinstance(item, dict) or not item.get("product_id"):
+                continue  # 只对 UPDATE 项（follow 复制卡）生效
+            attrs = item.setdefault("attributes", [])
+            existing = {int(a.get("id") or 0) for a in attrs if isinstance(a, dict)}
+            added = 0
+            for ca in copied_attrs:
+                if not isinstance(ca, dict):
+                    continue
+                aid = int(ca.get("id") or 0)
+                vals = ca.get("values") or []
+                if aid <= 0 or aid in existing or not vals \
+                        or aid in _COPIED_MERGE_OURS_WIN_ATTR_IDS:
+                    continue
+                attrs.append({"complex_id": int(ca.get("complex_id") or 0),
+                              "id": aid, "values": vals})
+                existing.add(aid)
+                added += 1
+            if added:
+                merged_total += added
+                logger.info("✅ A6 复制卡特征合并: +%d 个竞品已过审属性（防 import 洗卡）", added)
+        if not merged_total:
+            logger.info("A6 复制卡特征合并: 复制卡无新增缺口属性")
+        return items
+    except Exception as _e:
+        logger.warning("复制卡特征合并异常（不影响主流程）: %s", _e)
+        return items
+
 
 def _inherit_attrs_from_template(items, schema, state, audit_task_id: str = ""):
     """feat/attribute-fill-en-v1 T3：同叶子自家 approved 卡属性模板继承。
@@ -3865,6 +3956,24 @@ def prepare_ozon_upload_node(
                         )
             except Exception as _e:
                 logger.warning("schema-LLM 兜底异常（不影响主流程）: %s", _e)
+        # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征合并（在 A4/A5 之后——
+        # 竞品已过审的真实值不适用我方自动猜测的禁填/剥除规则；值数闸在下方仍生效）。
+        _copied_attrs = list(getattr(state, "follow_copied_attributes", None) or [])
+        # UPDATE 形态兜底：已存在卡的重提（follow 复制卡复跑/编辑更新）不经过
+        # import-by-sku 复制点 → state 无复制表 → 此处对现卡 /v4 就地读回
+        # （语义=未提及的属性维持现状，同样防 import 全量替换洗卡）。
+        _pid_merge = ""
+        if is_update_mode:
+            _pid_merge = _update_pid_raw
+        elif getattr(state, "product_id", None) \
+                and str(state.product_id) not in ("0", "None", ""):
+            _pid_merge = str(state.product_id)
+        if not _copied_attrs and _pid_merge:
+            _copied_attrs = _read_existing_card_attributes(state, _pid_merge)
+        if _copied_attrs:
+            ozon_payload["items"] = merge_copied_card_attributes(
+                ozon_payload.get("items", []), _copied_attrs,
+            )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
 

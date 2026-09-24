@@ -79,6 +79,11 @@ class GlobalState(BaseModel):
     attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="属性schema")
     llm_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="LLM生成的属性")
     final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="最终属性列表")
+    # feat/follow-copy-attrs-v1 (A6): import-by-sku 复制卡原带特征表（复制完成点
+    # /v4 反查）——/v3/product/import 是「完全更新」语义（官方：完全更新特征用
+    # import），后续 import 会把复制卡带来的竞品特征全量洗掉；此处保存原表供
+    # prepare 合并回 payload（竞品已过审特征 = 最高质量证据源）。
+    follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="follow 复制卡原带特征（/v4 反查，A6）")
     # ✅ v0.22: 跟卖类目缺失标记（import-by-sku 成功但类目解析失败时打标，不阻断）
     category_missing: bool = Field(default=False, description="跟卖类目缺失标记")
     # ⚠️ v0.14 P0-3: 补全字段——旧版缺失导致 assemble/attributes_fetch 写入被图状态合并丢弃，
@@ -388,6 +393,9 @@ class FollowSellImportOutput(BaseModel):
     # 断链，prepare 跟卖判定与生图参考分线读不到 follow_sell。
     extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions 透传（跟卖标记与竞品参考图）")
 
+    # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表（复制完成点 /v4 反查）
+    follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="复制卡原带特征（竞品已过审，prepare 合并防 import 洗卡）")
+
     # 状态
     upload_status: str = Field(default="pending", description="上传状态")
     # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
@@ -495,6 +503,8 @@ class PrepareOzonUploadInput(BaseModel):
     # 过滤 channel，不声明则恒空（v0.66/0.27 教训，AGENTS 红线）。类型对齐 GlobalState 同名字段。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict,
                                                 description="类目匹配元数据（match_layer/confidence，Q7 权威类目判定读 match_layer）")
+    # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表（channel 纪律：不声明=静默拿不到）
+    follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="follow 复制卡原带特征（合并防 import 全量替换洗卡）")
 
 
 class PrepareOzonUploadOutput(BaseModel):
