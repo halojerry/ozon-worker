@@ -1,5 +1,95 @@
 # Changelog
 
+## [0.80.0] — 2026-09-25（特征属性填满战役 A1-A7 七期同车 + 两 chore 批）
+
+> dev 自 v0.79.0 共 30 commits。主体 = **特征属性填满战役七期**（PR #65-#70 +
+> skill hotfix 325c0465，方案 `docs/PLAN-attr-fill-max-v1.md` /
+> `docs/PLAN-follow-copy-attrs-v1.md` / `docs/PLAN-competitor-fullattrs-v1.md`）；
+> 同车两 chore 批（n8n 前代清理 + extensions.stock 退役，见下方附节）。
+
+### 特征属性填满战役（A1-A7）
+
+- **A1-A4 三期（PR #67）**：标题证据词（材料/颜色/形状/性别词表 → 伪 draft.attributes）+
+  类目保守默认（attr_class_defaults.json 白名单：保证候选「Без гарантии」字典真值、
+  目标受众、性别 skip_if_title_has）+ 数值派生（容量/个数中文数字正则，六件套→6）+
+  出口语义闸 `sanitize_numeric_semantics`（8513/11650/23249 数量语义 cap 200、
+  22390 年份禁填）——有效口径基线 ~50% → 57%。
+- **A5 schema 驱动 LLM 兜底（PR #68）**：`build_llm_schema_prompt` 把 attribute_cache
+  待填属性清单（中文名/描述/类型/字典标记/样例值 cap 15）进 prompt——「缓存了 LLM
+  就知道怎么填」实机验证成立；提案过确定性验证闸才落卡（字典唯一精确命中/Boolean
+  直通/数值 sanity/数量 >200 前移剥除/禁填清单/kill-switch `LLM_SCHEMA_FILL=0`/
+  每条 drop 带原因日志）——57% → 66%。
+- **A6 复制卡特征保全（PR #69）**：官方契约取证（/v3/product/import 全量替换语义 +
+  平台 offer_id upsert）——洗卡发生在全部三个 import 出口。`/v4/product/info/
+  attributes` 只回自家卡，竞品原表唯一读回通道是复制卡本身：follow_sell_import
+  import-by-sku 确认点读回 + `preserve_existing_card_attributes` 公共函数统一三
+  POST 出口（upload/retry update/retry full-import-create），已填不覆盖、缺口照抄
+  （含 dictionary_value_id）。实机：喷雾器第一手完整链 **83%**（对照被洗后 41%）。
+- **A7 竞品全表特征（PR #70 + hotfix）**：取证三段断链——95 缓存 0 全表；entrypoint/
+  composer API 家族均只下发短表；v0.78 静默化后台 tab 的 IntersectionObserver 永不
+  触发（懒加载根因）。三件修复：①skill `ozon_scraper` DOM 兜底（点「все
+  характеристики」+ 滚动×10 + dl dt/dd 解析）；②**hotfix 325c0465**：兜底前
+  `CdpTab.bring_to_front()` 激活 tab（后台 tab 渲染步骤整体跳过，滚动无效——
+  gate 首跑实锤）；③箱规渗透源头双封（quantity 组 zh_exclude_keywords 组匹配 +
+  v0.64 中文直搜旁路同步过滤）+ A5 prompt 竞品证据（draft.ozon_attributes 前 30 条）。
+  实机 gate：同 URL 清洁片 5 键短表 failed「缺必填属性」→ 13 键全表 **completed**
+  （product_id=5837014560）。
+- **EN 腿（PR #65）**：EN 信封属性填满（vision 颜色 dict_id + 模板继承三箭），9024
+  黑名单口径确立。
+- **实机 gate**（2026-09-24/25 本地 Docker + 测试店 5381204）：清洁片 follow 同 URL
+  5 键短表 failed「缺必填」→ 13 键全表 completed（5837014560，卡图 4/4 pHash=0 全
+  AI 图实锤）；新品调料罐两单有效口径 70% → **77%**（17/22，必填全齐；发版前 hotfix
+  9c884fca——A5 自由文本俄语约束+中文提案翻译重验，4384 配套属性被剥→俄语落卡）；
+  零假 completed。⚠️ 发版前批三次实机曾误打主店铺 4718259（stores.json default=
+  主店铺，follow 未显式 --store）——**gate 单必须显式 `--store 测试店铺5381204`**。
+- **升级注意**：skill 侧改动 ozon_scraper.py / cdp_client.py / attr_fill_extras.py
+  依赖——发版走 compile.py（Python 3.12 ABI）；worker 新测试
+  test_attr_fill_max_v083(13)/test_llm_schema_fill_v084(8)/test_follow_copy_attrs_
+  v085(8)/test_competitor_fullattrs_v086(4)。
+
+### 测试基线
+
+- worker 3136 / skill 1646 / pounding-mcp 108 全绿（CI 13 job 口径）。
+
+## [0.80.0 附] — n8n 前代残留清理（chore/purge-n8n-legacy-v1，方案 `docs/PLAN-n8n-legacy-purge-v1.md`）
+
+> 动因：2026-09-24 生产双事故取证（1688 原图上卡 + 库存自动 100）定案为前代
+> `pounding-ozon-hybrid` 云端（n8n/windmill 工作流，跑在 workbuddy 实例，持店铺 key
+> 直调 Ozon）未退场。本批清理仓库内全部 n8n 时代死代码/死资产，**零行为变更**。
+
+### 删除（全部 grep 零活调用方实证）
+- **skill `cloud_probe.py` 八处**：`_load_path_registry()`（9 个 n8n webhook 路径默认值，`path_registry.json` 文件不存在从未生效）+ `_refresh_from__discovery_api()`（n8n workflow discovery，生产 `/rest` 已 404）+ 惰性 discovery 块（零调用方）+ 8 个 `*_PATH` webhook 常量 + `submit_task()`（deprecated webhook POST，docstring 自标废弃）+ `_cloud_post()`（唯一两消费方均在待删段内）+ `lookup_category_webhook()` 的 n8n 降级分支（生产 webhook 404 永不生效，删除后返回值语义等价）+ `_error_envelope()`（仅 _cloud_post 消费）。
+- **skill `_errors.py`**：`ERR_CLOUD_*` 四常量（仅 _cloud_post 消费，连锁孤儿）。
+- **worker `assets/processor.json` → `archive/assets/`**：前代 `pounding-ozon-processor` n8n 工作流 export（Webhook→属性→定价→图→上传），grep worker 零引用，纯解剖标本。
+- 文档：`skill/README.md`「与 pounding-ozon-hybrid 的关系」改写为退役说明（正路唯一入口 `submit_envelope()` → worker `/submit_task`）。
+
+### 顺手修（本批暴露的存量缺陷）
+- **skill `batch_test.py` 补 `import requests`**：429 限流重试的 `except requests.exceptions.HTTPError`（v0.21 引入）从未有 import——真异常时 NameError 掩盖原异常。CI 门禁 `--select F --ignore F821` 为放过字符串注解把此类裸名炸弹一并放过（F821 ignore 的盲区登记 PLAN 批次 4）。
+
+### 明确不动
+- `deploy/skill/`（旧快照）：cd.yml 打包 `--exclude='deploy/skill'`，不进产物不被执行，仅 VERSION 宿主。
+- 生产侧处置（workbuddy 停 124 任务 + imgfix app / api_key 轮换 / 存量 68 卡清理 / 库存断言防御）见 PLAN 批次 0-4，非本仓代码。
+
+### 测试
+- skill 全量 **1641 passed**（v0.79 后基线，零回归）；`ruff check scripts/ --select F` 严格口径（含 F821）零错。worker 源码零改动（仅 assets 挪动）。
+
+## [0.80.0 附] — extensions.stock / warehouse_id 死键全链退役（chore/drop-extensions-stock-v1，PLAN 批次 2，用户拍板「我方永不设库存」）
+
+> 动因同上批次：`extensions.stock` 自 C4/T14 设计起就是死键（模板校验/存储 + skill 注入键
+> + 测试锁定下发链俱全，但 worker graphs 全链零消费；Ozon v3 import 契约本身无 stocks
+> 字段）。2026-09-24 旁路事故教训后口径收敛：**我方管线从不设置 Ozon 库存**，rFBS 库存
+> 由卖家人工/店铺运营管理（`bulk_update_stocks` 是唯一显式库存写入口，人工触发）。
+
+### 删除（全链三处源头 + 两侧静默剥离兼容）
+- **worker `template_service`**：`CONFIG_KEYS` 白名单删 `stock`/`warehouse_id` + `_validate_config` 数值校验分支删；新增 `RETIRED_CONFIG_KEYS`——**写入侧与 `apply_template_to_envelope` 注入侧双侧静默剥离**（存量模板 DB 数据带退役键时编辑保存不 422、不注入 extensions；`store_overrides` 走同一 `_validate_config` 自动覆盖）。
+- **worker `api/schemas.py` `ListingTemplateConfig`**：删两字段 + examples 同步（openapi/generated.d.ts 已重生成；`api-integration/generated.d.ts` 参考副本未同步——无 CI 闸，下次跑 README 生成命令时自然收敛）。
+- **skill `cloud_probe` `_INJECTABLE_EXT_KEYS`**：删两键——worker 下发含退役键（存量）也不透传进信封。
+- **文档**：CONTRACT-v4 §1b.3 改写（原「prepare 透传到 /v3 import」声明从未实现，如实登记退役口径）；`draft_service` docstring 的「warehouse/stock 透传」措辞修正（从未实现）。**CSV 的 `draft.stock` 列是草稿运营备注，保留**。
+- 测试改写锁死口径：worker 4 文件（退役键剥离负断言）+ skill `test_template_profile`（mock 故意保留存量退役键，断言注入侧无视）。
+
+### 测试
+- worker 全量 **3136 passed / 2 skipped**（本地 PG 15433）；skill 全量 **1641 passed**；双侧 ruff 绿；webui `tsc -b` 0 错 + build 过；`gen_api_docs` 重生成（63/63 schema 示例覆盖）。
+
 ## [0.79.0] — 2026-09-24（生产发版；四批同车：安全修复批 + Windows 真机反馈批 + CI/API 收口 + agent 人体工学批）
 
 > dev 自 v0.78.0 共 85 commits。**升级必读按批分组**；安全批 13 条行为变更全文见下方 §0.76.0 附「安全修复批次」节。

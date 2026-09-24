@@ -36,20 +36,13 @@ import os
 import re
 import sys
 import time
-import uuid
-from pathlib import Path
 from typing import Any
 
 import requests
 
-from scripts._const import CLOUD_API_BASE, SKILL_VERSION
-from scripts._errors import (
-    ERR_CLOUD_REJECTED,
-    ERR_CLOUD_TIMEOUT,
-    ERR_CLOUD_UNAVAILABLE,
-)
+from scripts._const import CLOUD_API_BASE
 from scripts.lib.ak_1688_client import AkAuthError
-from scripts.lib.config_store import capture_exception, init_sentry
+from scripts.lib.config_store import init_sentry
 from scripts.lib.reference_images import get_best_product_images
 from scripts.lib.task_paths import cleanup_old_files
 
@@ -98,123 +91,9 @@ def _log_task(task_id: str, component: str, stage: str, level: str,
     AuditLogger(task_id).log(component, stage, level, msg, data)
 
 
-def _load_path_registry() -> dict[str, str]:
-    """Load webhook paths. Priority: cloud API discovery > registry file > hardcoded."""
-    defaults = {
-        "pipeline": "/webhook/pl-v3-304140",
-        "ingest": "/webhook/v2-ingest-292201",
-        "follow_sell": "/webhook/fs-v4-303992",
-        "refresh": "/webhook/re-v2-304020",
-        "image_gen": "/webhook/mx-bp2-377417",
-        "pricing": "/webhook/pricing-v1",
-        "attr_learn": "/webhook/attr-learn-v1",
-        "task_status": "/webhook/task-status-v1",
-        "cat_lookup": "/webhook/cat-lookup-v1",
-    }
-
-    # 1. Try file registry first (fast, offline)
-    try:
-        registry_path = Path(__file__).resolve().parent / "path_registry.json"
-        if registry_path.exists():
-            with open(registry_path) as f:
-                data = json.load(f)
-            for key in defaults:
-                if data.get(key):
-                    defaults[key] = data[key]
-    except Exception as e:
-        logger.debug('path_registry.json load failed: %s', e)
-
-    # ⚠️ v0.14 E2: 模块加载不做网络 discovery（旧代码 import 时同步发 HTTP GET timeout=10，
-    # 每次命令 graph/follow 额外 +10s 阻塞）。discovery 惰性化：submit_task(deprecated webhook) 首次调用前触发。
-    # 本地 registry 文件仍是权威默认值，网络 discovery 仅补充更新。
-    return defaults
-
-
-def _refresh_from__discovery_api(paths: dict[str, str]) -> None:
-    """Query cloud REST API for active workflows tagged 'pounding-ozon'.
-
-    Any workflow tagged with 'pounding-ozon' + 'prod-{role}' will
-    automatically update its webhook path in the registry.
-
-    This means: deploy a new workflow, tag it, and the skill
-    auto-discovers it without any code changes.
-    """
-    base = _get_api_base()
-    _discovery_api = base.replace("webhook", "rest") if "/webhook" in base else f"{base.rstrip('/')}/rest"
-    # Strip webhook base, use REST API
-    if "worker.mxou.cn" in base:
-        _discovery_api = "https://worker.mxou.cn/rest"
-    else:
-        return  # Only auto-discover on known server
-
-    try:
-        resp = requests.get(
-            f"{_discovery_api}/workflows",
-            params={"active": "true"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        workflows = resp.json().get("data", [])
-    except Exception:
-        return
-
-    tag_role_map = {
-        "prod-pipeline": "pipeline",
-        "prod-ingest": "ingest",
-        "prod-follow-sell": "follow_sell",
-        "prod-refresh": "refresh",
-        "prod-image-gen": "image_gen",
-        "prod-attr-learn": "attr_learn",
-        "prod-task-status": "task_status",
-    }
-
-    for wf in workflows:
-        tags = wf.get("tags", [])
-        wf_name = wf.get("name", "")
-        for tag, role in tag_role_map.items():
-            if tag in tags or tag in wf_name:
-                # Extract webhook path from the webhook node
-                for node in wf.get("nodes", []):
-                    if "webhook" in node.get("type", ""):
-                        wh_path = node.get("parameters", {}).get("path", "")
-                        if wh_path:
-                            paths[role] = f"/webhook/{wh_path}"
-                            logger.info(
-                                "🔍 cloud discovery: %s → %s (from workflow '%s')",
-                                role, paths[role], wf_name
-                            )
-
-    # Save discovered paths back to registry for offline use
-    try:
-        registry_path = Path(__file__).resolve().parent / "path_registry.json"
-        save_data = {k: v for k, v in paths.items() if not k.startswith("_")}
-        with open(registry_path, "w") as f:
-            json.dump(save_data, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        logger.debug('Failed to save discovered paths to registry: %s', e)
-
-_paths = _load_path_registry()
-PIPELINE_PATH = _paths["pipeline"]
-FOLLOW_SELL_PATH = _paths["follow_sell"]
-REFRESH_PATH = _paths["refresh"]
-IMAGE_GEN_PATH = _paths["image_gen"]
-ATTR_LEARN_PATH = _paths["attr_learn"]
-TASK_STATUS_PATH = _paths["task_status"]
-
-# ⚠️ v0.14 E2: discovery 惰性化 — 进程级缓存，仅 deprecated webhook 路径（submit_task）首次调用前触发
-_discovery_done = False
-
-
-def _ensure_paths_discovered() -> None:
-    """惰性触发云端 discovery（进程内只做一次）。仅 submit_task(deprecated) 需要。"""
-    global _discovery_done
-    if _discovery_done:
-        return
-    _discovery_done = True
-    try:
-        _refresh_from__discovery_api(_paths)
-    except Exception:
-        pass
+# v0.80: n8n webhook 路径 registry / 云端 workflow discovery / 8 个 webhook PATH 常量
+# 已随前代 hybrid 云端退役删除——正路唯一入口是 submit_envelope() → worker /submit_task。
+# 取证与决策见 docs/PLAN-n8n-legacy-purge-v1.md。
 
 
 def _get_api_base() -> str:
@@ -247,63 +126,6 @@ def _get_ozon_credentials(store_id: str | None = None) -> dict[str, str]:
     return {"client_id": "", "api_key": ""}
 
 
-def _cloud_post(url: str, body: dict[str, Any], *, timeout_sec: int = 60, headers: dict[str, str] | None = None, max_retries: int = 3) -> dict[str, Any]:
-    """POST to cloud pipeline webhook, return parsed JSON or error envelope.
-
-    Retries on ConnectionError (ECONNRESET, etc.) with exponential backoff.
-    """
-    last_error: Exception | None = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = requests.post(url, json=body, timeout=timeout_sec, headers=headers)
-            if resp.status_code in (401, 403):
-                return _error_envelope(body, "AUTH_FAILED", "认证失败", terminal=True)
-            resp.raise_for_status()
-            try:
-                result = resp.json() if resp.text else {}
-            except (json.JSONDecodeError, ValueError):
-                return _error_envelope(body, ERR_CLOUD_REJECTED, f"云端返回非JSON响应 ({resp.status_code})")
-            if isinstance(result, dict) and result.get('_auth_error'):
-                return _error_envelope(body, result.get('error_code', 'AUTH_UNKNOWN'),
-                                    result.get('message', 'Authentication failed'), terminal=True)
-            # Version check: pipeline returns skill_version, compare with local
-            if isinstance(result, dict):
-                remote_ver = result.get('skill_version', '')
-                if remote_ver and remote_ver != SKILL_VERSION:
-                    result['update_available'] = True
-                    result['current_version'] = SKILL_VERSION
-                    result['latest_version'] = remote_ver
-            return result if isinstance(result, dict) else {}
-        except requests.ConnectionError as exc:
-            last_error = exc
-            if attempt < max_retries:
-                wait = min(5 * attempt, 30)  # 5s, 10s, 15s backoff
-                logger.warning("_cloud_post: connection error (attempt %d/%d), retrying in %ds: %s",
-                            attempt, max_retries, wait, exc)
-                time.sleep(wait)
-                continue
-            capture_exception(exc, url=url, phase='cloud_post', attempts=attempt)
-            return _error_envelope(body, ERR_CLOUD_UNAVAILABLE, f"无法连接云端 ({url})", details=str(exc))
-        except requests.Timeout as exc:
-            last_error = exc
-            if attempt < max_retries:
-                wait = min(5 * attempt, 30)
-                logger.warning("_cloud_post: timeout (attempt %d/%d), retrying in %ds: %s",
-                            attempt, max_retries, wait, exc)
-                time.sleep(wait)
-                continue
-            capture_exception(exc, url=url, phase='cloud_post', timeout=timeout_sec)
-            return _error_envelope(body, ERR_CLOUD_TIMEOUT, f"云端请求超时 ({timeout_sec}s)", terminal=False, retryable=True, details=str(exc))
-        except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response else 0
-            detail = (exc.response.text[:500] if exc.response else str(exc))
-            capture_exception(exc, url=url, phase='cloud_post', status=status)
-            return _error_envelope(body, ERR_CLOUD_REJECTED, f"云端拒绝请求 ({status}): {detail}", terminal=status < 500 if status else False, retryable=status >= 500 if status else True, details=detail)
-
-    # Should not reach here, but be defensive
-    return _error_envelope(body, ERR_CLOUD_UNAVAILABLE, f"无法连接云端 ({url})", details=str(last_error))
-
-
 def build_envelope(
     *,
     source: dict[str, Any],
@@ -312,9 +134,9 @@ def build_envelope(
     extensions: dict[str, Any] | None = None,
     store_id: str = "",
 ) -> dict[str, Any]:
-    """Build a simplified request envelope for n8n cloud submission.
+    """Build a simplified request envelope for worker submission.
 
-    Only includes fields the n8n workflow actually reads — dead fields
+    Only includes fields the pipeline actually reads — dead fields
     (version, project_id, subproject_id, request_id, mxou_base_url)
     are removed.
     """
@@ -388,15 +210,13 @@ def build_envelope(
 
 # ── Submit / Poll ──
 
-INGEST_PATH = _paths["ingest"]
-CAT_LOOKUP_PATH = _paths.get("cat_lookup", "/webhook/cat-lookup-v1")
-
 
 def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dict[str, Any]:
     """Query worker for previously learned category mappings.
 
-    Primary: GET {WORKER_URL}/api/v1/mappings/lookup（W11，worker category_mapping 自学习表）。
-    404/异常时自动降级老 n8n webhook ``/webhook/cat-lookup-v1``（老 hybrid 表）。
+    GET {WORKER_URL}/api/v1/mappings/lookup（W11，worker category_mapping 自学习表）。
+    v0.80: 老 n8n webhook ``/webhook/cat-lookup-v1`` 降级分支已随前代 hybrid 云端退役删除
+    （docs/PLAN-n8n-legacy-purge-v1.md）。
     Returns ``{found: true, mappings: [{description_category_id, type_id, confidence}]}``
     or ``{found: false}`` on miss/error.
 
@@ -408,7 +228,6 @@ def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dic
     token = _get_token()
     kw = keyword.strip()
     headers = {"Authorization": f"Bearer {token}"}
-    # 主路径：worker /api/v1/mappings/lookup（W11）
     try:
         resp = requests.get(
             f"{base.rstrip('/')}/api/v1/mappings/lookup",
@@ -416,33 +235,20 @@ def lookup_category_webhook(keyword: str, *, min_confidence: float = 0.8) -> dic
             headers=headers,
             timeout=15,
         )
-        if resp.status_code == 404:
-            logger.info("lookup_category_webhook: worker 无 /api/v1/mappings/lookup，降级老 webhook")
-        else:
-            resp.raise_for_status()
-            result = resp.json() if resp.text else {}
-            if isinstance(result, dict) and result.get("found") and result.get("mappings"):
-                mappings = [
-                    {"description_category_id": m.get("dc"), "type_id": m.get("tp"),
-                     "confidence": float(m.get("confidence") or 0.0)}
-                    for m in result["mappings"] if m.get("dc") and m.get("tp")
-                ]
-                mappings = [m for m in mappings if m["confidence"] >= min_confidence]
-                if mappings:
-                    return {"found": True, "mappings": mappings, "keyword": kw}
-            return {"found": False, "keyword": kw}
+        resp.raise_for_status()
+        result = resp.json() if resp.text else {}
+        if isinstance(result, dict) and result.get("found") and result.get("mappings"):
+            mappings = [
+                {"description_category_id": m.get("dc"), "type_id": m.get("tp"),
+                 "confidence": float(m.get("confidence") or 0.0)}
+                for m in result["mappings"] if m.get("dc") and m.get("tp")
+            ]
+            mappings = [m for m in mappings if m["confidence"] >= min_confidence]
+            if mappings:
+                return {"found": True, "mappings": mappings, "keyword": kw}
+        return {"found": False, "keyword": kw}
     except Exception as e:
-        logger.info("lookup_category_webhook: 新端点失败(%s)，降级老 webhook", e)
-    # 降级：老 n8n webhook（cat-lookup-v1）
-    try:
-        result = _cloud_post(
-            f"{base.rstrip('/')}{CAT_LOOKUP_PATH}",
-            {"keyword": kw, "min_confidence": min_confidence},
-            headers=headers,
-            timeout_sec=15,
-        )
-        return result if isinstance(result, dict) else {"found": False}
-    except Exception:
+        logger.info("lookup_category_webhook: worker 查询失败(%s)", e)
         return {"found": False, "keyword": kw}
 
 
@@ -600,30 +406,6 @@ def submit_draft(
         return {"ok": False, "error": "Worker 不可达，无法入箱", "http_status": 0}
     except Exception as e:
         return {"ok": False, "error": str(e)}
-
-
-def submit_task(
-    envelope: dict[str, Any],
-    *,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """[DEPRECATED] Use submit_envelope() only. Worker triggers pipeline from pending tasks.
-
-    POST /webhook/pipeline — kept for backward compatibility.
-    New code should use Worker-only trigger model: submit_envelope() → Worker → pipeline.
-    """
-    tid = task_id or f"task-{uuid.uuid4().hex[:12]}"
-    base = _get_api_base()
-    token = _get_token()
-    body = {"task_id": tid, "envelope": envelope, "token": token}
-    result = _cloud_post(
-        f"{base.rstrip('/')}{PIPELINE_PATH}",
-        body,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout_sec=600,
-    )
-    result.setdefault("task_id", tid)
-    return result
 
 
 # ── GraphInput envelope (new pipeline format) ──
@@ -1691,11 +1473,13 @@ def _flatten_ozon_characteristics(chars) -> dict[str, str]:
 # 可注入 extensions 的配置键（与 worker template_service.CONFIG_KEYS 一致）
 # v0.60: 三档定价 margin_floor/margin_anchor + 变动成本率 + 流量关键词
 # traffic_keywords 是 list 型扁平键（v0.56 S1），非数值型。
+# v0.80: stock/warehouse_id 已退役删除——我方管线永不设库存（worker graphs 零消费死键，
+# docs/PLAN-n8n-legacy-purge-v1.md 批次 2）；模板下发侧同批剥离，不再透传进信封。
 _INJECTABLE_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
                         "margin_floor", "margin_anchor",
                         "variable_cost_rate", "promo_variable_cost_rate",
                         "traffic_keywords",
-                        "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+                        "offer_id_prefix", "follow_type")
 
 # 只注入非零值的数值键（Worker 默认兜底语义）
 _NONZERO_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
@@ -3411,29 +3195,6 @@ def build_graph_envelope_with_retry(
     )
 
 
-def _error_envelope(
-    source_envelope: dict[str, Any],
-    code: str,
-    message: str,
-    *,
-    terminal: bool = True,
-    retryable: bool = False,
-    details: Any = None,
-    extras: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    env: dict[str, Any] = {
-        "task_id": None,
-        "status": "rejected" if terminal else "failed",
-        "terminal": terminal,
-        "error": {"code": code, "message": message, "retryable": retryable},
-    }
-    if details is not None:
-        env["error"]["details"] = details
-    if extras:
-        env.update(extras)
-    return env
-
-
 # ── Ozon helpers ──
 
 
@@ -3523,7 +3284,7 @@ def get_ozon_product_info(client_id: str, api_key: str, product_id: str) -> dict
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Worker C: refresh_product — submit to n8n refresh webhook
+# Variant envelope builder（v0.80: n8n refresh webhook 段落头随前代退役改写）
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -3892,7 +3653,7 @@ def publish_product_new(
         'est_retail': est_retail,
     }
 
-    # 5. Run local pipeline (DAG-based, replaces n8n cloud workflow)
+    # 5. Run local pipeline（DAG；v0.79 起经 worker /submit_task 触发云端管线）
     if poll:
         _log_task(task_id, 'pipeline', 'start', 'info', 'Starting local Python pipeline')
         try:
@@ -4382,22 +4143,26 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["competitor_price"] = ozon_price
                     logger.info("💰 Ozon 竞品售价: %s", ozon_price)
                 result["scrape_source"] = "cdp"
-                # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
-                scraped_dc = cdp_data.get("description_category_id", "")
-                scraped_type = cdp_data.get("type_id", "") or scraped_dc
+                # ✅ fix/category-bridge-v1: 面包屑只提线索不提 ID——前台 web ID 与
+                # Seller 树两套编号（2026-09-24 follow ×5 事故；v0.26 what_to_sell
+                # 覆盖修复时已确认「页面面包屑只是 Widget 空间 ID」，本批把毒源根除）。
+                # dc/tp 唯一合法页面来源 = 下方 what_to_sell 权威通道（Seller 空间）。
                 scraped_lang = cdp_data.get("breadcrumb_language", "")
                 scraped_path = cdp_data.get("category_path", "")
-                if scraped_dc:
+                scraped_web_id = cdp_data.get("web_category_id", "")
+                if scraped_path or scraped_web_id:
                     result["ozon_category"] = {
-                        "description_category_id": str(scraped_dc),
-                        "type_id": str(scraped_type),
+                        "web_category_id": str(scraped_web_id or ""),
                         "language": scraped_lang,
                         "category_path": scraped_path,
                         # v0.63: 页面面包屑（顾客命名空间）→ 标 page，为主判据（category_path）
                         "source": "page",
                         "namespace": "widget",
                     }
-                    logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
+                    logger.info(
+                        "✅ Ozon 面包屑线索提取: path=%s lang=%s web_id=%s（dc/tp 由 worker 类目链定稿）",
+                        scraped_path[:60], scraped_lang, scraped_web_id,
+                    )
                 logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
         except Exception as e:
             logger.debug("CDP Ozon scraper unavailable: %s", e)
@@ -4457,9 +4222,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     "namespace": "seller",
                 }
                 logger.info(
-                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖 Widget 面包屑 %s）",
+                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖面包屑线索 path=%s）",
                     _m["category2_id"], _m["category3_id"],
-                    (result.get("ozon_category") or {}).get("description_category_id"),
+                    (result.get("ozon_category") or {}).get("category_path", "")[:50],
                 )
             if result.get("competitor_weight_g") or result.get("competitor_dimensions_mm"):
                 logger.info(
@@ -4772,11 +4537,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
                     if _attrs_all:
                         draft["ozon_attributes"] = _attrs_all
-                    # ✅ PR-5: follow 也透传竞品类目 dc（与 graph --ozon-ref-url 一致）。
-                    # worker ozon_attrs_allowed 对显式 category 做一致性校验，
-                    # 防 what_to_sell 类目与页面面包屑类目漂移时跨类目属性错配。
+                    # ✅ PR-5: follow 透传竞品类目供 worker 属性一致性校验。
+                    # ⚠️ fix/category-bridge-v1: 只信 Seller 空间合法来源（what_to_sell
+                    # 权威 dc）；面包屑 web ID ≠ Seller dc（两套编号），绝不喂此字段。
+                    # worker attr_defaults.cat 缺失即跳过一致性校验（安全缺省）。
                     _oz_cat_dc = (result.get("ozon_category") or {}).get("description_category_id") or ""
-                    if str(_oz_cat_dc).isdigit():
+                    if str(_oz_cat_dc).isdigit() and (result.get("ozon_category") or {}).get("source") == "what_to_sell":
                         draft["ozon_attributes_category"] = int(_oz_cat_dc)
                     if not any("цвет" in k.lower() or "颜色" in k for k in _attrs_all):
                         _aspects = cdp_data.get("aspects") or []
@@ -4798,10 +4564,22 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                                 result.setdefault("competitor_dimensions_mm", _wd_d)
                         except Exception:
                             pass
-                    # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
+                    # ✅ Ozon 类目透传（fix/category-bridge-v1 改写）: 两种合法形态——
+                    # ① what_to_sell 权威（带 Seller dc/tp）→ 原样透传；
+                    # ② page 面包屑线索（无 dc/tp）→ 只透传文本路径 + web_category_id
+                    #    线索键，dc/tp 由 worker 类目链定稿（前台 web ID ≠ Seller 编号）。
                     ozon_cat = result.get("ozon_category")
-                    if ozon_cat:
-                        draft["ozon_category"] = ozon_cat
+                    if isinstance(ozon_cat, dict):
+                        if ozon_cat.get("description_category_id") and ozon_cat.get("type_id"):
+                            # what_to_sell 权威形态（Seller 空间）
+                            draft["ozon_category"] = dict(ozon_cat)
+                        elif ozon_cat.get("category_path") or ozon_cat.get("web_category_id"):
+                            draft["ozon_category"] = {
+                                "category_path": str(ozon_cat.get("category_path", "") or ""),
+                                "breadcrumb_language": str(ozon_cat.get("breadcrumb_language") or ozon_cat.get("language") or ""),
+                                "web_category_id": str(ozon_cat.get("web_category_id", "") or ""),
+                                "source": "page",
+                            }
                     # ⚠️ v0.14 P0-6: 注入 Ozon 竞品售价（独立字段，避免与 1688 采购价 draft.price 混淆）
                     comp_price = result.get("competitor_price", "")
                     if comp_price:

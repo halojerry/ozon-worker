@@ -503,7 +503,12 @@ class ValidateResponse(BaseModel):
 
 
 class ListingTemplateConfig(BaseModel):
-    """模板扩展参数（白名单；全部可选，None 表示不注入）。"""
+    """模板扩展参数（白名单；全部可选，None 表示不注入）。
+
+    v0.80: stock/warehouse_id 已退役删除（我方永不设库存口径，
+    docs/PLAN-n8n-legacy-purge-v1.md 批次 2）；存量数据中的退役键由
+    template_service 静默剥离。
+    """
     model_config = _examples({
         "margin_rate": 0.25,
         "fx_buffer": 0.05,
@@ -513,7 +518,6 @@ class ListingTemplateConfig(BaseModel):
         "promo_variable_cost_rate": 0.245,
         "traffic_keywords": ["поилка для животных", "фонтан для кошек"],
         "offer_id_prefix": "MX",
-        "stock": 10,
     })
     margin_rate: Optional[float] = Field(None, ge=0.0, le=1.0, description="利润率（0-1），不设则 worker 默认 0.25")
     commission_rate: Optional[float] = Field(None, ge=0.0, le=0.5, description="佣金率；0=让 worker 自动查店铺真实佣金")
@@ -525,8 +529,6 @@ class ListingTemplateConfig(BaseModel):
     traffic_keywords: Optional[List[str]] = Field(None, description="标题流量关键词列表（extensions.traffic_keywords 扁平键）")
     offer_id_prefix: Optional[str] = Field(None, description="货号前缀（仅新建上架生效；更新模式忽略）")
     follow_type: Optional[str] = Field(None, pattern="^(hand|api)$", description="跟卖方式：hand 防侵权 / api 强制")
-    stock: Optional[int] = Field(None, ge=0, description="上架后库存（extensions.stock）")
-    warehouse_id: Optional[str] = Field(None, description="仓库（extensions.warehouse_id）")
 
 
 class ListingTemplateCreate(BaseModel):

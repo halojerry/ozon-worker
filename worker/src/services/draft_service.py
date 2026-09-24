@@ -1,10 +1,14 @@
-"""T6: 采集箱草稿服务 — C1 草稿/提交两表 + 凭证剥离 + C5 重复校验 + warehouse/stock 透传。
+"""T6: 采集箱草稿服务 — C1 草稿/提交两表 + 凭证剥离 + C5 重复校验。
 
 分层（1.4 约束）：services 是唯一业务实现，routes/未来 BFF/MCP 都只是门面。
 - create: POST /drafts 收 GraphInput → 剥离凭证（加密存 credentials 表）→ payload 只存 envelope
 - list/get/patch: 租户隔离 CRUD；patch 带 version 乐观锁（stale → 409）
 - submit: 凭证注入 → per-store 重复校验（409，fail-open）→ 跨店提醒（不硬拦）
   → task_processor.submit_task 入队 → draft_submissions 行（extensions 快照）
+
+v0.80: 旧 docstring 的「warehouse/stock 透传」从未实现（worker graphs 零消费），
+extensions.stock/warehouse_id 已全链退役（docs/PLAN-n8n-legacy-purge-v1.md 批次 2，
+我方永不设库存）。CSV 的 draft.stock 列是草稿运营备注，与上架无关。
 """
 from __future__ import annotations
 

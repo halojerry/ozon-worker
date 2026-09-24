@@ -261,6 +261,10 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
     "all_image_failed": "全部图片生成/上传失败,需重新生图",
     "BR_hashtag_brand": "标签与品牌冲突被拒:已移除违规标签",
     "FB_INSTA": "描述含 Instagram/Facebook 等社交媒体，俄政府认定极端组织，已自动过滤重试",
+    # ✅ fix/category-bridge-v1: 请求级类目 400 人话（非审核拒绝，勿再标「审核拒绝」）
+    "LOCAL_CATEGORY_INVALID_REQUEST": "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
+    "description_category_invalid": "类目无效:Ozon 未识别该类目 ID,请人工改配后重提",
+    "description_category_has_no_description_type": "类目与类型不匹配:type_id 不属于该类目,请人工改配后重提",
 }
 
 
@@ -386,6 +390,16 @@ REPAIR_STRATEGY: Dict[str, str] = {
     # 不进任何 repair/reupload 节点——错配中文/重写支路修不了类目错，重传只会
     # 再被拒或错货过审）。入箱文案见 final_result 的 block_to_box 出口。
     "LOCAL_TITLE_CATEGORY_MISMATCH": "block_to_box",
+    # ✅ fix/category-bridge-v1（2026-09-24 follow ×5 事故）：类目无效是**请求级
+    # 400**（非审核拒绝）——LLM/属性修复都改不了 import item 的 dc/tp，重传必再炸
+    # 且白烧额度。官方 code（description_category_invalid / has_no_description_type）
+    # + 本地识别码（LOCAL_CATEGORY_INVALID_REQUEST，含 Request validation error:
+    # invalid Request.Items.TypeId 网关模板文案）一律 unfixable 直达终态。
+    "description_category_invalid": "unfixable",
+    "DESCRIPTION_CATEGORY_INVALID": "unfixable",
+    "description_category_has_no_description_type": "unfixable",
+    "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE": "unfixable",
+    "LOCAL_CATEGORY_INVALID_REQUEST": "unfixable",
 }
 
 
@@ -442,6 +456,11 @@ FIX_TYPE_UNFIXABLE: set = {
     # ✅ v0.28.5 A1: 商品已在其他账号 → 不可修复
     # ✅ v0.69: 图片族错误移出（→ FIX_TYPE_PICTURES 靶向修复）
     "SPU_ALREADY_EXISTS_IN_ANOTHER_ACCOUNT",
+    # ✅ fix/category-bridge-v1: 类目无效=请求级 400（与 REPAIR_STRATEGY 同批）
+    "description_category_invalid", "DESCRIPTION_CATEGORY_INVALID",
+    "description_category_has_no_description_type",
+    "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE",
+    "LOCAL_CATEGORY_INVALID_REQUEST",
 }
 
 
@@ -551,7 +570,9 @@ def _search_dictionary_values_chain(
             continue
         primary = lang_route(str(term))
         chain = (primary, "RU") if primary == "ZH_HANS" else (primary, "ZH_HANS")
-        for lang in (*chain, "EN"):
+        # feat/attribute-fill-en-v1: lang_route 新增 EN primary——尾链 EN 可能与
+        # primary 重复，dict.fromkeys 保序去重省一轮空搜索
+        for lang in dict.fromkeys((*chain, "EN")):
             result = searcher(
                 ozon_client_id, ozon_api_key,
                 attribute_id, category_id, type_id,
@@ -783,6 +804,30 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
 
     if not errors:
         logger.warning("⚠️ 无errors数据，尝试从error_message提取")
+        # ✅ fix/category-bridge-v1（2026-09-24 follow ×5 事故）：请求级类目 400
+        # 绝不进 error_repair_llm——LLM/属性修复改不了 import item 的 dc/tp，
+        # 重传必再炸白烧额度（旧路径 UNKNOWN→LLM 循环→误标「审核拒绝」）。
+        _em = str(state.error_message or "")
+        _em_l = _em.lower()
+        _is_cat_req_400 = (
+            ("request validation error" in _em_l
+             and any(t in _em_l for t in ("typeid", "categoryid", "items.type")))
+            or "description_category_invalid" in _em_l
+            or "description_category_has_no_description_type" in _em_l
+            or ("category" in _em_l and "is not found" in _em_l
+                and "type=" in _em_l)  # schema API 400 模板（level_3_id=X and type=Y is not found）
+        )
+        if _is_cat_req_400:
+            state.error_code = "LOCAL_CATEGORY_INVALID_REQUEST"
+            state.attribute_id = 0
+            state.error_type = "unfixable"
+            state.repair_node = "final_result"
+            state.error_message = (
+                "类目无效（请求级 400，非审核拒绝）: import 携带的 description_category_id/"
+                f"type_id 非法——原始: {_em[:150]}。自动修复无法改写类目，已停止重试；"
+                "请检查信封类目来源（前台面包屑 ID 不属于 Seller 树）或人工改配后重提")
+            logger.error("⛔ 类目无效请求级 400 → unfixable 直达终态（不进 LLM 修复）")
+            return state
         state.error_code = "UNKNOWN"
         state.attribute_id = 0
         state.error_type = "unknown"
@@ -2879,6 +2924,16 @@ def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[
     if _reupload_gate_blocked(state):
         return None
 
+    # feat/follow-copy-attrs-v1 (A6): 重传 UPDATE 出口防洗卡（公共函数，与主
+    # upload/CREATE 重传出口统一）——/v3/product/import 完全更新语义，POST 前
+    # 读回现卡特征合并（我方已填我方权威，未提及=维持现状）。非致命。
+    try:
+        from graphs.nodes.prepare_ozon_upload_node import preserve_existing_card_attributes
+        items = preserve_existing_card_attributes(
+            state.ozon_client_id, state.ozon_api_key, items, prefer_product_id=pid_int)
+    except Exception as _a6_e:
+        logger.warning("A6 重传 UPDATE 防洗卡异常（不阻断）: %s", _a6_e)
+
     try:
         data = ozon_post(
             state.ozon_client_id, state.ozon_api_key,
@@ -3821,6 +3876,16 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # 批E 唯一入口，逃生门 IMAGE_SALVAGE_FALLBACK 时并入 salvage）。
     if _reupload_gate_blocked(state):
         return state
+
+    # feat/follow-copy-attrs-v1 (A6): CREATE 重传出口防洗卡（offer 命中现卡时
+    # Ozon 平台侧照样按 offer 唯一键 upsert——payload 之外的现卡属性会被洗掉）。
+    # 公共函数与主 upload / retry UPDATE 出口统一；非致命。
+    try:
+        from graphs.nodes.prepare_ozon_upload_node import preserve_existing_card_attributes
+        items = preserve_existing_card_attributes(
+            state.ozon_client_id, state.ozon_api_key, items)
+    except Exception as _a6_e:
+        logger.warning("A6 CREATE 重传防洗卡异常（不阻断）: %s", _a6_e)
 
     payload: Dict[str, Any] = {"items": items}
 

@@ -30,9 +30,13 @@ CONFIG_KEYS = (
     "traffic_keywords",   # 标题流量关键词（list[str]，v0.56 S1 扁平键 extensions.traffic_keywords）
     "offer_id_prefix",    # 货号前缀（仅新建；同店铺多批次防重）
     "follow_type",        # 跟卖方式（hand 防侵权 / api 强制）
-    "stock",              # 上架后库存（extensions.stock）
-    "warehouse_id",       # 仓库（extensions.warehouse_id）
 )
+
+# v0.80 退役键（docs/PLAN-n8n-legacy-purge-v1.md 批次 2，用户拍板「我方永不设库存」）：
+# stock / warehouse_id 曾是模板→extensions 注入链的一环，但 worker graphs 零消费（死键）。
+# 口径收敛：我方管线从不设置 Ozon 库存（rFBS 库存由卖家人工/店铺运营管理）。
+# 存量模板 config 里的退役键在写入与注入两侧静默剥离（不 422，防旧模板编辑保存报错）。
+RETIRED_CONFIG_KEYS = ("stock", "warehouse_id")
 
 # 数值边界（create/update 时校验）
 _NUMERIC_LIMITS = {
@@ -73,9 +77,14 @@ def _parse_id(template_id: str) -> uuid.UUID:
 
 
 def _validate_config(config: dict) -> dict:
-    """白名单 + 数值边界校验；返回过滤后的 config。"""
+    """白名单 + 数值边界校验；返回过滤后的 config。
+
+    v0.80: 退役键（stock/warehouse_id）静默剥离——旧模板数据带这些键时
+    编辑保存不报错，值直接丢弃（我方永不设库存口径）。
+    """
     if not isinstance(config, dict):
         raise HTTPException(status_code=422, detail="config 必须是 JSON 对象")
+    config = {k: v for k, v in config.items() if k not in RETIRED_CONFIG_KEYS}
     unknown = [k for k in config if k not in CONFIG_KEYS]
     if unknown:
         raise HTTPException(
@@ -95,14 +104,6 @@ def _validate_config(config: dict) -> dict:
             if not (lo <= num <= hi):
                 raise HTTPException(status_code=422, detail=f"config.{key} 必须在 [{lo}, {hi}] 范围内")
             cleaned[key] = num
-        elif key == "stock":
-            try:
-                stock = int(val)
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=422, detail="config.stock 必须是整数")
-            if stock < 0:
-                raise HTTPException(status_code=422, detail="config.stock 不能为负数")
-            cleaned[key] = stock
         elif key == "follow_type":
             ft = str(val).lower()
             if ft not in ("hand", "api"):
@@ -326,6 +327,9 @@ def apply_template_to_envelope(
             for k, v in store_cfg.items():
                 if v is not None:
                     config[k] = v
+    # v0.80: 退役键剥离——存量模板 DB 数据可能仍带 stock/warehouse_id，不注入 extensions
+    for rk in RETIRED_CONFIG_KEYS:
+        config.pop(rk, None)
     if not config:
         return result
     ext = result.setdefault("extensions", {})

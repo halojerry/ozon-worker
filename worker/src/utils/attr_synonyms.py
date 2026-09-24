@@ -25,6 +25,11 @@ def load_attr_synonyms() -> dict:
     if _CACHE is not None and _CACHE_KEY == workspace:
         return _CACHE
     cfg_path = os.path.join(workspace, "config", "attr_synonyms.json")
+    if not os.path.exists(cfg_path):
+        # env workspace 无此配置时回退 cwd（实测：测试进程 import main 会向
+        # environ 注入容器风格 /app——本地无 /app/config → 静默空配置，下游
+        # 同义词链全灭且难排查；生产 /app 有 config，回退分支零影响）。
+        cfg_path = os.path.join(os.getcwd(), "config", "attr_synonyms.json")
     try:
         with open(cfg_path, "r", encoding="utf-8") as f:
             data = json.load(f)

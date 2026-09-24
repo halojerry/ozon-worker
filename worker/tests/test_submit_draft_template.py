@@ -189,10 +189,10 @@ def test_submit_with_template_injects(pg, monkeypatch):
 
     payload = fake.payloads[0]
     ext = payload["envelope"]["extensions"]
-    # 模板注入 margin/prefix/stock
+    # 模板注入 margin/prefix；v0.80 退役键 stock 剥离（我方永不设库存）
     assert ext["margin_rate"] == 0.35
     assert ext["offer_id_prefix"] == "W1"
-    assert ext["stock"] == 50
+    assert "stock" not in ext
 
 
 def test_submit_template_draft_value_wins(pg, monkeypatch):
@@ -307,4 +307,4 @@ def test_submission_snapshot_records_injected(pg, monkeypatch):
         )).fetchone()
     snapshot = row[0] if isinstance(row[0], dict) else json.loads(row[0])
     assert snapshot["margin_rate"] == 0.35
-    assert snapshot["stock"] == 9
+    assert "stock" not in snapshot  # v0.80 退役键不进提交快照

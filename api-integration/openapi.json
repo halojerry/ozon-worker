@@ -1199,7 +1199,7 @@
         "type": "object"
       },
       "ListingTemplateConfig": {
-        "description": "模板扩展参数（白名单；全部可选，None 表示不注入）。",
+        "description": "模板扩展参数（白名单；全部可选，None 表示不注入）。\n\nv0.80: stock/warehouse_id 已退役删除（我方永不设库存口径，\ndocs/PLAN-n8n-legacy-purge-v1.md 批次 2）；存量数据中的退役键由\ntemplate_service 静默剥离。",
         "examples": [
           {
             "fx_buffer": 0.05,
@@ -1208,7 +1208,6 @@
             "margin_rate": 0.25,
             "offer_id_prefix": "MX",
             "promo_variable_cost_rate": 0.245,
-            "stock": 10,
             "traffic_keywords": [
               "поилка для животных",
               "фонтан для кошек"
@@ -1326,19 +1325,6 @@
             "description": "促销变动成本率（0-0.5），不设则 worker 默认 0.245",
             "title": "Promo Variable Cost Rate"
           },
-          "stock": {
-            "anyOf": [
-              {
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "上架后库存（extensions.stock）",
-            "title": "Stock"
-          },
           "traffic_keywords": {
             "anyOf": [
               {
@@ -1367,18 +1353,6 @@
             ],
             "description": "日常变动成本率（0-0.5），不设则 worker 默认 0.155",
             "title": "Variable Cost Rate"
-          },
-          "warehouse_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "仓库（extensions.warehouse_id）",
-            "title": "Warehouse Id"
           }
         },
         "title": "ListingTemplateConfig",

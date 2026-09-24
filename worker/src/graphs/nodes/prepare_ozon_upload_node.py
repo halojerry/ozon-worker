@@ -1136,6 +1136,11 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                 if not any(kw in aname for kw in rule.get("ozon_name_keywords", [])):
                     continue
                 for zh, zh_val in draft_attrs.items():
+                    # A7c 箱规渗透源头修：箱装/起批类批发键不进数量组（同
+                    # match_attr_name_synonym 的 zh_exclude_keywords 语义）
+                    _zh_excl = rule.get("zh_exclude_keywords") or []
+                    if _zh_excl and any(x in zh for x in _zh_excl):
+                        continue
                     if not any(kw in zh for kw in rule.get("zh_keywords", [])):
                         continue
                     raw = str(zh_val or "")
@@ -1264,6 +1269,13 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                     it for it in draft_attrs.items()
                     if any(ch in _aname_cn for ch in str(it[0])
                            if '\u4e00' <= ch <= '\u9fff')
+                ]
+                # A7c 箱规渗透源头修（旁路同款语义）：箱装/起批类批发键共享
+                # 「数量」字符照样触发旁路（gate 实证 8513=500 渗透路径）——排除。
+                _shared = [
+                    it for it in _shared
+                    if not any(x in str(it[0]) for x in
+                               (synonyms.get("quantity", {}).get("zh_exclude_keywords") or []))
                 ]
                 # P2 v0.65.1: 旁路审计——记录落空原因（0 候选/多候选放弃），
                 # 供 attr_match_log 产出「真实缺口榜」；should_fill 才打点防系统属性噪音。
@@ -1468,7 +1480,28 @@ def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = "
                                 dict_id = res.dictionary_value_id
                                 final_val = res.value or attr_val
                             else:
-                                continue  # 多候选/无命中 → 不填
+                                # feat/attribute-fill-en-v1 T2（B2 10096 实证）：颜色类
+                                # 大字典同义词变体多（белый/белоснежный/белый с узором
+                                # …）→ unique_or_none 多候选恒拒 → vision 色词静默丢弃
+                                # → completed 卡缺颜色。放宽：搜索词与候选**全等**的那条
+                                # 即答案（精确等值越过唯一性），仅限颜色类属性；
+                                # 其余属性保持严格（多候选不填宁缺红线不变）。
+                                _is_color_attr = (aid in (10096, 10097)
+                                                  or "цвет" in aname or "颜色" in aname)
+                                if _is_color_attr:
+                                    _eq = next((h for h in hits if str(
+                                        (h or {}).get("value") or "").strip().lower()
+                                        == attr_val.strip().lower()), None)
+                                    if _eq and int(_eq.get("id") or 0) > 0:
+                                        dict_id = int(_eq["id"])
+                                        final_val = str(_eq.get("value") or attr_val)
+                                        logger.info(
+                                            "✅ vision 颜色精确等值命中: %s(%s)=%s dict_id=%s"
+                                            "（多候选中全等优先）", aid, aname, final_val, dict_id)
+                                    else:
+                                        continue
+                                else:
+                                    continue  # 多候选/无命中 → 不填
                     except Exception:
                         continue
 
@@ -1486,6 +1519,299 @@ def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = "
             logger.debug("vision 属性推断失败: %s", e)
 
     return items
+
+
+# feat/attribute-fill-en-v1 T3：模板继承不抄的商品个体值属性（错填风险 > 填满收益）
+_TEMPLATE_SKIP_ATTR_IDS = {
+    9048,   # 型号名称（防并卡 hash，商品个体值）
+    85, 5076,  # 品牌/服装品牌（恒 Нет бренда 走必填链）
+    10096, 10097,  # 颜色/营销色（走 T2 本商品链：1688/vision，模板色≠本商品色）
+    4389,   # 产地（恒 Китай）
+    4224, 4225,  # 图案/花纹（视觉个体值）
+    8962,   # 件数
+    22232,  # HS 编码（合规字段恒宁缺）
+    9379,   # 海关编码同族
+    9024,   # 供应商货号（商品个体值——gate 实证单2 抄了单1 的值属错填）
+}
+
+# feat/follow-copy-attrs-v1 (A6): 复制卡合并时【我方权威】的属性——这些是
+# 本商品个体值/并卡键/描述链产物，竞品值绝不覆盖；其余缺口全部照抄复制卡
+# （竞品已过审 = 平台认可的真实值，比任何自动猜测都可信）。
+_COPIED_MERGE_OURS_WIN_ATTR_IDS = {
+    9048,   # 型号合并键（防并卡 hash）
+    9024,   # 卖家代码（我们的 offer 指纹）
+    4180,   # 名称（标题链）
+    4191,   # 简介（描述链）
+    85, 5076,  # 品牌族
+    23171,  # hashtag（assemble 生成链）
+}
+
+
+def _read_existing_card_attributes(state, pid: str) -> list:
+    """A6: UPDATE 形态就地读回现卡特征表（/v4，非致命）。
+
+    已存在卡的重提不经过 import-by-sku 复制点 → state.follow_copied_attributes
+    为空——此处对现卡就地 /v4 读回，语义=「未提及的属性维持现状」，防
+    /v3/product/import 全量替换把现卡特征洗掉。
+    """
+    try:
+        from utils.ozon_client import ozon_post
+        r = ozon_post(
+            str(getattr(state, "ozon_client_id", "") or ""),
+            str(getattr(state, "ozon_api_key", "") or ""),
+            "/v4/product/info/attributes",
+            {"filter": {"product_id": [str(pid)], "visibility": "ALL"}, "limit": 10},
+            timeout=15,
+        )
+        items = (r.get("result") or {}).get("items") \
+            if isinstance(r.get("result"), dict) else r.get("result")
+        for it in (items or []):
+            if int((it or {}).get("id") or 0) != int(pid):
+                continue
+            copied = [
+                {"complex_id": int(a.get("complex_id") or 0),
+                 "id": int(a.get("id") or 0),
+                 "values": a.get("values") or []}
+                for a in (it.get("attributes") or [])
+                if isinstance(a, dict) and int(a.get("id") or 0) > 0
+            ]
+            if copied:
+                logger.info("✅ A6 现卡特征就地读回: %d 个属性（UPDATE 防洗卡）", len(copied))
+            return copied
+        return []
+    except Exception as _e:
+        logger.warning("⚠️ 现卡特征读回失败（不阻断）: %s", _e)
+        return []
+
+
+def preserve_existing_card_attributes(
+    client_id: str, api_key: str, items: list, prefer_product_id: int | str = "",
+) -> list:
+    """A6 公共防洗卡出口：任何 /v3/product/import POST 前调用（主 upload/retry UPDATE/
+    retry CREATE 三出口统一）。
+
+    对每个 item 解析目标卡 pid（item.product_id > prefer_product_id > offer 查询），
+    /v4 读回现卡特征表 → merge_copied_card_attributes 合并（我方已填我方权威，
+    未提及属性维持现状）。全链非致命：任何失败原样返回 items。
+    """
+    try:
+        from utils.ozon_client import find_product_by_offer, ozon_post
+        _pid_cache: dict[str, str] = {}
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            pid = ""
+            _ipid = str(item.get("product_id") or "").strip()
+            if _ipid.isdigit():
+                pid = _ipid
+            elif str(prefer_product_id or "").strip().isdigit():
+                pid = str(prefer_product_id).strip()
+            else:
+                offer = str(item.get("offer_id") or "").strip()
+                if not offer:
+                    continue
+                if offer in _pid_cache:
+                    pid = _pid_cache[offer]
+                else:
+                    try:
+                        existing = find_product_by_offer(
+                            client_id=client_id, api_key=api_key, offer_id=offer)
+                        pid = str((existing or {}).get("product_id") or "").strip()
+                        if not pid.isdigit():
+                            pid = ""
+                    except Exception:
+                        pid = ""
+                    _pid_cache[offer] = pid
+            if not pid:
+                continue
+            try:
+                v4 = ozon_post(
+                    client_id, api_key, "/v4/product/info/attributes",
+                    {"filter": {"product_id": [pid], "visibility": "ALL"}, "limit": 10},
+                    timeout=15,
+                )
+            except Exception:
+                continue
+            v4_items = (v4.get("result") or {}).get("items") \
+                if isinstance(v4.get("result"), dict) else v4.get("result")
+            copied = []
+            for it in (v4_items or []):
+                if int((it or {}).get("id") or 0) == int(pid):
+                    copied = [
+                        {"complex_id": int(a.get("complex_id") or 0),
+                         "id": int(a.get("id") or 0),
+                         "values": a.get("values") or []}
+                        for a in (it.get("attributes") or [])
+                        if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                    ]
+                    break
+            if copied:
+                _before = len(item.get("attributes") or [])
+                merge_copied_card_attributes([item], copied)
+                _added = len(item.get("attributes") or []) - _before
+                if _added > 0:
+                    logger.info(
+                        "✅ A6 import 前防洗卡: offer/pid=%s 合并 +%d 个现卡属性", pid, _added)
+        return items
+    except Exception as _e:
+        logger.warning("A6 防洗卡异常（不阻断）: %s", _e)
+        return items
+
+
+def merge_copied_card_attributes(items: list, copied_attrs: list) -> list:
+    """A6: 把 import-by-sku 复制卡原带特征合并回 payload（防 import 全量替换洗卡）。
+
+    官方契约：/v3/product/import 是「完全更新」语义（完全更新特征用 import），
+    未包含在 payload 里的特征会被清掉——follow 复制卡带来的竞品整表特征
+    （已过审）此前被我们自己的稀疏 payload 洗掉（实测 6447343398: 14/34）。
+    合并规则：我方已填的属性我方权威（_COPIED_MERGE_OURS_WIN_ATTR_IDS 及
+    任何我方已填 id 恒不覆盖）；缺口全部照抄复制卡原值（dict_value_id 原样）。
+    """
+    try:
+        if not copied_attrs:
+            return items
+        merged_total = 0
+        for item in items or []:
+            if not isinstance(item, dict) or not item.get("product_id"):
+                continue  # 只对 UPDATE 项（follow 复制卡）生效
+            attrs = item.setdefault("attributes", [])
+            existing = {int(a.get("id") or 0) for a in attrs if isinstance(a, dict)}
+            added = 0
+            for ca in copied_attrs:
+                if not isinstance(ca, dict):
+                    continue
+                aid = int(ca.get("id") or 0)
+                vals = ca.get("values") or []
+                if aid <= 0 or aid in existing or not vals \
+                        or aid in _COPIED_MERGE_OURS_WIN_ATTR_IDS:
+                    continue
+                attrs.append({"complex_id": int(ca.get("complex_id") or 0),
+                              "id": aid, "values": vals})
+                existing.add(aid)
+                added += 1
+            if added:
+                merged_total += added
+                logger.info("✅ A6 复制卡特征合并: +%d 个竞品已过审属性（防 import 洗卡）", added)
+        if not merged_total:
+            logger.info("A6 复制卡特征合并: 复制卡无新增缺口属性")
+        return items
+    except Exception as _e:
+        logger.warning("复制卡特征合并异常（不影响主流程）: %s", _e)
+        return items
+
+
+def _inherit_attrs_from_template(items, schema, state, audit_task_id: str = ""):
+    """feat/attribute-fill-en-v1 T3：同叶子自家 approved 卡属性模板继承。
+
+    填满策略证据链末端：本商品证据（1688/竞品）> vision 推断 > **模板继承**。
+    数据源：listing_result_log 同 (dc,tp) completed 的自家 ozon_product_id（cap 3）
+    → /v4/product/info/attributes 反查已过审属性（含 dictionary_value_id，同叶子
+    同字典 id 天然兼容）→ 仅补 items[0] 仍缺失的 schema 属性。
+
+    红线：个体值属性不抄（_TEMPLATE_SKIP_ATTR_IDS）；仅补 schema 内属性；全链
+    静默（无模板/反查失败/异常 → 原样返回绝不阻断）。
+    """
+    try:
+        dc = str(getattr(state, "description_category_id", "") or "")
+        tp = str(getattr(state, "type_id", "") or "")
+        if not dc or not tp:
+            return items
+        schema_ids = {int(a.get("id") or 0) for a in (schema or [])
+                      if isinstance(a, dict) and a.get("id")}
+        if not schema_ids:
+            return items
+        item0 = next((it for it in items if isinstance(it, dict)), None)
+        if not item0:
+            return items
+        existing = {int(a.get("id", 0)) for a in (item0.get("attributes") or [])
+                    if isinstance(a, dict)}
+
+        # ① 模板源：同 (dc,tp) 自家 completed 卡（最近 3 张）
+        from storage.database.db import get_session
+        from sqlalchemy import text as _sql_text
+        with get_session() as _s:
+            rows = _s.execute(_sql_text(
+                "SELECT ozon_product_id FROM listing_result_log "
+                "WHERE description_category_id = CAST(:dc AS bigint) "
+                "  AND type_id = CAST(:tp AS bigint) "
+                "  AND final_status IN ('approved', 'completed') "
+                "  AND ozon_product_id IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 3"
+            ), {"dc": dc, "tp": tp}).fetchall()
+        pids = [int(r[0]) for r in (rows or []) if r and r[0]]
+        if not pids:
+            return items
+
+        # ② /v4 反查已过审属性（首张命中即用）
+        from utils.ozon_client import ozon_post
+        template_attrs = []
+        for _pid in pids:
+            try:
+                _r = ozon_post(
+                    str(getattr(state, "ozon_client_id", "") or ""),
+                    str(getattr(state, "ozon_api_key", "") or ""),
+                    "/v4/product/info/attributes",
+                    {"filter": {"product_id": [str(_pid)], "visibility": "ALL"},
+                     "limit": 10},
+                    timeout=15,
+                )
+                _items = (_r.get("result") or {}).get("items") \
+                    if isinstance(_r.get("result"), dict) else _r.get("result")
+                for _it in (_items or []):
+                    if int((_it or {}).get("id") or 0) == _pid:
+                        template_attrs = [a for a in (_it.get("attributes") or [])
+                                          if isinstance(a, dict)]
+                        break
+                if template_attrs:
+                    break
+            except Exception:
+                continue
+        if not template_attrs:
+            return items
+
+        # ③ 白名单合并：只补缺失的 schema 属性，个体值不抄
+        from utils.attr_match_log import log_attr_match
+        attrs = item0.setdefault("attributes", [])
+        _tenant = str(getattr(state, "user_id", "") or "")
+        _task = str(audit_task_id or getattr(state, "task_id", "") or "")
+        filled = []
+        for ta in template_attrs:
+            aid = int(ta.get("id") or 0)
+            if aid <= 0 or aid in existing or aid in _TEMPLATE_SKIP_ATTR_IDS:
+                continue
+            if aid not in schema_ids:
+                continue  # 模板来自旧 schema，当前类目已无此属性
+            vals = [v for v in (ta.get("values") or []) if isinstance(v, dict)]
+            if not vals or not any(str(v.get("value") or "").strip() for v in vals):
+                continue
+            if any('\u4e00' <= ch <= '\u9fff' for v in vals
+                   for ch in str(v.get("value") or "")):
+                continue  # 模板值含中文（脏数据防御）
+            attrs.append({
+                "id": aid,
+                "values": [{"dictionary_value_id": int(v.get("dictionary_value_id") or 0),
+                            "value": str(v.get("value") or "")} for v in vals],
+            })
+            existing.add(aid)
+            filled.append((aid, str(vals[0].get("value") or "")[:24]))
+        if filled:
+            logger.info("✅ 模板继承补缺 %d 个属性（同叶子自家 approved 卡 %s）: %s",
+                        len(filled), pids[0], filled[:8])
+            try:
+                for aid, _v in filled:
+                    log_attr_match(
+                        task_id=_task, attr_id=aid, attr_name="",
+                        source_value=f"template:{pids[0]}",
+                        status="filled", match_layer="template_inherit",
+                        dictionary_value_id=0, confidence=0.6,
+                        should_fill=True, tenant_id=_tenant,
+                    )
+            except Exception:
+                pass
+        return items
+    except Exception as e:
+        logger.debug("模板属性继承失败（静默）: %s", e)
+        return items
 
 
 def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, schema=None) -> str:
@@ -3655,8 +3981,12 @@ def prepare_ozon_upload_node(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
         # v0.67 P1-6: audit_task_id=thread_id 透传（attr_match_log 写点用真实任务 uuid）
+        # v0.83 三期A1: 标题证据词合成伪 draft.attributes（材料/颜色/形状/性别，
+        # 不覆盖真实 1688 键）——伪属性走下方既有同义词安全链，零新匹配逻辑。
+        from utils.attr_fill_extras import augment_draft_with_title_evidence
+        _draft_ev = augment_draft_with_title_evidence(draft)
         ozon_payload["items"] = _fill_optional_dict_attrs(
-            ozon_payload.get("items", []), attributes_schema, draft, state,
+            ozon_payload.get("items", []), attributes_schema, _draft_ev, state,
             audit_task_id=_audit_task_id,
         )
         # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
@@ -3664,6 +3994,72 @@ def prepare_ozon_upload_node(
             ozon_payload.get("items", []), attributes_schema, draft, state,
             audit_task_id=_audit_task_id,
         )
+        # feat/attribute-fill-en-v1 T3: 同叶子自家 approved 卡属性模板继承
+        # （填满证据链末端：本商品证据 > vision > 模板；个体值不抄，全程静默）
+        ozon_payload["items"] = _inherit_attrs_from_template(
+            ozon_payload.get("items", []), attributes_schema, state,
+            audit_task_id=_audit_task_id,
+        )
+        # v0.83 三期A2/A3: 类目级保守默认（保证/目标受众/性别兜底，白名单+
+        # 字典精确命中才填）+ 标题数值派生（容量 ml/每包数量）+ 尺寸串。
+        from utils.attr_fill_extras import apply_class_defaults_and_numerics
+        ozon_payload["items"] = apply_class_defaults_and_numerics(
+            ozon_payload.get("items", []), attributes_schema, draft, state,
+            audit_task_id=_audit_task_id,
+        )
+        # v0.83 三期A4: 出口语义闸——剥除语义错配数值（22390 年份渗透 /
+        # 数量类箱规 MOQ>200，gate 卡 6446931479 实证）。
+        from utils.attr_fill_extras import sanitize_numeric_semantics
+        ozon_payload["items"] = sanitize_numeric_semantics(
+            ozon_payload.get("items", []),
+        )
+        # v0.84 A5: schema 驱动 LLM 兜底（kill-switch LLM_SCHEMA_FILL=0）——
+        # 缓存 schema 的未填属性清单（中文名+描述）+ 产品证据给 vision LLM 提案，
+        # 提案过确定性验证（字典唯一/布尔/数值/禁填）才落卡。用户驱动：
+        # 「每个类目的特征属性都缓存了，这样 LLM 就知道怎么填写了」。
+        import os as _os
+        if _os.getenv("LLM_SCHEMA_FILL", "1") != "0":
+            try:
+                from utils.attr_fill_extras import build_llm_schema_prompt, apply_llm_schema_fill
+                _llm_prompt, _llm_todo = build_llm_schema_prompt(
+                    ozon_payload.get("items", []), attributes_schema, draft,
+                    dict_samples=dict(getattr(state, "dictionary_values", None) or {}))
+                if _llm_prompt:
+                    from utils.mxou_api import call_mxou_chat_api
+                    _llm_ans = call_mxou_chat_api(
+                        token=str(getattr(state, "token", "") or ""),
+                        system_prompt="你是 Ozon 商品属性专家。只根据提供的商品资料回答，绝不编造。只输出 JSON。",
+                        user_prompt=_llm_prompt,
+                        model="deepseek-v4-flash-vision-exp",
+                        temperature=0.0,
+                        max_tokens=1024,
+                        image_urls=((draft or {}).get("images") or [])[:3] or None,
+                    )
+                    if _llm_ans and _llm_ans.strip():
+                        ozon_payload["items"] = apply_llm_schema_fill(
+                            ozon_payload.get("items", []), _llm_todo, _llm_ans,
+                            draft, state, audit_task_id=_audit_task_id,
+                        )
+            except Exception as _e:
+                logger.warning("schema-LLM 兜底异常（不影响主流程）: %s", _e)
+        # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征合并（在 A4/A5 之后——
+        # 竞品已过审的真实值不适用我方自动猜测的禁填/剥除规则；值数闸在下方仍生效）。
+        _copied_attrs = list(getattr(state, "follow_copied_attributes", None) or [])
+        # UPDATE 形态兜底：已存在卡的重提（follow 复制卡复跑/编辑更新）不经过
+        # import-by-sku 复制点 → state 无复制表 → 此处对现卡 /v4 就地读回
+        # （语义=未提及的属性维持现状，同样防 import 全量替换洗卡）。
+        _pid_merge = ""
+        if is_update_mode:
+            _pid_merge = _update_pid_raw
+        elif getattr(state, "product_id", None) \
+                and str(state.product_id) not in ("0", "None", ""):
+            _pid_merge = str(state.product_id)
+        if not _copied_attrs and _pid_merge:
+            _copied_attrs = _read_existing_card_attributes(state, _pid_merge)
+        if _copied_attrs:
+            ozon_payload["items"] = merge_copied_card_attributes(
+                ozon_payload.get("items", []), _copied_attrs,
+            )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
 

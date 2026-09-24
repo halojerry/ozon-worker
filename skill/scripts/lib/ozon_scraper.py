@@ -478,7 +478,9 @@ def scrape_ozon_product_via_cdp(
         "images": [], "title": "", "category": "", "price": "", "currency": "RUB",
         "description": "", "attributes": {}, "breadcrumbs": [], "hashtags": [],
         "sku": "",
-        "description_category_id": "", "type_id": "",  # Ozon 类目 ID（从面包屑提取）
+        # fix/category-bridge-v1: 前台面包屑 ID ≠ Seller dc/tp（两套平行编号），
+        # 只作 web_category_id 线索键产出；dc/tp 不再从面包屑伪造。
+        "web_category_id": "", "category_path": "", "breadcrumb_language": "",
         "error": None,
     }
 
@@ -786,6 +788,59 @@ def scrape_ozon_product_via_cdp(
                 # ✅ v0.25: 全量特性（含 Вес/Габариты/Размер）+ 变体 aspects（含颜色）
                 if api_data.get("fullChars"):
                     result["characteristics"] = api_data["fullChars"]
+
+                # v0.85 A7 (feat/competitor-fullattrs-v1): 全表特征懒加载 DOM 兜底。
+                # 取证（2026-09-25）：entrypoint/composer API 已不再下发
+                # webCharacteristics 全表（95 缓存 0 全表，v0.78 起恒空），特征
+                # section 改为前端 IntersectionObserver 懒加载——前台 tab 滚动到
+                # 视口才渲染（前台+滚动实测 7/7 行命中）。API fullChars 为空时：
+                # 点开展开按钮 + 滚动触发 + DOM dl(dt/dd) 解析兜底，非致命。
+                # ⚠️ 首版 gate 失败根因：v0.78 静默化复用的后台 tab 滚动 0 行
+                # （IO 回调不派发）——DOM 兜底前必须 bring_to_front 激活 tab
+                # （短暂前台 ~6s，滑块重试路径已有可见 tab 先例）。
+                if not result.get("characteristics"):
+                    try:
+                        tab.bring_to_front()
+                        import time as _tf
+                        _tf.sleep(0.4)  # 前台化生效后再滚动，IO 才开始派发
+                    except Exception:
+                        pass
+                    _js_dom = """
+                        (async () => {
+                          const btns = Array.from(document.querySelectorAll('button, a, span'))
+                            .filter(e => /все характеристики/i.test((e.innerText || "").trim()));
+                          if (btns.length) {
+                            try { btns[0].click(); } catch(e) {}
+                            await new Promise(r => setTimeout(r, 1200));
+                          }
+                          for (let i = 0; i < 10; i++) {
+                            window.scrollBy(0, 2500);
+                            await new Promise(r => setTimeout(r, 350));
+                          }
+                          await new Promise(r => setTimeout(r, 1200));
+                          const rows = [];
+                          document.querySelectorAll('dl').forEach(dl => {
+                            const dts = dl.querySelectorAll('dt');
+                            const dds = dl.querySelectorAll('dd');
+                            const n = Math.min(dts.length, dds.length);
+                            for (let i = 0; i < n; i++) {
+                              const t = (dts[i].innerText || "").trim();
+                              const v = (dds[i].innerText || "").trim().replace(/\\n+/g, ", ");
+                              if (t && v) rows.push({title: t, value: v.slice(0, 200)});
+                            }
+                          });
+                          return JSON.stringify(rows);
+                        })()
+                    """
+                    _dom_raw = _tab_eval(tab, _js_dom, await_promise=True) or "[]"
+                    try:
+                        _dom_rows = _json.loads(_dom_raw)
+                        if isinstance(_dom_rows, list) and _dom_rows:
+                            result["characteristics"] = _dom_rows
+                            logger.info("DOM 兜底提取全表特征: %d 行（懒加载触发后）", len(_dom_rows))
+                    except Exception:
+                        pass
+
                 if api_data.get("aspects"):
                     result["aspects"] = api_data["aspects"]
                 # ✅ v0.19.1 P1: 评分/评论/卖家/提问/跟卖（可选字段，契约兼容）
@@ -826,14 +881,17 @@ def scrape_ozon_product_via_cdp(
 
                         # ✅ v0.19.1: 只认 /category/ 链接的类目 crumb（品牌页 /brand/ 排除）
                         best = _pick_category_from_crumbs(crumbs)
-                        if best:
-                            result["description_category_id"] = best.get("category_id", "")  # 数字 ID
-                            result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
-                            result["category_path"] = category_path  # 文本降级
-                        else:
-                            # 全是品牌页？保留文本路径降级
-                            result["description_category_id"] = category_path
-                            result["type_id"] = ""
+                        # ⚠️ fix/category-bridge-v1（2026-09-24 事故根治）: 面包屑 ID 是
+                        # Ozon **前台 storefront** 的 id 空间，与 Seller 树
+                        # description_category_id/type_id 是两套平行编号（实测: 前台
+                        # "Cases"=web 14762 / Seller 树=17027937+95483；web ID 在 Seller
+                        # 树 16552 节点零命中；无官方映射端点）。旧代码把 web ID 同值
+                        # 塞进 dc/tp（"Worker 负责查真正 type_id" 的注释契约 worker 从未
+                        # 签收）→ follow ×5 全灭于 import 400 TypeId。
+                        # 现口径: 只产出 web_category_id 线索键 + category_path 文本，
+                        # dc/tp 由 worker 类目链（EN 树确定性匹配/学习表/门控仲裁）定稿。
+                        result["web_category_id"] = best.get("category_id", "") if best else ""
+                        result["category_path"] = category_path  # 文本（EN/RU/ZH 原样），worker 桥接用
 
                         # 语言检测：Cyrillic → RU，中文 → ZH_HANS
                         if any('\u4e00' <= c <= '\u9fff' for c in category_path):
