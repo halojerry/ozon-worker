@@ -1572,6 +1572,80 @@ def _read_existing_card_attributes(state, pid: str) -> list:
         return []
 
 
+def preserve_existing_card_attributes(
+    client_id: str, api_key: str, items: list, prefer_product_id: int | str = "",
+) -> list:
+    """A6 公共防洗卡出口：任何 /v3/product/import POST 前调用（主 upload/retry UPDATE/
+    retry CREATE 三出口统一）。
+
+    对每个 item 解析目标卡 pid（item.product_id > prefer_product_id > offer 查询），
+    /v4 读回现卡特征表 → merge_copied_card_attributes 合并（我方已填我方权威，
+    未提及属性维持现状）。全链非致命：任何失败原样返回 items。
+    """
+    try:
+        from utils.ozon_client import find_product_by_offer, ozon_post
+        _pid_cache: dict[str, str] = {}
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            pid = ""
+            _ipid = str(item.get("product_id") or "").strip()
+            if _ipid.isdigit():
+                pid = _ipid
+            elif str(prefer_product_id or "").strip().isdigit():
+                pid = str(prefer_product_id).strip()
+            else:
+                offer = str(item.get("offer_id") or "").strip()
+                if not offer:
+                    continue
+                if offer in _pid_cache:
+                    pid = _pid_cache[offer]
+                else:
+                    try:
+                        existing = find_product_by_offer(
+                            client_id=client_id, api_key=api_key, offer_id=offer)
+                        pid = str((existing or {}).get("product_id") or "").strip()
+                        if not pid.isdigit():
+                            pid = ""
+                    except Exception:
+                        pid = ""
+                    _pid_cache[offer] = pid
+            if not pid:
+                continue
+            try:
+                v4 = ozon_post(
+                    client_id, api_key, "/v4/product/info/attributes",
+                    {"filter": {"product_id": [pid], "visibility": "ALL"}, "limit": 10},
+                    timeout=15,
+                )
+            except Exception:
+                continue
+            v4_items = (v4.get("result") or {}).get("items") \
+                if isinstance(v4.get("result"), dict) else v4.get("result")
+            copied = []
+            for it in (v4_items or []):
+                if int((it or {}).get("id") or 0) == int(pid):
+                    copied = [
+                        {"complex_id": int(a.get("complex_id") or 0),
+                         "id": int(a.get("id") or 0),
+                         "values": a.get("values") or []}
+                        for a in (it.get("attributes") or [])
+                        if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                    ]
+                    break
+            if copied:
+                _before = len(item.get("attributes") or [])
+                merge_copied_card_attributes([item], copied)
+                _added = len(item.get("attributes") or []) - _before
+                if _added > 0:
+                    logger.info(
+                        "✅ A6 import 前防洗卡: offer/pid=%s 合并 +%d 个现卡属性", pid, _added)
+        return items
+    except Exception as _e:
+        logger.warning("A6 防洗卡异常（不阻断）: %s", _e)
+        return items
+
+
 def merge_copied_card_attributes(items: list, copied_attrs: list) -> list:
     """A6: 把 import-by-sku 复制卡原带特征合并回 payload（防 import 全量替换洗卡）。
 

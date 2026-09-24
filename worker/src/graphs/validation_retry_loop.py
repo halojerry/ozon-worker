@@ -2924,6 +2924,16 @@ def _fix_via_product_import_update(state: ValidationRetryLoopState) -> Optional[
     if _reupload_gate_blocked(state):
         return None
 
+    # feat/follow-copy-attrs-v1 (A6): 重传 UPDATE 出口防洗卡（公共函数，与主
+    # upload/CREATE 重传出口统一）——/v3/product/import 完全更新语义，POST 前
+    # 读回现卡特征合并（我方已填我方权威，未提及=维持现状）。非致命。
+    try:
+        from graphs.nodes.prepare_ozon_upload_node import preserve_existing_card_attributes
+        items = preserve_existing_card_attributes(
+            state.ozon_client_id, state.ozon_api_key, items, prefer_product_id=pid_int)
+    except Exception as _a6_e:
+        logger.warning("A6 重传 UPDATE 防洗卡异常（不阻断）: %s", _a6_e)
+
     try:
         data = ozon_post(
             state.ozon_client_id, state.ozon_api_key,
@@ -3866,6 +3876,16 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
     # 批E 唯一入口，逃生门 IMAGE_SALVAGE_FALLBACK 时并入 salvage）。
     if _reupload_gate_blocked(state):
         return state
+
+    # feat/follow-copy-attrs-v1 (A6): CREATE 重传出口防洗卡（offer 命中现卡时
+    # Ozon 平台侧照样按 offer 唯一键 upsert——payload 之外的现卡属性会被洗掉）。
+    # 公共函数与主 upload / retry UPDATE 出口统一；非致命。
+    try:
+        from graphs.nodes.prepare_ozon_upload_node import preserve_existing_card_attributes
+        items = preserve_existing_card_attributes(
+            state.ozon_client_id, state.ozon_api_key, items)
+    except Exception as _a6_e:
+        logger.warning("A6 CREATE 重传防洗卡异常（不阻断）: %s", _a6_e)
 
     payload: Dict[str, Any] = {"items": items}
 
