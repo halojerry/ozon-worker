@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Error codes and exception classes for pounding-ozon-hybrid."""
+"""Error codes and exception classes for pounding-ozon-probe.
 
-# Cloud/webhook error codes
-ERR_CLOUD_UNAVAILABLE = "CLOUD_UNAVAILABLE"
-ERR_CLOUD_REJECTED = "CLOUD_REJECTED"
-ERR_CLOUD_TIMEOUT = "CLOUD_TIMEOUT"
-ERR_CLOUD_FAILED = "CLOUD_FAILED"
+v0.80: ERR_CLOUD_* 云端 webhook 错误码已随前代 n8n 云端退役删除
+（docs/PLAN-n8n-legacy-purge-v1.md）。
+"""
 
 # Config error codes
 ERR_MISSING_CONFIG = "MISSING_CONFIG"
