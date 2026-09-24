@@ -2,9 +2,12 @@
 """D11: skill 读 worker listing_templates 默认配置（get_template_profile + 三段降级注入）。
 
 背景：worker /api/v1/templates（GET，Bearer 鉴权）返回 [{is_default, config,
-store_overrides}]，config 白名单 7 字段（margin_rate/commission_rate/fx_buffer/
-offer_id_prefix/follow_type/stock/warehouse_id）。skill 从此获得「默认上架配置」——
-webui 配默认模板后，graph 不传 margin_rate 也生效（多店铺开箱即用）。
+store_overrides}]。skill 从此获得「默认上架配置」——webui 配默认模板后，
+graph 不传 margin_rate 也生效（多店铺开箱即用）。
+
+v0.80: stock/warehouse_id 已退役（我方永不设库存，docs/PLAN-n8n-legacy-purge-v1.md
+批次 2）——worker 侧剥离存量数据；skill _INJECTABLE_EXT_KEYS 白名单同步删除。
+本文件 mock 故意保留存量退役键，锁死「即使下发含退役键也不透传进信封」。
 
 cloud_probe 注入段三段降级（R5 已定稿）：显式 extensions > worker 默认模板 >
 本地 stores.json。
@@ -24,7 +27,8 @@ from scripts import cloud_probe  # noqa: E402
 from scripts.lib import config_store  # noqa: E402
 
 CONFIG_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
-               "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+               "offer_id_prefix", "follow_type")
+RETIRED_KEYS = ("stock", "warehouse_id")  # v0.80 退役——注入侧必须无视
 
 ITEM_ID = "980815374096"
 DETAIL_URL = f"https://detail.1688.com/offer/{ITEM_ID}.html"
@@ -59,8 +63,8 @@ def _clear_template_cache():
 
 # ── get_template_profile ────────────────────────────────────────────────
 
-def test_get_template_profile_returns_7_fields():
-    """命中 is_default 模板 → 返回白名单 7 字段。"""
+def test_get_template_profile_returns_fields():
+    """命中 is_default 模板 → 返回核心字段（mock 保留存量退役键，模拟 v0.80 前数据）。"""
     _clear_template_cache()
     with mock.patch("requests.get") as m_get:
         m_get.return_value.status_code = 200
@@ -70,7 +74,6 @@ def test_get_template_profile_returns_7_fields():
     for k in CONFIG_KEYS:
         assert k in profile, f"get_template_profile 应返回 {k}, got {profile}"
     assert profile["margin_rate"] == 0.3
-    assert profile["warehouse_id"] == "wh-1"
 
 
 def test_get_template_profile_api_failure_returns_none():
@@ -96,16 +99,16 @@ def test_get_template_profile_no_default_returns_none():
 def test_get_template_profile_store_override_applied():
     """credential_id 命中 store_overrides → 覆盖顶层 config 同 key。"""
     _clear_template_cache()
-    t = _tpl(store_overrides={"4718259": {"margin_rate": 0.5, "stock": 99}})
+    t = _tpl(store_overrides={"4718259": {"margin_rate": 0.5, "commission_rate": 0.12}})
     with mock.patch("requests.get") as m_get:
         m_get.return_value.status_code = 200
         m_get.return_value.json.return_value = [t]
         profile = config_store.get_template_profile(
             "sk-token-d", credential_id="4718259")
     assert profile["margin_rate"] == 0.5, f"store_overrides 应覆盖 margin_rate, got {profile}"
-    assert profile["stock"] == 99
+    assert profile["commission_rate"] == 0.12
     # 未覆盖的 key 保留顶层 config
-    assert profile["commission_rate"] == 0.15
+    assert profile["fx_buffer"] == 0.08
 
 
 def test_get_template_profile_explicit_id_wins():
@@ -175,13 +178,18 @@ def test_merge_explicit_ext_wins():
 
 
 def test_merge_template_wins_over_local():
-    """_merge_config_tiers：worker 模板覆盖本地 stores.json。"""
+    """_merge_config_tiers：worker 模板覆盖本地 stores.json。
+
+    v0.80: 退役键（stock/warehouse_id）即使出现在模板 profile（存量数据）
+    也不注入 extensions——我方永不设库存。
+    """
     ext = {}
     cloud_probe._merge_config_tiers(
-        ext, template_profile={"margin_rate": 0.3, "stock": 500},
+        ext, template_profile={"margin_rate": 0.3, "stock": 500, "warehouse_id": "wh-1"},
         store_profile={"margin_rate": 0.2})
     assert ext["margin_rate"] == 0.3
-    assert ext["stock"] == 500
+    for rk in RETIRED_KEYS:
+        assert rk not in ext, f"退役键 {rk} 不应注入 extensions"
 
 
 def test_merge_local_fallback():
@@ -261,12 +269,12 @@ def test_merge_traffic_keywords_empty_list_not_injected():
 
 
 def test_build_template_overrides_store():
-    """cloud_probe 注入段：模板 margin 优先于本地 stores.json。"""
+    """cloud_probe 注入段：模板 margin 优先于本地 stores.json；退役键不进信封。"""
     graph = _build(template_profile={"margin_rate": 0.3, "warehouse_id": "wh-1"},
                    store_profile={"margin_rate": 0.2})
     ext = graph["envelope"]["extensions"]
     assert ext["margin_rate"] == 0.3
-    assert ext["warehouse_id"] == "wh-1"
+    assert "warehouse_id" not in ext  # v0.80 退役键不透传
 
 
 def test_build_template_none_falls_back_to_local():

@@ -59,10 +59,11 @@ def _create(overrides=None, config=None):
 # ============================================================
 
 def test_create_with_store_overrides(_pg):
+    # v0.80: overrides 走同一 _validate_config——退役键 stock 同样静默剥离
     tpl = _create(overrides={"cred-1": {"margin_rate": 0.4, "stock": 50}})
     assert tpl["store_overrides"]["cred-1"]["margin_rate"] == 0.4
     got = template_service.get_template(TENANT, tpl["id"])
-    assert got["store_overrides"]["cred-1"]["stock"] == 50
+    assert "stock" not in got["store_overrides"]["cred-1"]
 
 
 def test_store_overrides_bad_config_422(_pg):

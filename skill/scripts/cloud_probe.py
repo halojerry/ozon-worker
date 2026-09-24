@@ -1473,11 +1473,13 @@ def _flatten_ozon_characteristics(chars) -> dict[str, str]:
 # 可注入 extensions 的配置键（与 worker template_service.CONFIG_KEYS 一致）
 # v0.60: 三档定价 margin_floor/margin_anchor + 变动成本率 + 流量关键词
 # traffic_keywords 是 list 型扁平键（v0.56 S1），非数值型。
+# v0.80: stock/warehouse_id 已退役删除——我方管线永不设库存（worker graphs 零消费死键，
+# docs/PLAN-n8n-legacy-purge-v1.md 批次 2）；模板下发侧同批剥离，不再透传进信封。
 _INJECTABLE_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
                         "margin_floor", "margin_anchor",
                         "variable_cost_rate", "promo_variable_cost_rate",
                         "traffic_keywords",
-                        "offer_id_prefix", "follow_type", "stock", "warehouse_id")
+                        "offer_id_prefix", "follow_type")
 
 # 只注入非零值的数值键（Worker 默认兜底语义）
 _NONZERO_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
