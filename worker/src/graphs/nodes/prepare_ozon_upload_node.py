@@ -3836,6 +3836,35 @@ def prepare_ozon_upload_node(
         ozon_payload["items"] = sanitize_numeric_semantics(
             ozon_payload.get("items", []),
         )
+        # v0.84 A5: schema 驱动 LLM 兜底（kill-switch LLM_SCHEMA_FILL=0）——
+        # 缓存 schema 的未填属性清单（中文名+描述）+ 产品证据给 vision LLM 提案，
+        # 提案过确定性验证（字典唯一/布尔/数值/禁填）才落卡。用户驱动：
+        # 「每个类目的特征属性都缓存了，这样 LLM 就知道怎么填写了」。
+        import os as _os
+        if _os.getenv("LLM_SCHEMA_FILL", "1") != "0":
+            try:
+                from utils.attr_fill_extras import build_llm_schema_prompt, apply_llm_schema_fill
+                _llm_prompt, _llm_todo = build_llm_schema_prompt(
+                    ozon_payload.get("items", []), attributes_schema, draft,
+                    dict_samples=dict(getattr(state, "dictionary_values", None) or {}))
+                if _llm_prompt:
+                    from utils.mxou_api import call_mxou_chat_api
+                    _llm_ans = call_mxou_chat_api(
+                        token=str(getattr(state, "token", "") or ""),
+                        system_prompt="你是 Ozon 商品属性专家。只根据提供的商品资料回答，绝不编造。只输出 JSON。",
+                        user_prompt=_llm_prompt,
+                        model="deepseek-v4-flash-vision-exp",
+                        temperature=0.0,
+                        max_tokens=1024,
+                        image_urls=((draft or {}).get("images") or [])[:3] or None,
+                    )
+                    if _llm_ans and _llm_ans.strip():
+                        ozon_payload["items"] = apply_llm_schema_fill(
+                            ozon_payload.get("items", []), _llm_todo, _llm_ans,
+                            draft, state, audit_task_id=_audit_task_id,
+                        )
+            except Exception as _e:
+                logger.warning("schema-LLM 兜底异常（不影响主流程）: %s", _e)
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
 
