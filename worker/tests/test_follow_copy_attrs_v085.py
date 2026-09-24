@@ -192,3 +192,12 @@ def test_read_existing_card_attributes(monkeypatch):
         oc, "ozon_post",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")), raising=True)
     assert _read_existing_card_attributes(st, "1") == []
+
+def test_upload_merge_wiring_import(monkeypatch):
+    """A6 upload 侧接线冒烟：merge_copied_card_attributes 可从 upload 节点 import。"""
+    import graphs.nodes.ozon_upload_node as umod
+    assert hasattr(umod, "ozon_upload_node")
+    from graphs.nodes.prepare_ozon_upload_node import merge_copied_card_attributes as m
+    out = m([{"product_id": "1", "attributes": []}],
+            [{"complex_id": 0, "id": 21550, "values": [{"value": "x"}]}])
+    assert out[0]["attributes"][0]["id"] == 21550

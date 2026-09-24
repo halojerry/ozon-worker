@@ -313,6 +313,60 @@ def ozon_upload_node(
                 failed_stage="ozon_upload",
             )
 
+        # feat/follow-copy-attrs-v1 (A6): import 前防洗卡——/v3/product/import 是
+        # 「完全更新」语义（官方契约），且 Ozon 平台侧 offer_id 唯一键自动把同 offer
+        # 的 CREATE 变成对既有卡的更新（跟卖 CREATE 重建不走 offer 预检转 UPDATE，
+        # 但平台照样 upsert）——payload 之外的现卡属性会被全量清掉。此处按 offer
+        # 查现卡，/v4 读回特征表合并进 items（未提及=维持现状语义）。非致命。
+        try:
+            from graphs.nodes.prepare_ozon_upload_node import merge_copied_card_attributes
+            from utils.ozon_client import ozon_post as _op
+            _merged_any = False
+            for _item in items:
+                if not isinstance(_item, dict):
+                    continue
+                _offer = str(_item.get("offer_id") or "").strip()
+                if not _offer:
+                    continue
+                _existing = None
+                try:
+                    _existing = find_product_by_offer(
+                        client_id=ozon_client_id, api_key=ozon_api_key, offer_id=_offer)
+                except Exception:
+                    _existing = None
+                _pid_x = str((_existing or {}).get("product_id") or "").strip()
+                if not _pid_x.isdigit():
+                    continue
+                _v4 = _op(
+                    ozon_client_id, ozon_api_key,
+                    "/v4/product/info/attributes",
+                    {"filter": {"product_id": [_pid_x], "visibility": "ALL"}, "limit": 10},
+                    timeout=15,
+                )
+                _v4_items = (_v4.get("result") or {}).get("items") \
+                    if isinstance(_v4.get("result"), dict) else _v4.get("result")
+                _copied = []
+                for _it in (_v4_items or []):
+                    if int((_it or {}).get("id") or 0) == int(_pid_x):
+                        _copied = [
+                            {"complex_id": int(a.get("complex_id") or 0),
+                             "id": int(a.get("id") or 0),
+                             "values": a.get("values") or []}
+                            for a in (_it.get("attributes") or [])
+                            if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                        ]
+                        break
+                if _copied:
+                    _before = len(_item.get("attributes") or [])
+                    merge_copied_card_attributes([_item], _copied)  # 原地合并
+                    _after = len(_item.get("attributes") or [])
+                    if _after > _before:
+                        _merged_any = True
+            if _merged_any:
+                logger.info("✅ A6 import 前防洗卡: 已合并现卡特征进 payload（offer 命中）")
+        except Exception as _a6_e:
+            logger.warning("A6 import 前防洗卡异常（不阻断上传）: %s", _a6_e)
+
         # F-F01（2026-09-09 审计）：收敛 ozon_post——此前 session.post 直发无
         # 429/5xx 重试、无全局限流，Ozon 一次限流即整任务失败再走整图重试。
         # 调用日志由 ozon_post 内部记录；OzonError 带类型化 status_code/payload。
