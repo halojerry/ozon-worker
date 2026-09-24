@@ -66,6 +66,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         return {"error_message": "跟卖需要竞品 ozon_product_id", "failed_stage": "follow_sell_import",
                 "extensions": extensions}
 
+    # fix/category-bridge-v1: import-by-sku 复制卡的真实 dc/tp（复制完成后反查回填；
+    # 见 import 完成点注释——UPDATE 项 required dc/tp，此值是权威来源）
+    ibs_dc, ibs_tp = "", ""
+
     # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
     # 旧 v0.22 曾改 import-by-sku 用 follow_{id}，但 prepare 层 upload 一直用裸 {id}，
     # 导致 api 复制模式 import 卡 offer_id=follow_x，后续 UPDATE 用 x 匹配不到 → 双卡。
@@ -218,6 +222,38 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                             if _pid and _status == "imported":
                                 product_id = str(_pid)
                                 logger.info("✅ import-by-sku 完成: product_id=%s，后续走 UPDATE", _pid)
+                                # ✅ fix/category-bridge-v1: 立即反查复制卡真实 dc/tp。
+                                # 官方复制把竞品类目原样带到新卡（实测 6443818882:
+                                # dc=17027933/tp=970742618 随复制带出）——这是比文本
+                                # 仲裁更准的权威来源。/v3/product/import items 的
+                                # required=[description_category_id, price, type_id]
+                                # **UPDATE 项同样必填**（省略=proto 默认 0=网关 400
+                                # `invalid Request.Items.TypeId`——2026-09-24 follow ×5
+                                # 假失败真在架事故根因）。反查失败不阻断（下方硬闸兜底）。
+                                try:
+                                    _ibs_info = ozon_post(
+                                        state.ozon_client_id, state.ozon_api_key,
+                                        "/v3/product/info/list",
+                                        {"offer_id": [], "product_id": [int(_pid)],
+                                         "sku_id": []},
+                                        timeout=15,
+                                    )
+                                    _ibs_item = ((_ibs_info.get("items") or [{}])[0]) or {}
+                                    _ibs_dc = str(_ibs_item.get("description_category_id") or "")
+                                    _ibs_tp = str(_ibs_item.get("type_id") or "")
+                                    if _ibs_dc.isdigit() and _ibs_tp.isdigit() \
+                                            and int(_ibs_dc) > 0 and int(_ibs_tp) > 0:
+                                        ibs_dc, ibs_tp = _ibs_dc, _ibs_tp
+                                        logger.info(
+                                            "✅ 复制卡真实类目反查成功: dc=%s tp=%s"
+                                            "（随官方复制带出，UPDATE 项必填）",
+                                            _ibs_dc, _ibs_tp)
+                                    else:
+                                        logger.warning(
+                                            "⚠️ 复制卡类目反查无有效值（dc=%r tp=%r）",
+                                            _ibs_dc, _ibs_tp)
+                                except Exception as _ibs_err:
+                                    logger.warning("⚠️ 复制卡类目反查失败（不阻断）: %s", _ibs_err)
                                 break
                         if product_id:
                             break
@@ -255,6 +291,15 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     if type_raw and type_raw.isdigit() and int(type_raw) > 0:
         tp_id = type_raw
 
+    # ✅ fix/category-bridge-v1: import-by-sku 复制卡真实类目优先——官方复制带出的
+    # 类目（含品牌子类目等 Seller 树查不到的叶子）比信封/仲裁都准。放在 dc_raw
+    # 采纳之后：复制卡真身是最终事实（信封值若与复制结果冲突，以卡为准）。
+    if ibs_dc and ibs_tp:
+        if dc_id != ibs_dc or tp_id != ibs_tp:
+            logger.info("✅ 采用复制卡真实类目 dc=%s tp=%s（覆盖解析值 %s/%s）",
+                        ibs_dc, ibs_tp, dc_id or "-", tp_id or "-")
+        dc_id, tp_id = ibs_dc, ibs_tp
+
     # ✅ v0.19.1 P0: 类目缺失不再一刀切失败
     # 1) import-by-sku 成功（product_id 已返回）→ Ozon 官方复制已带出类目/属性，
     #    不再强制要求 dc/tp（此前官方通道被前置校验掐死——南辕北辙）
@@ -266,6 +311,44 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
             logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
                            "继续走 UPDATE（类目由官方复制带出）", product_id)
             category_missing = True
+            # ✅ fix/category-bridge-v1 UPDATE 硬闸：/v3/product/import items 的
+            # required=[description_category_id, price, type_id] **UPDATE 项同样必填**
+            # （省略=proto 默认 0=网关 400 `invalid Request.Items.TypeId`，2026-09-24
+            # follow ×5「假失败真在架」事故）。复制卡反查（ibs_dc/ibs_tp）与上方
+            # 学习表/门控仲裁全空时：再试一次 info/list 反查兜底；仍无 → 显式
+            # failed 拒绝带着空类目进 prepare（那里会按「空=省略」组装必 400）。
+            if not dc_id or not tp_id:
+                try:
+                    _re_info = ozon_post(
+                        state.ozon_client_id, state.ozon_api_key,
+                        "/v3/product/info/list",
+                        {"offer_id": [], "product_id": [int(product_id)],
+                         "sku_id": []},
+                        timeout=15,
+                    )
+                    _re_it = ((_re_info.get("items") or [{}])[0]) or {}
+                    _re_dc = str(_re_it.get("description_category_id") or "")
+                    _re_tp = str(_re_it.get("type_id") or "")
+                    if _re_dc.isdigit() and _re_tp.isdigit() and int(_re_dc) > 0 and int(_re_tp) > 0:
+                        dc_id, tp_id = _re_dc, _re_tp
+                        category_missing = False
+                        logger.info("✅ UPDATE 硬闸反查兜底成功: dc=%s tp=%s", _re_dc, _re_tp)
+                except Exception as _re_err:
+                    logger.warning("⚠️ UPDATE 硬闸反查失败: %s", _re_err)
+            if not dc_id or not tp_id:
+                logger.error(
+                    "❌ UPDATE 项缺 dc/tp 且反查无果（product_id=%s）——"
+                    "/v3/product/import required 拒空类目，显式失败不烧 400",
+                    product_id)
+                return {
+                    "error_message": (
+                        f"UPDATE 项缺类目: 复制卡 {product_id} 反查无 description_category_id/"
+                        f"type_id，且信封/仲裁均未定稿——/v3/product/import UPDATE 项必填 dc/tp，"
+                        "拒绝空类目上传"),
+                    "failed_stage": "follow_sell_import",
+                    "extensions": extensions,
+                    "product_id": product_id or None,
+                }
         elif follow_type == "discover":
             # ✅ v0.69 P-D: discover 类目未定稿不报错不进 retry——类目置空继续走管，
             # 由 assemble 跟卖分支（文本解析+全闸链）定稿。

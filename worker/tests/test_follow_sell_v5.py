@@ -55,6 +55,11 @@ def _setup_mock_ozon(import_ok=True):
             if import_ok:
                 return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
             return {"result": {"items": []}}
+        elif "product/info/list" in endpoint:
+            # fix/category-bridge-v1: 复制卡类目反查（官方复制带出真实 dc/tp，
+            # 实测 6443818882 → 17027933/970742618 同形态）
+            return {"items": [{"id": 999888777, "product_id": 999888777,
+                               "description_category_id": 17027933, "type_id": 970742618}]}
         elif "description-category/attribute" in endpoint:
             return {"result": [{"id": 8229, "name": "Тип", "is_collection": False}]}
         raise RuntimeError(f"unexpected endpoint: {endpoint}")
@@ -239,7 +244,11 @@ def test_case_1b_import_ok_missing_category():
 
     checks = [
         ("product_id='999888777'（import 成功）", result.get("product_id") == "999888777"),
-        ("category_missing=True", result.get("category_missing") is True),
+        # fix/category-bridge-v1: 复制卡反查回填真实 dc/tp——类目不再缺失
+        # （旧行为 category_missing=True 带空类目进 prepare → UPDATE 项必 400）
+        ("复制卡真实类目回填 dc/tp", result.get("description_category_id") == "17027933"
+         and result.get("type_id") == "970742618"),
+        ("category_missing=False（已回填）", result.get("category_missing") is False),
         ("error_message 为空（不阻断）", not result.get("error_message")),
         ("failed_stage 为空", not result.get("failed_stage")),
     ]
@@ -593,6 +602,10 @@ def test_case_8_hand_category_fail_falls_back_api():
             return {"result": {"task_id": "12345"}}
         if "import/info" in endpoint:
             return {"result": {"items": [{"product_id": 999888777, "status": "imported"}]}}
+        if "product/info/list" in endpoint:
+            # fix/category-bridge-v1: 复制卡类目反查（官方复制带出，同 6443818882 实测形态）
+            return {"items": [{"id": 999888777, "product_id": 999888777,
+                               "description_category_id": 17027933, "type_id": 970742618}]}
         return {"result": {"task_id": "12345"}}
     _fsm.ozon_post = _counting_post8
     try:
