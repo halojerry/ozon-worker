@@ -103,7 +103,7 @@ def test_template_silent_when_no_source(monkeypatch):
 
 def test_template_skip_ids_cover_individual_values():
     """个体值黑名单完整性（型号/品牌/颜色/产地/件数/HS）。"""
-    for aid in (9048, 85, 5076, 10096, 10097, 4389, 4224, 4225, 8962, 22232):
+    for aid in (9048, 85, 5076, 10096, 10097, 4389, 4224, 4225, 8962, 22232, 9024):
         assert aid in _TEMPLATE_SKIP_ATTR_IDS, aid
 
 
