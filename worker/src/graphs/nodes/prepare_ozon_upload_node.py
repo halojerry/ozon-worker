@@ -3804,8 +3804,12 @@ def prepare_ozon_upload_node(
             ozon_payload.get("items", []), attributes_schema, draft, state
         )
         # v0.67 P1-6: audit_task_id=thread_id 透传（attr_match_log 写点用真实任务 uuid）
+        # v0.83 三期A1: 标题证据词合成伪 draft.attributes（材料/颜色/形状/性别，
+        # 不覆盖真实 1688 键）——伪属性走下方既有同义词安全链，零新匹配逻辑。
+        from utils.attr_fill_extras import augment_draft_with_title_evidence
+        _draft_ev = augment_draft_with_title_evidence(draft)
         ozon_payload["items"] = _fill_optional_dict_attrs(
-            ozon_payload.get("items", []), attributes_schema, draft, state,
+            ozon_payload.get("items", []), attributes_schema, _draft_ev, state,
             audit_task_id=_audit_task_id,
         )
         # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
@@ -3818,6 +3822,19 @@ def prepare_ozon_upload_node(
         ozon_payload["items"] = _inherit_attrs_from_template(
             ozon_payload.get("items", []), attributes_schema, state,
             audit_task_id=_audit_task_id,
+        )
+        # v0.83 三期A2/A3: 类目级保守默认（保证/目标受众/性别兜底，白名单+
+        # 字典精确命中才填）+ 标题数值派生（容量 ml/每包数量）+ 尺寸串。
+        from utils.attr_fill_extras import apply_class_defaults_and_numerics
+        ozon_payload["items"] = apply_class_defaults_and_numerics(
+            ozon_payload.get("items", []), attributes_schema, draft, state,
+            audit_task_id=_audit_task_id,
+        )
+        # v0.83 三期A4: 出口语义闸——剥除语义错配数值（22390 年份渗透 /
+        # 数量类箱规 MOQ>200，gate 卡 6446931479 实证）。
+        from utils.attr_fill_extras import sanitize_numeric_semantics
+        ozon_payload["items"] = sanitize_numeric_semantics(
+            ozon_payload.get("items", []),
         )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
