@@ -932,13 +932,17 @@ CREATE INDEX idx_pti_tenant_offer ON product_task_index (tenant_id, offer_id);
 ```
 extensions: {
   margin_rate, commission_rate, fx_buffer, follow_sell, follow_type,   # 现有
-  warehouse_id:   str | null,   # 选择仓库（商品编辑页「选择仓库」）
-  stock:          int | null,   # 库存数量（每 SKU）
   scheduled_at:   str | null    # 定时上架 ISO-8601（⚠️ v2 调度器；v1 仅 UI 预留 + 字段透传持久化）
 }
 ```
 
-**Flow**：skill envelope → `product_drafts.payload.extensions` →（submit）快照进 `draft_submissions.extensions` → worker `prepare_ozon_upload_node` 透传到 Ozon `/v3/product/import`。`warehouse_id`/`stock` 的透传权威在 `draft_service.submit`（submit 路径）+ Ozon 侧消费（T14 update_images 全量重传同样携带）。
+**⚠️ v0.80 退役：`warehouse_id` / `stock` 已从本契约删除**（docs/PLAN-n8n-legacy-purge-v1.md 批次 2，用户拍板「我方永不设库存」）。原 C4 设计声称的「prepare_ozon_upload_node 透传到 `/v3/product/import`」从未实现——Ozon v3 import 契约本身无 stocks 字段，worker graphs 全链零消费（死键）。现行口径：
+
+- 我方管线**从不设置 Ozon 库存**；rFBS 库存由卖家人工或店铺运营管理（`/api/v1/stores/{id}/actions` 的 `bulk_update_stocks` 是唯一显式库存写入口，人工触发）。
+- 模板 config（`listing_templates`）与 skill `_INJECTABLE_EXT_KEYS` 同批剥离两键；存量模板数据静默剥离不报错。
+- 采集箱 CSV 的 `draft.stock` 列是草稿运营备注（选品记录），与上架行为无关，保留。
+
+**Flow**（scheduled_at 等仍按原链）：skill envelope → `product_drafts.payload.extensions` →（submit）快照进 `draft_submissions.extensions` → worker 管线消费。
 
 ### 1b.4 skill --to-box 约定（C7）
 

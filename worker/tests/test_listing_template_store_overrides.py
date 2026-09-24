@@ -31,12 +31,13 @@ def test_out_store_overrides_default_none():
 
 
 def test_out_roundtrip_json():
+    # v0.80: ListingTemplateConfig 不再有 stock 字段（extra 默认忽略——传入即丢弃）
     out = ListingTemplateOut(
         id="tpl-1",
         tenant_id="tenant-a",
         name="店铺差异化",
-        store_overrides={"store-a": ListingTemplateConfig(commission_rate=0.2, stock=50)},
+        store_overrides={"store-a": ListingTemplateConfig(commission_rate=0.2)},
     )
     parsed = ListingTemplateOut.model_validate_json(out.model_dump_json())
     assert parsed.store_overrides["store-a"].commission_rate == 0.2
-    assert parsed.store_overrides["store-a"].stock == 50
+    assert "stock" not in ListingTemplateConfig.model_fields

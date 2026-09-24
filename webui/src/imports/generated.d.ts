@@ -4065,7 +4065,6 @@ export interface components {
          *       "margin_rate": 0.25,
          *       "offer_id_prefix": "MX",
          *       "promo_variable_cost_rate": 0.245,
-         *       "stock": 10,
          *       "traffic_keywords": [
          *         "поилка для животных",
          *         "фонтан для кошек"
@@ -4115,11 +4114,6 @@ export interface components {
              */
             promo_variable_cost_rate?: number | null;
             /**
-             * Stock
-             * @description 上架后库存（extensions.stock）
-             */
-            stock?: number | null;
-            /**
              * Traffic Keywords
              * @description 标题流量关键词列表（extensions.traffic_keywords 扁平键）
              */
@@ -4129,11 +4123,6 @@ export interface components {
              * @description 日常变动成本率（0-0.5），不设则 worker 默认 0.155
              */
             variable_cost_rate?: number | null;
-            /**
-             * Warehouse Id
-             * @description 仓库（extensions.warehouse_id）
-             */
-            warehouse_id?: string | null;
         };
         /**
          * ListingTemplateOut
@@ -4146,7 +4135,6 @@ export interface components {
          *         "margin_rate": 0.25,
          *         "offer_id_prefix": "MX",
          *         "promo_variable_cost_rate": 0.245,
-         *         "stock": 10,
          *         "variable_cost_rate": 0.155
          *       },
          *       "created_at": "2026-09-01T00:00:00Z",

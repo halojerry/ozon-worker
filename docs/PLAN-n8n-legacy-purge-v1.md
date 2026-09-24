@@ -59,17 +59,14 @@
 - `grep -rn "n8n" skill/scripts/ worker/src/` 仅剩历史注释/文档措辞，无路径常量、无 webhook 调用。
 - worker 测试不受影响（worker 源码零改动，仅 assets 挪动——跑 worker 快速子集确认无引用）。
 
-## 批次 2 — extensions.stock / warehouse_id 死键处置（待拍板，行为变更）
+## 批次 2 — extensions.stock / warehouse_id 死键处置（✅ 2026-09-24 拍板选项 A，已执行）
 
-现状：`template_service` 校验/存储 + skill `_INJECTABLE_EXT_KEYS` 透传 +
-`test_template_profile.py` 活测试锁定下发链，但 **worker graphs 零消费**（信封到了也不会设库存）。
-
-| 选项 | 内容 | 影响 |
-|---|---|---|
-| A（建议） | 三处删除（worker 白名单/校验、skill 注入键、测试改写）+ 旧模板数据兼容（存量 config.stock 静默忽略） | 口径收敛为「我方管线永不设库存」——与本次事故教训一致；模板编辑器/UI 同步删键 |
-| B | 实现消费：rFBS 上架后经 `/v1/product/import/stocks` 设库存 | 需定义库存来源（模板/信封/人工）；与「自动库存=超卖风险」教训相反，不建议 |
-
-**不与批次 1 同车**：涉及 API schema（模板 config 键删除）+ 测试改写 + webui 表单，需独立 PR。
+**用户拍板：「我们不设库存」**——选项 A 全链删除。实施（chore/drop-extensions-stock-v1）：
+worker `template_service` 白名单/校验删 + `RETIRED_CONFIG_KEYS` 写入/注入双侧静默剥离
+（存量模板兼容，不 422）；`ListingTemplateConfig` schema 删两字段（openapi/generated.d.ts
+重生成）；skill `_INJECTABLE_EXT_KEYS` 删两键；CONTRACT-v4 §1b.3 如实改写（原透传声明
+从未实现）；worker 4 测试文件 + skill template_profile 改写锁死「下发含存量退役键也不
+透传」。CSV `draft.stock` 运营备注列保留。worker 3136 / skill 1641 全绿。
 
 ## 批次 3 — 生产存量清理（写操作，待用户定范围后执行）
 
@@ -91,8 +88,8 @@ dry-run → 确认 → 执行，全部走店铺 API：
 
 ## 执行记录
 
-- [x] 2026-09-24 批次 1 施工（本 PR）
+- [x] 2026-09-24 批次 1 施工（PR #61）
 - [ ] 批次 0 用户侧（U1/U2/U3）
-- [ ] 批次 2 拍板
+- [x] 2026-09-24 批次 2 拍板选项 A 并施工（本 PR）
 - [ ] 批次 3 范围确认
 - [ ] 批次 4 随下版

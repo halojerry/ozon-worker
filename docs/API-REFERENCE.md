@@ -4336,7 +4336,7 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 ```
 
 ### ListingTemplateConfig <a id="schema-listingtemplateconfig"></a>
-模板扩展参数（白名单；全部可选，None 表示不注入）。
+模板扩展参数（白名单；全部可选，None 表示不注入）。  v0.80: stock/warehouse_id 已退役删除（我方永不设库存口径， docs/PLAN-n8n-legacy-purge-v1.md 批次 2）；存量数据中的退役键由 template_service 静默剥离。
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -4350,8 +4350,6 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 | `traffic_keywords` | list[string] \| null |  | 标题流量关键词列表（extensions.traffic_keywords 扁平键） |
 | `offer_id_prefix` | string \| null |  | 货号前缀（仅新建上架生效；更新模式忽略） |
 | `follow_type` | string \| null |  | 跟卖方式：hand 防侵权 / api 强制 |
-| `stock` | integer \| null |  | 上架后库存（extensions.stock） |
-| `warehouse_id` | string \| null |  | 仓库（extensions.warehouse_id） |
 
 示例：
 
@@ -4363,7 +4361,6 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
   "margin_rate": 0.25,
   "offer_id_prefix": "MX",
   "promo_variable_cost_rate": 0.245,
-  "stock": 10,
   "traffic_keywords": [
     "поилка для животных",
     "фонтан для кошек"

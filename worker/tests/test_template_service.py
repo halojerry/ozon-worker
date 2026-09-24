@@ -158,15 +158,18 @@ def test_config_numeric_bounds(_pg):
         assert ei.value.status_code == 422
 
 
-def test_config_stock_and_follow_type(_pg):
+def test_config_follow_type_and_retired_keys_stripped(_pg):
+    # v0.80: stock/warehouse_id 退役（我方永不设库存口径）——写入侧静默剥离不 422，
+    # 旧模板数据编辑保存兼容；负值也不触发数值校验（直接丢弃）。
     tpl = _create("tenant-a", config={
         "stock": 100, "follow_type": "hand", "warehouse_id": "wh-1"})
-    assert tpl["config"]["stock"] == 100
+    assert "stock" not in tpl["config"]
+    assert "warehouse_id" not in tpl["config"]
     assert tpl["config"]["follow_type"] == "hand"
     with pytest.raises(HTTPException):
         _create("tenant-a", config={"follow_type": "evil"})
-    with pytest.raises(HTTPException):
-        _create("tenant-a", config={"stock": -5})
+    tpl2 = _create("tenant-a", name="退役负值", config={"stock": -5})
+    assert "stock" not in tpl2["config"]
 
 
 # ============================================================
@@ -222,24 +225,25 @@ def test_empty_name_rejected(_pg):
 # ============================================================
 
 def test_apply_injects_missing_fields():
+    # v0.80: 模板含退役键 stock 也不注入（apply 侧剥离存量 DB 数据）
     tpl = {"config": {"margin_rate": 0.35, "fx_buffer": 0.1, "stock": 50}}
     env = {"draft": {}, "extensions": {"commission_rate": 0.12}}
     out = template_service.apply_template_to_envelope(env, tpl)
-    # 模板补缺省：margin/fx/stock 注入；commission 草稿已有 → 不覆盖
+    # 模板补缺省：margin/fx 注入；commission 草稿已有 → 不覆盖；stock 剥离
     assert out["extensions"]["margin_rate"] == 0.35
     assert out["extensions"]["fx_buffer"] == 0.1
-    assert out["extensions"]["stock"] == 50
+    assert "stock" not in out["extensions"]
     assert out["extensions"]["commission_rate"] == 0.12
     # 入参不被修改
     assert "margin_rate" not in env["extensions"]
 
 
 def test_apply_keeps_draft_values():
-    tpl = {"config": {"margin_rate": 0.35, "stock": 50}}
-    env = {"draft": {}, "extensions": {"margin_rate": 0.5, "stock": 999}}
+    tpl = {"config": {"margin_rate": 0.35, "fx_buffer": 0.05}}
+    env = {"draft": {}, "extensions": {"margin_rate": 0.5, "fx_buffer": 0.09}}
     out = template_service.apply_template_to_envelope(env, tpl)
     assert out["extensions"]["margin_rate"] == 0.5
-    assert out["extensions"]["stock"] == 999
+    assert out["extensions"]["fx_buffer"] == 0.09
 
 
 def test_apply_prefix_only_when_not_update():
@@ -255,17 +259,17 @@ def test_apply_prefix_only_when_not_update():
 
 def test_apply_empty_config_returns_copy():
     tpl = {"config": {}}
-    env = {"draft": {}, "extensions": {"stock": 1}}
+    env = {"draft": {}, "extensions": {"margin_rate": 0.3}}
     out = template_service.apply_template_to_envelope(env, tpl)
     assert out == env
     assert out is not env
 
 
 def test_apply_no_extensions_key():
-    tpl = {"config": {"stock": 10}}
+    tpl = {"config": {"follow_type": "hand"}}
     env = {"draft": {"title": "x"}}
     out = template_service.apply_template_to_envelope(env, tpl)
-    assert out["extensions"]["stock"] == 10
+    assert out["extensions"]["follow_type"] == "hand"
 
 
 def test_apply_injects_new_pricing_keys():

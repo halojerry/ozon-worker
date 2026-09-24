@@ -22,6 +22,23 @@
 ### 测试
 - skill 全量 **1641 passed**（v0.79 后基线，零回归）；`ruff check scripts/ --select F` 严格口径（含 F821）零错。worker 源码零改动（仅 assets 挪动）。
 
+## [开发中] — extensions.stock / warehouse_id 死键全链退役（chore/drop-extensions-stock-v1，PLAN 批次 2，用户拍板「我方永不设库存」）
+
+> 动因同上批次：`extensions.stock` 自 C4/T14 设计起就是死键（模板校验/存储 + skill 注入键
+> + 测试锁定下发链俱全，但 worker graphs 全链零消费；Ozon v3 import 契约本身无 stocks
+> 字段）。2026-09-24 旁路事故教训后口径收敛：**我方管线从不设置 Ozon 库存**，rFBS 库存
+> 由卖家人工/店铺运营管理（`bulk_update_stocks` 是唯一显式库存写入口，人工触发）。
+
+### 删除（全链三处源头 + 两侧静默剥离兼容）
+- **worker `template_service`**：`CONFIG_KEYS` 白名单删 `stock`/`warehouse_id` + `_validate_config` 数值校验分支删；新增 `RETIRED_CONFIG_KEYS`——**写入侧与 `apply_template_to_envelope` 注入侧双侧静默剥离**（存量模板 DB 数据带退役键时编辑保存不 422、不注入 extensions；`store_overrides` 走同一 `_validate_config` 自动覆盖）。
+- **worker `api/schemas.py` `ListingTemplateConfig`**：删两字段 + examples 同步（openapi/generated.d.ts 已重生成；`api-integration/generated.d.ts` 参考副本未同步——无 CI 闸，下次跑 README 生成命令时自然收敛）。
+- **skill `cloud_probe` `_INJECTABLE_EXT_KEYS`**：删两键——worker 下发含退役键（存量）也不透传进信封。
+- **文档**：CONTRACT-v4 §1b.3 改写（原「prepare 透传到 /v3 import」声明从未实现，如实登记退役口径）；`draft_service` docstring 的「warehouse/stock 透传」措辞修正（从未实现）。**CSV 的 `draft.stock` 列是草稿运营备注，保留**。
+- 测试改写锁死口径：worker 4 文件（退役键剥离负断言）+ skill `test_template_profile`（mock 故意保留存量退役键，断言注入侧无视）。
+
+### 测试
+- worker 全量 **3136 passed / 2 skipped**（本地 PG 15433）；skill 全量 **1641 passed**；双侧 ruff 绿；webui `tsc -b` 0 错 + build 过；`gen_api_docs` 重生成（63/63 schema 示例覆盖）。
+
 ## [0.79.0] — 2026-09-24（生产发版；四批同车：安全修复批 + Windows 真机反馈批 + CI/API 收口 + agent 人体工学批）
 
 > dev 自 v0.78.0 共 85 commits。**升级必读按批分组**；安全批 13 条行为变更全文见下方 §0.76.0 附「安全修复批次」节。
