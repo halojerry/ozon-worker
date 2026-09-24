@@ -75,8 +75,22 @@ moderation 原文 `field=name` + 拉丁语义被误归 `BR_chinese_hieroglyphs_i
 - T4：field=name 拉丁 → 标题通道路由测试。
 - 全量：worker + skill + 双侧 CI 口径 lint。
 
-## Gate（实机，本地 Docker + 测试店铺 5381204）
+## Gate（实机，本地 Docker attrfill-gate + 测试店铺 5381204，2026-09-24 通过）
 
-1. follow 新竞品（EN 面包屑形态）→ EN 腿命中或诚实入箱（无「无候选」静默绕路）。
-2. 同类目第二单 → 模板继承补缺口（attr_match_log 见 template_inherit 打标）。
-3. completed 卡属性数 ≥ 基线 12（对照 B2）。
+**单 1**（3436164007，EN 面包屑 Storage Container，task 7a720a84）：
+- T1 EN 腿实证：门控仲裁通过 17027933/93712 **Food Container**（LLM vision 确认
+  同大类——旧代码此处「无候选」静默绕路）；completed + approved（6446373107）。
+
+**单 2**（5479948583=f2 竞品，task 64170558）——三箭齐发：
+- T1：`pg_trgm 'Food Storage' 命中 5 条`（旧 0 候选）→ 同类目 93712 定稿；
+- T2：`vision 推断 10096(商品颜色): прозрачный (dict_id=61572)` + 10097——B2 基线
+  缺口补上；
+- T3：`模板继承补缺 3 个属性（源=单1 卡 6446373107）`；
+- completed + approved；**顺手把今早 5 张假 failed 复制卡之一 6443818882 救活**
+  （UPDATE 覆盖：类目修正 + 模板属性 + AI 图）——清理挂账 -1。
+
+**gate 修出的一枚**：9024（供应商货号）被模板抄了单 1 的值 → 商品个体值黑名单
++1（PR #65 追加 commit）。
+
+**CI 教训**（PR #66 修复）：test_template_fills 本地绿是吃了本地 PG 的 B2 卡真数据
+——CI 空库必红。① 段打桩（get_session 返回固定 pids）后本地/CI 一致。
