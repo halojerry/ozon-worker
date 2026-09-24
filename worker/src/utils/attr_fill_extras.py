@@ -547,6 +547,15 @@ def build_llm_schema_prompt(
         f"{k}={v}" for k, v in list((t.get("attributes") or {}).items())[:20]
         if str(v or "").strip()
     )
+    # A7b (feat/competitor-fullattrs-v1): 竞品特征表进证据——draft.ozon_attributes
+    # 是 Ozon 竞品页已过审的俄语/英语键值（follow 复制卡/page 真值透传），是比
+    # 1688 推断更准的证据源；LLM 负责键名语义映射（EN/RU→schema 中文名），
+    # 值仍过确定性字典验证（宁缺红线不变）。竞品事实类（品牌/认证）除外——
+    # 规则 5 已禁品牌，认证类验证闸兜底。
+    comp_dump = "; ".join(
+        f"{k}={v}" for k, v in list((t.get("ozon_attributes") or {}).items())[:30]
+        if str(v or "").strip()
+    )
     lines = [
         "根据商品资料，为下列 Ozon 商品特征属性给出值。规则：",
         "1. 自由文本属性(String 且 dict=0)：只填资料能确定的内容；不确定输出 null。",
@@ -560,6 +569,8 @@ def build_llm_schema_prompt(
         f"商品标题: {str(t.get('title') or '')[:120]}",
         f"商品类目: {str(t.get('category_path') or '')[:60]}",
         f"1688属性: {attrs_dump[:600] or '无'}",
+        "竞品特征(来自Ozon同类商品卡,键为俄语/英语,优先级高于1688推断,但品牌不填):",
+        f"{comp_dump[:900] or '无'}",
         f"尺寸mm: {item0.get('depth','')}x{item0.get('width','')}x{item0.get('height','')}",
         "",
         "待填属性（JSON 数组）:",

@@ -788,6 +788,50 @@ def scrape_ozon_product_via_cdp(
                 # ✅ v0.25: 全量特性（含 Вес/Габариты/Размер）+ 变体 aspects（含颜色）
                 if api_data.get("fullChars"):
                     result["characteristics"] = api_data["fullChars"]
+
+                # v0.85 A7 (feat/competitor-fullattrs-v1): 全表特征懒加载 DOM 兜底。
+                # 取证（2026-09-25）：entrypoint/composer API 已不再下发
+                # webCharacteristics 全表（95 缓存 0 全表，v0.78 起恒空），特征
+                # section 改为前端 IntersectionObserver 懒加载——前台 tab 滚动到
+                # 视口才渲染（前台+滚动实测 7/7 行命中）。API fullChars 为空时：
+                # 点开展开按钮 + 滚动触发 + DOM dl(dt/dd) 解析兜底，非致命。
+                if not result.get("characteristics"):
+                    _js_dom = """
+                        (async () => {
+                          const btns = Array.from(document.querySelectorAll('button, a, span'))
+                            .filter(e => /все характеристики/i.test((e.innerText || "").trim()));
+                          if (btns.length) {
+                            try { btns[0].click(); } catch(e) {}
+                            await new Promise(r => setTimeout(r, 1200));
+                          }
+                          for (let i = 0; i < 10; i++) {
+                            window.scrollBy(0, 2500);
+                            await new Promise(r => setTimeout(r, 350));
+                          }
+                          await new Promise(r => setTimeout(r, 1200));
+                          const rows = [];
+                          document.querySelectorAll('dl').forEach(dl => {
+                            const dts = dl.querySelectorAll('dt');
+                            const dds = dl.querySelectorAll('dd');
+                            const n = Math.min(dts.length, dds.length);
+                            for (let i = 0; i < n; i++) {
+                              const t = (dts[i].innerText || "").trim();
+                              const v = (dds[i].innerText || "").trim().replace(/\\n+/g, ", ");
+                              if (t && v) rows.push({title: t, value: v.slice(0, 200)});
+                            }
+                          });
+                          return JSON.stringify(rows);
+                        })()
+                    """
+                    _dom_raw = _tab_eval(tab, _js_dom, await_promise=True) or "[]"
+                    try:
+                        _dom_rows = _json.loads(_dom_raw)
+                        if isinstance(_dom_rows, list) and _dom_rows:
+                            result["characteristics"] = _dom_rows
+                            logger.info("DOM 兜底提取全表特征: %d 行（懒加载触发后）", len(_dom_rows))
+                    except Exception:
+                        pass
+
                 if api_data.get("aspects"):
                     result["aspects"] = api_data["aspects"]
                 # ✅ v0.19.1 P1: 评分/评论/卖家/提问/跟卖（可选字段，契约兼容）

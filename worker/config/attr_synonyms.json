@@ -150,7 +150,15 @@
       "数量",
       "quantity"
     ],
-    "value_map": {}
+    "value_map": {},
+    "zh_exclude_keywords": [
+      "箱装",
+      "起批",
+      "装箱",
+      "批发",
+      "批量",
+      "包装数量"
+    ]
   },
   "packaging": {
     "zh_keywords": [
