@@ -29,6 +29,10 @@ _ITEMS = [{"attributes": [], "depth": 140, "width": 140, "height": 140}]
 # ── A7c 箱规渗透源头修 ────────────────────────────────────────
 
 def test_box_moq_keys_excluded_from_quantity_group():
+    # 自隔离：同进程先跑的测试（如 v084 fixture）可能把 attr_synonyms 模块级
+    # 缓存指向 mock 的 APP_WORKSPACE_PATH——重置后强制按当前 cwd 重读真配置。
+    import utils.attr_synonyms as _asyn
+    _asyn._CACHE, _asyn._CACHE_KEY = None, None
     syn = load_attr_synonyms()
     assert "箱装" in (syn["quantity"].get("zh_exclude_keywords") or []), "quantity 组缺排除键"
     assert match_attr_name_synonym("每包数量,pcs", ["箱装数量"], syn) is None

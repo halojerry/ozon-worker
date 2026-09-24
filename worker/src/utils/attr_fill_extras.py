@@ -558,7 +558,8 @@ def build_llm_schema_prompt(
     )
     lines = [
         "根据商品资料，为下列 Ozon 商品特征属性给出值。规则：",
-        "1. 自由文本属性(String 且 dict=0)：只填资料能确定的内容；不确定输出 null。",
+        "1. 自由文本属性(String 且 dict=0)：只填资料能确定的内容，不确定输出 null；",
+        "   必须用俄语输出（Ozon 卡片展示语言）——资料/1688 证据是中文时由你翻译。",
         "2. 字典类属性(dict>0)：给出你的最佳判断（中文名称即可，参考「样例」的命名风格）。",
         "   系统会查字典验证，验证不过会自动丢弃、不会上卡，所以不必过度保守；",
         "   但绝不编造资料/图片中完全没有的事实（品牌、认证、精确尺寸除外——图片可见可估）。",
@@ -576,9 +577,41 @@ def build_llm_schema_prompt(
         "待填属性（JSON 数组）:",
         json.dumps(todo, ensure_ascii=False),
         "",
-        "只输出 JSON: {\"fills\": [{\"id\": 数字, \"value\": 值或 null}]}，值可为中文/俄语/数字/布尔。",
+        "只输出 JSON: {\"fills\": [{\"id\": 数字, \"value\": 值或 null}]}；",
+        "值可为中文/俄语/数字/布尔（自由文本属性值一律俄语）。",
     ]
     return "\n".join(lines), todo
+
+
+def _translate_ru(text: str, token: str) -> str:
+    """中文自由文本提案 → 俄语（A5 验证闸兜底，v0.80 gate 实证新增）。
+
+    LLM 属性提案用 1688 中文证据时值本身有效、只是语言错（护手霜 8048
+    「取适量本品涂抹…」被整条剥除的浪费）。链路里标题/描述已有自动翻译
+    先例，属性值同待遇：翻译一次后按非中文规则重验。任何失败/空译文/
+    译文仍含中文 → 返回空串（调用方照剥，宁缺红线不变）。
+    """
+    if not any('\u4e00' <= ch <= '\u9fff' for ch in text):
+        return text.strip()
+    try:
+        from utils.mxou_api import call_mxou_chat_api
+        ans = call_mxou_chat_api(
+            token=str(token or ""),
+            system_prompt="你是电商商品属性翻译。把中文属性值翻译成简洁自然的俄语，只输出译文本身，不加任何解释或引号。",
+            user_prompt=text[:500],
+            model="deepseek-v4-flash-vision-exp",
+            temperature=0.0,
+            max_tokens=512,
+        )
+        out = str(ans or "").strip().strip('"').strip()
+        if not out or len(out) > _LLM_FREE_TEXT_MAX:
+            return ""
+        if any('\u4e00' <= ch <= '\u9fff' for ch in out):
+            return ""
+        return out
+    except Exception as _e:
+        logger.warning("属性值中文翻译失败（剥除处理）: %s", _e)
+        return ""
 
 
 def apply_llm_schema_fill(
@@ -694,8 +727,15 @@ def apply_llm_schema_fill(
                     continue
             else:
                 if any('\u4e00' <= ch <= '\u9fff' for ch in sval):
-                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 自由文本含中文=%s", aid, aname, sval[:30])
-                    continue  # 自由文本必须非中文（Ozon RU 市场）
+                    # v0.80 gate 实证（护手霜 8048 使用方法）：LLM 用 1688 中文证据
+                    # 提案——值本身有效只是语言错。走一次翻译重验（fail-closed：
+                    # 翻译失败/结果仍含中文照剥，宁缺红线不变）。
+                    _ru = _translate_ru(sval, str(getattr(state, "token", "") or ""))
+                    if not _ru:
+                        logger.info("⏭️ schema-LLM 剥除 %s(%s): 自由文本含中文且翻译失败=%s", aid, aname, sval[:30])
+                        continue  # 自由文本必须非中文（Ozon RU 市场）
+                    logger.info("🔁 schema-LLM 中文提案翻译重验 %s(%s): %r → %r", aid, aname, sval[:30], _ru[:40])
+                    sval = _ru
             attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": sval}]})
             existing.add(aid)
             _log_llm(_task, aid, aname, sval, _tenant)

@@ -26,7 +26,7 @@ def test_backfill_parses_and_upserts(monkeypatch):
         captured["endpoint"] = endpoint
         captured["body"] = body
         assert client_id == "4718259"
-        assert api_key == "sk-api-key"
+        assert api_key == os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential")
         return {"items": [{"commissions": {"sales_percent_rfbs": 15.0}}]}
 
     def fake_upsert(description_category_id, source="what_to_sell", session=None, **segments):
@@ -41,7 +41,7 @@ def test_backfill_parses_and_upserts(monkeypatch):
         product_id="123456",
         description_category_id="17028929",
         ozon_client_id="4718259",
-        ozon_api_key="sk-api-key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
         pricing_info={"currency_code": "RUB", "price": 3000},
     ))
 
@@ -71,14 +71,14 @@ def test_backfill_skips_missing_guard_fields(monkeypatch):
         product_id=None,
         description_category_id="17028929",
         ozon_client_id="4718259",
-        ozon_api_key="sk-api-key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
     ))
     # 无 description_category_id
     _backfill_category_commission(_state(
         product_id="123456",
         description_category_id=None,
         ozon_client_id="4718259",
-        ozon_api_key="sk-api-key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
     ))
     # 无凭证（state 无 ozon_client_id/ozon_api_key → 降级跳过）
     _backfill_category_commission(_state(
@@ -99,7 +99,7 @@ def test_backfill_non_fatal_on_api_error(monkeypatch):
         product_id="123456",
         description_category_id="17028929",
         ozon_client_id="4718259",
-        ozon_api_key="sk-api-key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
     ))
 
 
@@ -120,7 +120,7 @@ def test_backfill_uses_neutral_band_when_price_unknown(monkeypatch):
         product_id="123456",
         description_category_id="17028929",
         ozon_client_id="4718259",
-        ozon_api_key="sk-api-key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
         pricing_info={"currency_code": "CNY", "price": 100},
     ))
     assert captured["source"] == "prices_api"

@@ -141,3 +141,28 @@ def test_fill_color_exact_equality_relaxation(monkeypatch):
                                 '{"fills": [{"id": 10096, "value": "прозрачный"}]}', _DRAFT, _state())
     got = out[0]["attributes"][0]["values"][0]
     assert got["dictionary_value_id"] == 61572   # 全等那条越过唯一性（v082 T2 语义）
+
+
+def test_chinese_free_text_translated_then_filled(monkeypatch):
+    """v0.80 gate 实证（护手霜 8048 / 调料罐 4384）：LLM 用 1688 中文证据提案，
+    值有效只是语言错——走一次翻译重验（fail-closed）而非直接剥除。"""
+    import utils.attr_fill_extras as m
+    monkeypatch.setattr(m, "_translate_ru",
+                        lambda text, token: "20 баночек; 34 наклейки", raising=True)
+    todo = [{"id": 4384, "name": "配套", "type": "String", "dict": 0, "collection": False}]
+    out = apply_llm_schema_fill([{"attributes": []}], todo,
+                                '{"fills": [{"id": 4384, "value": "20个罐子；34张贴纸"}]}',
+                                _DRAFT, _state())
+    got = out[0]["attributes"][0]["values"][0]
+    assert got["value"] == "20 баночек; 34 наклейки"
+
+
+def test_chinese_free_text_dropped_when_translation_fails(monkeypatch):
+    """翻译失败/译文仍含中文 → 照剥（宁缺红线不变）。"""
+    import utils.attr_fill_extras as m
+    monkeypatch.setattr(m, "_translate_ru", lambda text, token: "", raising=True)
+    todo = [{"id": 4384, "name": "配套", "type": "String", "dict": 0, "collection": False}]
+    out = apply_llm_schema_fill([{"attributes": []}], todo,
+                                '{"fills": [{"id": 4384, "value": "20个罐子"}]}',
+                                _DRAFT, _state())
+    assert out[0]["attributes"] == []
