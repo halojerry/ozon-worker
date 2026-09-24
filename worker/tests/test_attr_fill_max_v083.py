@@ -195,3 +195,23 @@ def test_pseudo_attr_flows_synonym_chain(monkeypatch):
     assert 21832 in got
     assert got[21832]["values"][0]["dictionary_value_id"] == 4242
     assert got[21832]["values"][0]["value"] == "Пластик"
+
+# ── A4 出口语义闸 ────────────────────────────────────────────
+
+def test_sanitize_numeric_semantics():
+    from utils.attr_fill_extras import sanitize_numeric_semantics
+    items = [{"attributes": [
+        {"id": 22390, "values": [{"value": "2022"}]},      # 年份渗透 → 恒剥
+        {"id": 8513, "values": [{"value": "500"}]},        # 箱规 MOQ → 剥
+        {"id": 11650, "values": [{"value": "500"}]},
+        {"id": 23249, "values": [{"value": "500"}]},
+        {"id": 8513, "values": [{"value": "6"}]},          # 正常零售数 → 留
+        {"id": 4382, "values": [{"value": "110x83x55"}]},  # 尺寸串 → 留
+        {"id": 6788, "values": [{"value": "1500"}]},       # 容量 → 留
+    ]}]
+    out = sanitize_numeric_semantics(items)
+    ids = [a["id"] for a in out[0]["attributes"]]
+    assert 22390 not in ids
+    assert ids.count(8513) == 1            # 500 剥、6 留
+    assert 11650 not in ids and 23249 not in ids
+    assert 4382 in ids and 6788 in ids

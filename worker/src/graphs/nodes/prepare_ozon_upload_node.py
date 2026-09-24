@@ -3830,6 +3830,12 @@ def prepare_ozon_upload_node(
             ozon_payload.get("items", []), attributes_schema, draft, state,
             audit_task_id=_audit_task_id,
         )
+        # v0.83 三期A4: 出口语义闸——剥除语义错配数值（22390 年份渗透 /
+        # 数量类箱规 MOQ>200，gate 卡 6446931479 实证）。
+        from utils.attr_fill_extras import sanitize_numeric_semantics
+        ozon_payload["items"] = sanitize_numeric_semantics(
+            ozon_payload.get("items", []),
+        )
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
 

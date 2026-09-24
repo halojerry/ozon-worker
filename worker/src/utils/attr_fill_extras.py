@@ -15,6 +15,13 @@
      在模板继承之后调用——类目级保守默认（保证/目标受众/性别兜底，
      config/attr_class_defaults.json 白名单 + 字典精确命中才填）
      + 标题数值派生（容量 ml / 每包数量）+ 尺寸串（dims → 尺寸，毫米）。
+  ③ sanitize_numeric_semantics(items)
+     出口语义闸——2026-09-24 gate 实证：1688「箱装数量:500」（批发箱规）被
+     name-heuristic 命中三个「数量」属性、「产品上市时间:2022」（年份）进了
+     「组合成类似的产品」(22390，期望商品 ID 列表)。规则：
+       - 22390 恒禁自动填（任何自动来源的值都是语义错配）；
+       - 8513/11650/23249（每包/原厂包装/统一计量数量）值 >200 剥除
+         （箱规 MOQ 特征；五金大包误伤属已知取舍，见 PLAN §五）。
 
 审计：所有成功填点写 attr_match_log，match_layer ∈
   {title_evidence, class_default, title_numeric, dims_string}。
@@ -404,4 +411,55 @@ def apply_class_defaults_and_numerics(
         return items
     except Exception as _e:
         logger.warning("类目默认/数值派生异常（不影响主流程）: %s", _e)
+        return items
+
+
+# ---------------------------------------------------------------------------
+# ④ 出口语义闸（gate 实证驱动）：剥除语义错配的自动数值
+# ---------------------------------------------------------------------------
+
+# 22390 组合成类似的产品：期望关联商品 ID 列表，自动来源必错（gate 实测被填 2022 年份）
+_BANNED_NUMERIC_ATTR_IDS = {22390}
+# 每包/原厂包装/统一计量数量：>200 视为批发箱规（MOQ）渗透，剥除
+_COUNT_ATTR_MAX = 200
+_COUNT_SEMANTIC_ATTR_IDS = {8513, 11650, 23249}
+
+
+def sanitize_numeric_semantics(items: list) -> list:
+    """剥除语义错配的自动数值属性（非致命，纯出口清洗）。
+
+    gate 实证（2026-09-24，卡 6446931479）：1688「箱装数量:500」（批发箱规）
+    被 name-heuristic 命中 8513/11650/23249；「产品上市时间:2022」进 22390。
+    """
+    try:
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            attrs = item.get("attributes")
+            if not attrs:
+                continue
+            kept, dropped = [], []
+            for a in attrs:
+                if not isinstance(a, dict):
+                    kept.append(a)
+                    continue
+                aid = int(a.get("id") or 0)
+                if aid in _BANNED_NUMERIC_ATTR_IDS:
+                    dropped.append((aid, "禁填属性(期望商品ID列表)"))
+                    continue
+                if aid in _COUNT_SEMANTIC_ATTR_IDS:
+                    try:
+                        _v = (a.get("values") or [{}])[0].get("value")
+                        if _v is not None and float(str(_v)) > _COUNT_ATTR_MAX:
+                            dropped.append((aid, f"箱规MOQ疑似({{{_v}}})"))
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                kept.append(a)
+            if dropped:
+                item["attributes"] = kept
+                logger.warning("✂️ 数值语义闸剥除: %s", dropped)
+        return items
+    except Exception as _e:
+        logger.warning("数值语义闸异常（不影响主流程）: %s", _e)
         return items
