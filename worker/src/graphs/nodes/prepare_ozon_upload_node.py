@@ -1468,7 +1468,28 @@ def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = "
                                 dict_id = res.dictionary_value_id
                                 final_val = res.value or attr_val
                             else:
-                                continue  # 多候选/无命中 → 不填
+                                # feat/attribute-fill-en-v1 T2（B2 10096 实证）：颜色类
+                                # 大字典同义词变体多（белый/белоснежный/белый с узором
+                                # …）→ unique_or_none 多候选恒拒 → vision 色词静默丢弃
+                                # → completed 卡缺颜色。放宽：搜索词与候选**全等**的那条
+                                # 即答案（精确等值越过唯一性），仅限颜色类属性；
+                                # 其余属性保持严格（多候选不填宁缺红线不变）。
+                                _is_color_attr = (aid in (10096, 10097)
+                                                  or "цвет" in aname or "颜色" in aname)
+                                if _is_color_attr:
+                                    _eq = next((h for h in hits if str(
+                                        (h or {}).get("value") or "").strip().lower()
+                                        == attr_val.strip().lower()), None)
+                                    if _eq and int(_eq.get("id") or 0) > 0:
+                                        dict_id = int(_eq["id"])
+                                        final_val = str(_eq.get("value") or attr_val)
+                                        logger.info(
+                                            "✅ vision 颜色精确等值命中: %s(%s)=%s dict_id=%s"
+                                            "（多候选中全等优先）", aid, aname, final_val, dict_id)
+                                    else:
+                                        continue
+                                else:
+                                    continue  # 多候选/无命中 → 不填
                     except Exception:
                         continue
 
@@ -1486,6 +1507,134 @@ def _infer_attrs_from_vision(items, schema, draft, state, audit_task_id: str = "
             logger.debug("vision 属性推断失败: %s", e)
 
     return items
+
+
+# feat/attribute-fill-en-v1 T3：模板继承不抄的商品个体值属性（错填风险 > 填满收益）
+_TEMPLATE_SKIP_ATTR_IDS = {
+    9048,   # 型号名称（防并卡 hash，商品个体值）
+    85, 5076,  # 品牌/服装品牌（恒 Нет бренда 走必填链）
+    10096, 10097,  # 颜色/营销色（走 T2 本商品链：1688/vision，模板色≠本商品色）
+    4389,   # 产地（恒 Китай）
+    4224, 4225,  # 图案/花纹（视觉个体值）
+    8962,   # 件数
+    22232,  # HS 编码（合规字段恒宁缺）
+    9379,   # 海关编码同族
+    9024,   # 供应商货号（商品个体值——gate 实证单2 抄了单1 的值属错填）
+}
+
+
+def _inherit_attrs_from_template(items, schema, state, audit_task_id: str = ""):
+    """feat/attribute-fill-en-v1 T3：同叶子自家 approved 卡属性模板继承。
+
+    填满策略证据链末端：本商品证据（1688/竞品）> vision 推断 > **模板继承**。
+    数据源：listing_result_log 同 (dc,tp) completed 的自家 ozon_product_id（cap 3）
+    → /v4/product/info/attributes 反查已过审属性（含 dictionary_value_id，同叶子
+    同字典 id 天然兼容）→ 仅补 items[0] 仍缺失的 schema 属性。
+
+    红线：个体值属性不抄（_TEMPLATE_SKIP_ATTR_IDS）；仅补 schema 内属性；全链
+    静默（无模板/反查失败/异常 → 原样返回绝不阻断）。
+    """
+    try:
+        dc = str(getattr(state, "description_category_id", "") or "")
+        tp = str(getattr(state, "type_id", "") or "")
+        if not dc or not tp:
+            return items
+        schema_ids = {int(a.get("id") or 0) for a in (schema or [])
+                      if isinstance(a, dict) and a.get("id")}
+        if not schema_ids:
+            return items
+        item0 = next((it for it in items if isinstance(it, dict)), None)
+        if not item0:
+            return items
+        existing = {int(a.get("id", 0)) for a in (item0.get("attributes") or [])
+                    if isinstance(a, dict)}
+
+        # ① 模板源：同 (dc,tp) 自家 completed 卡（最近 3 张）
+        from storage.database.db import get_session
+        from sqlalchemy import text as _sql_text
+        with get_session() as _s:
+            rows = _s.execute(_sql_text(
+                "SELECT ozon_product_id FROM listing_result_log "
+                "WHERE description_category_id = CAST(:dc AS bigint) "
+                "  AND type_id = CAST(:tp AS bigint) "
+                "  AND final_status IN ('approved', 'completed') "
+                "  AND ozon_product_id IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 3"
+            ), {"dc": dc, "tp": tp}).fetchall()
+        pids = [int(r[0]) for r in (rows or []) if r and r[0]]
+        if not pids:
+            return items
+
+        # ② /v4 反查已过审属性（首张命中即用）
+        from utils.ozon_client import ozon_post
+        template_attrs = []
+        for _pid in pids:
+            try:
+                _r = ozon_post(
+                    str(getattr(state, "ozon_client_id", "") or ""),
+                    str(getattr(state, "ozon_api_key", "") or ""),
+                    "/v4/product/info/attributes",
+                    {"filter": {"product_id": [str(_pid)], "visibility": "ALL"},
+                     "limit": 10},
+                    timeout=15,
+                )
+                _items = (_r.get("result") or {}).get("items") \
+                    if isinstance(_r.get("result"), dict) else _r.get("result")
+                for _it in (_items or []):
+                    if int((_it or {}).get("id") or 0) == _pid:
+                        template_attrs = [a for a in (_it.get("attributes") or [])
+                                          if isinstance(a, dict)]
+                        break
+                if template_attrs:
+                    break
+            except Exception:
+                continue
+        if not template_attrs:
+            return items
+
+        # ③ 白名单合并：只补缺失的 schema 属性，个体值不抄
+        from utils.attr_match_log import log_attr_match
+        attrs = item0.setdefault("attributes", [])
+        _tenant = str(getattr(state, "user_id", "") or "")
+        _task = str(audit_task_id or getattr(state, "task_id", "") or "")
+        filled = []
+        for ta in template_attrs:
+            aid = int(ta.get("id") or 0)
+            if aid <= 0 or aid in existing or aid in _TEMPLATE_SKIP_ATTR_IDS:
+                continue
+            if aid not in schema_ids:
+                continue  # 模板来自旧 schema，当前类目已无此属性
+            vals = [v for v in (ta.get("values") or []) if isinstance(v, dict)]
+            if not vals or not any(str(v.get("value") or "").strip() for v in vals):
+                continue
+            if any('\u4e00' <= ch <= '\u9fff' for v in vals
+                   for ch in str(v.get("value") or "")):
+                continue  # 模板值含中文（脏数据防御）
+            attrs.append({
+                "id": aid,
+                "values": [{"dictionary_value_id": int(v.get("dictionary_value_id") or 0),
+                            "value": str(v.get("value") or "")} for v in vals],
+            })
+            existing.add(aid)
+            filled.append((aid, str(vals[0].get("value") or "")[:24]))
+        if filled:
+            logger.info("✅ 模板继承补缺 %d 个属性（同叶子自家 approved 卡 %s）: %s",
+                        len(filled), pids[0], filled[:8])
+            try:
+                for aid, _v in filled:
+                    log_attr_match(
+                        task_id=_task, attr_id=aid, attr_name="",
+                        source_value=f"template:{pids[0]}",
+                        status="filled", match_layer="template_inherit",
+                        dictionary_value_id=0, confidence=0.6,
+                        should_fill=True, tenant_id=_tenant,
+                    )
+            except Exception:
+                pass
+        return items
+    except Exception as e:
+        logger.debug("模板属性继承失败（静默）: %s", e)
+        return items
 
 
 def _append_spec_table(description: str, attrs, weight_g=0, dimensions=None, schema=None) -> str:
@@ -3662,6 +3811,12 @@ def prepare_ozon_upload_node(
         # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
         ozon_payload["items"] = _infer_attrs_from_vision(
             ozon_payload.get("items", []), attributes_schema, draft, state,
+            audit_task_id=_audit_task_id,
+        )
+        # feat/attribute-fill-en-v1 T3: 同叶子自家 approved 卡属性模板继承
+        # （填满证据链末端：本商品证据 > vision > 模板；个体值不抄，全程静默）
+        ozon_payload["items"] = _inherit_attrs_from_template(
+            ozon_payload.get("items", []), attributes_schema, state,
             audit_task_id=_audit_task_id,
         )
     except Exception as _e:

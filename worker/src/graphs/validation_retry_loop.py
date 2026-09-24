@@ -570,7 +570,9 @@ def _search_dictionary_values_chain(
             continue
         primary = lang_route(str(term))
         chain = (primary, "RU") if primary == "ZH_HANS" else (primary, "ZH_HANS")
-        for lang in (*chain, "EN"):
+        # feat/attribute-fill-en-v1: lang_route 新增 EN primary——尾链 EN 可能与
+        # primary 重复，dict.fromkeys 保序去重省一轮空搜索
+        for lang in dict.fromkeys((*chain, "EN")):
             result = searcher(
                 ozon_client_id, ozon_api_key,
                 attribute_id, category_id, type_id,
