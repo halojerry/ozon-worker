@@ -3845,7 +3845,8 @@ def prepare_ozon_upload_node(
             try:
                 from utils.attr_fill_extras import build_llm_schema_prompt, apply_llm_schema_fill
                 _llm_prompt, _llm_todo = build_llm_schema_prompt(
-                    ozon_payload.get("items", []), attributes_schema, draft)
+                    ozon_payload.get("items", []), attributes_schema, draft,
+                    dict_samples=dict(getattr(state, "dictionary_values", None) or {}))
                 if _llm_prompt:
                     from utils.mxou_api import call_mxou_chat_api
                     _llm_ans = call_mxou_chat_api(

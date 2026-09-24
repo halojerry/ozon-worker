@@ -498,16 +498,21 @@ _LLM_FREE_TEXT_MAX = 120
 _LLM_NUMERIC_MAX = 100_000
 
 
-def build_llm_schema_prompt(items: list, schema: list, draft: dict) -> tuple[Optional[str], list[dict]]:
+def build_llm_schema_prompt(
+    items: list, schema: list, draft: dict, dict_samples: Optional[dict] = None,
+) -> tuple[Optional[str], list[dict]]:
     """构造 schema 驱动 prompt。返回 (prompt|None, 待填属性列表)。
 
     待填 = 缓存 schema 中未填、非禁填、非纯噪音的属性（cap 15），
     携带中文名+描述+类型+字典标记——LLM 由此「知道要填什么」。
+    dict_samples: state.dictionary_values 缓存（attr_id → [{id,value},…]），
+    为字典属性附最多 4 个样例值帮 LLM 对齐命名。
     """
     item0 = next((it for it in items or [] if isinstance(it, dict)), None)
     if item0 is None:
         return None, []
     existing = {int(a.get("id") or 0) for a in (item0.get("attributes") or []) if isinstance(a, dict)}
+    samples = dict(dict_samples or {})
     todo = []
     for attr in schema or []:
         if not isinstance(attr, dict):
@@ -519,14 +524,19 @@ def build_llm_schema_prompt(items: list, schema: list, draft: dict) -> tuple[Opt
         # 纯噪音（臭氧/PDF 同族名已 ban ID 兜底；此处按名再滤一次尺寸重量类）
         if any(k in aname for k in ("臭氧", "视频", "PDF", "JSON", "重量", "отзыв", "видео")):
             continue
-        todo.append({
+        entry = {
             "id": aid,
             "name": aname,
             "desc": str(attr.get("description") or "")[:80],
             "type": str(attr.get("type") or "String"),
             "dict": int(attr.get("dictionary_id") or 0),
             "collection": bool(attr.get("is_collection")),
-        })
+        }
+        _sv = samples.get(str(aid)) or []
+        if _sv and entry["dict"] > 0:
+            entry["样例"] = [str(v.get("value") or "") for v in _sv[:4]
+                             if str(v.get("value") or "").strip()]
+        todo.append(entry)
         if len(todo) >= _LLM_FILL_MAX_ATTRS:
             break
     if not todo:
@@ -539,11 +549,13 @@ def build_llm_schema_prompt(items: list, schema: list, draft: dict) -> tuple[Opt
     )
     lines = [
         "根据商品资料，为下列 Ozon 商品特征属性给出值。规则：",
-        "1. 只填能从资料确定或有把握的属性；不确定就输出 null。",
-        "2. 字典类属性(dict>0)给出中文或俄语名称即可，系统会查字典验证。",
+        "1. 自由文本属性(String 且 dict=0)：只填资料能确定的内容；不确定输出 null。",
+        "2. 字典类属性(dict>0)：给出你的最佳判断（中文名称即可，参考「样例」的命名风格）。",
+        "   系统会查字典验证，验证不过会自动丢弃、不会上卡，所以不必过度保守；",
+        "   但绝不编造资料/图片中完全没有的事实（品牌、认证、精确尺寸除外——图片可见可估）。",
         "3. 类型为 Boolean 的属性只输出 true/false（仅当资料/图片能确认）。",
         "4. 数值属性输出纯数字（不带单位）。",
-        "5. 绝不编造：品牌/认证/专利/成分精确值等资料里没有的事实。",
+        "5. 品牌名称一律不填（资料视为无品牌）。",
         "",
         f"商品标题: {str(t.get('title') or '')[:120]}",
         f"商品类目: {str(t.get('category_path') or '')[:60]}",
@@ -551,10 +563,7 @@ def build_llm_schema_prompt(items: list, schema: list, draft: dict) -> tuple[Opt
         f"尺寸mm: {item0.get('depth','')}x{item0.get('width','')}x{item0.get('height','')}",
         "",
         "待填属性（JSON 数组）:",
-        json.dumps(
-            [{"id": a["id"], "name": a["name"], "desc": a["desc"],
-              "type": a["type"], "dict": a["dict"]} for a in todo],
-            ensure_ascii=False),
+        json.dumps(todo, ensure_ascii=False),
         "",
         "只输出 JSON: {\"fills\": [{\"id\": 数字, \"value\": 值或 null}]}，值可为中文/俄语/数字/布尔。",
     ]
@@ -601,11 +610,14 @@ def apply_llm_schema_fill(
             try:
                 aid = int(p.get("id") or 0)
             except (TypeError, ValueError):
+                logger.info("⏭️ schema-LLM 剥除: 非法 id=%r", p.get("id"))
                 continue
             val = p.get("value")
-            if aid <= 0 or aid in existing or aid in _LLM_FILL_BANNED_ATTR_IDS or aid not in todo_by_id:
-                continue
             if val is None:
+                logger.info("⏭️ schema-LLM 剥除 %s: LLM 自认不确定(null)", aid)
+                continue
+            if aid <= 0 or aid in existing or aid in _LLM_FILL_BANNED_ATTR_IDS or aid not in todo_by_id:
+                logger.info("⏭️ schema-LLM 剥除 %s: 已填/禁填/不在待填单", aid)
                 continue
             meta = todo_by_id[aid]
             aname = meta["name"]
@@ -617,10 +629,13 @@ def apply_llm_schema_fill(
                     attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": bv}]})
                     existing.add(aid)
                     _log_llm(_task, aid, aname, bv, _tenant)
+                else:
+                    logger.info("⏭️ schema-LLM 剥除 %s(%s): Boolean 非法值=%r", aid, aname, val)
                 continue
 
             sval = str(val).strip()
             if not sval or len(sval) > _LLM_FREE_TEXT_MAX:
+                logger.info("⏭️ schema-LLM 剥除 %s(%s): 空/超长(%s)", aid, aname, len(sval))
                 continue
 
             if meta.get("dict", 0) > 0:
@@ -630,6 +645,7 @@ def apply_llm_schema_fill(
                 except Exception:
                     hits = []
                 if not hits:
+                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 字典无命中 值=%s", aid, aname, sval[:30])
                     continue
                 res = unique_or_none(aid, aname, hits)
                 dict_id, final_val = 0, ""
@@ -641,6 +657,8 @@ def apply_llm_schema_fill(
                     _eq = next((h for h in hits if str((h or {}).get("value") or "").strip().lower()
                                 == sval.lower()), None) if _is_color else None
                     if not (_eq and int(_eq.get("id") or 0) > 0):
+                        logger.info("⏭️ schema-LLM 剥除 %s(%s): 字典 %s 候选无唯一/全等 值=%s",
+                                    aid, aname, len(hits), sval[:30])
                         continue  # 多候选/无命中 → 剥
                     dict_id, final_val = int(_eq["id"]), str(_eq.get("value") or sval)
                 if any('\u4e00' <= ch <= '\u9fff' for ch in final_val):
@@ -656,13 +674,16 @@ def apply_llm_schema_fill(
             if re.fullmatch(r"-?\d+(?:\.\d+)?", sval):
                 try:
                     if not (0 < abs(float(sval)) <= _LLM_NUMERIC_MAX):
+                        logger.info("⏭️ schema-LLM 剥除 %s(%s): 数值越界=%s", aid, aname, sval)
                         continue
                 except ValueError:
                     continue
                 if aid in {8513, 23249} and float(sval) > 200:  # 数量类语义闸前移
+                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 数量类>200=%s", aid, aname, sval)
                     continue
             else:
                 if any('\u4e00' <= ch <= '\u9fff' for ch in sval):
+                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 自由文本含中文=%s", aid, aname, sval[:30])
                     continue  # 自由文本必须非中文（Ozon RU 市场）
             attrs.append({"id": aid, "values": [{"dictionary_value_id": 0, "value": sval}]})
             existing.add(aid)
