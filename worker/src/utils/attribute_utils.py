@@ -188,8 +188,14 @@ def match_attr_name_synonym(ozon_name, product_attr_names, synonyms) -> str | No
         if not any(kw in ozon_lower for kw in ozon_kws):
             continue
         zh_kws = [str(k).lower() for k in rule.get("zh_keywords") or []]
+        # feat/competitor-fullattrs-v1 (A7c): 箱规渗透源头修——1688「箱装数量/
+        # 起批量」类批发字段命中数量组后把 MOQ 箱规当零售每包数写卡（gate 实证
+        # 8513/11650/23249=500/48）。zh_exclude_keywords 命中即跳过该 1688 键。
+        zh_excl = [str(k).lower() for k in rule.get("zh_exclude_keywords") or []]
         for pa_name in product_attr_names:
             pa_lower = str(pa_name).strip().lower()
+            if zh_excl and any(x in pa_lower for x in zh_excl):
+                continue
             if any(kw in pa_lower for kw in zh_kws):
                 return pa_name
     return None

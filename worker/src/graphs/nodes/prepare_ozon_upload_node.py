@@ -1136,6 +1136,11 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                 if not any(kw in aname for kw in rule.get("ozon_name_keywords", [])):
                     continue
                 for zh, zh_val in draft_attrs.items():
+                    # A7c 箱规渗透源头修：箱装/起批类批发键不进数量组（同
+                    # match_attr_name_synonym 的 zh_exclude_keywords 语义）
+                    _zh_excl = rule.get("zh_exclude_keywords") or []
+                    if _zh_excl and any(x in zh for x in _zh_excl):
+                        continue
                     if not any(kw in zh for kw in rule.get("zh_keywords", [])):
                         continue
                     raw = str(zh_val or "")
@@ -1264,6 +1269,13 @@ def _fill_optional_dict_attrs(items, schema, draft, state, audit_task_id: str = 
                     it for it in draft_attrs.items()
                     if any(ch in _aname_cn for ch in str(it[0])
                            if '\u4e00' <= ch <= '\u9fff')
+                ]
+                # A7c 箱规渗透源头修（旁路同款语义）：箱装/起批类批发键共享
+                # 「数量」字符照样触发旁路（gate 实证 8513=500 渗透路径）——排除。
+                _shared = [
+                    it for it in _shared
+                    if not any(x in str(it[0]) for x in
+                               (synonyms.get("quantity", {}).get("zh_exclude_keywords") or []))
                 ]
                 # P2 v0.65.1: 旁路审计——记录落空原因（0 候选/多候选放弃），
                 # 供 attr_match_log 产出「真实缺口榜」；should_fill 才打点防系统属性噪音。
