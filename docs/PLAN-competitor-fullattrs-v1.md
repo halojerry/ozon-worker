@@ -70,3 +70,42 @@ skill 全量（含 scraper 改动）。
   不阻塞主链（与「富化绝不抛异常阻断」纪律一致）。
 - 竞品证据只进 prompt（A5），不直通 payload——验证闸是唯一出口，无绕过路径。
 - skill 侧 ozon_scraper.py 改动：发版需走 compile.py（Python 3.12 ABI）流程。
+
+## 6. Gate 实录（2026-09-25，本地 Docker + 测试店 5381204）
+
+### 6.1 首跑失败 → 根因二段取证（首版 A7a 缺前台化）
+
+- 首跑 follow（洗衣机清洁片 2790719032，同 URL）→ **DOM 兜底零日志**，缓存 chars=0、
+  attrs=5 键短表 → 任务 failed「缺少必填属性」。
+- 根因：A7a 兜底跑在 **v0.78 静默化复用的后台 tab** 上——`scrollBy` 照滚，但后台 tab
+  渲染步骤整体跳过、IntersectionObserver 回调永不派发（取证节 1.2 的「后台 0 行」
+  正是同一机制，首版代码只修了「滚动+解析」没修「tab 必须前台」）。
+- 次坑：二跑 `from_cache=true`——`follow/` 信封缓存 TTL 21600s，重测必须同时清
+  `ozon_cdp/` **和** `follow/` 两命名空间。
+
+### 6.2 修复：CdpTab.bring_to_front() + 兜底前激活
+
+- `cdp_client.py` 新增 `bring_to_front()`（Page.bringToFront，失败静默返回 False）。
+- `ozon_scraper.py` DOM 兜底块执行前 `tab.bring_to_front()` + 0.4s 生效等待。
+  trade-off：抓取期该 tab 短暂前台 ~6s（滑块重试路径已有可见 tab 先例）。
+
+### 6.3 重跑实证（清双缓存后）
+
+| 项 | 首跑 | 重跑 |
+|---|---|---|
+| DOM 兜底日志 | 无 | `DOM 兜底提取全表特征: 13 行（懒加载触发后）` |
+| ozon_cdp 缓存 characteristics | 0 行 | **13 行**（Application area / Features of use / Units in one product / Package / Country of manufacture 等，短表 5 键全无） |
+| 信封 ozon_attributes | 5 键 | **13 键** |
+| 任务终态 | failed 缺必填属性 | **completed**，product_id=5837014560（import-by-sku 复制卡链，29 属性上卡，attributes/update 200） |
+
+**结论**：同 URL 同竞品，5 键短表 → failed；13 键全表 → completed。全表特征不仅抬
+fill 率，直接补上必填缺口救单。
+
+### 6.4 诚实边界
+
+- 本单为 follow hand 模式（类目解析失败自动降级 import-by-sku 复制竞品整卡），
+  **A5 竞品证据 prompt（A7b）在该链路不触发**——复制卡链拿到的是竞品整卡本体
+  （29 属性），强于 prompt 证据。A7b 生效面 = CREATE 新卡路径，待后续 discover/
+  graph 单实机观察。
+- skill 全量回归 1646 passed（首跑时 79 failed 为实机 follow 进程与 pytest 并行
+  互踩串行闸/缓存的假阴性，单跑即绿，无并行后全量复跑全绿）。

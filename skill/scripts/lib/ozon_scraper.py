@@ -795,7 +795,16 @@ def scrape_ozon_product_via_cdp(
                 # section 改为前端 IntersectionObserver 懒加载——前台 tab 滚动到
                 # 视口才渲染（前台+滚动实测 7/7 行命中）。API fullChars 为空时：
                 # 点开展开按钮 + 滚动触发 + DOM dl(dt/dd) 解析兜底，非致命。
+                # ⚠️ 首版 gate 失败根因：v0.78 静默化复用的后台 tab 滚动 0 行
+                # （IO 回调不派发）——DOM 兜底前必须 bring_to_front 激活 tab
+                # （短暂前台 ~6s，滑块重试路径已有可见 tab 先例）。
                 if not result.get("characteristics"):
+                    try:
+                        tab.bring_to_front()
+                        import time as _tf
+                        _tf.sleep(0.4)  # 前台化生效后再滚动，IO 才开始派发
+                    except Exception:
+                        pass
                     _js_dom = """
                         (async () => {
                           const btns = Array.from(document.querySelectorAll('button, a, span'))

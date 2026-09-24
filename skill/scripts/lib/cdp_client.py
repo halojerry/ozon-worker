@@ -232,6 +232,24 @@ class CdpTab:
         except Exception as exc:
             logger.warning("set_bypass_csp 失败（忽略）: %s", exc)
 
+    def bring_to_front(self, timeout: float = 5) -> bool:
+        """``Page.bringToFront``——把本 tab 激活到浏览器前台。
+
+        后台 tab 的渲染步骤被 Chrome 整体节流/跳过，IntersectionObserver
+        回调永不派发——页面懒加载区块（如 Ozon 商品页全表特征 section）
+        永不渲染，DOM 直读恒空（v0.78 静默化后台化 tab 的副作用，2026-09-25
+        实机取证：后台 tab 滚动 0 行 vs 前台滚动 7/7 行）。需要触发懒加载
+        的调用方在滚动/读取前先调本方法；短暂前台是懒加载的唯一可靠途径。
+        返回是否成功（失败静默，调用方继续——老 Chrome/无头模式无此命令）。
+        """
+        try:
+            msg_id = self._send("Page.bringToFront")
+            self._recv_until_id(msg_id, timeout=timeout)
+            return True
+        except Exception as exc:
+            logger.warning("bring_to_front 失败（忽略）: %s", exc)
+            return False
+
     def set_extra_headers(self, headers: dict[str, str]) -> None:
         """Set extra HTTP headers for all subsequent requests.
 
