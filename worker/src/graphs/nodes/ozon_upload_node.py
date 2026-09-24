@@ -313,6 +313,16 @@ def ozon_upload_node(
                 failed_stage="ozon_upload",
             )
 
+        # feat/follow-copy-attrs-v1 (A6): import 前防洗卡（公共出口函数，与 retry
+        # 子图 UPDATE/CREATE 两出口统一）——/v3/product/import 是「完全更新」语义，
+        # 且 Ozon 平台侧 offer_id 唯一键会把同 offer 的 CREATE 变成对既有卡的更新；
+        # payload 之外的现卡属性会被全量清掉。读回现卡合并（未提及=维持现状）。非致命。
+        try:
+            from graphs.nodes.prepare_ozon_upload_node import preserve_existing_card_attributes
+            items = preserve_existing_card_attributes(ozon_client_id, ozon_api_key, items)
+        except Exception as _a6_e:
+            logger.warning("A6 import 前防洗卡异常（不阻断上传）: %s", _a6_e)
+
         # F-F01（2026-09-09 审计）：收敛 ozon_post——此前 session.post 直发无
         # 429/5xx 重试、无全局限流，Ozon 一次限流即整任务失败再走整图重试。
         # 调用日志由 ozon_post 内部记录；OzonError 带类型化 status_code/payload。

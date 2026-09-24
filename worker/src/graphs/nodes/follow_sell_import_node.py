@@ -69,6 +69,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # fix/category-bridge-v1: import-by-sku 复制卡的真实 dc/tp（复制完成后反查回填；
     # 见 import 完成点注释——UPDATE 项 required dc/tp，此值是权威来源）
     ibs_dc, ibs_tp = "", ""
+    ibs_attrs: list[dict] = []  # A6: 复制卡原带特征表（/v4 反查，prepare 合并）
 
     # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
     # 旧 v0.22 曾改 import-by-sku 用 follow_{id}，但 prepare 层 upload 一直用裸 {id}，
@@ -254,6 +255,42 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                                             _ibs_dc, _ibs_tp)
                                 except Exception as _ibs_err:
                                     logger.warning("⚠️ 复制卡类目反查失败（不阻断）: %s", _ibs_err)
+                                # feat/follow-copy-attrs-v1 (A6): 反查复制卡原带特征表。
+                                # 官方复制把竞品整卡内容（含已过审特征）带到新卡，但后续
+                                # /v3/product/import 是「完全更新」语义——会把未包含在我们
+                                # payload 里的特征全部洗掉。此处先 /v4 读回原表存 state，
+                                # prepare 合并回 payload（我们已填的属性我方权威，其余
+                                # 竞品值照抄）。非致命：读不到只丢填满率，不阻断主流程。
+                                try:
+                                    _ibs_v4 = ozon_post(
+                                        state.ozon_client_id, state.ozon_api_key,
+                                        "/v4/product/info/attributes",
+                                        {"filter": {"product_id": [str(_pid)],
+                                                    "visibility": "ALL"},
+                                         "limit": 10},
+                                        timeout=15,
+                                    )
+                                    _ibs_v4_items = (_ibs_v4.get("result") or {}).get("items") \
+                                        if isinstance(_ibs_v4.get("result"), dict) \
+                                        else _ibs_v4.get("result")
+                                    for _ibs_it in (_ibs_v4_items or []):
+                                        if int((_ibs_it or {}).get("id") or 0) != int(_pid):
+                                            continue
+                                        _copied = [
+                                            {"complex_id": int(a.get("complex_id") or 0),
+                                             "id": int(a.get("id") or 0),
+                                             "values": a.get("values") or []}
+                                            for a in (_ibs_it.get("attributes") or [])
+                                            if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                                        ]
+                                        if _copied:
+                                            ibs_attrs = _copied
+                                            logger.info(
+                                                "✅ 复制卡原带特征表读回: %d 个属性"
+                                                "（prepare 合并防 import 洗卡）", len(_copied))
+                                        break
+                                except Exception as _cp_err:
+                                    logger.warning("⚠️ 复制卡特征表读回失败（不阻断）: %s", _cp_err)
                                 break
                         if product_id:
                             break
@@ -442,6 +479,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         "item_id": item_id,
         "final_attributes": final_attrs,
         "attributes_schema": attrs_schema,
+        # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表透传（channel 纪律：
+        # FollowSellImportOutput/GlobalState/PrepareOzonUploadInput 三处已声明）
+        "follow_copied_attributes": ibs_attrs,
         # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/
         # follow_type/competitor_ref_images），供 prepare 跟卖判定与生图参考分线
         "extensions": extensions,
