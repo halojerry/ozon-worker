@@ -1,6 +1,57 @@
 # Changelog
 
-## [开发中] — n8n 前代残留清理（chore/purge-n8n-legacy-v1，方案 `docs/PLAN-n8n-legacy-purge-v1.md`）
+## [0.80.0] — 2026-09-25（特征属性填满战役 A1-A7 七期同车 + 两 chore 批）
+
+> dev 自 v0.79.0 共 30 commits。主体 = **特征属性填满战役七期**（PR #65-#70 +
+> skill hotfix 325c0465，方案 `docs/PLAN-attr-fill-max-v1.md` /
+> `docs/PLAN-follow-copy-attrs-v1.md` / `docs/PLAN-competitor-fullattrs-v1.md`）；
+> 同车两 chore 批（n8n 前代清理 + extensions.stock 退役，见下方附节）。
+
+### 特征属性填满战役（A1-A7）
+
+- **A1-A4 三期（PR #67）**：标题证据词（材料/颜色/形状/性别词表 → 伪 draft.attributes）+
+  类目保守默认（attr_class_defaults.json 白名单：保证候选「Без гарантии」字典真值、
+  目标受众、性别 skip_if_title_has）+ 数值派生（容量/个数中文数字正则，六件套→6）+
+  出口语义闸 `sanitize_numeric_semantics`（8513/11650/23249 数量语义 cap 200、
+  22390 年份禁填）——有效口径基线 ~50% → 57%。
+- **A5 schema 驱动 LLM 兜底（PR #68）**：`build_llm_schema_prompt` 把 attribute_cache
+  待填属性清单（中文名/描述/类型/字典标记/样例值 cap 15）进 prompt——「缓存了 LLM
+  就知道怎么填」实机验证成立；提案过确定性验证闸才落卡（字典唯一精确命中/Boolean
+  直通/数值 sanity/数量 >200 前移剥除/禁填清单/kill-switch `LLM_SCHEMA_FILL=0`/
+  每条 drop 带原因日志）——57% → 66%。
+- **A6 复制卡特征保全（PR #69）**：官方契约取证（/v3/product/import 全量替换语义 +
+  平台 offer_id upsert）——洗卡发生在全部三个 import 出口。`/v4/product/info/
+  attributes` 只回自家卡，竞品原表唯一读回通道是复制卡本身：follow_sell_import
+  import-by-sku 确认点读回 + `preserve_existing_card_attributes` 公共函数统一三
+  POST 出口（upload/retry update/retry full-import-create），已填不覆盖、缺口照抄
+  （含 dictionary_value_id）。实机：喷雾器第一手完整链 **83%**（对照被洗后 41%）。
+- **A7 竞品全表特征（PR #70 + hotfix）**：取证三段断链——95 缓存 0 全表；entrypoint/
+  composer API 家族均只下发短表；v0.78 静默化后台 tab 的 IntersectionObserver 永不
+  触发（懒加载根因）。三件修复：①skill `ozon_scraper` DOM 兜底（点「все
+  характеристики」+ 滚动×10 + dl dt/dd 解析）；②**hotfix 325c0465**：兜底前
+  `CdpTab.bring_to_front()` 激活 tab（后台 tab 渲染步骤整体跳过，滚动无效——
+  gate 首跑实锤）；③箱规渗透源头双封（quantity 组 zh_exclude_keywords 组匹配 +
+  v0.64 中文直搜旁路同步过滤）+ A5 prompt 竞品证据（draft.ozon_attributes 前 30 条）。
+  实机 gate：同 URL 清洁片 5 键短表 failed「缺必填属性」→ 13 键全表 **completed**
+  （product_id=5837014560）。
+- **EN 腿（PR #65）**：EN 信封属性填满（vision 颜色 dict_id + 模板继承三箭），9024
+  黑名单口径确立。
+- **实机 gate**（2026-09-24/25 本地 Docker + 测试店 5381204）：清洁片 follow 同 URL
+  5 键短表 failed「缺必填」→ 13 键全表 completed（5837014560，卡图 4/4 pHash=0 全
+  AI 图实锤）；新品调料罐两单有效口径 70% → **77%**（17/22，必填全齐；发版前 hotfix
+  9c884fca——A5 自由文本俄语约束+中文提案翻译重验，4384 配套属性被剥→俄语落卡）；
+  零假 completed。⚠️ 发版前批三次实机曾误打主店铺 4718259（stores.json default=
+  主店铺，follow 未显式 --store）——**gate 单必须显式 `--store 测试店铺5381204`**。
+- **升级注意**：skill 侧改动 ozon_scraper.py / cdp_client.py / attr_fill_extras.py
+  依赖——发版走 compile.py（Python 3.12 ABI）；worker 新测试
+  test_attr_fill_max_v083(13)/test_llm_schema_fill_v084(8)/test_follow_copy_attrs_
+  v085(8)/test_competitor_fullattrs_v086(4)。
+
+### 测试基线
+
+- worker 3136 / skill 1646 / pounding-mcp 108 全绿（CI 13 job 口径）。
+
+## [0.80.0 附] — n8n 前代残留清理（chore/purge-n8n-legacy-v1，方案 `docs/PLAN-n8n-legacy-purge-v1.md`）
 
 > 动因：2026-09-24 生产双事故取证（1688 原图上卡 + 库存自动 100）定案为前代
 > `pounding-ozon-hybrid` 云端（n8n/windmill 工作流，跑在 workbuddy 实例，持店铺 key
@@ -22,7 +73,7 @@
 ### 测试
 - skill 全量 **1641 passed**（v0.79 后基线，零回归）；`ruff check scripts/ --select F` 严格口径（含 F821）零错。worker 源码零改动（仅 assets 挪动）。
 
-## [开发中] — extensions.stock / warehouse_id 死键全链退役（chore/drop-extensions-stock-v1，PLAN 批次 2，用户拍板「我方永不设库存」）
+## [0.80.0 附] — extensions.stock / warehouse_id 死键全链退役（chore/drop-extensions-stock-v1，PLAN 批次 2，用户拍板「我方永不设库存」）
 
 > 动因同上批次：`extensions.stock` 自 C4/T14 设计起就是死键（模板校验/存储 + skill 注入键
 > + 测试锁定下发链俱全，但 worker graphs 全链零消费；Ozon v3 import 契约本身无 stocks

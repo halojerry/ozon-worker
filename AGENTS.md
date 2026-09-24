@@ -44,6 +44,30 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 
+## 最近更新（v0.80.0 — 特征属性填满战役 A1-A7 七期 + n8n 清理/extensions.stock 退役两 chore 同车）
+
+> 2026-09-25 发版（tag v0.80.0）。dev 自 v0.79.0 共 30 commits。**改属性填充/图片链/
+> follow 上架链前先读 CHANGELOG 0.80.0 与三份 PLAN**（`docs/PLAN-attr-fill-max-v1.md`
+> / `docs/PLAN-follow-copy-attrs-v1.md` / `docs/PLAN-competitor-fullattrs-v1.md`）。
+
+- **属性信任序（改 prepare 属性链前必读）**：本商品证据(1688) > 标题证据词(A1) >
+  vision 推断 > 模板继承 > 类目默认(A2) > schema-LLM 提案(A5，过验证闸才落卡) >
+  竞品复制卡特征(A6 合并)。A5 kill-switch `LLM_SCHEMA_FILL=0`；数值出口闸
+  `sanitize_numeric_semantics`（8513/11650/23249 cap 200、22390 禁填）恒生效。
+- **A6 防洗卡（改任何 import POST 前必读）**：`/v3/product/import` 是全量替换语义 +
+  平台 offer upsert——三个 POST 出口（upload/retry update/retry full-import-create）
+  已统一走 `preserve_existing_card_attributes`；**新增 import 出口必须接它**。
+- **A7 竞品全表（改 skill 抓取链前必读）**：entrypoint/composer API 恒短表，
+  `webCharacteristics` 全表靠 DOM 兜底（点展开+滚动×10+dl/dt 解析）——**兜底前必须
+  `tab.bring_to_front()`**（后台 tab 渲染整体跳过，IntersectionObserver 永不派发，
+  2026-09-25 gate 首跑实锤）；重测必须同清 `ozon_cdp/` + `follow/` 双缓存（6h TTL
+  假命中）。箱规渗透已源头双封（quantity 组 zh_exclude_keywords + 中文直搜旁路）。
+- 两 chore 同车：n8n 前代云端残留清理（cloud_probe 八处死代码等，零行为变更）+
+  extensions.stock/warehouse_id 死键退役（**我方永不设库存**——rFBS 库存人工管理，
+  `bulk_update_stocks` 唯一显式写入口）。
+- 实机 gate（本地 Docker + 测试店 5381204）：清洁片 follow 同 URL 5 键 failed「缺必填」
+  → 13 键全表 completed（5837014560）；喷雾器 A6 链 83%；零假 completed。
+
 ## 最近更新（v0.79.0 — 四批同车：安全修复批 + Windows 真机反馈 + CI/API 收口 + agent 人体工学）
 
 > 2026-09-24 发版（tag v0.79.0）。dev 自 v0.78.0 共 85 commits。**改下述链路前先读 CHANGELOG 0.79.0 对应批节**；安全批 13 条行为变更全文在 CHANGELOG §0.76.0 附节。
