@@ -90,8 +90,11 @@ def test_new_groups_exist_for_high_freq_gaps():
     assert "composition" in syn and syn["composition"]["zh_keywords"], "composition 组缺失"
     assert "power" in syn and syn["power"]["zh_keywords"], "power 组缺失"
     # value_map 留空：值域走 /values/search 唯一化，防文本与档位不符
+    # （v0.83 三期修订：shape/color 补确定性闭域映射——圆形→Круглый 等，
+    #   标题证据词的 raw 中文直搜优先、RU 映射仅为兜底，同 material 组待遇）
     assert syn["origin"]["value_map"] == {}
-    assert syn["shape"]["value_map"] == {}
+    assert "圆形" in syn["shape"]["value_map"] and "长方形" in syn["shape"]["value_map"]
+    assert "红色" in syn["color"]["value_map"]
     assert syn["pattern"]["value_map"] == {}
     assert syn["composition"]["value_map"] == {}
     assert syn["power"]["value_map"] == {}
