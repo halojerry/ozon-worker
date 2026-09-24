@@ -92,6 +92,10 @@ def test_numeric_facts_volume_and_count():
     assert _title_numeric_facts("大容量2L保鲜盒")["volume_ml"] == 2000
     assert _title_numeric_facts("Refrigerator Organizer, 5000 ml, 2 pcs")["volume_ml"] == 5000
     assert _title_numeric_facts("6件套厨房工具")["package_count"] == 6
+    # 中文数字（1688 标题高频形态）
+    assert _title_numeric_facts("食品级塑料叠层六件套保鲜盒")["package_count"] == 6
+    assert _title_numeric_facts("十五件套厨房工具")["package_count"] == 15
+    assert _title_numeric_facts("二十支装")["package_count"] == 20
     assert _title_numeric_facts("2 pcs 装")["package_count"] == 2
     f = _title_numeric_facts("304不锈钢沥水篮 直径20.5厘米")
     assert "volume_ml" not in f and "package_count" not in f

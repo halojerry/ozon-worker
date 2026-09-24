@@ -192,7 +192,27 @@ _VOL_ML_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:ml|mL|毫升)", re.IGNORECASE)
 _VOL_L_RE = re.compile(
     r"(?:容量|容积|大容量)?\s*(\d+(?:\.\d+)?)\s*(?:[Ll](?![A-Za-z])|升)")
 _COUNT_RE = re.compile(
-    r"(\d+)\s*(?:个装|只装|件装|件套|支装|片装|双|组|套|pcs|pieces)", re.IGNORECASE)
+    r"([一二三四五六七八九十\d]+)\s*(?:个装|只装|件装|件套|支装|片装|双|组|套|pcs|pieces)",
+    re.IGNORECASE)
+
+
+_CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+           "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _to_int(s: str) -> int:
+    """数字或中文数字（含 X十Y 形态）→ int；解析失败返回 0。"""
+    s = (s or "").strip()
+    if s.isdigit():
+        return int(s)
+    if not s or any(ch not in _CN_NUM and ch != "十" for ch in s):
+        return 0
+    if s == "十":
+        return 10
+    if "十" in s:
+        head, _, tail = s.partition("十")
+        return _CN_NUM.get(head, 1) * 10 + (_CN_NUM.get(tail, 0) if tail else 0)
+    return _CN_NUM.get(s, 0)
 
 
 def _title_numeric_facts(title: str) -> dict[str, int]:
@@ -211,7 +231,7 @@ def _title_numeric_facts(title: str) -> dict[str, int]:
                 facts["volume_ml"] = v
     m = _COUNT_RE.search(t)
     if m:
-        n = int(m.group(1))
+        n = _to_int(m.group(1))
         if 1 <= n <= 100:
             facts["package_count"] = n
     return facts
