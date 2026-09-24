@@ -53,7 +53,9 @@ def test_lang_route():
     assert lang_route("白色") == "ZH_HANS"
     assert lang_route("杀虫") == "ZH_HANS"
     assert lang_route("Белый") == "RU"
-    assert lang_route("insecticide") == "RU"
+    # feat/attribute-fill-en-v1：纯拉丁 → EN（旧两分支送 RU 必空，EN 树已落库）
+    assert lang_route("insecticide") == "EN"
+    assert lang_route("Storage Case") == "EN"
 
 
 # ── match_attr_name ──

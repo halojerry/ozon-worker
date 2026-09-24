@@ -73,9 +73,18 @@ def lang_route(value: str) -> str:
 
     /values/search 无 language 参数（语言无关），搜索词本身的语言决定结果。
     含中文 → ZH_HANS 优先；否则 → RU 优先。
+
+    feat/attribute-fill-en-v1：类目树搜索复用本路由（assemble search_nodes）——
+    加三分支：中文→ZH_HANS / 含西里尔→RU / **纯拉丁→EN**（EN 树已落库，
+    "Storage Case" 实测命中 17027937/95483；旧两分支把 EN 词送 RU 行必空）。
     """
-    if has_chinese(value):
+    _v = str(value or "")
+    if has_chinese(_v):
         return "ZH_HANS"
+    if any('\u0400' <= c <= '\u04FF' for c in _v):
+        return "RU"
+    if any(c.isascii() and c.isalpha() for c in _v):
+        return "EN"
     return "RU"
 
 

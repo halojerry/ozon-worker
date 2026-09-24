@@ -455,10 +455,21 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
 
 
 def _detect_language(text: str) -> str:
-    """检测文本语言 → 类目搜索语言"""
-    if any('\u4e00' <= c <= '\u9fff' for c in text):
+    """检测文本语言 → 类目搜索语言。
+
+    feat/attribute-fill-en-v1（EN 树三语同 ID 实证，PR #63 §1.4）：三分支——
+    中文→ZH_HANS / 含西里尔→RU / **纯拉丁→EN**（旧两分支把 EN 面包屑词
+    （"Food Storage"/"Storage Case"）全送 RU 行 pg_trgm 必空——A2「无候选
+    静默绕路」根因）。西里尔优先于拉丁判定："14 х 10" 混排尺寸词按 RU。
+    """
+    _t = str(text or "")
+    if any('\u4e00' <= c <= '\u9fff' for c in _t):
         return "ZH_HANS"
-    return "RU"  # 默认俄语（Cyrillic）
+    if any('\u0400' <= c <= '\u04FF' for c in _t):
+        return "RU"
+    if any(c.isascii() and c.isalpha() for c in _t):
+        return "EN"
+    return "RU"  # 纯数字/符号缺省 RU（旧行为）
 
 
 # ══ v0.69 P-B: 跟卖类目门控仲裁 ══
