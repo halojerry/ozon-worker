@@ -34,6 +34,26 @@ class _Rec:
         raise RuntimeError(f"unexpected: {endpoint}")
 
 
+def _patch_template_source(monkeypatch, pids):
+    """打桩 ① 段模板源查询（CI 空库无 listing_result_log 行，本地才有）。"""
+    class _FakeResult:
+        def __init__(self, rows):
+            self._rows = rows
+        def fetchall(self):
+            return self._rows
+
+    class _FakeSession:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def execute(self, sql, params=None):
+            return _FakeResult([(p,) for p in pids])
+
+    import storage.database.db as _db
+    monkeypatch.setattr(_db, "get_session", lambda: _FakeSession(), raising=True)
+
+
 def _schema(*aids):
     return [{"id": a, "name": f"attr{a}", "dictionary_id": 0,
              "is_required": False, "is_collection": False} for a in aids]
@@ -59,9 +79,11 @@ def test_template_fills_only_missing_schema_attrs(monkeypatch):
         {"id": 7777, "values": [{"dictionary_value_id": 55, "value": "Китай"}]},
     ]}]
     rec = _Rec(v4_items)
-    # ozon_post 是函数内 import——patch 源模块（utils.ozon_api）才生效
+    # ozon_post 是函数内 import——patch 源模块才生效
     import utils.ozon_client as _oz
     monkeypatch.setattr(_oz, "ozon_post", rec, raising=True)
+    # ① 段打桩：CI 空库无 listing_result_log 模板源行（本地有 B2 卡才过）
+    _patch_template_source(monkeypatch, [6443821910])
 
     items = [{"offer_id": "x", "attributes": [
         {"id": 4180, "values": [{"dictionary_value_id": 8, "value": "новое"}]},  # 已存在
@@ -83,6 +105,7 @@ def test_template_skips_chinese_values(monkeypatch):
         {"id": 6881, "values": [{"dictionary_value_id": 1, "value": "带盖收纳筐"}]}]}]
     import utils.ozon_client as _oz
     monkeypatch.setattr(_oz, "ozon_post", _Rec(v4_items), raising=True)
+    _patch_template_source(monkeypatch, [6443821910])
     out = _inherit_attrs_from_template(
         [{"offer_id": "x", "attributes": []}], _schema(6881), _state())
     assert out[0]["attributes"] == [], "中文模板值不抄"
