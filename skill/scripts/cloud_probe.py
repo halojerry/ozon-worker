@@ -4143,22 +4143,26 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     result["competitor_price"] = ozon_price
                     logger.info("💰 Ozon 竞品售价: %s", ozon_price)
                 result["scrape_source"] = "cdp"
-                # ✅ 从 Ozon 页面提取类目 ID（面包屑链接中的数字 ID，优先）
-                scraped_dc = cdp_data.get("description_category_id", "")
-                scraped_type = cdp_data.get("type_id", "") or scraped_dc
+                # ✅ fix/category-bridge-v1: 面包屑只提线索不提 ID——前台 web ID 与
+                # Seller 树两套编号（2026-09-24 follow ×5 事故；v0.26 what_to_sell
+                # 覆盖修复时已确认「页面面包屑只是 Widget 空间 ID」，本批把毒源根除）。
+                # dc/tp 唯一合法页面来源 = 下方 what_to_sell 权威通道（Seller 空间）。
                 scraped_lang = cdp_data.get("breadcrumb_language", "")
                 scraped_path = cdp_data.get("category_path", "")
-                if scraped_dc:
+                scraped_web_id = cdp_data.get("web_category_id", "")
+                if scraped_path or scraped_web_id:
                     result["ozon_category"] = {
-                        "description_category_id": str(scraped_dc),
-                        "type_id": str(scraped_type),
+                        "web_category_id": str(scraped_web_id or ""),
                         "language": scraped_lang,
                         "category_path": scraped_path,
                         # v0.63: 页面面包屑（顾客命名空间）→ 标 page，为主判据（category_path）
                         "source": "page",
                         "namespace": "widget",
                     }
-                    logger.info("✅ Ozon 类目从页面提取: dc=%s type=%s lang=%s", scraped_dc, scraped_type, scraped_lang)
+                    logger.info(
+                        "✅ Ozon 面包屑线索提取: path=%s lang=%s web_id=%s（dc/tp 由 worker 类目链定稿）",
+                        scraped_path[:60], scraped_lang, scraped_web_id,
+                    )
                 logger.info("✅ CDP 抓取 Ozon 成功: %d 张图, title=%s", len(ozon_images), ozon_title[:60])
         except Exception as e:
             logger.debug("CDP Ozon scraper unavailable: %s", e)
@@ -4218,9 +4222,9 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     "namespace": "seller",
                 }
                 logger.info(
-                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖 Widget 面包屑 %s）",
+                    "✅ 竞品权威类目（Seller 空间）: dc=%s type=%s（覆盖面包屑线索 path=%s）",
                     _m["category2_id"], _m["category3_id"],
-                    (result.get("ozon_category") or {}).get("description_category_id"),
+                    (result.get("ozon_category") or {}).get("category_path", "")[:50],
                 )
             if result.get("competitor_weight_g") or result.get("competitor_dimensions_mm"):
                 logger.info(
@@ -4533,11 +4537,12 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             _attrs_all.setdefault(str(_fc["title"]), str(_fc["value"]))
                     if _attrs_all:
                         draft["ozon_attributes"] = _attrs_all
-                    # ✅ PR-5: follow 也透传竞品类目 dc（与 graph --ozon-ref-url 一致）。
-                    # worker ozon_attrs_allowed 对显式 category 做一致性校验，
-                    # 防 what_to_sell 类目与页面面包屑类目漂移时跨类目属性错配。
+                    # ✅ PR-5: follow 透传竞品类目供 worker 属性一致性校验。
+                    # ⚠️ fix/category-bridge-v1: 只信 Seller 空间合法来源（what_to_sell
+                    # 权威 dc）；面包屑 web ID ≠ Seller dc（两套编号），绝不喂此字段。
+                    # worker attr_defaults.cat 缺失即跳过一致性校验（安全缺省）。
                     _oz_cat_dc = (result.get("ozon_category") or {}).get("description_category_id") or ""
-                    if str(_oz_cat_dc).isdigit():
+                    if str(_oz_cat_dc).isdigit() and (result.get("ozon_category") or {}).get("source") == "what_to_sell":
                         draft["ozon_attributes_category"] = int(_oz_cat_dc)
                     if not any("цвет" in k.lower() or "颜色" in k for k in _attrs_all):
                         _aspects = cdp_data.get("aspects") or []
@@ -4559,10 +4564,22 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                                 result.setdefault("competitor_dimensions_mm", _wd_d)
                         except Exception:
                             pass
-                    # ✅ Ozon 类目 ID（从竞品页面提取，Worker 跳过 1688 类目匹配）
+                    # ✅ Ozon 类目透传（fix/category-bridge-v1 改写）: 两种合法形态——
+                    # ① what_to_sell 权威（带 Seller dc/tp）→ 原样透传；
+                    # ② page 面包屑线索（无 dc/tp）→ 只透传文本路径 + web_category_id
+                    #    线索键，dc/tp 由 worker 类目链定稿（前台 web ID ≠ Seller 编号）。
                     ozon_cat = result.get("ozon_category")
-                    if ozon_cat:
-                        draft["ozon_category"] = ozon_cat
+                    if isinstance(ozon_cat, dict):
+                        if ozon_cat.get("description_category_id") and ozon_cat.get("type_id"):
+                            # what_to_sell 权威形态（Seller 空间）
+                            draft["ozon_category"] = dict(ozon_cat)
+                        elif ozon_cat.get("category_path") or ozon_cat.get("web_category_id"):
+                            draft["ozon_category"] = {
+                                "category_path": str(ozon_cat.get("category_path", "") or ""),
+                                "breadcrumb_language": str(ozon_cat.get("breadcrumb_language") or ozon_cat.get("language") or ""),
+                                "web_category_id": str(ozon_cat.get("web_category_id", "") or ""),
+                                "source": "page",
+                            }
                     # ⚠️ v0.14 P0-6: 注入 Ozon 竞品售价（独立字段，避免与 1688 采购价 draft.price 混淆）
                     comp_price = result.get("competitor_price", "")
                     if comp_price:

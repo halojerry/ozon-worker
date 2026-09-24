@@ -105,6 +105,10 @@ class _PostRecorder:
             items = [{"product_id": 999888777, "status": "imported"}] \
                 if self.import_info_product else []
             return {"result": {"items": items}}
+        if "product/info/list" in endpoint:
+            # fix/category-bridge-v1: 复制卡类目反查（官方复制带出，6443818882 实测同形态）
+            return {"items": [{"id": 999888777, "product_id": 999888777,
+                               "description_category_id": 17027933, "type_id": 970742618}]}
         return {}
 
 
@@ -223,7 +227,9 @@ def test_pd_hand_category_fail_still_downgrades_to_api():
                           post_recorder=rec, gate_return=("", ""))
     assert len([u for u in rec.calls if "import-by-sku" in u]) == 1, "hand 缺类目应降级 api 复制"
     assert result.get("product_id") == "999888777"
-    assert result.get("category_missing") is True
+    # fix/category-bridge-v1: 复制卡反查回填真实 dc/tp——类目不再缺失
+    assert result.get("description_category_id") == "17027933"
+    assert result.get("type_id") == "970742618"
 
 
 def test_pd_legacy_envelope_without_follow_type_is_hand():

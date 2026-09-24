@@ -478,7 +478,9 @@ def scrape_ozon_product_via_cdp(
         "images": [], "title": "", "category": "", "price": "", "currency": "RUB",
         "description": "", "attributes": {}, "breadcrumbs": [], "hashtags": [],
         "sku": "",
-        "description_category_id": "", "type_id": "",  # Ozon 类目 ID（从面包屑提取）
+        # fix/category-bridge-v1: 前台面包屑 ID ≠ Seller dc/tp（两套平行编号），
+        # 只作 web_category_id 线索键产出；dc/tp 不再从面包屑伪造。
+        "web_category_id": "", "category_path": "", "breadcrumb_language": "",
         "error": None,
     }
 
@@ -826,14 +828,17 @@ def scrape_ozon_product_via_cdp(
 
                         # ✅ v0.19.1: 只认 /category/ 链接的类目 crumb（品牌页 /brand/ 排除）
                         best = _pick_category_from_crumbs(crumbs)
-                        if best:
-                            result["description_category_id"] = best.get("category_id", "")  # 数字 ID
-                            result["type_id"] = best.get("category_id", "")  # Worker 负责查真正 type_id
-                            result["category_path"] = category_path  # 文本降级
-                        else:
-                            # 全是品牌页？保留文本路径降级
-                            result["description_category_id"] = category_path
-                            result["type_id"] = ""
+                        # ⚠️ fix/category-bridge-v1（2026-09-24 事故根治）: 面包屑 ID 是
+                        # Ozon **前台 storefront** 的 id 空间，与 Seller 树
+                        # description_category_id/type_id 是两套平行编号（实测: 前台
+                        # "Cases"=web 14762 / Seller 树=17027937+95483；web ID 在 Seller
+                        # 树 16552 节点零命中；无官方映射端点）。旧代码把 web ID 同值
+                        # 塞进 dc/tp（"Worker 负责查真正 type_id" 的注释契约 worker 从未
+                        # 签收）→ follow ×5 全灭于 import 400 TypeId。
+                        # 现口径: 只产出 web_category_id 线索键 + category_path 文本，
+                        # dc/tp 由 worker 类目链（EN 树确定性匹配/学习表/门控仲裁）定稿。
+                        result["web_category_id"] = best.get("category_id", "") if best else ""
+                        result["category_path"] = category_path  # 文本（EN/RU/ZH 原样），worker 桥接用
 
                         # 语言检测：Cyrillic → RU，中文 → ZH_HANS
                         if any('\u4e00' <= c <= '\u9fff' for c in category_path):
