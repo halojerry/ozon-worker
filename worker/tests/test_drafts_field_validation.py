@@ -164,7 +164,7 @@ def _valid_body(envelope: dict) -> dict:
     return {
         "token": "sk-oldest",
         "ozon_client_id": "4718259",
-        "ozon_api_key": "sk-api-key-AAA",
+        "ozon_api_key": os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
         "envelope": envelope,
     }
 

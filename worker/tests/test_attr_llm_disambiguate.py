@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -150,8 +151,7 @@ def test_config_load_max_tokens_ge_200():
         "config": {"model": "deepseek-v4-flash-vision-exp-vision-exp", "max_completion_tokens": 2048},
         "sp": "sp", "up": "up",
     }
-    with open(os.path.join(tmp, "config", "attr_disambiguation_cfg.json"), "w") as f:
-        json.dump(cfg, f)
+    Path(tmp, "config", "attr_disambiguation_cfg.json").write_text(json.dumps(cfg))
     with mock.patch.dict(os.environ, {"APP_WORKSPACE_PATH": tmp}):
         loaded = load_disambiguation_cfg()
     mt = int((loaded.get("config") or {}).get("max_completion_tokens") or 0)

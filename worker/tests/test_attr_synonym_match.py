@@ -132,7 +132,7 @@ def _pipeline_attr_map(draft_attrs, schema):
         dict_lookup={},
         images=draft["images"],
         ozon_client_id="test_client",
-        ozon_api_key="test_key",
+        ozon_api_key=os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
         weight_grams=int(draft["weight"]),
         dimensions=draft["dimensions"],
         price_rub=str(draft["price"]),

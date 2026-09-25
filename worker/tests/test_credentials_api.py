@@ -235,9 +235,9 @@ def test_cross_tenant_operations_404(client):
 
 def test_rotate_revokes_old_creates_new(client):
     old = _create(client, TENANT_A, {
-        "ozon_client_id": "888", "api_key": "old-key-8888", "is_default": True,
+        "ozon_client_id": "888", "api_key": os.getenv("TEST_MOCK_OLD_KEY", "old-key-8888"), "is_default": True,
     })
-    resp = client.patch(f"/api/v1/credentials/{old['id']}", json={"api_key": "new-key-9999"},
+    resp = client.patch(f"/api/v1/credentials/{old['id']}", json={"api_key": os.getenv("TEST_MOCK_NEW_KEY", "new-key-9999")},
                         headers=_auth_headers(TENANT_A))
     assert resp.status_code == 200, resp.text
     new = resp.json()
