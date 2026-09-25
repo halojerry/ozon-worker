@@ -146,20 +146,20 @@ def _cleanup():
     eng = create_engine(DB_URL)
     with eng.begin() as conn:
         # FK 顺序：product_task_index(→task/credential) → submissions(→draft) → 其余
-        conn.execute(text("DELETE FROM product_task_index WHERE tenant_id IN :t"),
-                     {"t": tuple(_TENANTS)})
+        conn.execute(text("DELETE FROM product_task_index WHERE tenant_id = ANY(:t)"),
+                     {"t": list(_TENANTS)})
         conn.execute(text("DELETE FROM draft_submissions WHERE draft_id IN "
-                          "(SELECT id FROM product_drafts WHERE tenant_id IN :t)"),
-                     {"t": tuple(_TENANTS)})
+                          "(SELECT id FROM product_drafts WHERE tenant_id = ANY(:t))"),
+                     {"t": list(_TENANTS)})
         conn.execute(text("DELETE FROM task_generated_images WHERE task_id IN "
-                          "(SELECT id::text FROM ozon_product_tasks WHERE tenant_id IN :t)"),
-                     {"t": tuple(_TENANTS)})
-        conn.execute(text("DELETE FROM product_drafts WHERE tenant_id IN :t"),
-                     {"t": tuple(_TENANTS)})
-        conn.execute(text("DELETE FROM ozon_product_tasks WHERE tenant_id IN :t"),
-                     {"t": tuple(_TENANTS)})
-        conn.execute(text("DELETE FROM credentials WHERE tenant_id IN :t"),
-                     {"t": tuple(_TENANTS)})
+                          "(SELECT id::text FROM ozon_product_tasks WHERE tenant_id = ANY(:t))"),
+                     {"t": list(_TENANTS)})
+        conn.execute(text("DELETE FROM product_drafts WHERE tenant_id = ANY(:t)"),
+                     {"t": list(_TENANTS)})
+        conn.execute(text("DELETE FROM ozon_product_tasks WHERE tenant_id = ANY(:t)"),
+                     {"t": list(_TENANTS)})
+        conn.execute(text("DELETE FROM credentials WHERE tenant_id = ANY(:t)"),
+                     {"t": list(_TENANTS)})
     eng.dispose()
 
 
