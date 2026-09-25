@@ -3352,7 +3352,7 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
     }
   },
   "max_retries": 3,
-  "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+  "ozon_api_key": "mock-key-not-a-credential",
   "ozon_client_id": "5381204",
   "priority": 0,
   "timeout_seconds": 1800,

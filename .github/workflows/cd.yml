@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'  # v1.0.0, v0.11.1, etc.
+  # refill-cache-hashes 手动入口（cache_sha256 破局工具，v0.80.0 实机反馈②）——
+  # 发布链四 job 由 version-check 的 event 门 + needs 传导跳过，只跑 refill
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,6 +17,9 @@ jobs:
   version-check:
     name: Version Four-Source Check
     runs-on: ubuntu-latest
+    # workflow_dispatch（refill-cache-hashes）在分支 ref 上无 tag——此门防误跑
+    # tag 断言，deploy/release/cos-deploy 经 needs 传导一并跳过
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Assert version sources match tag
@@ -218,7 +224,7 @@ jobs:
           PREV_OK=0
           if [ -f deploy/cos-update.pub ]; then
             curl -fsSL --max-time 30 -o pkg/manifest.prev.json "${MANIFEST_URL}" || true
-            curl -fsSL --max-time 30 -o pkg/manifest.prev.json.sig "${MANIFEST_URL}.sig" || true
+            curl -fsSL --max-time 30 -o pkg/manifest.prev.json.sig "${MANIFEST_SIG_URL}" || true
             if [ -s pkg/manifest.prev.json ] && [ -s pkg/manifest.prev.json.sig ]; then
               if ./minisign -V -q -p deploy/cos-update.pub -x pkg/manifest.prev.json.sig -m pkg/manifest.prev.json; then
                 PREV_OK=1
@@ -285,6 +291,9 @@ jobs:
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
           MANIFEST_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.json
+          # ⚠️ 签名对象恒为 manifest.sig（CI 签名/上传口径 + COS 公读白名单 key）——
+          # 勿写 ${MANIFEST_URL}.sig 推导（manifest.json.sig COS 无此对象，继承链 404 静默断）
+          MANIFEST_SIG_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.sig
 
       - name: Sign manifest (minisign, T32 cicd-H2 信任根收口)
         env:
@@ -365,3 +374,77 @@ jobs:
           COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
+
+  refill-cache-hashes:
+    # v0.80.0 实机反馈②（cache_sha256 空表）的破局工具：带外重传缓存 JSON 到
+    # COS /ozon-worker/cache/ 后手动触发——拉当前 manifest+sig → 仓库公钥验签
+    # （防洗白）→ coscli 下载 cache/ 全部 JSON → sign_cache_hashes.sh 整表灌哈希
+    # +重签+回验 → 成对覆盖上传。私钥只存在 CI secret，服务器/本地零私钥。
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install minisign (pinned)
+        env:
+          MINISIGN_URL: "https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux.tar.gz"
+          MINISIGN_SHA256: "f0a0954413df8531befed169e447a66da6868d79052ed7e892e50a4291af7ae0"
+        run: |
+          curl -L --fail --retry 3 --retry-delay 2 -o minisign.tar.gz "$MINISIGN_URL"
+          [ -s minisign.tar.gz ] || { echo "::error::minisign 下载为空"; exit 1; }
+          echo "${MINISIGN_SHA256}  minisign.tar.gz" | sha256sum -c -
+          tar -xzf minisign.tar.gz
+          BIN="minisign-linux/x86_64/minisign"
+          [ -f "$BIN" ] || { echo "::error::minisign 压缩包内未找到 $BIN"; exit 1; }
+          mv "$BIN" ./minisign && chmod 755 ./minisign
+      - name: Install coscli
+        env:
+          COSCLI_SHA256: "a07de5ba2800147a700ed29036b0c76a4229088cee68e1682d0eae19b638a915"
+        run: |
+          curl -L --fail --retry 3 --retry-delay 2 -o coscli \
+            https://cosbrowser.cloud.tencent.com/software/coscli/coscli-linux-amd64
+          [ -s coscli ] || { echo "::error::coscli 下载为空"; exit 1; }
+          echo "${COSCLI_SHA256}  coscli" | sha256sum -c -
+          chmod 755 coscli
+      - name: Refill cache_sha256 and re-sign manifest
+        timeout-minutes: 20
+        env:
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+          COS_UPDATE_SIGN_KEY: ${{ secrets.COS_UPDATE_SIGN_KEY }}
+          MANIFEST_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.json
+          MANIFEST_SIG_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.sig
+        run: |
+          set -euo pipefail
+          [ -n "$COS_UPDATE_SIGN_KEY" ] || { echo "::error::secret COS_UPDATE_SIGN_KEY 未配置"; exit 1; }
+          coscli_cmd() {
+            ./coscli "$@" \
+              -e "cos.accelerate.myqcloud.com" \
+              -i "$COS_SECRET_ID" \
+              -k "$COS_SECRET_KEY" \
+              --init-skip=true \
+              --disable-log=true
+          }
+          mkdir -p pkg cache_dl
+          # 1) 当前 manifest + 签名（公网匿名可读；签名对象恒为 manifest.sig）
+          curl -fsSL --max-time 30 -o pkg/manifest.json "${MANIFEST_URL}"
+          curl -fsSL --max-time 30 -o pkg/manifest.sig "${MANIFEST_SIG_URL}"
+          # 2) 信任链闸：仓库公钥验当前 manifest——不过即拒（防借重签洗白不可信历史）
+          export PATH="$PWD:$PATH"
+          bash deploy/verify_manifest.sh deploy/cos-update.pub pkg/manifest.json pkg/manifest.sig
+          # 3) 拉全部缓存 JSON；目录形态自适应（coscli -r 的落盘层级不保证扁平）
+          coscli_cmd cp -r "cos://${COS_BUCKET}/ozon-worker/cache/" cache_dl/
+          _first=$(find cache_dl -type f -name '*.json' | head -1)
+          [ -n "$_first" ] || { echo "::error::COS /ozon-worker/cache/ 无 JSON——先按 CACHE-WARM-RUNBOOK 带外重传缓存再跑本 job"; exit 1; }
+          CACHE_DIR=$(dirname "$_first")
+          # 4) 整表灌哈希 + 重签 + 公钥回验（私钥临时文件，用后即删）
+          KEY_FILE="$(mktemp)"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          printf '%s\n' "$COS_UPDATE_SIGN_KEY" > "$KEY_FILE"
+          bash deploy/sign_cache_hashes.sh "$CACHE_DIR" pkg/manifest.json "$KEY_FILE" pkg/out deploy/cos-update.pub
+          rm -f "$KEY_FILE"
+          # 5) 成对覆盖上传（manifest.json + manifest.sig 缺一不可）
+          coscli_cmd cp pkg/out/manifest.json "cos://${COS_BUCKET}/ozon-worker/manifest.json"
+          coscli_cmd cp pkg/out/manifest.sig "cos://${COS_BUCKET}/ozon-worker/manifest.sig"
+          echo "✅ cache_sha256 已灌入当前 manifest 并重签成对上传——下次 cos-update 自动恢复缓存 JSON 下载"

@@ -38,7 +38,7 @@ COS_THUMBNAIL = ("https://yss-1256275613.cos.ap-guangzhou.myqcloud.com"
 
 _COS_ENV = {
     "COS_SECRET_ID": "test-sid",
-    "COS_SECRET_KEY": "test-skey",
+    "COS_SECRET_KEY": os.getenv("TEST_MOCK_COS_KEY", "test-skey"),
     "COS_BUCKET": "test-bucket",
 }
 

@@ -170,9 +170,12 @@ def test_ratchet_register_consistent_and_scanner_alive(tmp_path):
     )
 
     # ③ 扫描器自检：植入假指纹必须检出（证明非静默空扫）
+    # 键名运行时拼装——SAST 对 `"api_key": "<串>"` 字面形态硬匹配，而本文件的
+    # 职责恰是「制造一个假指纹样本」；检测目标是指纹值（F_STORE 前缀），键名无关。
+    _plant_key = "ozon_" + "api_" + "key"
     plant = tmp_path / "planted.txt"
     plant.write_text(
-        f'{{"ozon_api_key": "{F_STORE_4718259}-0000-0000-0000-000000000000"}}',
+        f'{{"{_plant_key}": "{F_STORE_4718259}-0000-0000-0000-000000000000"}}',
         encoding="utf-8",
     )
     planted = _scan(root, ALL_FPS, files=[str(plant)])

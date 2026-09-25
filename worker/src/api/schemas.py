@@ -67,7 +67,7 @@ class SubmitTaskRequest(BaseModel):
     model_config = _examples({
         "token": "sk-xxxxxxxxxxxxxxxxxxxx",
         "ozon_client_id": "5381204",
-        "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+        "ozon_api_key": "mock-key-not-a-credential",
         "envelope": _ENVELOPE_EXAMPLE,
         "timeout_seconds": 1800,
         "max_retries": 3,
@@ -207,7 +207,7 @@ class TaskStatisticsResponse(BaseModel):
 
 class AuthVerifyRequest(BaseModel):
     """Skill 鉴权请求。"""
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "client_id": "5381204", "api_key": "00000000-0000-0000-0000-000000000000"})
+    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "client_id": "5381204", "api_key": "mock-key-not-a-credential"})
     token: str = Field(..., description="MXOU_TOKEN")
     client_id: str = Field("", description="Ozon Client ID（可选）")
     api_key: str = Field("", description="Ozon API Key（可选）")
@@ -435,7 +435,7 @@ class CredentialCreate(BaseModel):
 
     明文 api_key 仅存在于请求体；响应只回 api_key_masked，永不回显明文。
     """
-    model_config = _examples({"ozon_client_id": "5381204", "api_key": "00000000-0000-0000-0000-000000000000", "shop_name": "测试店", "currency": "CNY", "is_default": True, "credential_type": "api_key"})
+    model_config = _examples({"ozon_client_id": "5381204", "api_key": "mock-key-not-a-credential", "shop_name": "测试店", "currency": "CNY", "is_default": True, "credential_type": "api_key"})
     ozon_client_id: str = Field(..., description="Ozon 卖家 Client-Id（半公开）")
     api_key: str = Field(..., description="Ozon 卖家 Api-Key（仅请求，永不回显）")
     shop_name: Optional[str] = Field(None, description="店铺名称（绑定弹窗）")
