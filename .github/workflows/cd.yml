@@ -413,8 +413,6 @@ jobs:
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
           COS_REGION: ${{ secrets.COS_REGION }}
           COS_UPDATE_SIGN_KEY: ${{ secrets.COS_UPDATE_SIGN_KEY }}
-          MANIFEST_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.json
-          MANIFEST_SIG_URL: https://${{ secrets.COS_BUCKET }}.cos.${{ secrets.COS_REGION }}.myqcloud.com/ozon-worker/manifest.sig
         run: |
           set -euo pipefail
           [ -n "$COS_UPDATE_SIGN_KEY" ] || { echo "::error::secret COS_UPDATE_SIGN_KEY 未配置"; exit 1; }
@@ -427,9 +425,10 @@ jobs:
               --disable-log=true
           }
           mkdir -p pkg cache_dl
-          # 1) 当前 manifest + 签名（公网匿名可读；签名对象恒为 manifest.sig）
-          curl -fsSL --max-time 30 -o pkg/manifest.json "${MANIFEST_URL}"
-          curl -fsSL --max-time 30 -o pkg/manifest.sig "${MANIFEST_SIG_URL}"
+          # 1) 当前 manifest + 签名——coscli 走加速端点（runner 直连 COS 公网域名
+          #    跨境超时，2026-09-25 首跑实锤 curl exit 28）；签名对象恒为 manifest.sig
+          coscli_cmd cp "cos://${COS_BUCKET}/ozon-worker/manifest.json" pkg/manifest.json
+          coscli_cmd cp "cos://${COS_BUCKET}/ozon-worker/manifest.sig" pkg/manifest.sig
           # 2) 信任链闸：仓库公钥验当前 manifest——不过即拒（防借重签洗白不可信历史）
           export PATH="$PWD:$PATH"
           bash deploy/verify_manifest.sh deploy/cos-update.pub pkg/manifest.json pkg/manifest.sig
