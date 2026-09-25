@@ -138,7 +138,8 @@ def _cleanup():
     for t in ("ozon_orders_cache", "ozon_products_cache", "credential_sync_state", "store_sync_jobs"):
         _db_execute(f"DELETE FROM {t}")
     # 清测试租户凭证（credentials 409 唯一约束——防上次运行残留；按 key 派生租户删）
-    _db_execute("DELETE FROM credentials WHERE tenant_id IN :t", {"t": (TENANT_A, TENANT_B)})
+    # = ANY + list：psycopg2/psycopg3 双驱动兼容（IN :元组 在 psycopg3 不展开）
+    _db_execute("DELETE FROM credentials WHERE tenant_id = ANY(:t)", {"t": [TENANT_A, TENANT_B]})
 
 
 # 模拟 Ozon 响应（v4 posting/fbs/list 扁平结构 + 商品 info 含主图）

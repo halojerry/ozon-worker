@@ -89,16 +89,19 @@ def hard_delete_credential_data(admin_user_id: str, credential_id: str) -> dict:
             counts[table] = int(deleted.rowcount or 0)
 
         # 3. 审计(store_operation_log,result 与删除结果一致)
+        # ⚠️ :c(uuid 列)与 :tgt(varchar 列)不能复用同一绑定名——psycopg3 服务端
+        # 预编译按列上下文推断参数类型，uuid/varchar 双上下文触发 42P18
+        # ambiguous_parameter（SA 2.1 起 postgresql:// 默认方言即 psycopg3）。
         conn.execute(text(
             """
             INSERT INTO store_operation_log
                 (tenant_id, credential_id, store_id, operation, target_id, before,
                  after, result, error, operator)
-            VALUES (:t, :c, :client, 'hard_delete', :c, '{}', :after,
+            VALUES (:t, :c, :client, 'hard_delete', :tgt, '{}', :after,
                     'success', '', :op)
             """
         ), {
-            "t": tenant_id, "c": str(uid), "client": client_id,
+            "t": tenant_id, "c": str(uid), "tgt": str(uid), "client": client_id,
             "after": json.dumps(counts, ensure_ascii=False), "op": admin_user_id,
         })
 
