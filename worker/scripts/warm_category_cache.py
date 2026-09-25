@@ -36,6 +36,7 @@ import json
 import time
 import argparse
 import logging
+from pathlib import Path
 from typing import Optional
 
 import requests as _requests
@@ -327,7 +328,7 @@ class _JsonStreamWriter:
 
     def __init__(self, path: str):
         self.path = path
-        self.f = open(path, "w", encoding="utf-8")
+        self.f = Path(path).open("w", encoding="utf-8")
         self.f.write("{")
         self._first = True
 
@@ -503,7 +504,7 @@ def _atomic_write_json(path: str, payload) -> None:
     os.makedirs(parent, exist_ok=True)
     tmp = f"{path}.tmp.{os.getpid()}"
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
+        with Path(tmp).open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())

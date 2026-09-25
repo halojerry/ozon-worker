@@ -271,7 +271,11 @@ def set_default(tenant_id: str, template_id: str) -> dict:
     except IntegrityError:
         raise HTTPException(status_code=409, detail="同一租户只能有一个默认配置模板")
     except OperationalError as exc:
-        if getattr(getattr(exc, "orig", None), "pgcode", None) == "40P01":
+        # 错误码属性双驱动：psycopg2 是 .pgcode，psycopg3 是 .sqlstate（SA 2.1 起
+        # postgresql:// 默认 psycopg3——只取 pgcode 会让 40P01 死锁转译 100% 失效逃逸）
+        orig = getattr(exc, "orig", None)
+        pgcode = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+        if pgcode == "40P01":
             raise HTTPException(status_code=409, detail="并发切换默认冲突，请稍后重试")
         raise
     return _row_to_dict(row)

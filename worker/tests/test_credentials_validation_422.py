@@ -8,6 +8,7 @@ Request + `model_validate` 手拆 body（非 FastAPI body 参数），pydantic.V
 
 本文件纯 mock、无 PG 依赖：422 分支发生在加密/DB 之前，不触达 credential_service。
 """
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,7 +77,7 @@ def test_create_missing_api_key_422_not_500():
     """body 用 ozon_api_key（信封词汇）→ 必填 api_key 缺失 → 422，不再裸 500。"""
     resp = TestClient(main_mod.app).post("/api/v1/credentials", json={
         "ozon_client_id": "5381204",
-        "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+        "ozon_api_key": os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"),
         "shop_name": "测试店铺5381204",
         "is_default": True,
     }, headers=_headers())

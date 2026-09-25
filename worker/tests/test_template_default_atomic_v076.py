@@ -166,6 +166,10 @@ def test_set_default_concurrent_20_only_ok_or_409_exactly_one_default():
 
     shapes = Counter(shape for shape, _ in outcomes)
     print(f"[probe-t28] 20 并发 set_default 形态分布: {dict(shapes)}")
+    # 取证：500 形态的原始异常全文打出（pgcode 级定位，CI 红时日志自解释）
+    for shape, detail in outcomes:
+        if shape not in ("ok", "http_409"):
+            print(f"[probe-t28] 500 形态明细 {shape}: {detail}")
 
     # 500 形态必须为零——IntegrityError 必须被转成约定的 409 形态
     unexpected = {s: v for s, v in shapes.items() if s not in ("ok", "http_409")}

@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -64,8 +65,7 @@ class _State:
 def _setup_synonyms():
     tmp = tempfile.mkdtemp()
     os.makedirs(os.path.join(tmp, "config"), exist_ok=True)
-    with open(os.path.join(tmp, "config", "attr_synonyms.json"), "w", encoding="utf-8") as f:
-        json.dump(SYNONYMS, f)
+    Path(tmp, "config", "attr_synonyms.json").write_text(json.dumps(SYNONYMS), encoding="utf-8")
     return tmp
 
 
