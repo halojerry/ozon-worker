@@ -8,9 +8,11 @@ dictionary_value_id 一致 —— 结构性防漂移（对抗评审 architect L6
 +同义词桥接，语义不同。合同测试覆盖【确定性值选择】的等价性：
 给定已匹配的 (attr_id, 1688 value, 字典候选集)，三处选择的 dict_id 一致。
 """
+import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -68,9 +70,7 @@ def _call_prepare(draft_attrs, dict_values_override=None):
             "value_map": {"黑色": "Черный", "白色": "Белый"},
         }
     }
-    with open(os.path.join(tmp, "config", "attr_synonyms.json"), "w") as f:
-        import json
-        json.dump(syn, f)
+    Path(tmp, "config", "attr_synonyms.json").write_text(json.dumps(syn))
     with mock.patch.dict(os.environ, {"APP_WORKSPACE_PATH": tmp}), \
          mock.patch.object(odv, "search_dictionary_values", return_value=[]), \
          mock.patch.object(odv, "list_dictionary_values", return_value=[]):
@@ -114,9 +114,8 @@ def test_contract_dict_id_authoritative_zh_zeroed():
     items = [{"offer_id": "x", "name": "x", "attributes": []}]
     tmp = tempfile.mkdtemp()
     os.makedirs(os.path.join(tmp, "config"), exist_ok=True)
-    with open(os.path.join(tmp, "config", "attr_synonyms.json"), "w") as f:
-        import json
-        json.dump({"color": {"zh_keywords": ["颜色"], "ozon_name_keywords": ["цвет"], "value_map": {}}}, f)
+    Path(tmp, "config", "attr_synonyms.json").write_text(
+        json.dumps({"color": {"zh_keywords": ["颜色"], "ozon_name_keywords": ["цвет"], "value_map": {}}}))
     with mock.patch.dict(os.environ, {"APP_WORKSPACE_PATH": tmp}), \
          mock.patch("utils.ozon_dict_values.search_dictionary_values", return_value=[]), \
          mock.patch("utils.ozon_dict_values.list_dictionary_values", return_value=[]):

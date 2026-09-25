@@ -106,14 +106,14 @@ def _cleanup():
     with eng.begin() as conn:
         # 先删 product_task_index（FK 引用 task + credential），再删 task / credential
         conn.execute(text(
-            "DELETE FROM product_task_index WHERE tenant_id IN :t"
-        ), {"t": TENANTS})
+            "DELETE FROM product_task_index WHERE tenant_id = ANY(:t)"
+        ), {"t": list(TENANTS)})
         conn.execute(text(
-            "DELETE FROM ozon_product_tasks WHERE tenant_id IN :t"
-        ), {"t": TENANTS})
+            "DELETE FROM ozon_product_tasks WHERE tenant_id = ANY(:t)"
+        ), {"t": list(TENANTS)})
         conn.execute(text(
-            "DELETE FROM credentials WHERE tenant_id IN :t"
-        ), {"t": TENANTS})
+            "DELETE FROM credentials WHERE tenant_id = ANY(:t)"
+        ), {"t": list(TENANTS)})
     eng.dispose()
 
 

@@ -5,6 +5,7 @@
 """
 import json
 import os
+import socket
 import sys
 import time
 import uuid
@@ -33,7 +34,15 @@ TENANT = main_mod._key_user_id("tokMir")
 
 # v0.76 T14(inj-C1)：镜像下载改走 utils.secure_fetch.safe_fetch——HTTP 假体与
 # DNS 都要 patch 到 secure_fetch 内部（requests.get 已不在镜像链上），保证零出站。
+# ⚠️ 只钉外链域名：getaddrinfo 是进程级 patch，psycopg3（纯 Python，SA 2.1 起
+# postgresql:// 默认方言）连 DB 也走它——localhost 被钉到 93.184.216.34 会造成
+# OS 级连接超时（psycopg2 走 libpq C 解析器不受影响）。环回/本机走真实解析。
+_real_getaddrinfo = socket.getaddrinfo
+
+
 def _fake_secure_dns(host, port=None, *args, **kwargs):
+    if str(host) in ("localhost", "127.0.0.1", "::1", ""):
+        return _real_getaddrinfo(host, port, *args, **kwargs)
     return [(2, 1, 6, "", ("93.184.216.34", port or 0))]
 
 

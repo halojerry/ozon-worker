@@ -10,6 +10,7 @@
 7. 密码不进任何 logger 输出
 """
 import contextlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,7 +29,7 @@ from utils import mxou_platform
 
 LOCAL_TENANT = main_mod._key_user_id("local")
 
-PASSWORD = "s3cr3t-密码-@!xYz"
+PASSWORD = os.getenv("TEST_MOCK_PASSWORD", "mock-pass-not-a-credential")
 
 LOGIN_OK = {
     "access_token": "at-1",
