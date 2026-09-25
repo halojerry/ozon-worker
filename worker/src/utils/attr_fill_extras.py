@@ -346,6 +346,32 @@ def apply_class_defaults_and_numerics(
             except Exception:
                 pass
 
+        # A8b⑤ 数值派生的字典属性感知（gate 实证：tp=93720 类目 6788 容量是
+        # 字典属性，A1 塞 dictionary_value_id=0 的文本被 validate 拦——同
+        # attr_id 跨类目形态不同，落卡前必须查 schema 的 dictionary_id）。
+        def _fill_numeric(attr: dict, aid: int, aname: str, txt: str, layer: str) -> bool:
+            if int(attr.get("dictionary_id") or 0) <= 0:
+                attrs.append({"id": aid, "values": [{"value": txt}]})
+                existing.add(aid)
+                _log(aid, aname, txt, layer)
+                logger.info("✅ %s 补齐 %s(%s) = %s", layer, aname, aid, txt)
+                return True
+            try:
+                _hits = search_dictionary_values(
+                    _cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, txt) or []
+            except Exception:
+                _hits = []
+            _res = find_dict_value_id(_hits, txt) if _hits else None
+            if not (_res and int(_res[0] or 0) > 0):
+                logger.info("⏭️ %s 跳过字典属性 %s(%s): 字典无命中 值=%s", layer, aname, aid, txt)
+                return False
+            attrs.append({"id": aid, "values": [
+                {"dictionary_value_id": int(_res[0]), "value": str(_res[1] or txt)}]})
+            existing.add(aid)
+            _log(aid, aname, str(_res[1] or txt), layer, int(_res[0]))
+            logger.info("✅ %s 补齐 %s(%s) = %s (dict_id=%s)", layer, aname, aid, _res[1], _res[0])
+            return True
+
         for attr in schema:
             if not isinstance(attr, dict):
                 continue
@@ -386,19 +412,13 @@ def apply_class_defaults_and_numerics(
             # ② 体积派生（标题 ml/L 正则）
             vol = facts.get("volume_ml")
             if vol and _name_hit(al, _VOL_NAME_KEYS, _VOL_NAME_EXCLUDE):
-                attrs.append({"id": aid, "values": [{"value": str(vol)}]})
-                existing.add(aid)
-                _log(aid, aname, str(vol), "title_numeric")
-                logger.info("✅ 标题数值补齐 %s(%s) = %s ml", aname, aid, vol)
+                _fill_numeric(attr, aid, aname, str(vol), "title_numeric")
                 continue
 
             # ③ 每包数量派生
             cnt = facts.get("package_count")
             if cnt and _name_hit(al, _COUNT_NAME_KEYS):
-                attrs.append({"id": aid, "values": [{"value": str(cnt)}]})
-                existing.add(aid)
-                _log(aid, aname, str(cnt), "title_numeric")
-                logger.info("✅ 标题数值补齐 %s(%s) = %s", aname, aid, cnt)
+                _fill_numeric(attr, aid, aname, str(cnt), "title_numeric")
                 continue
 
             # ④ 尺寸串（item 自身 dims，毫米）
@@ -411,10 +431,7 @@ def apply_class_defaults_and_numerics(
                     d = w = h = 0
                 if d > 0 and w > 0 and h > 0:
                     dims_str = f"{d}x{w}x{h}"
-                    attrs.append({"id": aid, "values": [{"value": dims_str}]})
-                    existing.add(aid)
-                    _log(aid, aname, dims_str, "dims_string")
-                    logger.info("✅ 尺寸串补齐 %s(%s) = %s", aname, aid, dims_str)
+                    _fill_numeric(attr, aid, aname, dims_str, "dims_string")
                     continue
         return items
     except Exception as _e:
@@ -564,7 +581,7 @@ def build_llm_schema_prompt(
         "   系统会查字典验证，验证不过会自动丢弃、不会上卡，所以不必过度保守；",
         "   但绝不编造资料/图片中完全没有的事实（品牌、认证、精确尺寸除外——图片可见可估）。",
         "3. 类型为 Boolean 的属性只输出 true/false（仅当资料/图片能确认）。",
-        "4. 数值属性输出纯数字（不带单位）。",
+        "4. 数值属性输出纯数字（不带单位）。产品图上可见的容量/体积/数量（瓶身标注、包装文字）可以读出填入——图片是可靠证据。",
         "5. 品牌名称一律不填（资料视为无品牌）。",
         "",
         f"商品标题: {str(t.get('title') or '')[:120]}",
@@ -683,35 +700,93 @@ def apply_llm_schema_fill(
                 continue
 
             if meta.get("dict", 0) > 0:
-                try:
-                    hits = search_dictionary_values(
-                        _cid, _key, aid, int(dc) if dc else 0, int(tp) if tp else 0, sval) or []
-                except Exception:
-                    hits = []
-                if not hits:
-                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 字典无命中 值=%s", aid, aname, sval[:30])
-                    continue
-                res = unique_or_none(aid, aname, hits)
-                dict_id, final_val = 0, ""
-                if res.status == "matched" and res.dictionary_value_id > 0:
-                    dict_id, final_val = res.dictionary_value_id, res.value or sval
-                else:
+                # A8b③ 近义候选归一放宽（gate 实证 6383 材质「Нержавеющая сталь」
+                # 撞字典 3 个同义写法被剥）：search 命中多候选时，若**全部候选**
+                # 拉丁/西里尔归一后互相一致（同一概念的不同拼写），取字典序第一
+                # ——确定性规则，不是猜；候选语义真正分歧时仍剥（宁缺红线）。
+                def _norm_txt(sv: str) -> str:
+                    _t = sv.lower().replace("ё", "е")
+                    _t = re.sub(r"[.\-_/]", " ", _t)
+                    return re.sub(r"\s+", " ", _t).strip()
+
+                def _same_concept(a: str, b: str) -> bool:
+                    """归一后同概念：全等，或逐词互为前缀缩写（нерж.↔нержавеющая）。
+
+                    缩写判定要求两侧词长 ≥3（防止虚词/单字母误判），逐词位置
+                    对应；词数不同直接不同概念（宁缺红线）。
+                    """
+                    if a == b:
+                        return True
+                    _ta, _tb = a.split(), b.split()
+                    if len(_ta) != len(_tb) or not _ta:
+                        return False
+                    return all(
+                        _x == _y or (len(_x) >= 3 and len(_y) >= 3
+                                     and (_x.startswith(_y) or _y.startswith(_x)))
+                        for _x, _y in zip(_ta, _tb))
+
+                def _resolve_one(sv: str, _aid: int = aid, _aname: str = aname,
+                                 _cid: str = _cid, _key: str = _key,
+                                 _dc: str = dc, _tp: str = tp) -> tuple[int, str] | None:
+                    """单值字典解析：search + 唯一命中/颜色全等/近义归一放宽。
+
+                    循环变量经默认参数固化（B023）：本函数在循环体内定义并
+                    立即调用，无延迟引用，绑定只为静态检查与语义显式化。
+                    """
+                    try:
+                        _hits = search_dictionary_values(
+                            _cid, _key, _aid, int(_dc) if _dc else 0, int(_tp) if _tp else 0, sv) or []
+                    except Exception:
+                        _hits = []
+                    if not _hits:
+                        return None
+                    _res = unique_or_none(_aid, _aname, _hits)
+                    if _res.status == "matched" and _res.dictionary_value_id > 0:
+                        return int(_res.dictionary_value_id), str(_res.value or sv)
                     # 颜色类全等放宽（v082 T2 同款语义）
-                    _is_color = aid in (10096, 10097) or "цвет" in aname.lower() or "颜色" in aname
-                    _eq = next((h for h in hits if str((h or {}).get("value") or "").strip().lower()
-                                == sval.lower()), None) if _is_color else None
-                    if not (_eq and int(_eq.get("id") or 0) > 0):
-                        logger.info("⏭️ schema-LLM 剥除 %s(%s): 字典 %s 候选无唯一/全等 值=%s",
-                                    aid, aname, len(hits), sval[:30])
-                        continue  # 多候选/无命中 → 剥
-                    dict_id, final_val = int(_eq["id"]), str(_eq.get("value") or sval)
-                if any('\u4e00' <= ch <= '\u9fff' for ch in final_val):
-                    final_val = ""  # 中文值清空，dict_id 权威
-                attrs.append({"id": aid, "values": [
-                    {"dictionary_value_id": dict_id, "value": final_val}]})
+                    _is_color = _aid in (10096, 10097) or "цвет" in _aname.lower() or "颜色" in _aname
+                    _eq = next((h for h in _hits if str((h or {}).get("value") or "").strip().lower()
+                                == sv.lower()), None) if _is_color else None
+                    if _eq and int(_eq.get("id") or 0) > 0:
+                        return int(_eq["id"]), str(_eq.get("value") or sv)
+                    # A8b③ 全候选互相归一/缩写一致 → 同一概念多写法，取字典序第一
+                    _vals = [str((h or {}).get("value") or "") for h in _hits
+                             if str((h or {}).get("value") or "").strip()]
+                    _first_v = min(_vals)
+                    _fn = _norm_txt(_first_v)
+                    if all(_same_concept(_fn, _norm_txt(v)) for v in _vals[1:]):
+                        _first = next(h for h in _hits
+                                      if str((h or {}).get("value") or "") == _first_v)
+                        if int(_first.get("id") or 0) > 0:
+                            logger.info("🔀 schema-LLM 近义归一 %s(%s): %d 候选同概念 → %s",
+                                        _aid, _aname, len(_hits), _first.get("value"))
+                            return int(_first["id"]), str(_first.get("value") or sv)
+                    logger.info("⏭️ schema-LLM 剥除 %s(%s): 字典 %s 候选无唯一/全等/归一 值=%s",
+                                _aid, _aname, len(_hits), sv[:30])
+                    return None
+
+                # A8b② 集合类多值拆分（gate 实证 6829「带支架；含盖」整串查字典
+                # 恒无命中）：is_collection 属性按分隔符拆分逐值解析，命中的
+                # 逐个落卡（Ozon collection 契约本就收数组）；单值行为不变。
+                _parts = ([p.strip() for p in re.split(r"[;；,，、/]", sval) if p.strip()]
+                          if meta.get("collection") and len(sval) > 2 else [sval])
+                _resolved: list[dict] = []
+                for _p in _parts:
+                    _hit = _resolve_one(_p)
+                    if _hit:
+                        _dv, _fv = _hit
+                        if any('\u4e00' <= ch <= '\u9fff' for ch in _fv):
+                            _fv = ""  # 中文值清空，dict_id 权威
+                        _resolved.append({"dictionary_value_id": _dv, "value": _fv})
+                if not _resolved:
+                    continue  # 全部未命中（含无命中/多分歧）→ 剥，日志已在 _resolve_one 打
+                attrs.append({"id": aid, "values": _resolved})
                 existing.add(aid)
-                _log_llm(_task, aid, aname, final_val or str(dict_id), _tenant, dict_id)
-                logger.info("✅ schema-LLM 补齐 %s(%s) = %s (dict_id=%s)", aname, aid, final_val, dict_id)
+                _log_llm(_task, aid, aname, "; ".join(str(v["value"] or v["dictionary_value_id"])
+                                                       for v in _resolved), _tenant,
+                         int(_resolved[0]["dictionary_value_id"]))
+                logger.info("✅ schema-LLM 补齐 %s(%s) = %s", aname, aid,
+                            "; ".join(str(v["value"]) for v in _resolved))
                 continue
 
             # 自由文本/数值

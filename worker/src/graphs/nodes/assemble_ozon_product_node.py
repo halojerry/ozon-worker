@@ -1078,6 +1078,36 @@ def _assemble_follow_sell(
 
     logger.info(f"✅ 跟卖组装完成: offer_id={offer_id}, images=[] (AI 图由 prepare 注入), price={price_rub}")
 
+    # v0.80.1 A8b: 跟卖组装分支补 hashtag 23171——主 CREATE 路径的生成段在
+    # _validate_and_enrich_items 内，跟卖分支此前不经过它 → schema 含 23171
+    # 的类目恒缺（新品 gate 调料罐单实测）。语义与主路径对齐：schema 有且
+    # 未填 → 生成俄语标签补齐（非品牌词、# 前缀）。
+    try:
+        _present_ids = {int(a.get("id", 0)) for a in attrs_for_payload if isinstance(a, dict)}
+        _schema_ids = {int(a.get("id", 0)) for a in attr_list if isinstance(a, dict)}
+        if 23171 in _schema_ids and 23171 not in _present_ids:
+            _tkw: list[str] = []
+            try:
+                _tkw = list(((getattr(state, "envelope", None) or {}).get("extensions", {}) or {})
+                            .get("traffic_keywords") or [])
+            except Exception:
+                _tkw = []
+            _tags = _generate_hashtags(title, traffic_keywords=_tkw)
+            if _tags:
+                attrs_for_payload.append({
+                    "complex_id": 0,
+                    "id": 23171,
+                    "values": [{"dictionary_value_id": 0, "value": _tags}],
+                })
+                final_attrs_flat.append({
+                    "attribute_id": 23171,
+                    "value": _tags,
+                    "dictionary_value_id": 0,
+                })
+                logger.info(f"   ✅ hashtag #23171 跟卖分支补充生成: {_tags}")
+    except Exception as _e:
+        logger.warning(f"hashtag 跟卖分支生成失败（不影响主流程）: {_e}")
+
     return {
         "ozon_payload": {"items": items},
         "final_attributes": final_attrs_flat,
