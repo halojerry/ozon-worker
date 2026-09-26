@@ -32,8 +32,8 @@ import logging
 from utils.ozon_client import ozon_post
 from utils.ozon_errors import OzonError
 from utils.title_sanitizer import sanitize_title
+from utils.safe_template import render_safe_mapping
 from typing import Dict, List, Any, Optional
-from jinja2 import Template
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 
@@ -754,8 +754,7 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
     sp: str = cfg.get("sp", "")
     up: str = cfg.get("up", "")
 
-    up_tpl: Template = Template(up)
-    user_prompt: str = up_tpl.render(context_vars)
+    user_prompt: str = render_safe_mapping(up, context_vars)
 
     model = llm_config.get("model", "deepseek-v4-flash-vision-exp")
     temperature = llm_config.get("temperature", 0.3)

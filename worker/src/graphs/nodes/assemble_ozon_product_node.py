@@ -27,13 +27,13 @@ from urllib.parse import urlparse
 import requests
 from pathlib import Path
 from typing import Any, Optional
-from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from storage.database.db import get_session
 
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
+from utils.safe_template import render_safe, render_safe_mapping  # v0.81: jinja2 全量切沙箱（Mimosa SSTI 加固）
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import (
     get_category_query, OzonCategoryQuery,
@@ -3093,10 +3093,8 @@ def _llm_match_category(
         sp_template = cfg.get("sp", "")
         up_template = cfg.get("up", "")
 
-        sp_tpl = Template(sp_template)
-        up_tpl = Template(up_template)
-
-        system_prompt = sp_tpl.render({})
+        # v0.81: 渲染走 SandboxedEnvironment 沙箱（utils/safe_template，Mimosa SSTI 加固）
+        system_prompt = render_safe(sp_template)
 
         # 准备模板变量
         attr_flat = {}
@@ -3105,7 +3103,7 @@ def _llm_match_category(
                 if isinstance(v, (str, int, float)):
                     attr_flat[k] = str(v)
 
-        user_prompt = up_tpl.render({
+        user_prompt = render_safe_mapping(up_template, {
             "title": title,
             "description": description[:500] if description else "",
             "attributes": attr_flat,
