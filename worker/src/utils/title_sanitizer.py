@@ -18,8 +18,23 @@ _MARKETING_WORDS_EN: set = {
 
 # ── 西里尔字符正则 ──
 _CYRILLIC_RE = re.compile(r'[а-яА-ЯёЁ]')
+# ≥4 字符西里尔词（判断标题是否含「真实词」而非单位残壳/标点碎屑——Вт/шт 等单位词 ≤3 字符不计）
+_CYRILLIC_WORD_RE = re.compile(r'[а-яА-ЯёЁ]{4,}')
+# LLM 去拉丁词的破坏性改写守卫用（词 = 连续 ≥2 西里尔字符）
+_CYRILLIC_WORD_COUNT_RE = re.compile(r'[а-яА-ЯёЁ]{2,}')
 _LATIN_RE = re.compile(r'[a-zA-Z]{2,}')
 _CJK_RE = re.compile(r'[\u4e00-\u9fff]+')
+
+
+def has_cyrillic_word(text: str) -> bool:
+    """含 ≥4 字符西里尔词 → True（Вт/шт/мл 等单位残壳不算词）。
+
+    v0.81 止血批新增，sanitize_title_structure 与 ozon_validate_node 名称闸共用
+    同一判定，禁止两处各自维护阈值。
+    """
+    if not text or not isinstance(text, str):
+        return False
+    return bool(_CYRILLIC_WORD_RE.search(text))
 
 
 def sanitize_title(title: str, token: str = "", use_llm: bool = False) -> str:
@@ -91,7 +106,16 @@ def _remove_latin_llm(text: str, token: str) -> str:
             timeout=30,
         )
         if result and _CYRILLIC_RE.search(result):
-            return result.strip()
+            # ✅ v0.81 止血批：破坏性改写守卫——LLM 输出的西里尔词数 < 输入一半
+            # 视为丢词残壳（曾产出把多词标题删到只剩单词），弃用走正则兜底。
+            _in_words = len(_CYRILLIC_WORD_COUNT_RE.findall(text))
+            _out_words = len(_CYRILLIC_WORD_COUNT_RE.findall(result))
+            if _out_words * 2 >= _in_words:
+                return result.strip()
+            logger.warning(
+                "LLM 去拉丁词疑似破坏性改写（西里尔词 %d→%d），弃用走正则兜底: %r",
+                _in_words, _out_words, result[:60],
+            )
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退正则
     except Exception as e:
@@ -141,3 +165,84 @@ def _ensure_punctuation(text: str) -> str:
     if len(text) > 30 and not any(ch in punct_chars for ch in text):
         text = text.rstrip() + "."
     return text
+
+
+# ── v0.81 上架质量止血：标题结构闸 ──────────────────────────────────────────
+# 根因（实锤）：LLM 拿单位词填空槽产出「Портативный вентилятор, Вт, скоростей」
+# 「, 1」「Перчатки, , для повседневной носки」「Средство для ухода за волосами,
+# 120,3 мл」，全链验收只有 _has_cyrillic → 坏标题原样上卡。本函数按逗号切段
+# 剔单位残壳 + 结构不合格判定，让坏标题流入 prepare 既有公式重生成/类目兜底链。
+# 契约：纯函数不 raise；空/畸形输入返回 (原样, True)。
+
+# 单位词表（俄语单位，含西里尔拼写；大小写不敏感）
+_STRUCTURE_UNIT_WORDS: tuple = (
+    "шт", "мл", "л", "г", "кг", "см", "мм", "вт", "мач",
+)
+_UNIT_TOKEN_RE = re.compile(r"^\d+(?:[.,]\d+)?$")
+# 俄语小数逗号模式（「120,3 мл」——逗号被切段器拆开，必须在切段前判定）
+_DECIMAL_COMMA_UNIT_RE = re.compile(r"(\d),(\d{1,2})\s*(мл|л|г|кг|см)\b", re.IGNORECASE)
+# 整体仅数字/标点（无任何文字）
+_ONLY_DIGITS_PUNCT_RE = re.compile(r"^[\d\s,.\-]+$")
+
+
+def _is_unit_shell_segment(seg: str) -> bool:
+    """单位残壳段判定：段内所有 token 都是纯数字或单位词，且**不含「数字+单位」
+    组合**——「90 Вт」这类含真实数字的规格段不得剔（除线价/功率是真信息）；
+    「Вт」「1」「мл」这类缺另一半的残壳才剔。"""
+    tokens = [t.strip(".,") for t in seg.split()]
+    if not tokens or any(not t for t in tokens):
+        tokens = [t for t in tokens if t]
+    if not tokens:
+        return True  # 全是点/空白
+    has_num = has_unit = False
+    for tok in tokens:
+        low = tok.lower()
+        if _UNIT_TOKEN_RE.match(tok):
+            has_num = True
+        elif low in _STRUCTURE_UNIT_WORDS:
+            has_unit = True
+        else:
+            return False  # 出现任意真实词 → 非残壳
+    return not (has_num and has_unit)  # 数字+单位组合（如 90 Вт）≠ 残壳
+
+
+def sanitize_title_structure(title: str) -> tuple:
+    """标题结构闸：剔单位残壳段 + 结构不合格判定。
+
+    Returns:
+        (cleaned_title, structurally_bad: bool)
+        - 归一：连续逗号合一、strip 首尾 `,-–— `、多余空格合一
+        - 按逗号切段：剔空段；剔「单位残壳段」（仅数字/空白/点/单位词且非唯一段；
+          含真实数字的规格段如「90 Вt」不剔）
+        - 不合格（True）：清洗后无 ≥4 字符西里尔词 / 总长 <10 / 整体仅数字标点 /
+          命中俄语小数逗号单位模式（如「120,3 мл」）
+        - 不 raise：空/非字符串输入返回 (原样, True)
+    """
+    if not isinstance(title, str) or not title.strip():
+        return title, True
+    try:
+        # 归一：连续逗号合一 + 空白合一 + 首尾杂符剥离
+        t = re.sub(r',\s*,+', ', ', title)
+        t = re.sub(r'\s+', ' ', t).strip()
+        t = t.strip(' ,-–—')
+        # 小数逗号单位模式必须在逗号切段前判定（切段会把 120,3 拆散）
+        decimal_comma_bad = bool(_DECIMAL_COMMA_UNIT_RE.search(t))
+        segments = [s.strip() for s in t.split(',')]
+        non_empty = [s for s in segments if s]
+        # 剔空段；残壳段仅在「非唯一段」时剔（单段残壳保留，交不合格判定兜底）
+        kept = [
+            s for s in non_empty
+            if not _is_unit_shell_segment(s) or len(non_empty) <= 1
+        ]
+        cleaned = ", ".join(kept).strip(' ,-–—')
+        if not cleaned:
+            cleaned = t  # 全段被剔 → 保守返回归一原串，由下方不合格判定兜底
+        bad = (
+            decimal_comma_bad
+            or not has_cyrillic_word(cleaned)
+            or len(cleaned) < 10
+            or bool(_ONLY_DIGITS_PUNCT_RE.fullmatch(cleaned))
+        )
+        return cleaned, bad
+    except Exception:
+        return title, True

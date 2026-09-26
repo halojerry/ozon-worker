@@ -2138,6 +2138,30 @@ def _resolve_weight_dimensions(draft: dict, extensions: dict | None = None) -> t
         draft.get("weight", 0), dims_obj, extensions or {}
     )
 
+    # ✅ v0.81 上架质量止血：箱级毛重 reconcile（唯一入口
+    # utils/weight_dimension_normalizer.reconcile_weight_with_attrs，写法对齐
+    # 下方 weight_adjusted_for_volume 的 marks 留痕）。skill 信封 weight 常是
+    # 1688 包装表第一行=箱级毛重（30支香 962g vs 卡属性「商品重量=50g」实锤），
+    # 仅 3×比值 + 候选≥10g 才采信候选；reasons 进既有审计通道，
+    # weight_lot_reconciled 键随 payload 审计留痕。必须在体积密度兜底之前
+    # （floor 上调消费的是 reconcile 后的最终重量）。
+    from utils.weight_dimension_normalizer import reconcile_weight_with_attrs
+
+    _w_before_reconcile = weight_g
+    weight_g, _reconcile_marks = reconcile_weight_with_attrs(
+        weight_g, draft.get("attributes", {}) if isinstance(draft, dict) else {}
+    )
+    if _reconcile_marks:
+        marks["reasons"].extend(_reconcile_marks)
+        marks["weight_lot_reconciled"] = {
+            "from": int(_w_before_reconcile),
+            "to": int(weight_g),
+        }
+        logger.warning(
+            "⚖️ 箱级毛重 reconcile: %sg→%sg（信封重 ≥3× 1688 单件重属性，采信属性）",
+            int(_w_before_reconcile), int(weight_g),
+        )
+
     # ✅ v0.73 Issue4（ML_INCORRECT_VOLUME_WEIGHT 防复发）：normalizer 对真实值
     # 只标疑不改写（轻物保护不变），但低密度真实值（相机 56g/0.375 g/cm³）会被
     # Ozon ML 拒且原值重发再拒。此处对**最终 payload 重量**做 0.40 g/cm³ 兜底
@@ -2531,10 +2555,23 @@ def prepare_ozon_upload_node(
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
     title_ru = sanitize_title(title_ru, token=mxou_token, use_llm=True)
+    # ✅ v0.81 上架质量止血：标题结构闸（唯一入口 utils/title_sanitizer.
+    # sanitize_title_structure）——剔单位残壳段 + 判结构不合格（无≥4字符西里尔词/
+    # 总长<10/纯数字标点/俄语小数逗号单位模式如「120,3 мл」）。不合格并入下方
+    # 兜底触发条件，让坏标题（「Портативный вентилятор, Вт, скоростей」类实锤）
+    # 自然流入既有公式重生成/类目兜底链。
+    from utils.title_sanitizer import sanitize_title_structure
+    title_ru, _title_struct_bad = sanitize_title_structure(title_ru)
+    if _title_struct_bad:
+        logger.warning("⚠️ 标题结构闸判定不合格（残壳段/空槽/小数逗号），转入公式重生成: %r", title_ru[:60])
 
     # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
     _latin_re_title = re.compile(r'[a-zA-Z]')
-    if not title_ru or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru)):
+    if (
+        not title_ru
+        or _title_struct_bad
+        or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru))
+    ):
         logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
         try:
             from utils.mxou_api import call_mxou_chat_api
@@ -3313,7 +3350,9 @@ def prepare_ozon_upload_node(
         10350: "40",              # 最高温度 °C
         10351: "0",               # 最低温度 °C
         8787: "сухое место",      # 储存条件
-        8050: "полимерные материалы",  # 成分（默认聚合物材料）
+        # ⚠️ v0.81 止血批：8050（成分/Состав）硬编码默认「полимерные материалы」
+        # 已删除——所有商品被塞同一成分属虚假描述（Ozon 审核风险 + 卡面失真实锤）。
+        # 缺失交由 attr_defaults 语义链/宁缺毋滥跳过，不再文本兜底。
     }
     for attr_id, default_val in _FALLBACK_FREE_TEXT_ATTRS.items():
         if attr_id in seen_attr_ids:
@@ -3430,6 +3469,12 @@ def prepare_ozon_upload_node(
             **(
                 {"weight_adjusted_for_volume": _wav}
                 if (_wav := _resolve_weight_dimensions._wd_marks.get("weight_adjusted_for_volume"))
+                else {}
+            ),
+            # ✅ v0.81: 箱级毛重 reconcile 留痕（{"from","to"}，未 reconcile 时省略键）
+            **(
+                {"weight_lot_reconciled": _wlr}
+                if (_wlr := _resolve_weight_dimensions._wd_marks.get("weight_lot_reconciled"))
                 else {}
             ),
         },

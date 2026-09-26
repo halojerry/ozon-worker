@@ -13,6 +13,7 @@ from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_a
 from utils.category_consistency_lexicon import sets_overlap
 from utils.cos_uploader import is_cos_url
 from utils.secure_fetch import safe_fetch
+from utils.title_sanitizer import has_cyrillic_word  # v0.81 名称结构闸（与标题结构闸同源判定）
 from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
@@ -541,6 +542,15 @@ def ozon_validate_node(
                 if _chinese_re.search(item_name):
                     item_errors.append(f"item[{i}].name含中文字符（Ozon要求俄语名称）: {item_name[:60]}")
                     logger.error(f"❌ item[{i}]名称含中文字符: {item_name[:80]}")
+                # ✅ v0.81 上架质量止血：名称结构闸——无 ≥4 字符西里尔词（单位残壳
+                # Вт/шт/мл 与标点碎屑不算词，判定与 title_sanitizer.has_cyrillic_word
+                # 同源共享）→ item_errors。⚠️ 不受 authoritative 类目降级豁免影响
+                # （该豁免只属于上方标题-类目交集闸），LLM 空槽坏标题必须在此拦截。
+                if not has_cyrillic_word(item_name):
+                    item_errors.append(
+                        f"item[{i}].name无≥4字符西里尔词（疑似单位残壳/空槽坏标题）: {item_name[:60]}"
+                    )
+                    logger.error(f"❌ item[{i}]名称无有效西里尔词: {item_name[:80]}")
 
             # 检查description字段（商品简介）
             description = item.get("description", "")
@@ -764,7 +774,9 @@ def ozon_validate_node(
         # 本地预检）——零交集标题×类目是 Ozon 事后必拒项，必须判 critical 拦在上传前。
         # ✅ v0.69 镜像闸: 新增关键词「全外链」——Ozon 抓外链失败=必拒（IMAGE_ERROR
         # declined 实证），与「不可访问」同级的上传前硬拦。
-        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "全外链", "超出", "无法解析", "标题与类目不一致"])]
+        # ✅ v0.81 止血批: 新增关键词「西里尔词」——name 无 ≥4 字符西里尔词（单位
+        # 残壳/空槽坏标题）是 DESCRIPTION_DECLINE 必拒项，名称结构闸必须判 critical。
+        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "全外链", "超出", "无法解析", "标题与类目不一致", "西里尔词"])]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(
