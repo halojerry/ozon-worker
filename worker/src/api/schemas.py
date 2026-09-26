@@ -65,7 +65,7 @@ class SubmitTaskRequest(BaseModel):
     但 schema 只描述标准格式。
     """
     model_config = _examples({
-        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "token": "__TOKEN_EXAMPLE__",
         "ozon_client_id": "5381204",
         "ozon_api_key": "mock-key-not-a-credential",
         "envelope": _ENVELOPE_EXAMPLE,
@@ -207,7 +207,7 @@ class TaskStatisticsResponse(BaseModel):
 
 class AuthVerifyRequest(BaseModel):
     """Skill 鉴权请求。"""
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "client_id": "5381204", "api_key": "mock-key-not-a-credential"})
+    model_config = _examples({"token": "__TOKEN_EXAMPLE__", "client_id": "5381204", "api_key": "mock-key-not-a-credential"})
     token: str = Field(..., description="MXOU_TOKEN")
     client_id: str = Field("", description="Ozon Client ID（可选）")
     api_key: str = Field("", description="Ozon API Key（可选）")
@@ -307,7 +307,7 @@ class DraftCreate(BaseModel):
 
     Worker 剥离凭证（AES-256-GCM 加密存 credentials 表），payload 只存 envelope。
     """
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx", "ozon_client_id": "", "ozon_api_key": "", "envelope": _ENVELOPE_EXAMPLE, "source": "skill"})
+    model_config = _examples({"token": "__TOKEN_EXAMPLE__", "ozon_client_id": "", "ozon_api_key": "", "envelope": _ENVELOPE_EXAMPLE, "source": "skill"})
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     ozon_client_id: str = Field("", description="Ozon 卖家 Client-Id（剥离存储）")
     ozon_api_key: str = Field("", description="Ozon 卖家 Api-Key（剥离加密存储）")
@@ -383,7 +383,7 @@ class DraftSubmitRequest(BaseModel):
     （template_id/scheduled_at 为 v0.7x 定时上架/模板配置面）。
     """
     model_config = _examples({
-        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "token": "__TOKEN_EXAMPLE__",
         "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
         "update_product_id": None,
         "template_id": None,
@@ -878,7 +878,7 @@ class DraftAiRequest(BaseModel):
     请求体仅携带 token（与全站一致：token 在 body 而非 header）；
     草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。
     """
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx"})
+    model_config = _examples({"token": "__TOKEN_EXAMPLE__"})
     token: str = Field(..., description="mxou API Key（用于 LLM 调用与鉴权）")
 
 
@@ -1224,7 +1224,7 @@ class MxouLoginResponse(BaseModel):
         "balance": 128.4,
         "keys": [{"id": "tok_01", "name": "default", "masked": True, "status": 1}],
         "selected_key_id": "tok_01",
-        "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "key": "__API_KEY_EXAMPLE__",
         "session_expires_at": "2026-09-11T23:59:59",
         "role": "user",
     })
@@ -1244,7 +1244,7 @@ class MxouKeyCreateRequest(BaseModel):
 
 class MxouKeyCreateResponse(BaseModel):
     """新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。"""
-    model_config = _examples({"id": "tok_02", "name": "webui", "key": "sk-yyyyyyyyyyyyyyyyyyyy"})
+    model_config = _examples({"id": "tok_02", "name": "webui", "key": "__API_KEY_EXAMPLE__"})
     id: str = Field(..., description="token id")
     name: str = Field(..., description="token 名称")
     key: str = Field(..., description="新建密钥完整值（仅此一次返回）")
@@ -1252,7 +1252,7 @@ class MxouKeyCreateResponse(BaseModel):
 
 class MxouKeySelectResponse(BaseModel):
     """切换密钥响应（key 仅此一次返回——用户复制后不再可查）。"""
-    model_config = _examples({"key": "sk-yyyyyyyyyyyyyyyyyyyy"})
+    model_config = _examples({"key": "__API_KEY_EXAMPLE__"})
     key: str = Field(..., description="所选密钥完整值（仅此一次返回）")
 
 
@@ -1274,7 +1274,7 @@ class DraftBatchSubmitRequest(BaseModel):
     """POST /drafts/batch-submit 请求体（≤50 条逐条提交，失败不阻断其余）。"""
     model_config = _examples({
         "ids": ["a1b2c3d4-0000-4000-8000-000000000001", "a1b2c3d4-0000-4000-8000-000000000004"],
-        "token": "sk-xxxxxxxxxxxxxxxxxxxx",
+        "token": "__TOKEN_EXAMPLE__",
         "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
     })
     ids: List[str] = Field(..., description="草稿 ID 列表（最多取前 50 条）")
@@ -1315,5 +1315,5 @@ class DraftBatchImportRequest(BaseModel):
 
 class TaskImageRegenRequest(BaseModel):
     """POST /tasks/{id}/images/{slot}/regen 请求体（Bearer 优先，body token 兜底，可整体省略）。"""
-    model_config = _examples({"token": "sk-xxxxxxxxxxxxxxxxxxxx"})
+    model_config = _examples({"token": "__TOKEN_EXAMPLE__"})
     token: str = Field("", description="MXOU API Key（Authorization: Bearer 缺席时的兜底；可省略）")

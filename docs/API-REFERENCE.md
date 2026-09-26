@@ -1500,7 +1500,7 @@ Create Draft
   "ozon_api_key": "",
   "ozon_client_id": "",
   "source": "skill",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1566,7 +1566,7 @@ Batch Submit Drafts — 批量提交草稿(≤50):逐条进行中守卫;返回 s
     "a1b2c3d4-0000-4000-8000-000000000001",
     "a1b2c3d4-0000-4000-8000-000000000004"
   ],
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1769,7 +1769,7 @@ Draft Ai Field — 单字段 AI 重新生成（T14b）：只读，返回 RU 值�
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1802,7 +1802,7 @@ Draft Assemble — 一键预组装（v0.70）：LLM 生成整卡上架信息并�
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1868,7 +1868,7 @@ Resubmit Draft — 失败/被拒草稿重新提交(进行中 → 409)。
 ```json
 {
   "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1923,7 +1923,7 @@ Submit Draft
 ```json
 {
   "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -2301,7 +2301,7 @@ Create Mxou Key — 新建密钥（响应含完整 key 仅一次；同时幂等 
 ```json
 {
   "id": "tok_02",
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "key": "__API_KEY_EXAMPLE__",
   "name": "webui"
 }
 ```
@@ -2342,7 +2342,7 @@ Select Mxou Key — 切换密钥：解出明文 key（仅此一次返回）+ 幂
 
 ```json
 {
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+  "key": "__API_KEY_EXAMPLE__"
 }
 ```
 
@@ -2360,7 +2360,7 @@ Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本�
 ```json
 {
   "balance": 128.4,
-  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "key": "__API_KEY_EXAMPLE__",
   "keys": [
     {
       "id": "tok_01",
@@ -3356,7 +3356,7 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
   "ozon_client_id": "5381204",
   "priority": 0,
   "timeout_seconds": 1800,
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -3599,7 +3599,7 @@ Regen Task Image
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -4488,7 +4488,7 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 ```json
 {
   "id": "tok_02",
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "key": "__API_KEY_EXAMPLE__",
   "name": "webui"
 }
 ```
@@ -4525,7 +4525,7 @@ MXOU API Key 条目（脱敏展示，绝不含 full_key）。
 
 ```json
 {
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+  "key": "__API_KEY_EXAMPLE__"
 }
 ```
 
@@ -4547,7 +4547,7 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 ```json
 {
   "balance": 128.4,
-  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "key": "__API_KEY_EXAMPLE__",
   "keys": [
     {
       "id": "tok_01",
