@@ -112,6 +112,10 @@ class GlobalState(BaseModel):
     attributes_adjusted: Annotated[List[Dict[str, Any]], operator.add] = Field(
         default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
     )
+    # ✅ v0.81 内容评分闭环：过审后复检审计块 {rating, filled, skipped, media_gap,
+    # action, ...}——fetch_back 写入，与 pricing_info 同级透出 GraphOutput
+    # （唯一入口 utils/content_enrich；防抖：非空即不再复检）。
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（fetch_back 写入）")
 
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
@@ -281,6 +285,9 @@ class GraphOutput(BaseModel):
     attributes_adjusted: List[Dict[str, Any]] = Field(
         default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
     )
+    # ✅ v0.81 内容评分闭环：审计块透出（与 pricing_info 同级；output_schema 按名
+    # 过滤——GlobalState 同名通道加进 GraphOutput 即透传，任务终态/取证可见）
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（rating/filled/skipped/media_gap）")
     notice: str = Field(default="", description="中文可读失败说明")
 
 
@@ -963,6 +970,10 @@ class FetchBackInput(BaseModel):
     attributes_schema: list = Field(default_factory=list, description="属性Schema（备用）")
     description_category_id: str = Field(default="", description="Ozon类目ID")
     type_id: str = Field(default="", description="Ozon类型ID")
+    # ✅ v0.81 内容评分闭环：复检闭环证据面（channel 纪律：不声明=静默拿不到）
+    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿（draft.attributes 中文证据，可填属性裁决）")
+    pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（UPDATE 回显 price/old_price/currency_code）")
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（非空=本任务已复检，防抖）")
 
 
 class FetchBackOutput(BaseModel):
@@ -970,6 +981,8 @@ class FetchBackOutput(BaseModel):
     progress_counter: int = Field(default=25, description="节点计数器（更新为25）")
     fetch_back_result: Dict[str, Any] = Field(default_factory=dict,
                                               description="回读 diff 结果（mismatches/erased/defaulted_by_ozon/stored_attrs）")
+    content_rating: Dict[str, Any] = Field(default_factory=dict,
+                                           description="内容评级复检审计块（rating/filled/skipped/media_gap，非致命）")
 
 
 # ==================== 修复结果判断在 graph.py 的 should_learn_after_repair 中处理 ====================

@@ -19,11 +19,25 @@ from runtime.context import Context
 # F-F01（2026-09-09 审计）：收敛 ozon_post（全局限流 + 429/5xx 重试 + 类型化错误）
 from utils.ozon_client import ozon_post
 
+# ✅ v0.81 内容评分闭环：唯一逻辑入口 utils/content_enrich（与 prepare 出口闸/
+# 清扫脚本三方共用）
+from utils.content_enrich import (
+    RATING_THRESHOLD,
+    build_enrich_update_body,
+    enrichment_enabled,
+    extract_improve_attrs,
+    parse_rating_products,
+    pick_product,
+    rating_groups_summary,
+)
+
 logger = logging.getLogger(__name__)
 
 from graphs.state import FetchBackInput, FetchBackOutput
 
 _API = "/v4/product/info/attributes"
+# 内容评级查询（2026-09-26 实机契约：POST body {"skus": ["<product_id>"]}）
+_RATING_API = "/v1/product/rating-by-sku"
 
 # 遥测命名空间（结构化日志，Sentry/日志分析用）：attr.outcome
 _ATTR_OUTCOME = "attr.outcome"
@@ -75,6 +89,109 @@ def _normalize_stored_attrs(stored_item: Dict[str, Any]) -> Dict[int, Dict[str, 
 
 def _contains_cjk(text: str) -> bool:
     return any('\u4e00' <= ch <= '\u9fff' for ch in str(text or ""))
+
+
+def _content_rating_enhance(
+    state: FetchBackInput,
+    product_id: str,
+    stored_item: Dict[str, Any],
+) -> Dict[str, Any]:
+    """v0.81 内容评分闭环（过审后 reactive 层，非致命）。
+
+    过审拿到 product_id 后：rating-by-sku 复检 →
+      - rating >= 90：只记录评级，结束；
+      - rating < 90：取 groups[].improve_attributes → 可填集非空才动作——
+        拉现卡 /v4 全量回显（stored_item 即本节点首查产物）+ 扁平 dimensions +
+        price/old_price/currency + images 回显 + 新填属性（4191/11254 专用生成器 +
+        fillable_improves 保守裁决）→ 一次 /v3/product/import UPDATE。
+
+    防抖：state.content_rating 非空 = 本任务已复检过，跳过。任何异常 warning +
+    审计块留痕，绝不 fail 任务（增强失败不影响已过审的卡）。被 Ozon 擦掉的值
+    （erased_attribute_value）是警告不是失败——本步 fire-and-forget 不轮询 import/info。
+    """
+    audit: Dict[str, Any] = {
+        "product_id": str(product_id),
+        "threshold": RATING_THRESHOLD,
+        "action": "skipped",
+        "filled": [],
+        "skipped": [],
+        "media_gap": [],
+    }
+    if not enrichment_enabled():
+        audit["reason"] = "env_gate_off"
+        return audit
+
+    # ① 评级复检
+    resp = ozon_post(
+        state.ozon_client_id, state.ozon_api_key,
+        _RATING_API,
+        {"skus": [str(product_id)]},
+        timeout=20,
+        language="RU",
+    )
+    products = parse_rating_products(resp)
+    product = pick_product(products, product_id)
+    if not product:
+        audit["reason"] = "no_rating_data"
+        return audit
+    try:
+        rating = float(product.get("rating") or 0)
+    except (ValueError, TypeError):
+        rating = 0.0
+    audit["rating"] = rating
+    audit["groups"] = rating_groups_summary(product)
+    logger.info("⭐ 内容评级复检 product_id=%s rating=%.0f groups=%s", product_id, rating, audit["groups"])
+
+    # ② 达标即收（防抖：fresh import 后评级每日重算，达标卡不再动）
+    if rating >= RATING_THRESHOLD:
+        audit["action"] = "above_threshold"
+        return audit
+
+    # ③ 可填裁决 + UPDATE 构造（唯一入口 build_enrich_update_body）
+    improves = extract_improve_attrs(product)
+    try:
+        schema_by_id = {
+            int(s.get("id") or 0): s
+            for s in (state.attributes_schema or []) if isinstance(s, dict) and s.get("id")
+        }
+    except (ValueError, TypeError):
+        schema_by_id = {}
+    draft_attrs = {}
+    if isinstance(state.draft, dict) and isinstance(state.draft.get("attributes"), dict):
+        draft_attrs = state.draft["attributes"]
+    pricing = state.pricing_info if isinstance(state.pricing_info, dict) else {}
+
+    body, audit_partial = build_enrich_update_body(
+        product_id,
+        stored_item,
+        improves,
+        draft_attrs,
+        schema_by_id,
+        price=pricing.get("price"),
+        old_price=pricing.get("old_price"),
+        currency_code=str(pricing.get("currency_code") or "CNY"),
+    )
+    audit.update(audit_partial)
+    if not body:
+        audit.setdefault("reason", "nothing_to_fill")
+        logger.info("⭐ 内容评级 %s 无可填缺口（%s），不动作", rating, audit.get("reason"))
+        return audit
+
+    # ④ 一次 UPDATE（fire-and-forget；erased_attribute_value 类是警告非失败）
+    import_resp = ozon_post(
+        state.ozon_client_id, state.ozon_api_key,
+        "/v3/product/import", body, timeout=60,
+    )
+    audit["action"] = "updated"
+    try:
+        audit["import_task_id"] = str(((import_resp or {}).get("result") or {}).get("task_id") or "")
+    except Exception:
+        audit["import_task_id"] = ""
+    logger.info(
+        "⭐ 内容评级增强 UPDATE 已提交 product_id=%s rating=%.0f filled=%s skipped=%s media_gap=%s",
+        product_id, rating, audit["filled"], audit["skipped"], audit["media_gap"],
+    )
+    return audit
 
 
 def fetch_back_node(
@@ -183,4 +300,28 @@ def fetch_back_node(
             len(defaulted_by_ozon), defaulted_by_ozon,
         )
 
-    return FetchBackOutput(fetch_back_result=result, progress_counter=25)
+    # ✅ v0.81 内容评分闭环（复检闭环，非致命）：approved + product_id 在手 +
+    # /v4 回显现成 → 评级复检，<90 且有可填缺口时一次全量回显 UPDATE。
+    # 防抖：content_rating 非空 = 本任务已复检。任何异常只 warning 留痕，
+    # 绝不影响任务成功（卡已过审）。
+    content_rating_audit: Dict[str, Any] = dict(getattr(state, "content_rating", None) or {})
+    if content_rating_audit:
+        logger.info("fetch_back: 内容评级已复检过（防抖），跳过增强")
+    else:
+        try:
+            content_rating_audit = _content_rating_enhance(state, product_id, stored_item)
+        except Exception as exc:
+            content_rating_audit = {
+                "product_id": str(product_id),
+                "action": "error",
+                "reason": str(exc)[:200],
+            }
+            logger.warning("fetch_back: 内容评级增强异常（非致命，不影响任务）: %s", str(exc)[:300])
+
+    result["content_rating"] = content_rating_audit
+
+    return FetchBackOutput(
+        fetch_back_result=result,
+        content_rating=content_rating_audit,
+        progress_counter=25,
+    )
