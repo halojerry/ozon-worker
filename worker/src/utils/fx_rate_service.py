@@ -22,12 +22,20 @@ exchange_rate_fallback），供审计「价格离谱是否源于兜底汇率」�
 import logging
 import time
 from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 
 logger = logging.getLogger(__name__)
 
+# SSRF 复核留痕（v0.81 安全批，Mimosa 扫描）：_FX_API_URL 是模块构建时常量
+# （公开汇率 API open.er-api.com），非用户输入、全仓无任何拼接/覆盖出口，
+# 出站目标不可被请求方操控——无 SSRF 面。加载时断言 scheme 白名单 +
+# host 非空，防未来误改成 file/ftp 等或留空（给扫描器复核留下明确证据）。
 _FX_API_URL = "https://open.er-api.com/v6/latest/CNY"
+assert urlparse(_FX_API_URL).scheme in ("http", "https") and urlparse(
+    _FX_API_URL
+).netloc, f"_FX_API_URL 必须是合法 http(s) URL，当前: {_FX_API_URL!r}"
 _FX_HTTP_TIMEOUT = 10          # 秒；er-api 免 key 免费档，超时即放弃走兜底
 _FALLBACK_RATE = 12.0          # 与 pricing_node 历史兜底值逐字一致
 _REFRESH_INTERVAL = 86400      # 24h 节流（与 get_exchange_rate 新鲜度窗口一致）

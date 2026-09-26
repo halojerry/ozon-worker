@@ -1,10 +1,12 @@
 import os
 import json
 import asyncio
+import ipaddress  # _validate_notify_url 内网/元数据地址判定（v0.81 SSRF 加固）
 import logging
 import requests  # 任务终态 webhook 通知（P1-4）
 import traceback as _traceback
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse  # _validate_notify_url（v0.81 SSRF 加固）
 from utils.logger import get_logger, set_trace_context, log_task_event, clear_trace_context
 from datetime import datetime
 from supabase import Client
@@ -239,6 +241,54 @@ def _upsert_shop_usage(conn, ozon_client_id, *, task_delta=1, approved_delta=0,
         logger.warning("shop_usage_stats 埋点写入失败（不影响主流程）: %s", e)
 
 
+def _validate_notify_url(url: str, allow_private: bool = False) -> Optional[str]:
+    """任务通知 webhook URL 安全校验（v0.81 SSRF 加固）。
+
+    TASK_NOTIFY_URL 来自环境变量（运维配置），但 worker 是多租户共享进程，
+    一旦 env 被误配/注入到内网地址（元数据 169.254.169.254、K8s service、
+    loopback 等），每次任务终态都会带任务摘要外打内网。本函数返回拒绝原因
+    字符串，None=放行：
+
+    - scheme 必须是 http/https（拒 file/ftp/gopher 等）——恒拒，不受
+      allow_private 影响（file:// 永远不是合法通知目标）；
+    - hostname 为 localhost / *.localhost / *.internal 后缀 → 拒
+      （allow_private=True 可放行，如生产内网服务就叫 xxx.internal）；
+    - host 是字面 IP 时拒内网/保留段：127.0.0.0/8、10/8、172.16/12、
+      192.168/16、169.254/16（云元数据）、::1、fe80::/10、fc00::/7、
+      0.0.0.0、组播/未指定地址（allow_private=True 可放行）；
+    - 公网域名不做 DNS 解析（运维配置面信任域名拼写；生产 notify 目标若
+      确为内网服务，显式设 TASK_NOTIFY_ALLOW_PRIVATE=1 放行内网判定）。
+
+    通知是非致命旁路：被拒时调用方只 warning + 跳过发送，绝不抛出。
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "URL 解析失败"
+    if parsed.scheme not in ("http", "https"):
+        return f"scheme 非法: {parsed.scheme!r}（仅允许 http/https）"
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return "缺少 host"
+    if (
+        host == "localhost" or host.endswith(".localhost") or host.endswith(".internal")
+    ) and not allow_private:
+        return f"内网主机名: {host}"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None  # 公网域名，放行
+    # IPv4-mapped IPv6（::ffff:10.0.0.1）回折成 v4 再判，防绕过
+    if ip.version == 6 and getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    if (
+        ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_reserved
+        or ip.is_multicast or ip.is_unspecified
+    ) and not allow_private:
+        return f"内网/保留地址: {host}"
+    return None
+
+
 def _send_task_notify(task_id, status, graph_result, payload) -> None:
     """任务终态 webhook 通知（P1-4，fire-and-forget，绝不抛出）。
 
@@ -246,6 +296,8 @@ def _send_task_notify(task_id, status, graph_result, payload) -> None:
     或 payload 顶层 notify=True（skill --notify 传入，经 raw dict 存储直通）。
     命中后向 URL POST 终态摘要 {task_id, status, product_summary,
     error_message, product_id, ozon_client_id}（timeout=5s）。
+    URL 过 _validate_notify_url 校验（v0.81 SSRF 加固）：被拒/解析失败只
+    warning + 跳过发送（通知是非致命旁路），不影响任务主流程。
     任何异常只 log warning，不影响任务主流程。
     """
     try:
@@ -254,6 +306,17 @@ def _send_task_notify(task_id, status, graph_result, payload) -> None:
             return
         if not env_url:
             logger.warning("notify 已请求但未配置 TASK_NOTIFY_URL，跳过 webhook 通知")
+            return
+        # v0.81 SSRF 加固：scheme/host 校验恒生效；内网判定可被
+        # TASK_NOTIFY_ALLOW_PRIVATE=1 显式放行（生产 notify 目标可能是内网
+        # worker）。被拒只 warning + 跳过发送，不影响任务主流程。
+        _allow_private = os.environ.get("TASK_NOTIFY_ALLOW_PRIVATE") == "1"
+        reject_reason = _validate_notify_url(env_url, allow_private=_allow_private)
+        if reject_reason:
+            logger.warning(
+                "TASK_NOTIFY_URL 未通过安全校验（%s），跳过 webhook 通知；"
+                "若目标确为内网服务请设 TASK_NOTIFY_ALLOW_PRIVATE=1", reject_reason
+            )
             return
         graph_result = graph_result or {}
         draft = ((payload or {}).get("envelope") or {}).get("draft") or {}
@@ -280,6 +343,8 @@ async def _send_task_notify_async(task_id, status, graph_result, payload) -> Non
     _send_task_notify 内是阻塞 requests.post（最多 5s）——在 async
     process_next_task 中直接调用会阻塞整个事件循环（30 并发 worker 全部卡住）。
     用 asyncio.to_thread 丢线程池，不阻塞事件循环。
+    v0.81 SSRF 加固：URL 安全校验在同步版 _send_task_notify 内统一执行，
+    本 async 版经 to_thread 复用同一校验路径，无需重复实现。
     """
     await asyncio.to_thread(_send_task_notify, task_id, status, graph_result, payload)
 
