@@ -829,7 +829,14 @@ def _extract_weight_dimensions(raw: dict[str, Any]) -> dict[str, Any]:
         val = raw.get(key)
         if val:
             try:
-                result["weight_grams"] = int(float(str(val).replace("g", "").replace("克", "").strip()))
+                # fix/listing-quality-v081: 字符串带小数点按 kg→g（对齐 worker
+                # weight_dimension_normalizer._parse_weight_g 口径）——offer_detail
+                # 重量字段是小数 kg 语义（"9.15"→9150g），旧裸 int() 截断成 9g
+                # 流入物流定价（运费/利润全错）。
+                if isinstance(val, str) and "." in val:
+                    result["weight_grams"] = int(float(val) * 1000)
+                else:
+                    result["weight_grams"] = int(float(str(val).replace("g", "").replace("克", "").strip()))
             except (ValueError, TypeError) as e:
                 logger.debug('weight parse failed for key=%s val=%s: %s', key, val, e)
 
