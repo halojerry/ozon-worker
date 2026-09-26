@@ -163,7 +163,9 @@ def route_intent(text: str) -> dict:
             if _weak:
                 return _route("B", "follow", ["--ozon-url", url],
                               note="弱意图——follow 缺省即展示 1688 候选，用户确认后加 --auto-submit")
-            return _route("B", "follow", ["--ozon-url", url])
+            # arch-findings 修复：强意图跟卖必须带 --auto-submit（follow 缺省只展示不提交，
+            # 旧返回会导致 agent 照令牌执行后零动作，与 SKILL.md §1 二分法「明确意图→直提」相悖）
+            return _route("B", "follow", ["--ozon-url", url, "--auto-submit"])
         return _route("C", "discover", ["--url", url])
 
     # ② 图片意图（无 URL）→ D1：图搜结果须用户确认再 graph，绝不直接上架

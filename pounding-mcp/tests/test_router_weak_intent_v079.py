@@ -38,7 +38,9 @@ def test_ozon_url_explicit_follow_direct():
     r = route_intent("跟卖 https://www.ozon.ru/product/12345/")
     assert r["pipeline"] == "B"
     assert r["needs_confirmation"] is False
-    assert "--auto-submit" not in r["args"]    # 提交腿由 agent 按口径加参
+    # arch-findings 修复：强意图由 router 直带 --auto-submit（follow 缺省只展示，
+    # 旧口径「agent 按需加参」实际导致照令牌执行零提交）
+    assert "--auto-submit" in r["args"]
 
 
 def test_route_schema_has_note_field():
