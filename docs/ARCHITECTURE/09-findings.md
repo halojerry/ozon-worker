@@ -3,6 +3,11 @@
 > 来源：2026-09-25 九路并行深读（skill 链 / graph 骨架 / 类目 / 属性 / 定价 / 图片 / 校验重试 / 模型矩阵 / 生态）+ 关键锚点人工抽查复核。
 > 分级：🔴 行为级 bug（影响线上结果）· 🟠 一致性/门禁缺口（双源分叉、防线绕过）· 🟡 质量/成本 · 📚 文档与口径漂移 · ✅ 已知 defer（确认仍在，不算新发现）。
 > 每条带锚点；修前先读对应分域文档的上下文。
+>
+> **处置进度（2026-09-26）**：
+> - **PR #73（fix/arch-findings-v1，已合 dev）**：Top10 #1/#2/#3/#4/#6/#7/#8/#10 全修；#5 三腿统一+search 三闸+展示态 preflight；CI 13/13 绿（3243 passed Docker）。
+> - **fix/handover-batch-v1（本批）**：#5 最后一块——follow 腿补 `_source_preflight`（直提拦 exit 3 / 入箱 warning / 展示态警示）；router A/B 强意图 `--wait` + 新增「查进度」意图类（ROUTER_VERSION v2，/ask 接线；「上传」词经核为伪命题——D1 先截住，测试锁定）；`VariantLoopState` 补 token（测试保真度）；#4-图片 `is_cos_url` 收紧为 hostname 感知 + `COS_PUBLIC_DOMAIN` 纳入；`--wait`×`--to-box` 全腿显式警告；field_mapping.md 纠偏（文件实际存在，早期记录有误——DOC_FILES 静默跳过改显式警告 + 死条目测试锁）。
+> - 仍开放：batch_test 不进 heavy 闸（defer）、follow 6h 缓存无按 ns 精清、`cos.evil.com` 型完整标签敌意域仍过 host 检查（key 前缀兜底）、/ask query 无 `--watch`、webui 提交错误归因过粗、其余 🟡 项。
 
 ---
 
@@ -53,7 +58,7 @@
 ### 图片链（Top10 #1 外）
 - 🟠 social_proof 降级循环缺 MxouModelConfigError break（对比 main:138-145 有）——配置错模型重复 POST。
 - 🟡 main 节点双层降级链可能重复 POST 同一坏模型（API 层从 fast 下一级起步、节点层又从 fast 开始）。
-- 🟠 `is_cos_url` 域判定子串过松（`"cos." in host`）——`mycos.evil.com` 误判本方 COS；上卡闸靠 key 前缀兜住，但「唯一事实源」第一层名不副实（image_url_guard.py:68）。
+- ✅ `is_cos_url` 域判定子串过松（原 `"cos." in host`）——已修（handover 批：hostname 感知，myqcloud 后缀/`cos` 完整标签/COS_PUBLIC_DOMAIN 三通道，伪装域 `mycos.evil.com` 收口并有测试锁定；残余：`cos.evil.com` 型完整标签域仍过 host 检查，key 前缀兜底）。
 - 🟡 validate_plan 死代码——纯 Phase2 plan 静默连锁跳过全部生图。
 - 🟡 多 SKU 主图优先级注释与代码矛盾（注释称 variant 优先，代码 main 优先，prepare:3467 vs :3477）。
 - 📚 LOCAL_IMAGES_MISSING / CARD_IMAGE_MISMATCH / VARIANT_NOT_MERGED 自由字符串码未收进 errors.py 枚举（自称统一错误码体系）。

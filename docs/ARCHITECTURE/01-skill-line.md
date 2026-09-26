@@ -11,7 +11,7 @@
 | 命令 | 闸 | 调用链要点 | 出口码 |
 |---|---|---|---|
 | `check` `--logs [id]` | 无 | `cmd_check:1089`：浏览器→CDP 自启→1688 登录→aibuy 反爬 cookie→Ozon DataDome→seller 会话探针(`probe_seller_session_alive`,ozon_seller_analytics.py:1273，只看状态码)→凭证→Sentry→/health→余额→Ozon API 鉴权 | 0/1 |
-| `search` | 无 | `cmd_search:338`→AK 搜索→本地利润估算(366-390)→批量 `_submit_one:455`（**绕过 preflight/min-margin/density**，见 09-#6） | 恒 0 |
+| `search` | 无 | `cmd_search:338`→AK 搜索→本地利润估算(366-390)→批量 `_submit_one:455`（**已接三闸**：preflight 无条件 + min-margin/min-density flag 缺省 0=关；全拦/全败 exit 3） | 0/1/3 |
 | `graph` | ✅ | `cmd_graph:713`→readiness→`parse_platform_url` 分派→`build_graph_envelope_with_retry`→竞品属性透传(789-810)→预估+min-margin(852)→preflight(882)/min-density(894)→submit→`--wait`→`_wait_task_terminal:154` | 1/2/3/0 |
 | `follow` | ✅ | `cmd_follow:1514`→`cloud_probe.follow_sell_cloud:4010`→低利润 exit 3(1573)→`--wait` | 1/3/0 |
 | `discover` | ✅ | `cmd_discover:1715`→fx 三级(1726)→readiness→蓝海行(1757)→`collect_and_analyze:820`→可选 fission(1812)→`_finish_discover_flow:1846`（挑选→`match_selected:1949`→评审→导出→`build_envelope_from_discovery:2163` 批量提交） | 2/1/0 |
@@ -94,7 +94,7 @@ purchase_url/purchase_cost(2501-2503)、source_category_path/category_id(2504-25
 | 门禁 | 实现 | 行为 |
 |---|---|---|
 | `_heavy_gate` 跨进程锁 | cli.py:640-693；锁 `data/locks/heavy_cdp.lock`（flock，lock_utils.py:41-70）；受闸六命令 discover/discover-multi/discover-task/graph/follow/seller；**batch_test 进程内直调不进闸**（见 09-#12） | 被占 exit 4 + 人话 holder 信息；`--wait` 30s 心跳排队(622)；`--force` 跳(652) |
-| `_source_preflight` | cloud_probe.py:1206-1237：图>0 且属性=0→反爬嫌疑；purchase_cost≤0→源失效 | graph 腿 cli.py:882-891 拦 exit 3，`--to-box` 只 warning 放行；**follow 腿未接线**（09-#5） |
+| `_source_preflight` | cloud_probe.py:1206-1237：图>0 且属性=0→反爬嫌疑；purchase_cost≤0→源失效 | graph 腿 cli.py:882-891 拦 exit 3，`--to-box` 只 warning 放行；follow 腿已接线（提交段 `blocked_reason=source_preflight` → exit 3；展示态仅警示） |
 | `--min-margin` | `_min_margin_block_reason:128`；graph cli.py:852 / follow 在 follow_sell_cloud:4608（缓存命中也过闸 4071） | exit 3（blocked_reason=low_margin） |
 | `--min-density` | `_check_min_density`（cloud_probe.py:1240） | exit 3 |
 | `--no-submit` | cli.py:859-861 跳过整个提交段（**连 preflight 也跳**，09-#9） | 展示态，NEXT 提示确认后重跑 |

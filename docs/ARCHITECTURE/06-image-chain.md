@@ -14,7 +14,7 @@
 
 - 三个消费 API：`has_generated_images:99`（任一 ai，b64 兜底计入）、`enforce_upload_policy:106`（全 ai[+salvage] 才放行）、`salvage_fallback_enabled:124`。
 - `ImageGenAllFailedError`（:55）**故意非永久**——整任务自动重试一轮，重试仍全败才终态 failed。
-- ⚠️ `is_cos_url` 域判定是**子串**（`.myqcloud.com` 或 `cos.`，image_url_guard.py:68）——`mycos.evil.com` 会误判本方 COS（上卡闸靠 key 前缀兜住，09-#4-图片）。
+- ✅ `is_cos_url` 域判定已收紧为 **hostname 感知**（2026-09-26 handover 批）：urlparse 取 host → myqcloud 后缀 / `cos` 完整域标签 / `COS_PUBLIC_DOMAIN` env 域三者其一；路径/查询串不参与判定——`mycos.evil.com/file/images/x.jpg` 类伪装域不再误判本方 COS（上卡闸的 key 前缀仍是最后防线）。
 
 ## 2. 参考图入炉
 
