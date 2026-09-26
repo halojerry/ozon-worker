@@ -157,6 +157,8 @@ def ozon_validate_node(
                 validation_errors=validation_errors,
                 auto_fixed=False,
                 error_message="Payload结构验证失败",
+                # ✅ v0.80 arch-findings #7: 失败出口带码（留存表 error_code 归因）
+                error_code="LOCAL_VALIDATION_FAILED",
                 is_valid=False,
                 stages={"ozon_validate": "failed"}
             )
@@ -668,6 +670,8 @@ def ozon_validate_node(
                 validation_errors=validation_errors,
                 auto_fixed=auto_fixed,
                 error_message=f"Payload验证失败: {len(critical_errors)}个严重错误",
+                # ✅ v0.80 arch-findings #7: 失败出口带码（留存表 error_code 归因）
+                error_code="LOCAL_VALIDATION_FAILED",
                 is_valid=False,
                 stages={"ozon_validate": "failed"}
             )
@@ -704,6 +708,9 @@ def ozon_validate_node(
             validation_errors=[f"预检测异常: {str(e)}"],
             auto_fixed=False,
             error_message=str(e),
+            # ✅ v0.80 arch-findings #7: 异常出口同带码（下游 retry/wrapper 崩溃等
+            # 未走子图终态路径时，留存表仍有码可归因）
+            error_code="LOCAL_VALIDATION_FAILED",
             is_valid=False,
             stages={"ozon_validate": "failed"}
         )

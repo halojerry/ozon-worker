@@ -219,9 +219,10 @@ def test_estimate_returns_commission_source(monkeypatch):
     """无显式佣金 + 类目佣金缓存命中 → 响应含 commission_rate + commission_source。
 
     Given: 信封无 commission_rate（extensions 移除）+ draft.ozon_category 指定类目
-    When:  mock get_category_commission 返回分段（fbs_leq_1500=8.0%），调用 estimate
-    Then:  响应 commission_rate=0.08, commission_source="cache:leq_1500"
-           （CNY 无汇率 → 售价段走保守 leq_1500，与 pricing_node 同源解析链）
+    When:  mock get_category_commission 返回分段（fbs_leq_5000=10.5%），调用 estimate
+    Then:  响应 commission_rate=0.105, commission_source="cache:leq_5000"
+           （CNY 无汇率 → 无价走中性档 leq_5000，与 pricing_node/回填手工兜底同源；
+           ✅ v0.80 中性档统一：原锁 leq_1500，leq_1500 低佣段会低估佣金，见 09-findings §定价 #6）
     """
     from services import estimate_service
 
@@ -253,8 +254,8 @@ def test_estimate_returns_commission_source(monkeypatch):
         monkeypatch,
         payload=envelope,
     )
-    assert result["commission_source"] == "cache:leq_1500"
-    assert result["commission_rate"] == 0.08
+    assert result["commission_source"] == "cache:leq_5000"
+    assert result["commission_rate"] == 0.105
 
 
 # ══════════════════════════════════════════════════════════════════

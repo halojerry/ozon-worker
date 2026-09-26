@@ -138,8 +138,8 @@ class TaskStatusResponse(BaseModel):
         "progress": {
             "stage": "image_generation",
             "percent": 53,
-            "stages_completed": ["auth", "ingest", "category_match", "pricing", "attributes", "description"],
-            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"],
+            "stages_completed": ["auth", "check_quota", "ingest", "category_match", "pricing", "attributes", "description"],
+            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "ozon_upload", "ozon_status", "learning_record"],
             "message": "生成主图 2/5",
         },
     })
@@ -956,8 +956,8 @@ class TaskListItem(BaseModel):
         "status": "running",
         "progress": {
             "stage": "image_generation", "percent": 53,
-            "stages_completed": ["auth", "ingest", "category_match", "pricing", "attributes", "description"],
-            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"],
+            "stages_completed": ["auth", "check_quota", "ingest", "category_match", "pricing", "attributes", "description"],
+            "stages_remaining": ["image_generation", "prepare_ozon_upload", "ozon_validate", "ozon_upload", "ozon_status", "learning_record"],
             "message": "生成主图 2/5",
         },
         "product_summary": [],

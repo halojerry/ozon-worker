@@ -446,54 +446,88 @@ def cmd_search(args: argparse.Namespace) -> int:
     # （同一信封构建链，仅提交端点不同：submit_task vs POST /drafts）
     if args.auto_submit or args.to_box:
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from scripts.cloud_probe import submit_envelope, submit_draft
-        from scripts.cloud_probe import build_graph_envelope_with_retry
+        from scripts.cloud_probe import (
+            _check_min_density,
+            _source_preflight,
+            submit_envelope,
+            submit_draft,
+            build_graph_envelope_with_retry,
+        )
         _threads = max(1, min(int(getattr(args, "threads", 3) or 3), 8))
         _submitted = 0
         _failed = 0
+        _blocked = 0  # arch-findings #5: 门禁拦截单独计数（跳过不提交，非提交失败）
 
         def _submit_one(p):
+            # 返回 (product|None, 消息, 是否门禁拦截)
             _pid = p.get("product_id") or p.get("itemId") or p.get("id", "")
             if not _pid:
-                return None, "no product_id"
+                return None, "no product_id", False
             try:
                 _graph = build_graph_envelope_with_retry(
                     item_id=str(_pid),
                     detail_url=f"https://detail.1688.com/offer/{_pid}.html",
                     store_id=args.store or "",
                 )
+                _env = _graph.get("envelope", {}) if isinstance(_graph, dict) else {}
+                _draft = _env.get("draft", {}) if isinstance(_env, dict) else {}
+                # ✅ arch-findings #5: 门禁对齐 graph 单腿——此前批量腿绕过全部闸
+                # （反爬页/失效源/低利润/低密度信封静默直上 worker）。被拦项按
+                # 跳过计 ✗ 不提交；阈值口径与 graph 一致（缺省 0=不拦截）。
+                _ok_src, _why_src = _source_preflight(_draft)
+                if not _ok_src:
+                    return None, _why_src, True
+                _ok_d, _why_d = _check_min_density(
+                    _draft, float(getattr(args, "min_density", 0.0) or 0.0))
+                if not _ok_d:
+                    return None, _why_d, True
+                _est = _estimate_and_print(_draft, args.store or "")
+                _block = _min_margin_block_reason(
+                    _est, float(getattr(args, "min_margin", 0.0) or 0.0))
+                if _block:
+                    return None, _block.removeprefix("❌ "), True
                 if args.to_box:
                     _resp = submit_draft(_graph)
                     if _resp.get("draft_id"):
-                        return p, f"draft_id={_resp['draft_id']}"
-                    return None, _resp.get("error")
+                        return p, f"draft_id={_resp['draft_id']}", False
+                    return None, _resp.get("error"), False
                 _resp = submit_envelope(_graph)
                 if _resp.get("ok"):
-                    return p, f"task_id={_resp.get('task_id')}"
+                    return p, f"task_id={_resp.get('task_id')}", False
                 else:
-                    return None, _resp.get("error")
+                    return None, _resp.get("error"), False
             except Exception as _e:
-                return None, str(_e)
+                return None, str(_e), False
 
         with ThreadPoolExecutor(max_workers=_threads) as _pool:
             _futures = {_pool.submit(_submit_one, p): p for p in estimated}
             for _f in as_completed(_futures):
-                _p, _msg = _f.result()
+                _p, _msg, _is_block = _f.result()
+                _title = str(_futures[_f].get("title"))[:30]
                 if _p is not None:
                     _submitted += 1
                     _verb = "已入采集箱" if args.to_box else "已提交"
-                    print(f"  ✓ {_verb} {str(_p.get('title'))[:30]} → {_msg}", flush=True)
+                    print(f"  ✓ {_verb} {_title} → {_msg}", flush=True)
+                elif _is_block:
+                    _blocked += 1
+                    print(f"  ✗ 跳过（门禁拦截） {_title}: {_msg}", flush=True)
                 else:
                     _failed += 1
-                    print(f"  ✗ 提交失败 {str(_futures[_f].get('title'))[:30]}: {_msg}", flush=True)
+                    print(f"  ✗ 提交失败 {_title}: {_msg}", flush=True)
         _verb = "入箱" if args.to_box else "提交"
-        print(f"📦 批量{_verb}完成(线程 {_threads}): 成功 {_submitted} / 失败 {_failed}", flush=True)
+        _tail = f" / 门禁跳过 {_blocked}" if _blocked else ""
+        print(f"📦 批量{_verb}完成(线程 {_threads}): "
+              f"成功 {_submitted} / 失败 {_failed}{_tail}", flush=True)
         # v0.79 Task C1: search 批量出口 NEXT（task_id/draft_id 见上方逐行）
         if getattr(args, "to_box", False):
             _print_next("批量入箱完成——draft_id 见上方逐行，上架由用户到 WebUI 认领")
         elif not getattr(args, "wait", False):
             _print_next(f"已提交 {_submitted} 个云任务——需要终态时 "
                         "`python3 scripts/cli.py query <task_id> --watch` 逐个查询（分钟级，勿秒级轮询）")
+        # ✅ arch-findings #5: 退出码对齐——全部被拦/全部失败 → exit 3（原实现
+        # 恒 0 假成功）；部分成功 → 0。
+        if _submitted == 0 and (_blocked or _failed):
+            return 3
 
     _out({"count": len(estimated), "products": estimated})
     return 0
@@ -952,8 +986,33 @@ def cmd_graph(args: argparse.Namespace) -> int:
             _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
             return 3
     if getattr(args, 'no_submit', False):
-        _print_next("展示模式（--no-submit）——向用户展示信封与预估后等确认；"
-                    "确认上架则去掉 --no-submit 重跑本命令（可加 --wait 直达终态）")
+        # ✅ arch-findings #3: 展示态同样跑数据质量闸（原实现连 preflight 一起跳过，
+        # 反爬页 46 图 0 属性/失效源在展示态不可见，用户拿脏信封做决策无感知）。
+        # 与提交态唯一差异是处置力度：这里只 warning 不拦截（不 exit 3、不提交、
+        # 出口 0）——弱意图展示是人工决策输入，质量警示必须在场；真提交时
+        # 同一道闸仍会硬拦，双态口径不会分叉。
+        try:
+            from scripts.cloud_probe import _check_min_density, _source_preflight
+            _quality_warns: list[str] = []
+            _ok_src, _why_src = _source_preflight(draft)
+            if not _ok_src:
+                _quality_warns.append(_why_src)
+                print(f"⚠️ {_why_src}（--no-submit 展示态仅警示：确认上架前请先解决，"
+                      "去掉 --no-submit 提交时会被硬拦）", flush=True)
+            _ok_d, _why_d = _check_min_density(draft, getattr(args, 'min_density', 0))
+            if not _ok_d:
+                _quality_warns.append(_why_d)
+                print(f"⚠️ {_why_d}（--no-submit 展示态仅警示）", flush=True)
+        except Exception as _gate_e:  # 展示态门禁不可用不阻断展示，但必须出声
+            _quality_warns = []
+            print(f"⚠️ 展示态数据质量闸不可用（{_gate_e}），跳过 preflight/密度检查", flush=True)
+        if _quality_warns:
+            _print_next("展示模式（--no-submit）——信封存在数据质量警示（见上方 ⚠️ 行），"
+                        "向用户展示时须一并告知；确认上架则解决警示后去掉 --no-submit "
+                        "重跑本命令（可加 --wait 直达终态）")
+        else:
+            _print_next("展示模式（--no-submit）——向用户展示信封与预估后等确认；"
+                        "确认上架则去掉 --no-submit 重跑本命令（可加 --wait 直达终态）")
     _out({"summary": summary, "envelope": graph, "submit_result": submit_result})
     return 0
 
@@ -1281,7 +1340,12 @@ def cmd_check(args) -> int:
         if session_ok:
             _open_tab("https://www.1688.com/")
 
-    if session_ok and alibaba_cdp_ok or session_ok:
+    # ⚠️ 修复（arch-findings #1）：原表达式 `session_ok and alibaba_cdp_ok or session_ok`
+    # 因运算符优先级等价于 `session_ok`，alibaba_cdp_ok 恒无效果。按历史意图
+    # （dd5b34b2 两分支同体 + 「cookie 判定不要求已开 1688 标签页」注释）收敛为
+    # 显式 `if session_ok:`——登录检测不依赖 1688 标签页是否打开，勿改回
+    # `session_ok and alibaba_cdp_ok`（无 tab 时已登录会被漏报、未登录会被漏拦）。
+    if session_ok:
         print(f"  {_ok(login_ok)} 1688 已登录 (影响 1688 抓取)")
         if not login_ok:
             print("  → 需登录 1688")
@@ -2200,12 +2264,19 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
 
         # ✅ v0.78 批B3: --wait 一次性命令——提交成功后逐个轮询到终态
         # （缺省 fire-and-forget 零变化；--to-box 出口是 draft_id 非 worker 任务，不轮询）
+        # arch-findings #4: 终态 failed 必须回传——此前只打印不回传，exit 0 是假成功；
+        # 对齐 graph/follow 单腿语义（任一任务 failed → 命令 exit 3，全成功 → 0）。
         if (getattr(args, "wait", False) and submitted_task_ids
                 and not getattr(args, "to_box", False)):
             print(f"\n⏳ --wait: 等待 {len(submitted_task_ids)} 个任务到终态（每单最多 900s）...",
                   flush=True)
-            for _wt in submitted_task_ids:
-                _wait_task_terminal(_wt)
+            _wait_failed = [
+                _wt for _wt in submitted_task_ids
+                if str(_wait_task_terminal(_wt).get("status")) == "failed"
+            ]
+            if _wait_failed:
+                print(f"\n❌ --wait: {len(_wait_failed)}/{len(submitted_task_ids)} "
+                      "个任务终态 failed（原因见上方逐行）", flush=True)
 
     _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
@@ -2220,7 +2291,8 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     else:
         _print_next("本次为选品采集（未提交）——向用户汇报候选与运行报告；"
                     "用户确认后按 §1⑯ 双出口选择 --to-box（可自动）或 --auto-submit（须确认）重跑")
-    return 0
+    # arch-findings #4: --wait 终态 failed → exit 3（_wait_failed 仅在 wait 轮询腿赋值）
+    return 3 if locals().get("_wait_failed") else 0
 
 
 def _split_keywords(raw: str) -> list[str]:
@@ -2740,17 +2812,34 @@ _FILTERS_ANALYTICS_KEYS = frozenset({
     "create_days_min", "create_days_max", "weight_g_min", "weight_g_max",
 })
 
-# ai 档默认规则（阈值与 ozon_discovery.AI_PRESET 同源——reconcile 不重复实现，
-# 只在 --filters 显式命中同键时以显式值替换；销量阶梯单独处理）。
-_AI_DEFAULT_RULES: dict[str, tuple[str, str, float]] = {
-    "create_days_max": ("create_days", "<=", 365),            # 上架 ≤365 天
-    "competing_sellers_max": ("competing_sellers", "<=", 30),  # 跟卖 ≤30 人
-    "sales_growth_min": ("sales_growth", ">", 0),             # 月销售动态 > 0
-    "drr_max": ("drr", "<=", 15),                             # 广告份额 ≤15%
+# ai 档默认规则——单源化（arch-findings #2）：阈值/操作符唯一事实源 =
+# ozon_discovery.AI_PRESET / AI_SALES_LADDER（字面拷贝已删，改阈值只改库内一处）。
+# 本地只做「键名桥接」：--filters 规则键（*_min/*_max 域）↔ AI_PRESET 字段
+# （seller_count 即候选的 competing_sellers，_SELECTION_FIELDS 别名同源）。
+# AI_PRESET 新增/删改条目而未同步桥接 → import 期 KeyError 即暴露，不静默漂移。
+from scripts.lib.ozon_discovery import AI_PRESET, AI_SALES_LADDER  # noqa: E402
+
+_AI_FIELD_BRIDGE: dict[str, tuple[str, str]] = {
+    # AI_PRESET 字段 → (--filters 规则键, ProductCandidate 字段名)
+    "create_days": ("create_days_max", "create_days"),
+    "seller_count": ("competing_sellers_max", "competing_sellers"),
+    "sales_growth": ("sales_growth_min", "sales_growth"),
+    "drr": ("drr_max", "drr"),
 }
-# 销量阶梯（价格→月销下限，严格 >；上品帮 aiFilterData 同款）
-_AI_SALES_LADDER: tuple[tuple[float, int], ...] = (
-    (500, 500), (1000, 150), (5000, 30), (10000, 15), (float("inf"), 5))
+
+
+def _derive_ai_default_rules() -> dict[str, tuple[str, str, float]]:
+    """AI_PRESET → --filters 键域的 ai 默认规则（显式 rules 同键可覆盖）。"""
+    rules: dict[str, tuple[str, str, float]] = {}
+    for field, (op, val) in AI_PRESET.items():
+        rule_key, cand_field = _AI_FIELD_BRIDGE[field]
+        rules[rule_key] = (cand_field, op, val)
+    return rules
+
+
+_AI_DEFAULT_RULES: dict[str, tuple[str, str, float]] = _derive_ai_default_rules()
+# 销量阶梯（价格→月销下限，严格 >；上品帮 aiFilterData 同款）——同一单源。
+_AI_SALES_LADDER: tuple[tuple[float, float], ...] = tuple(AI_SALES_LADDER)
 _LADDER_KEY = "__ai_sales_ladder__"  # 合成规则表中的阶梯占位键（非请求键）
 
 
@@ -3306,11 +3395,18 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
 
         # ✅ v0.78 批B3: --wait 一次性命令——auto-submit 出口逐个轮询到终态
         # （缺省 fire-and-forget 零变化；draft_id 非 worker 任务不轮询）
+        # arch-findings #4: 终态 failed 必须回传 exit 3（对齐 graph/follow 单腿语义，
+        # 此前批量腿只打印不回传）。
         if getattr(args, "wait", False) and wait_task_ids and args.auto_submit:
             print(f"\n⏳ --wait: 等待 {len(wait_task_ids)} 个任务到终态（每单最多 900s）...",
                   flush=True)
-            for _wt in wait_task_ids:
-                _wait_task_terminal(_wt)
+            _wait_failed = [
+                _wt for _wt in wait_task_ids
+                if str(_wait_task_terminal(_wt).get("status")) == "failed"
+            ]
+            if _wait_failed:
+                print(f"\n❌ --wait: {len(_wait_failed)}/{len(wait_task_ids)} "
+                      "个任务终态 failed（原因见上方逐行）", flush=True)
 
     final_counts: dict[str, int] = {}
     for c in candidates:
@@ -3376,7 +3472,8 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     elif wait_task_ids and not getattr(args, "wait", False):
         _print_next(f"已提交 {len(wait_task_ids)} 个云任务——需要终态时 "
                     "`python3 scripts/cli.py query <task_id> --watch` 逐个查询（分钟级，勿秒级轮询）")
-    return 0
+    # arch-findings #4: --wait 终态 failed → exit 3（_wait_failed 仅在 wait 轮询腿赋值）
+    return 3 if locals().get("_wait_failed") else 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3516,6 +3613,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                           help="筛选后逐个入采集箱（POST /api/v1/drafts，WebUI 认领后再上架）")
     sp.add_argument("--threads", type=int, default=3,
                     help="auto-submit/to-box 并发线程数(默认 3,上限 8)")
+    # arch-findings #5: 批量腿门禁阈值旗标（与 graph 同口径：缺省 0=不拦截；
+    # preflight 反爬/失效源闸无条件生效，被拦项跳过计 ✗，全部被拦 exit 3）
+    sp.add_argument("--min-margin", type=float, default=0.0,
+                    help="最低预估利润率%%（低于则该条跳过不提交；默认 0=不拦截，与 graph 同口径）")
+    sp.add_argument("--min-density", type=float, default=0.0,
+                    help="最低密度 g/cm³（低于则该条跳过不提交；默认 0=不拦截，与 graph 同口径）")
     sp.set_defaults(func=cmd_search)
 
     # category（v0.39 Issue4: Ozon 类目查询，替代临时脚本）

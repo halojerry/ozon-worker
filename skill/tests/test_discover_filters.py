@@ -279,3 +279,36 @@ class TestIgnoredKeys:
         n, _ = cli._apply_discover_filters(
             [c], _filters({"monthly_sales_min": 100}), False)
         assert n == 0 and c.status == "error"
+
+
+# ── ⑦ ai 预设单源化（arch-findings #2）─────────────────────────────────────
+
+class TestAiPresetSingleSource:
+    """_AI_DEFAULT_RULES/_AI_SALES_LADDER 必须派生自 ozon_discovery.AI_PRESET，
+    本地不得再出现字面阈值（防双源漂移——改库内阈值即全链生效）。"""
+
+    def test_rules_derive_from_lib_preset(self):
+        from scripts.lib.ozon_discovery import AI_PRESET
+        # 阈值/操作符必须逐条一致（字段名经桥接映射：seller_count→competing_sellers）
+        assert len(cli._AI_DEFAULT_RULES) == len(AI_PRESET)
+        for field, (op, val) in AI_PRESET.items():
+            rule_key, cand_field = cli._AI_FIELD_BRIDGE[field]
+            assert cli._AI_DEFAULT_RULES[rule_key] == (cand_field, op, val)
+        # 桥接后键域必须落在 --filters 规则键白名单内（显式 rules 可覆盖的前提）
+        assert set(cli._AI_DEFAULT_RULES) <= set(cli._FILTERS_RULE_FIELDS)
+        assert set(AI_PRESET) == {"create_days", "seller_count",
+                                  "sales_growth", "drr"}
+
+    def test_ladder_is_lib_ladder_tuple(self):
+        from scripts.lib.ozon_discovery import AI_SALES_LADDER
+        assert cli._AI_SALES_LADDER == tuple(AI_SALES_LADDER)
+
+    def test_bridge_keys_align_candidate_fields(self):
+        """桥接第二位必须是 ProductCandidate 真实字段名（_passes 直取 getattr）。"""
+        for _key, (_field, cand_field) in {
+            "create_days_max": ("create_days", "create_days"),
+            "competing_sellers_max": ("seller_count", "competing_sellers"),
+            "sales_growth_min": ("sales_growth", "sales_growth"),
+            "drr_max": ("drr", "drr"),
+        }.items():
+            assert cli._AI_DEFAULT_RULES[_key][0] == cand_field

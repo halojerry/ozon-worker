@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Optional
 
-from utils.mxou_api import call_mxou_chat_api
+from utils.mxou_api import MxouOutOfQuotaError, call_mxou_chat_api
 from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
 # v0.70 预组装：estimate 服务（纯读派生）+ 类目树搜索单例。模块级 import 便于测试
 # monkeypatch；两者均只依赖 utils/storage，与本模块无循环导入。
@@ -320,6 +320,8 @@ def assemble_draft(payload: dict, token: str) -> dict:
                 assembled.append("title")
             else:
                 skipped.append("title")
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 余额/鉴权永久错误显式上抛（routes 层映射 402），不静默 skipped 假装成功
     except Exception as exc:
         logger.warning("assemble title 失败（跳过）: %s", str(exc)[:200])
         skipped.append("title")
@@ -346,6 +348,8 @@ def assemble_draft(payload: dict, token: str) -> dict:
                     skipped.append("description")
             else:
                 skipped.append("description")
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 同 title——余额错误上抛，不静默 skipped
     except Exception as exc:
         logger.warning("assemble description 失败（跳过）: %s", str(exc)[:200])
         skipped.append("description")
@@ -382,6 +386,8 @@ def assemble_draft(payload: dict, token: str) -> dict:
                             and not any(b in str(k) for b in ("Бренд", "бренд"))}
                 draft["ozon_attributes"] = _merge_ru_attributes(base, ru_attrs, protected)
                 assembled.append("attributes")
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 同 title——余额错误上抛，不静默 skipped
     except Exception as exc:
         logger.warning("assemble attributes 失败（跳过）: %s", str(exc)[:200])
         skipped.append("attributes")
@@ -398,6 +404,8 @@ def assemble_draft(payload: dict, token: str) -> dict:
                 assembled.append("tags")
             else:
                 skipped.append("tags")
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 同 title——余额错误上抛，不静默 skipped
     except Exception as exc:
         logger.warning("assemble tags 失败（跳过）: %s", str(exc)[:200])
         skipped.append("tags")

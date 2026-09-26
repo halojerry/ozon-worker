@@ -293,9 +293,11 @@ def _build_notice(error_type: str, error_message: str, upload_status: str,
                   decline_errors: list | None = None) -> str:
     """生成用户可读失败说明: 上传成功→空; 有映射→中文说明; 否则原始错误码摘要。
 
-    v0.67.1 wave①: 调用点改传 error_code（ERROR_NOTICE_MAP 的 18 条 code 级
+    v0.67.1 wave①: 调用点改传 error_code（ERROR_NOTICE_MAP 的 code 级
     说明此前因传 error_type 恒为 fixable/unfixable 而成死代码）；
     error_message 被 revalidate 清空时，兜底携带 decline_errors 里的俄语原文。
+    ⚠️ 条数以 len(ERROR_NOTICE_MAP) 为准（2026-09-25 核对 = 21 条）——历史上
+    本注释写死「18 条」随加码漂移失真，新增码后同步核对勿再写死旧数。
     """
     if upload_status == "success":
         return ""
@@ -328,6 +330,10 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "INVALID_PRICE": "repair_pricing",
     # ✅ v0.22: price_out_of_range（价格超出类目范围）必须重定价，LLM 修不了
     "price_out_of_range": "repair_pricing",
+    # ✅ fix/arch-findings-v1: PRICE_ERROR（parse_error 对本地校验价格类错误的
+    # 造码，关键词 价格/price/цен）→ 重定价。此前未收录走默认 error_repair_llm
+    # 盲修+全量重传，价格错 LLM 修不了白烧轮次。
+    "PRICE_ERROR": "repair_pricing",
     "WEIGHT_DIMENSION_ERROR": "repair_prepare",
     "INVALID_DIMENSION": "repair_prepare",
     # ✅ 变体未合并 → 走 repair_prepare 重新构建payload
@@ -428,6 +434,9 @@ FIX_TYPE_ATTRIBUTES: set = {
 # 价格类错误 → POST /v1/product/import/prices（增量，无需重新审核）
 FIX_TYPE_PRICES: set = {
     "INVALID_PRICE", "discount_for_low_price",
+    # ✅ fix/arch-findings-v1: parse_error 本地校验价格错造码 → prices 靶向
+    # （与 REPAIR_STRATEGY 的 repair_pricing 同批登记，两表同码）
+    "PRICE_ERROR",
 }
 
 # 类目/尺寸/描述/图片错误 → POST /v3/product/import（UPDATE 模式，需 product_id）
@@ -2048,31 +2057,35 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                             logger.warning(f"⚠️ 强制俄语翻译失败: {_trans_e}")
                             repaired_title = ""
                     
-                    if repaired_title:
-                        ozon_payload_title: Dict[str, Any] = state.ozon_payload
-                        items_title: list = ozon_payload_title.get("items", [])
-                    if items_title and len(items_title) > 0:
+                    # ✅ fix/arch-findings-v1 (Top10 #3): items_title 赋值移出 if——
+                    # 强制翻译失败/box_reviewed 清空 repaired_title 时，兄弟行引用
+                    # 未绑定变量抛 UnboundLocalError（本 try 只捕获 JSONDecodeError，
+                    # 异常会打断整个 error_repair_llm 修复支路，标题修复路径必炸）。
+                    # 仅 repaired_title 真值时写 name/4180，空标题不动卡（宁缺毋滥）。
+                    ozon_payload_title: Dict[str, Any] = state.ozon_payload
+                    items_title: list = ozon_payload_title.get("items", [])
+                    if repaired_title and items_title and len(items_title) > 0:
                         # 修复所有变体的name字段
                         for it in items_title:
                             if isinstance(it, dict):
                                 it["name"] = repaired_title
                         logger.info(f"✅ 标题已修复（所有变体）：{repaired_title[:80]}")
-                    # 同步修复final_attributes中的4180
-                    updated_title_attrs: list = []
-                    for attr in state.final_attributes:
-                        if not isinstance(attr, dict):
+                        # 同步修复final_attributes中的4180（空标题不清既有4180值）
+                        updated_title_attrs: list = []
+                        for attr in state.final_attributes:
+                            if not isinstance(attr, dict):
+                                updated_title_attrs.append(attr)
+                                continue
+                            aid_val: Any = attr.get("id") or attr.get("attribute_id")
+                            if aid_val is not None:
+                                try:
+                                    if int(aid_val) == 4180:
+                                        attr["value"] = repaired_title
+                                        logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
+                                except (ValueError, TypeError):
+                                    pass
                             updated_title_attrs.append(attr)
-                            continue
-                        aid_val: Any = attr.get("id") or attr.get("attribute_id")
-                        if aid_val is not None:
-                            try:
-                                if int(aid_val) == 4180:
-                                    attr["value"] = repaired_title
-                                    logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
-                            except (ValueError, TypeError):
-                                pass
-                        updated_title_attrs.append(attr)
-                    state.final_attributes = updated_title_attrs
+                        state.final_attributes = updated_title_attrs
 
                 # 自动判断修复类型
                 if repaired_desc:
@@ -3048,6 +3061,10 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 merged_attrs[_sa_id] = _sa
 
             skipped_attrs: list = []
+            # ✅ fix/arch-findings-v1 (#4): 下方两处翻译的 except Exception 前置
+            # OutOfQuota 放行（v0.63.1 语义，仓库 30 处先例）——余额/鉴权耗绝不许
+            # 被吞成「跳过属性/置空」静默降级继续重传，必须明确失败。
+            from utils.mxou_api import MxouOutOfQuotaError
             for attr in state.final_attributes:
                 if not isinstance(attr, dict):
                     continue
@@ -3164,6 +3181,8 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                                 # ✅ v0.73: 验收补「无中文」负检——混合结果（西里尔+中文）同样拒绝
                                 logger.warning(f"⚠️ 属性{attr_id_int}翻译失败（非俄语/仍含中文），跳过重传: '{val_str[:40]}'")
                                 continue
+                        except MxouOutOfQuotaError:
+                            raise  # v0.63.1: 余额/鉴权耗尽 → 任务明确失败，不静默跳过
                         except Exception as trans_err:
                             logger.warning(f"属性{attr_id_int}翻译失败: {trans_err}")
                             continue
@@ -3190,6 +3209,8 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                         else:
                             logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译失败/仍含中文，置空: '{_rv_val[:40]}'")
                             attr_value = ""
+                    except MxouOutOfQuotaError:
+                        raise  # v0.63.1: 余额/鉴权耗尽 → 任务明确失败，不静默置空
                     except Exception as _rv_err:
                         logger.warning(f"⚠️ 属性{attr_id_int}中文值翻译异常，置空: {_rv_err}")
                         attr_value = ""
@@ -3209,40 +3230,38 @@ def revalidate_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState
                 logger.info(f"✅ revalidate跳过/保留属性: {skipped_attrs}")
 
             # ✅ 确保属性9048（型号名称）存在 - 这是Ozon必填属性
-            # 与prepare_ozon_upload_node使用相同的逻辑：优先用8229(产品类型名)，其次用draft中的title
+            # ✅ fix/arch-findings-v1 (#6): 兜底形状与 prepare 对齐——统一调
+            # _derive_model_name_9048（item_id~sha1(supplier|标题)[:8]，函数内延迟
+            # import 防循环依赖）；跟卖（draft.ozon_product_id 在场）保持裸 item_id
+            # （对齐 prepare 跟卖不加前缀语义）。旧的 8229 值/name[:50]/sku_id 兜底
+            # 形状已删——重传值与首传不同形 = 变体拆卡/并卡风险；item_id 缺失时不补
+            # 9048（prepare 同场景也不写，宁缺毋滥）。
             has_9048: bool = any(
                 isinstance(a, dict) and int(a.get("id", 0)) == 9048
                 for a in ozon_attrs
             )
             if not has_9048:
-                model_name_val: str = ""
-                # 从final_attributes中提取8229(产品类型名)作为型号名
-                for fa in state.final_attributes:
-                    if not isinstance(fa, dict):
-                        continue
-                    try:
-                        if int(fa.get("attribute_id", 0)) == 8229:
-                            model_name_val = str(fa.get("value", "")).strip()
-                            break
-                    except (ValueError, TypeError):
-                        continue
-                # 如果8229没有西里尔字符，用draft中的name
-                if not model_name_val or not any('\u0400' <= ch <= '\u04FF' for ch in model_name_val):
-                    draft_name: str = ""
-                    if state.draft and isinstance(state.draft, dict):
-                        draft_name = str(state.draft.get("name", "")).strip()
-                    if draft_name:
-                        model_name_val = draft_name[:50]
-                    elif state.sku_id:
-                        model_name_val = state.sku_id
-                if model_name_val:
-                    model_name_val = model_name_val[:50]
+                _draft_9048: Dict[str, Any] = state.draft if isinstance(state.draft, dict) else {}
+                _item_id_9048: str = str(_draft_9048.get("item_id") or "").strip()
+                if _item_id_9048:
+                    if _draft_9048.get("ozon_product_id"):
+                        # 跟卖（UPDATE 竞品卡）：裸 item_id，本就要并卡
+                        model_name_val: str = _item_id_9048
+                    else:
+                        from graphs.nodes.prepare_ozon_upload_node import _derive_model_name_9048
+                        model_name_val = _derive_model_name_9048(
+                            _item_id_9048,
+                            str(_draft_9048.get("supplier") or ""),
+                            str(_draft_9048.get("title") or ""),
+                        )
                     ozon_attrs.append({
                         "complex_id": 0,
                         "id": 9048,
                         "values": [{"dictionary_value_id": 0, "value": model_name_val}]
                     })
-                    logger.info(f"✅ revalidate补充属性9048（型号名称），值: {model_name_val[:80]}")
+                    logger.info(f"✅ revalidate补充属性9048（型号名称，prepare同源形状），值: {model_name_val[:80]}")
+                else:
+                    logger.warning("⚠️ revalidate 后 payload 缺 9048 且 draft 无 item_id，不补（对齐 prepare 语义）")
 
             # ✅ v0.69 根因②收口：合并/修复链后仍无 8229（如重建丢属性）→ 按
             # item.type_id 补造（官方不变式 dictionary_value_id == type_id）。

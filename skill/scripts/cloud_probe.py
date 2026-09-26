@@ -1488,16 +1488,27 @@ _NONZERO_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
 
 
 def _merge_config_tiers(ext: dict[str, Any], *, template_profile: dict[str, Any] | None,
-                        store_profile: dict[str, Any] | None) -> dict[str, Any]:
+                        store_profile: dict[str, Any] | None,
+                        exclude_keys: tuple[str, ...] = ()) -> dict[str, Any]:
     """D11: 三段降级合并——显式 extensions 恒优先 > worker 默认模板 > 本地 stores.json。
 
     仅补缺省：ext 已有非空值不被覆盖（R5 已定稿）。margin/commission/fx 与三档定价/
     变动成本率沿用旧行为只注入非零值（Worker 默认兜底）；traffic_keywords 是 list
     型，只在非空列表时注入。
+
+    ⚠️ arch-findings #5（信封三腿统一）：本函数是 extensions 配置注入唯一入口——
+    graph/跨平台/follow/discover 降级四条装配链都必须走它，禁止再手写逐键注入
+    循环（双源漂移事故面）。exclude_keys 供 follow/discover 降级腿排除
+    offer_id_prefix/traffic_keywords：9048 货号前缀只属 graph 主链新建卡（worker
+    prepare 对 is_follow_sell 恒忽略前缀——跟卖 offer upsert/并卡语义不带前缀），
+    SEO 流量词同理只做主链标题增强；follow_type 由调用方先 setdefault（合并不
+    覆盖已有值，模板下发的 follow_type 不会翻掉 hand/discover 标记）。
     """
     template_profile = template_profile or {}
     store_profile = store_profile or {}
     for _key in _INJECTABLE_EXT_KEYS:
+        if _key in exclude_keys:
+            continue
         if _key == "traffic_keywords":
             if ext.get(_key):
                 continue
@@ -3093,10 +3104,20 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         extensions.setdefault("follow_type", "discover")
     # v0.65: 不再兜底注入 margin_rate 0.25 / commission_rate 0.10——未配置时留空让 worker
     # 走三档默认(1.5/2.0/0.6) + 佣金解析链(explicit>缓存表>segments>0.10)；显式 0.10 曾短路真实佣金
-    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
-        _pv = float(store_profile.get(_pk, 0) or 0)
-        if _pv > 0:
-            extensions[_pk] = _pv
+    # ⚠️ arch-findings #5 三腿统一：3 键手写循环 → _merge_config_tiers 三段降级
+    # （显式 > worker 模板 get_template_profile > stores.json；数值键非零纪律同源）。
+    # 排除 offer_id_prefix/traffic_keywords——9048 前缀/SEO 流量词只属 graph 主链；
+    # follow_type 已上方 setdefault "discover"，不会被模板覆盖。
+    _tpl_profile_fb: dict[str, Any] = {}
+    try:
+        from scripts.lib.config_store import get_template_profile as _gtp_fb
+        _tpl_profile_fb = _gtp_fb(
+            token, credential_id=store_config.get("client_id") or None) or {}
+    except Exception:
+        _tpl_profile_fb = {}
+    _merge_config_tiers(extensions, template_profile=_tpl_profile_fb,
+                        store_profile=store_profile,
+                        exclude_keys=("offer_id_prefix", "traffic_keywords"))
 
     # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
     _apply_discover_page_truth(draft, extensions, candidate, page_truth)
@@ -4473,15 +4494,32 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
                     # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
                     extensions["follow_type"] = extensions.get("follow_type") or "hand"
-                    # 注入定价参数（v0.60: 含三档定价/变动成本率，与 _merge_config_tiers 数值键一致）
-                    from scripts.lib.config_store import get_store_profile as _gsp
-                    _sp = _gsp(store_id)
-                    for _pk in ("margin_rate", "commission_rate", "fx_buffer",
-                                "margin_floor", "margin_anchor",
-                                "variable_cost_rate", "promo_variable_cost_rate"):
-                        _pv = float(_sp.get(_pk, 0) or 0)
-                        if _pv > 0:
-                            extensions[_pk] = _pv
+                    # ⚠️ arch-findings #5 信封三腿统一：定价参数注入改走与 graph 主链
+                    # 同一 _merge_config_tiers 三段降级（显式 > worker 模板
+                    # get_template_profile > stores.json；数值键非零纪律同源）——
+                    # 原手写 7 数值键循环只读 stores.json，模板层三档键在此缺位。
+                    # 排除 offer_id_prefix/traffic_keywords：9048 货号前缀只属
+                    # graph 主链新建卡（跟卖 offer upsert/并卡语义不带前缀，worker
+                    # prepare 对 is_follow_sell 亦恒忽略前缀；builder 模板层若已
+                    # 注入在此剥离，使「follow 不带前缀」在 skill 边界为真）；
+                    # follow_type 已上方 setdefault "hand"，不会被模板覆盖。
+                    extensions.pop("offer_id_prefix", None)
+                    extensions.pop("traffic_keywords", None)
+                    from scripts.lib.config_store import (
+                        get_store_profile as _gsp_follow,
+                        get_template_profile as _gtp_follow,
+                    )
+                    _tpl_profile_follow: dict[str, Any] = {}
+                    try:
+                        _tpl_profile_follow = _gtp_follow(
+                            mxou_token, credential_id=client_id or None) or {}
+                    except Exception:
+                        _tpl_profile_follow = {}
+                    _merge_config_tiers(
+                        extensions,
+                        template_profile=_tpl_profile_follow,
+                        store_profile=_gsp_follow(store_id),
+                        exclude_keys=("offer_id_prefix", "traffic_keywords"))
                     # ✅ v0.66.1: 图搜匹配证据透传 extensions.match_evidence（worker L0
                     # 学习置信门槛）。best 带 _pick_best_match/_attach_match_meta 的
                     # confidence/badge_eff；method 取本函数 search_method（aibuy/cdp/

@@ -3652,6 +3652,7 @@
               "stage": "image_generation",
               "stages_completed": [
                 "auth",
+                "check_quota",
                 "ingest",
                 "category_match",
                 "pricing",
@@ -3662,7 +3663,6 @@
                 "image_generation",
                 "prepare_ozon_upload",
                 "ozon_validate",
-                "check_quota",
                 "ozon_upload",
                 "ozon_status",
                 "learning_record"
@@ -3975,6 +3975,7 @@
               "stage": "image_generation",
               "stages_completed": [
                 "auth",
+                "check_quota",
                 "ingest",
                 "category_match",
                 "pricing",
@@ -3985,7 +3986,6 @@
                 "image_generation",
                 "prepare_ozon_upload",
                 "ozon_validate",
-                "check_quota",
                 "ozon_upload",
                 "ozon_status",
                 "learning_record"

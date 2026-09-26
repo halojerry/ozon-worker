@@ -40,7 +40,8 @@
 **先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
 建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`；多会话协作/分支拓扑/发版流 → `docs/WORKFLOW.md`；
-子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`。
+子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`；
+架构全景/函数级细节 → `docs/ARCHITECTURE/`（v0.80 口径，含问题清单 09-findings）。
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 

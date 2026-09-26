@@ -524,7 +524,13 @@ class PrepareOzonUploadOutput(BaseModel):
     
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="prepare_ozon_upload", description="失败的节点名称")
+    # ✅ v0.80 arch-findings: 默认值归零（v0.73「Output 默认值归零」纪律，对齐
+    # OzonUploadOutput.failed_stage 先例）——默认非空 + error_message 非空会被
+    # task_processor._graph_result_is_failed 双条件（error_message 且 failed_stage）
+    # 放大成 failed。失败出口由 prepare_ozon_upload_node 显式带
+    # "prepare_ozon_upload"（唯一失败出口 :4157），成功出口显式空串；节点异常路径
+    # 不构造 Output（异常直接上抛），默认值不参与。
+    failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 prepare_ozon_upload，成功恒空）")
     # ✅ v0.67.1 wave②: 归一后真值（_resolve_weight_dimensions 裁决点）——留存表
     # weight_g/dims_mm 的数据源（信封 draft 可能是 1688 原始垃圾值如 1g）
     final_weight_g: int = Field(default=0, description="归一后重量(g)，0=未走到 prepare")
@@ -640,7 +646,16 @@ class OzonValidateOutput(BaseModel):
     profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
     
     error_message: str = Field(default="", description="错误信息")
-    
+    # ✅ v0.80 arch-findings #7: 错误码透出——validate 阶段失败此前在留存表
+    # error_code 恒空（归因只能靠文本），与 v0.77.2「终态必须带码」方向不一致。
+    # GlobalState/GraphOutput 已有同名 channel，Output 声明即透传（对照
+    # OzonUploadOutput.error_code 先例），不声明则被 channel 静默吞（wave2/0.77.2
+    # 双实证）。失败出口赋 LOCAL_VALIDATION_FAILED，成功恒空。
+    # ⚠️ 有意不加 failed_stage：validate 失败走 retry wrapper（可修复路径），
+    # wrapper Output 不声明/不清 failed_stage，非空值会粘连到修复成功后的终态
+    # （v0.73「failed_stage 粘连」问题类回归），归因交给 error_code。
+    error_code: str = Field(default="", description="错误码（validate 失败出口 LOCAL_VALIDATION_FAILED，成功恒空）")
+
     # ✅ 新增：循环修复相关字段
     retry_count: int = Field(default=0, description="验证失败重试次数")
     error_type: str = Field(default="", description="错误类型分类")

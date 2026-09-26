@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from utils.commission_resolver import get_category_commission, resolve_commission_rate
 from utils.logistics_quote import query_logistics_cost
-from utils.pricing_estimate import compute_price
+from utils.pricing_estimate import compute_price, is_dual_margin
 from utils.weight_dimension_normalizer import normalize_weight_dimensions
 
 logger = logging.getLogger(__name__)
@@ -49,9 +49,10 @@ def estimate_from_envelope(
       有值则 RUB → 否则 CNY。
     - v0.60 三档：margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate
       可选（请求覆盖优先，其次 extensions，最后默认 2.0/0.6/0.155/0.245）。
-      三档判定：显式给了 margin_floor（请求/扩展）或 extensions 无任何 margin 字段 →
-      三档（margin_rate 默认 1.5）；extensions 显式 margin_rate 且无 margin_floor →
-      单档旧行为（向后兼容，全部新参置 None 不透传）。
+      三档判定（v0.80 起唯一口径 utils.pricing_estimate.is_dual_margin，与 pricing_node
+      同源）：请求级显式 margin_floor 在场，或 extensions 带 margin_floor/margin_anchor
+      键，或 margin 键全缺 → 三档（margin_rate 默认 1.5）；仅显式 margin_rate 且无
+      floor/anchor → 单档旧行为（向后兼容，全部新参置 None 不透传）。
     """
     draft = (envelope.get("draft") or {}) if isinstance(envelope, dict) else {}
     extensions = (envelope.get("extensions") or {}) if isinstance(envelope, dict) else {}
@@ -88,14 +89,19 @@ def estimate_from_envelope(
     logistics_cost, _channel, _detail = query_logistics_cost(weight, depth, width, height)
 
     # Step 4: 配置（请求覆盖优先，其次 extensions，最后默认值，与 pricing_node 一致）
-    # v0.60 三档判定：显式给了 margin_floor（请求/扩展）或 extensions 无任何 margin 字段
-    # → 三档；extensions 显式 margin_rate 且无 margin_floor → 单档旧行为（向后兼容）。
+    # v0.60 三档判定：请求级显式 margin_floor 参数在场 → 三档（请求级优先语义保持不变）；
+    # 否则走 is_dual_margin 唯一口径（✅ v0.80 对齐 09-findings Top10 #10：键存在语义，
+    # 与 pricing_node 同源——此前此处认「floor 值非 None」，extensions 同时带
+    # margin_rate+margin_anchor 无 floor 的信封会 /estimate 单档、graph 三档分叉）。
     ext_margin = extensions.get("margin_rate")
-    ext_floor = extensions.get("margin_floor")
+    ext_floor = extensions.get("margin_floor")  # 三档取值用（请求级 margin_floor 优先，见 _pick）
     three_tier = (
         margin_floor is not None
-        or ext_floor is not None
-        or (margin_rate is None and ext_margin is None)
+        or is_dual_margin(
+            margin_floor_present="margin_floor" in extensions,
+            margin_anchor_present="margin_anchor" in extensions,
+            has_margin_rate=(margin_rate is not None or ext_margin is not None),
+        )
     )
 
     if margin_rate is not None:

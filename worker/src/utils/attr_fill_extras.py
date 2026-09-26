@@ -611,7 +611,7 @@ def _translate_ru(text: str, token: str) -> str:
     if not any('\u4e00' <= ch <= '\u9fff' for ch in text):
         return text.strip()
     try:
-        from utils.mxou_api import call_mxou_chat_api
+        from utils.mxou_api import call_mxou_chat_api, MxouOutOfQuotaError
         ans = call_mxou_chat_api(
             token=str(token or ""),
             system_prompt="你是电商商品属性翻译。把中文属性值翻译成简洁自然的俄语，只输出译文本身，不加任何解释或引号。",
@@ -626,6 +626,8 @@ def _translate_ru(text: str, token: str) -> str:
         if any('\u4e00' <= ch <= '\u9fff' for ch in out):
             return ""
         return out
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 余额/鉴权永久错误必须上抛（apply_llm_schema_fill → prepare A5 链路透传任务明确失败），不吞成空串「剥除处理」静默降级
     except Exception as _e:
         logger.warning("属性值中文翻译失败（剥除处理）: %s", _e)
         return ""
@@ -640,6 +642,10 @@ def apply_llm_schema_fill(
     字典类：search 精确唯一命中才填（颜色类沿用全等放宽）；
     Boolean：true/false 直通；数值：纯数字 sanity；自由文本：去中文+限长。
     """
+    # ✅ v0.80 arch-findings #4: MxouOutOfQuotaError 透传闸——下方 except Exception
+    # 会吞掉 _translate_ru 等上抛的余额/鉴权永久错误，必须先于它放行（任务明确失败，
+    # 不静默降级为「填充异常」warning 照跑）。
+    from utils.mxou_api import MxouOutOfQuotaError
     try:
         item0 = next((it for it in items or [] if isinstance(it, dict)), None)
         if item0 is None or not raw_answer or not todo:
@@ -816,6 +822,8 @@ def apply_llm_schema_fill(
             _log_llm(_task, aid, aname, sval, _tenant)
             logger.info("✅ schema-LLM 补齐 %s(%s) = %s (free-text)", aname, aid, sval[:40])
         return items
+    except MxouOutOfQuotaError:
+        raise  # ✅ v0.80 arch-findings #4: 余额/鉴权永久错误透传（prepare A5 双层 except 前置同款），不吞成 warning
     except Exception as _e:
         logger.warning("schema-LLM 填充异常（不影响主流程）: %s", _e)
         return items

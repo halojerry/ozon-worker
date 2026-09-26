@@ -39,11 +39,12 @@ def test_router_1688_url_to_pipeline_a():
 
 
 def test_router_ozon_product_url_to_pipeline_b():
-    """Ozon 商品页 URL → B + follow --ozon-url。"""
+    """Ozon 商品页 URL → B + follow --ozon-url --auto-submit（强意图直提；缺省 follow 只展示不提交）。"""
     r = route_intent("跟卖这个商品 https://www.ozon.ru/product/123456789/")
     assert r["pipeline"] == "B"
     assert r["command"] == "follow"
     assert "--ozon-url" in r["args"]
+    assert "--auto-submit" in r["args"]
 
 
 def test_router_ozon_list_url_to_pipeline_c():
