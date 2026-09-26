@@ -5,8 +5,10 @@
 创建并**激活** tab 到前台。静默场景（cookie 探针/图搜/seller 数据/discover
 采集/淘宝拼多多抓取）此前全部默认前台 → 实跑中 Chrome 反复弹前台（1688 首页 /
 seller.ozon.ru/ch/ / about:blank 闪动）。本文件逐调用点锁定 background=True；
-前台白名单（ozon_scraper 全部 / cli._open_tab / wait_for_seller_login 首次
-登录引导页）锁定**不得**变后台。
+v0.78 时的前台白名单（ozon_scraper / cli._open_tab / 登录引导页）——其中
+ozon_scraper 已在 v0.81 教义翻转为「后台 tab + force_active」（懒加载渲染
+不再依赖抢前台，实机实证见 test_ozon_scraper_silent_doctrine_v081），
+cli._open_tab 与登录引导页保持显式前台（给人看的页面）。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_silent_cdp_background_v078.py -q
@@ -268,25 +270,31 @@ def test_wait_for_seller_login_guide_stays_foreground(monkeypatch):
     assert cdp.calls == [("about:blank", False)], "登录引导页必须保持前台（background=False）"
 
 
-def test_ozon_scraper_whitelist_stays_foreground():
-    """白名单：ozon_scraper 全部保持前台（用户给的页面核心抓取 + 验证码人工重试）。"""
+def test_ozon_scraper_silent_doctrine_v081():
+    """v0.81 教义翻转：ozon_scraper 主路径后台 tab（零弹窗），验证码人工重试保持可见。
+
+    2026-09-26 实机实证：后台 tab + CdpTab.force_active()（setWebLifecycleState
+    active + setFocusEmulationEnabled）→ visibilityState=visible、rAF 64fps、
+    IO 正常派发——懒加载渲染不再依赖抢 macOS 前台。批量抓取每商品 4-6 次
+    前台激活被用户判「电脑完全没法做事情」，主路径翻后台；滑块重试 tab
+    是给人看的，保持显式前台。
+    """
     src = (_SCRIPTS / "lib" / "ozon_scraper.py").read_text(encoding="utf-8")
-    assert "background=True" not in src, "ozon_scraper 是前台白名单，不得出现后台 tab"
-    assert "conn.new_tab(ozon_url, background=False)" in src, "验证码人工重试重开可见 tab"
-    assert "conn.new_tab()" in src, "find_tab 未命中降级 new_tab 保持默认前台"
+    assert "new_tab(background=True)" in src, "商品页抓取主路径必须是后台 tab"
+    assert "force_active()" in src, "后台 tab 必须接 force_active 可见化渲染"
+    assert "conn.new_tab(ozon_url, background=False)" in src, "验证码人工重试重开可见 tab（给人看）"
 
 
 def test_cli_open_tab_whitelist_stays_foreground():
     """白名单：cli._open_tab（check 诊断，用户主动触发）保持前台。"""
     src = (_SCRIPTS / "cli.py").read_text(encoding="utf-8")
     fn = src.split("def _open_tab(", 1)[1].split("\n    def ", 1)[0]
-    assert "new_tab(url)" in fn, "_open_tab 保持默认前台"
-    assert "background=True" not in fn
+    assert "new_tab(url, background=False)" in fn, "_open_tab 显式前台（用户要亲自看）"
 
 
 def test_new_tab_interface_unchanged():
-    """接口锁定：CdpConnection.new_tab 签名不动（只改调用点，不改接口）。"""
+    """接口锁定：CdpConnection.new_tab 签名形状不变；v0.81 起默认后台。"""
     sig = inspect.signature(cdp_client.CdpConnection.new_tab)
     assert list(sig.parameters) == ["self", "url", "background"]
     assert sig.parameters["url"].default == "about:blank"
-    assert sig.parameters["background"].default is False
+    assert sig.parameters["background"].default is True
