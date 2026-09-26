@@ -4135,14 +4135,76 @@ LOCAL_TITLE_MISMATCH_BLOCK_REASON = (
 )
 
 
+def _search_box_recommendations(state) -> list:
+    """fix/category-root-cause-v1: 入箱推荐 top-3——中文源词搜 ZH 类目树。
+
+    背景：_final_result_blocked_to_box 此前恒传 candidates=[] → 采集箱「无候选
+    推荐」，人工改配全靠猜。本 helper 用 state 可得的中文源词跑 search_nodes
+    （ZH_HANS jieba 路径，与 assemble 匹配链同源入口），取 top-3 组装成
+    blocked_draft_box.category_recommendations 可消费的形状（dc/tp/名称/相似度）。
+
+    源词优先级：draft.title（1688 中文标题，listing_result_log.source_title_cn
+    同源）> envelope.source.keywords（discover 搜索词）> 空（不入搜索）。
+    任何失败（无源词/PG 不可用/树空）→ []：入箱推荐是**非致命增强**，绝不给
+    LOCAL_TITLE_CATEGORY_MISMATCH 拦截路径新增失败面。RU 名拼进名称供人工对照
+    Ozon 卡（ZH 路径供采集箱类目选择器搜索）；RU 行缺失只降级名称，不剔除候选。
+    """
+    _draft = getattr(state, "draft", None)
+    _words = str(_draft.get("title") or "").strip() if isinstance(_draft, dict) else ""
+    if not _words:
+        _env = getattr(state, "envelope", None)
+        _src = _env.get("source") if isinstance(_env, dict) else None
+        if isinstance(_src, dict):
+            _kw = _src.get("keywords")
+            if isinstance(_kw, list):
+                _words = " ".join(str(k).strip() for k in _kw if str(k).strip()).strip()
+    if not _words:
+        return []
+    try:
+        from utils.ozon_category_query import OzonCategoryQuery
+        _hits = OzonCategoryQuery().search_nodes(
+            _words[:100], top_k=3, node_type="type", language="ZH_HANS")
+    except Exception as _e:
+        logger.info("📥 入箱推荐搜索失败（维持空候选，非致命）: %s", _e)
+        return []
+    out: list = []
+    for _h in _hits or []:
+        if not isinstance(_h, dict):
+            continue
+        try:
+            _dc = int(_h.get("description_category_id") or 0)
+            _tp = int(_h.get("type_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if _dc <= 0:
+            continue
+        _zh_path = str(_h.get("full_path") or _h.get("node_name") or "")
+        try:
+            from graphs.nodes.ozon_validate_node import _fetch_ru_category_path
+            _ru_path = _fetch_ru_category_path(_dc, _tp)
+        except Exception:
+            _ru_path = ""
+        out.append({
+            "description_category_id": _dc,
+            "type_id": _tp,
+            "node_name": str(_h.get("node_name") or ""),
+            # 名称 = ZH 全路径（采集箱可搜）+ RU 路径（对照 Ozon 卡），全走
+            # full_path 键——category_recommendations 取名顺序 full_path 优先。
+            "full_path": f"{_zh_path}｜RU: {_ru_path}" if _ru_path else _zh_path,
+            "similarity": _h.get("similarity") or 0,
+        })
+    return out[:3]
+
+
 def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
     """v0.73: LOCAL_TITLE_CATEGORY_MISMATCH 终态出口——入箱拦截，绝不重传。
 
     生产实证：该错曾被错归 BR_chinese 走属性翻译支路 → revalidate 放行 →
     子图内 CREATE 重传 → Ozon approved（错货上架）。本出口：
     - upload_status=blocked（task_processor._graph_result_is_failed 判 failed 落库）；
-    - _maybe_create_blocked_draft 尽力入采集箱（candidates=[]：本地预检无类目
-      候选池，推荐靠 webui 人工搜索；失败非致命）；
+    - _maybe_create_blocked_draft 尽力入采集箱（fix/category-root-cause-v1 起带
+      中文源词 top-3 推荐，搜索失败维持 []：本地预检本无类目候选池，推荐只是
+      非致命增强；失败非致命）；
     - 刻意不调 _mark_category_negative_feedback：零交集是本地启发式，类目映射
       未必错（可能是标题问题），人工改配前不给 L0 学习行记负反馈。
     """
@@ -4151,8 +4213,15 @@ def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationR
 
     state.upload_status = "blocked"
     state.is_valid = False
+    # ✅ fix/category-root-cause-v1: 入箱带 top-3 推荐（此前恒 []，采集箱「无候选
+    # 推荐」人工改配全靠猜）——搜索失败/无源词维持 []，不影响拦截终态。
+    _box_candidates = _search_box_recommendations(state)
+    if _box_candidates:
+        logger.info(
+            "📥 入箱推荐 top-%d: %s", len(_box_candidates),
+            "；".join(str(c.get("full_path") or "")[:60] for c in _box_candidates))
     _box = _maybe_create_blocked_draft(
-        state, state.draft or {}, [], LOCAL_TITLE_MISMATCH_BLOCK_REASON)
+        state, state.draft or {}, _box_candidates, LOCAL_TITLE_MISMATCH_BLOCK_REASON)
     notice = f"本地预检拦截：{LOCAL_TITLE_MISMATCH_BLOCK_REASON}"
     _box_notice = format_box_notice(_box)
     if _box_notice:

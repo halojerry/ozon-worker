@@ -1312,6 +1312,13 @@ def _category_search_variants(source_category_path: str) -> list[str]:
 _CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
 _WORD_RE = re.compile(r"[0-9a-zа-яё]+")
 
+# fix/category-root-cause-v1（实机 gate 取证 2026-09）：类目泛尾字写死小集合。
+# 「器/机/盒…」是中文类目词的构词尾不是语义中心，同形异义毒猜（«去核器»商品
+# 猜«切面器»=压面机、«多功能切菜器»猜«多功能造型器»=美发造型器）全靠共享
+# 泛尾字骗过 R1 单字回退与 R2 尾字核对。只收高频构词尾、勿扩成大词表——被拒
+# 只是不写猜类目（worker 全链匹配兜底），方向宁缺毋滥，但扩大误杀面无收益。
+_GENERIC_TAIL_CHARS = frozenset("器机盒架袋包桶盘")
+
 
 def _text_grams(text) -> set[str]:
     """文本 gram 集：CJK 连续段按字符 bigram（单字成段取单字），其余按词（小写）。
@@ -1351,10 +1358,15 @@ def _category_guess_consistent(
     draft.ozon_category，留空让 worker 全链匹配）：
 
     R1 gram 覆盖率：猜中类目的 gram（CJK bigram/西里尔拉丁词）被
-       「商品标题 ∪ source_category 末段」覆盖的比例 < min_overlap。
+       「商品标题 ∪ source_category 末段」覆盖的比例 < min_overlap → 单字
+       回退（F-B04 救保温杯类音近词）还须共享字含非泛尾字且 guess 尾字非
+       泛尾字（fix/category-root-cause-v1：堵 «去核器»×«切面器» 共享「器」
+       毒猜通道）。
     R2 尾字（语义中心）核对：金属管 vs 金属桶一字之差共享 bigram「金属」
-       会过 R1——中文类目名的尾字是语义中心（管/桶/刷），尾字不在
-       标题 ∪ source_category 任何位置出现 → 不一致。
+       会过 R1——中文类目名的尾字是语义中心（管/桶/刷）。加严
+       （fix/category-root-cause-v1）：尾字须末两字 bigram 在证据中出现、
+       或与证据尾字同字且非泛尾字（堵 «切面器»×«切果器» 尾字同为泛尾字
+       「器」恒过）。
     R3 零交集：猜中类目对 source_category 每一段、对标题均零字符交集
        （跨语言毒猜，如俄语类目名对纯中文证据）→ 不一致。
 
@@ -1379,23 +1391,46 @@ def _category_guess_consistent(
     # ✅ F-B04（2026-09-09）：bigram 覆盖不足时回退**单字集合**覆盖——官方译名与
     # 卖家词一字之差（保温杯→保暖杯/热水瓶）bigram 全不同但单字高度重叠，
     # 首版把 graph 猜对的 dc=17027928 错杀（信封名'保暖杯' vs 来源'保温杯'）。
-    # 毒猜防线不放松：金属管 vs 金属桶 依赖 R2 尾字（管/桶）拦截；跨语言依赖 R3。
+    # ⚠️ 收紧（fix/category-root-cause-v1，实机 gate 取证）：回退命中还须
+    # ①共享字含非泛尾字 ②guess 尾字非泛尾字——«去核器»×«切面器» 靠共享泛尾字
+    # 「器」「切/器」共字放行是同形异义毒猜通道；«保温杯»×«保暖杯»（共享 保
+    # 非泛、尾字 杯 非泛）仍放行，F-B04 原意图保留。金属管 vs 金属桶 依赖 R2
+    # 尾字拦截；跨语言依赖 R3（毒猜防线不放松）。
     target_grams = _text_grams(title) | _text_grams(leaf)
     if target_grams and len(guess_grams & target_grams) / len(guess_grams) < min_overlap:
         guess_chars = {c for c in guess.lower() if "\u4e00" <= c <= "\u9fff"}
         target_chars = {c for c in (title + leaf).lower() if "\u4e00" <= c <= "\u9fff"}
-        # 单字回退：CJK 单字覆盖率 ≥ 0.34（2 字中 1 / 3 字中 1+）→ 视为近义一致
+        # 单字回退：CJK 单字覆盖率 ≥ 0.34（2 字中 1 / 3 字中 1+）→ 近义候选，
+        # 再过泛尾字两道条件（见上注释）才算近义一致
+        _runs = _CJK_RUN_RE.findall(guess.lower())
+        guess_tail = _runs[-1][-1] if _runs else ""
+        shared_chars = guess_chars & target_chars
         if not (guess_chars and target_chars
-                and len(guess_chars & target_chars) / len(guess_chars) >= 0.34):
+                and len(shared_chars) / len(guess_chars) >= 0.34
+                and any(c not in _GENERIC_TAIL_CHARS for c in shared_chars)
+                and guess_tail not in _GENERIC_TAIL_CHARS):
             return False
 
-    # R2: CJK 尾字（语义中心）必须在证据里出现
+    # R2: CJK 尾字（语义中心）核对——加严（fix/category-root-cause-v1）：
+    # 旧口径「尾字出现在证据任意位置」被同形异义击穿——«切面器» 尾字 器 vs 源
+    # «切果器» 尾字 器 同为泛尾字恒过。强一致须满足其一：
+    #   A) guess 末两字 bigram 在标题或 source_category 中出现（尾字+邻字共现）；
+    #   B) 尾字与 source 末段/标题某 CJK 段的尾字同字，且该字非泛尾字
+    #     （泛尾字同字不构成品类证据；«保暖杯»×«保温杯» 走 B 放行）。
     cjk_runs = _CJK_RUN_RE.findall(guess.lower())
     if cjk_runs:
-        head_char = cjk_runs[-1][-1]
-        evidence_chars = {c for c in (title + src) if c.isalnum()}
-        if evidence_chars and head_char not in evidence_chars:
-            return False
+        tail_run = cjk_runs[-1]
+        head_char = tail_run[-1]
+        strong = False
+        if len(tail_run) >= 2:
+            tail_bigram = tail_run[-2:]
+            strong = any(tail_bigram in e for e in (title, src) if e)
+        if not strong:
+            evidence_tails = {r[-1]
+                              for e in (title, src) if e
+                              for r in _CJK_RUN_RE.findall(e.lower())}
+            if head_char not in evidence_tails or head_char in _GENERIC_TAIL_CHARS:
+                return False
 
     # R3: 零交集（跨语言毒猜）
     if segs or title:
@@ -2677,6 +2712,14 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
         if val is None or val == "":
             continue
         meta[key] = val
+    # fix/category-root-cause-v1：类目语义复核分歧标记透传（divergent 信号此前
+    # 死在候选对象上，worker 侧永远看不到）。ozon_discovery._category_semantic_review
+    # 命中分歧时置 True 并把 match_confidence 封顶 0.5——封顶语义已随上列
+    # match_confidence 键走（match_evidence.confidence 同源同值），此处只补
+    # 布尔标记、不重复透传置信度。非 True 不写（默认 False 键省略，对齐本快照
+    # 省略纪律；worker 可作降权/人工复核线索，零消费透传不破坏兼容）。
+    if getattr(candidate, "match_category_divergent", False):
+        meta["match_category_divergent"] = True
     dims = getattr(candidate, "dimensions_mm", None)
     if dims:
         meta["dimensions_mm"] = dims

@@ -1,0 +1,6 @@
+{
+  "_doc": "标题↔类目一致性检查的西里尔同义豁免词表（v0.80 handover 立项）。两闸共用唯一加载器 utils/category_consistency_lexicon.py：validate 的 common_cyr_words 与 assemble 的 _check_category_consistency 都经它扩展词组。红线：只收『词根不同但电商语义等价』的对——每组必须有实机误杀证据（task_id 可溯）；严禁大类级/跨品类放行（今日 8 单真错配正是靠零交集闸拦下的）。词条按词根（前缀≥4 即视为命中），Ozon 词形变体由此天然覆盖（блузка/блузки）。",
+  "groups": [
+    ["блузка", "рубашка"]
+  ]
+}

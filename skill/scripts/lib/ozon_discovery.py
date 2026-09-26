@@ -1959,6 +1959,10 @@ _EXPORT_FIELDS: list[str] = [
     # data-pool 批7（卡片缺口三键之一）：商品点击率 %（qtyViewPdp/views 派生；
     # 增长率 sales_growth/广告份额 drr 为既有列不另增键）
     'custom_click_rate',
+    # fix/category-root-cause-v1：类目语义复核分歧标记（_category_semantic_review
+    # 置 True 并把 match_confidence 封顶 0.5——此前死在候选对象上，导出/上报/信封
+    # 三面均不可见）。列序契约只尾追加；行值非 True 落空串（见 _candidate_row）。
+    'match_category_divergent',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -1973,6 +1977,9 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         ('match_1688_url', '1688链接'), ('match_1688_title', '1688标题'),
         ('match_1688_image', '1688主图'), ('match_1688_category_name', '1688类目'),
         ('match_confidence', '匹配置信度'),
+        # fix/category-root-cause-v1：类目语义复核分歧（与 CSV 同名字段，四区
+        # 列合计必须等于 CSV 字段数——test_discovery_export_xlsx 锁定）
+        ('match_category_divergent', '类目分歧'),
     ]),
     ("销售数据", [
         ('monthly_sales', '月销量'), ('monthly_revenue', '月销售额(RUB)'),
@@ -2065,6 +2072,11 @@ def _candidate_row(c: ProductCandidate) -> dict:
         'match_1688_freight_cny': _opt(c.match_1688_freight_cny),
         # data-pool 批7：点击率 None=未知 → 空串（漏斗组同款）
         'custom_click_rate': _opt(getattr(c, 'custom_click_rate', None)),
+        # fix/category-root-cause-v1：类目语义复核分歧标记。仅 True 落值
+        # （非 True 空串=正常，不写 False 噪音），对齐 discovery_meta「非 True
+        # 不写」纪律；列本身已尾追加进 _EXPORT_FIELDS（列序契约）。
+        'match_category_divergent': (
+            True if getattr(c, 'match_category_divergent', False) else ''),
     }
 
 
@@ -4238,6 +4250,9 @@ REPORT_FIELDS: list[str] = [
     # （ozon_old_price/match_1688_freight_cny 默认 None → 键省略）
     "follow_profit_cny", "follow_margin", "ozon_old_price",
     "match_1688_freight_cny",
+    # fix/category-root-cause-v1：类目语义复核分歧标记（单布尔，+~5B）。
+    # 上报循环非 True 不写（默认 False 键省略，不产生噪音行）。
+    "match_category_divergent",
 ]
 
 # 只上报这三种状态的候选（filtered/rejected/no_match/error/uncertain 不上报）
@@ -4272,6 +4287,8 @@ def _report_discovery_run(keyword: str, filters: dict | None,
                 val = getattr(c, k)
                 if val is None:  # 漏斗扩容字段 None=无数据 → 键省略（对齐 discovery_meta 纪律）
                     continue
+                if k == "match_category_divergent" and val is not True:
+                    continue  # divergent 信号非 True 不写（默认 False 键省略，无噪音）
                 row[k] = val
             if getattr(c, "ozon_images", None):
                 row["ozon_image"] = c.ozon_images[0]  # 派生单键：完整图列表维持裁剪

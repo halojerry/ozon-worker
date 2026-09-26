@@ -433,9 +433,17 @@ def _ru_tree_full_path(query, cand: dict) -> str:
 
 def _r2b_source_hit_candidates(pool: list, texts) -> list:
     """判据 c 前置：仲裁池内与源词有非泛词命中（full_path 字面或叶子名子串）
-    的候选——文本侧认为可信的「域锚点」。"""
+    的候选——文本侧认为可信的「域锚点」。
+
+    ✅ fix/category-root-cause-v1 (catfix): source=search_kw 的 skill 树校验候选
+    **不做锚点**（保留候选身份）——实机 gate 取证（化妆收纳 4 单）：R2b LLM 仲裁
+    4 次全被 search_kw 树校验候选（sim=1.0 锚点）带偏；锚点=「文本侧独立佐证」，
+    skill 关键词模糊猜测与本商品无证据关联，给它锚点资格等于让猜测自证。
+    """
     hits: list = []
     for c in (pool or []):
+        if str(c.get("source") or "") == "search_kw":
+            continue  # catfix: skill 猜测候选无锚点资格（防 LLM 锚定带偏）
         if (_non_generic_overlap_words(str(c.get("full_path") or ""), texts)
                 or _leaf_substring_overlap(str(c.get("node_name") or ""), texts)):
             hits.append(c)
@@ -918,6 +926,144 @@ def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str,
     return attrs
 
 
+# ── ✅ fix/category-root-cause-v1 (catfix): follow 轻量出口三闸 ──────────────
+# 生产实锤（2026-09-26 实机 gate 取证，docs/ARCHITECTURE/09-findings.md）：
+# extensions.follow_sell 时本分支此前只做 dc 存在性校验（get_node_by_description_
+# category_id，dc 下任取一个 type）就直采 skill search_kw 猜的 dc/tp——«切面器»
+# （=压面机）毒中 «去核器» 商品卡；跳过全部匹配链、零 category_match_log 审计行、
+# 不产生 category_match_meta。三闸：
+#   ① (dc,tp) 配对校验（取代 dc 单独存在性——dc 下多 type 取首有错配风险）；
+#   ② ID→双语名反查交叉：按 (dc,tp) 取 ZH node_name，与 1688 源词做词面重叠——
+#     «切面器»×«切果器» 共享泛尾字「器」但非同词，剥泛尾字后零交集 → 拒采
+#     （仅对非权威 source=search_kw 生效，page/manual 等权威来源信任）；
+#   ③ Web 面包屑交叉：draft.ozon_category.category_path 与数字 dc/tp 并存时走
+#     lookup_web_category_path / 树路径精配（主链 Step 0.5 同款先例），不一致则
+#     弃数字猜测、按面包屑重配。
+# 外加西里尔零交集预检（validate common_cyr_words 同判据 + 同义豁免词表放行面）。
+# 不过闸 → CREATE（无 product_id）诚实阻断入箱；UPDATE（有 product_id）维持
+# v0.20 A 语义省略类目（Ozon 保留原卡片类目，跟卖对象卡类目天然正确）。
+# 每个采纳出口补写 category_match_log（match_layer="follow"）+ category_match_meta。
+_FOLLOW_GENERIC_TAIL_CHARS = "器机盒架"  # 泛尾字：剥掉后再比词面（切面器×切果器共享「器」不算同词）
+
+
+def _strip_generic_tail_zh(word: str) -> str:
+    """剥中文 token 末尾的泛尾字（器/机/盒/架），供词面交叉判等（纯函数，可单测）。"""
+    w = str(word or "").strip()
+    while w and w[-1] in _FOLLOW_GENERIC_TAIL_CHARS:
+        w = w[:-1]
+    return w
+
+
+def _follow_zh_tokens(text: str) -> set:
+    """中文文本的 jieba token 集（≥2 字；jieba 不可用退连续汉字整段提取）。"""
+    t = str(text or "")
+    if not t:
+        return set()
+    try:
+        import jieba as _jieba
+        return {w.strip() for w in _jieba.cut(t) if len(w.strip()) >= 2}
+    except Exception:
+        return set(re.findall(r"[\u4e00-\u9fff]{2,}", t))
+
+
+def _follow_zh_overlap(zh_name: str, source_text: str) -> set:
+    """类目 ZH 名 × 1688 源词的非泛尾词面交集（纯函数，可单测）。
+
+    jieba 双侧分词 → 各自剥泛尾字 → 「子串或共同前缀≥2 字」判等：
+      化妆品收纳盒[化妆品,收纳] × 化妆包[化妆包] → 共同前缀「化妆」→ 放行；
+      切面器[切面] × 去核器[去核] / 压面机[压面] → 前缀仅 1 字零交集 → 拒采。
+    共同前缀阈值取 2：中文 2 字前缀即品类语素（化妆/保温），1 字同首字太宽
+    （切面×切果共享「切」但非同词，正是本闸要拦的形态）。
+    """
+    if not zh_name or not source_text:
+        return set()
+    name_tokens = {_strip_generic_tail_zh(t) for t in _follow_zh_tokens(zh_name)}
+    src_tokens = {_strip_generic_tail_zh(t) for t in _follow_zh_tokens(source_text)}
+    name_tokens.discard("")
+    src_tokens.discard("")
+    hits: set = set()
+    for s in src_tokens:
+        for n in name_tokens:
+            _pfx = os.path.commonprefix([s, n])
+            if s in n or n in s or len(_pfx) >= 2:
+                hits.add(s if len(s) <= len(n) else n)
+    return hits
+
+
+_CYR_TOKEN_RE_CATFIX = re.compile(r"[а-яё]+")
+_FOLLOW_CYR_MIN_LEN = 4  # 与 ozon_validate_node._MIN_COMMON_WORD_LEN 对齐（短词是 для/и 噪音）
+
+
+def _follow_cyr_common(title: str, ru_path: str) -> set:
+    """标题 × RU 类目路径的公共西里尔词（validate common_cyr_words 同判据的 assemble
+    侧私有镜像——validate 归另一并行工作流所有，复制判据避免跨文件耦合；两处语义
+    漂移由词表加载器 utils/category_consistency_lexicon 的共用测试兜住）。"""
+    t_words = {w for w in _CYR_TOKEN_RE_CATFIX.findall(str(title or "").lower())
+               if len(w) >= _FOLLOW_CYR_MIN_LEN}
+    p_words = {w for w in _CYR_TOKEN_RE_CATFIX.findall(str(ru_path or "").lower())
+               if len(w) >= _FOLLOW_CYR_MIN_LEN}
+    common: set = set()
+    for tw in t_words:
+        for pw in p_words:
+            if tw == pw or tw[:_FOLLOW_CYR_MIN_LEN] == pw[:_FOLLOW_CYR_MIN_LEN]:
+                common.add(tw if len(tw) <= len(pw) else pw)
+                break
+    return common
+
+
+def _follow_cyr_preflight_ok(title: str, ru_path: str) -> bool:
+    """西里尔零交集预检：有公共词 → 放行；零交集时查同义豁免词表（блузка↔рубашка
+    型译词对）放行；仍无 → 拒（宁入箱不错挂）。RU 路径缺失 → 放行（无据可判不误伤）。"""
+    if not ru_path or not _has_cyrillic(title):
+        return True
+    if _follow_cyr_common(title, ru_path):
+        return True
+    try:
+        from utils.category_consistency_lexicon import sets_overlap as _lex_overlap
+        t_words = set(_CYR_TOKEN_RE_CATFIX.findall(str(title).lower()))
+        p_words = set(_CYR_TOKEN_RE_CATFIX.findall(str(ru_path).lower()))
+        if _lex_overlap(t_words, p_words):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _resolve_follow_breadcrumb(draft_ozon_cat: dict) -> dict | None:
+    """闸③：Web 面包屑交叉解析（web_category_path_map 直通 → 树路径精配）。
+
+    与主链 Step 0.5（lookup_web_category_path → get_node_by_full_path）同款先例；
+    任一通道命中且 (dc,tp) 在树中 → 返回 {description_category_id, type_id, full_path,
+    node_name}；未命中 → None（调用方维持数字猜测原判）。
+    """
+    crumb = str((draft_ozon_cat or {}).get("category_path", "")).strip()
+    if not crumb:
+        return None
+    q = get_category_query()
+    try:
+        from utils.local_db_manager import LocalDBManager as _LDB
+        mapped = _LDB().lookup_web_category_path(crumb)
+    except Exception as _map_e:
+        logger.debug("follow 面包屑映射查询异常（降级）: %s", _map_e)
+        mapped = None
+    if mapped:
+        try:
+            node = q.get_node(int(mapped["description_category_id"]),
+                              int(mapped["type_id"]), language="ZH_HANS")
+        except Exception:
+            node = None
+        if node:
+            logger.info(f"   ✅ follow 闸③ 面包屑映射直通: '{crumb[:50]}' → "
+                        f"[{node['description_category_id']}/{node['type_id']}]")
+            return node
+    node = q.get_node_by_full_path(crumb)
+    if node:
+        logger.info(f"   ✅ follow 闸③ 面包屑树路径精配: '{crumb[:50]}' → "
+                    f"[{node['description_category_id']}/{node['type_id']}]")
+        return node
+    return None
+
+
 def _assemble_follow_sell(
     state: GlobalState,
     draft: dict[str, Any],
@@ -1295,44 +1441,177 @@ def assemble_ozon_product_node(
     # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
     draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
     if extensions.get("follow_sell"):
+        # ── ✅ fix/category-root-cause-v1 (catfix): 轻量出口三闸（语义见模块级注释块）──
+        # 生产实锤：本分支此前 dc 存在性直采（«切面器» 毒中 «去核器»），零审计零 meta。
+        _f_src_state = getattr(state, "source", None) or {}
+        _f_source_cat = str(_f_src_state.get("source_category_path") or "").strip() \
+            or str(draft.get("source_category", "") or "")
+        _f_source_text = " ".join(t for t in (
+            _f_source_cat, str(draft.get("category", "") or ""), title or "") if t)
+        _f_src_tag = str(draft_ozon_cat.get("source", "") or "").strip()
+        # 权威 source（对齐 _is_skill_authoritative 白名单）信任，免闸②词面交叉；
+        # 闸①配对校验 / 闸③面包屑交叉 / 西里尔预检对权威仍生效（R1 纪律同款：信任有边界）。
+        _f_trusted = _f_src_tag in ("page", "mapping", "what_to_sell", "manual")
+        q = get_category_query()
+        _f_has_pid = bool(getattr(state, "product_id", None))
+
+        def _f_follow_meta(dc_s: str, tp_s: str, conf: float, why: str,
+                           ru_path: str = "") -> dict:
+            return {
+                "match_layer": "follow",
+                "confidence": conf,
+                "description_category_id": str(dc_s),
+                "type_id": str(tp_s),
+                "cross_top_high_confidence": False,
+                "reason": why,
+                "ru_full_path": ru_path,
+            }
+
+        def _f_adopt(dc_s: str, tp_s: str, zh_name: str, full_path: str,
+                     conf: float, why: str, ru_path: str = "") -> dict:
+            state.description_category_id = dc_s
+            state.type_id = tp_s
+            _cat_result = {
+                "description_category_id": int(dc_s) if dc_s.isdigit() else 0,
+                "type_id": int(tp_s) if tp_s.isdigit() else 0,
+                "node_name": zh_name,
+                "full_path": full_path,
+                "similarity": 1.0,
+                "matcher": "follow",
+            }
+            # ✅ catfix (f): 采纳出口补写审计行 + category_match_meta（此前零留痕）
+            _log_match_attempt(state, title, _f_source_cat, title, _cat_result,
+                               match_layer="follow", confidence=conf,
+                               candidates=[_cat_result], config=config)
+            logger.info(f"✅ 跟卖类目(经三闸采纳, source={_f_src_tag or 'n/a'}): "
+                        f"dc={dc_s} type={tp_s} ({(full_path or zh_name)[:60]})")
+            _out = _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+            _out["category_match_meta"] = _f_follow_meta(dc_s, tp_s, conf, why, ru_path)
+            _out["match_confidence"] = conf
+            return _out
+
+        def _f_reject(reason: str) -> dict:
+            # 不过闸 → 不直采：UPDATE（有 product_id）维持 v0.20 A 语义省略类目
+            #（跟卖对象卡类目即平台真值，Ozon 保留原卡片类目）；CREATE 诚实阻断入箱。
+            if _f_has_pid:
+                logger.warning(f"⚠️ follow 类目闸拦截（UPDATE 省略类目，保留原卡片类目）: {reason}")
+                state.description_category_id = ""
+                state.type_id = ""
+                _log_match_attempt(state, title, _f_source_cat, title, {},
+                                   match_layer="blocked", confidence=0.0,
+                                   candidates=[], config=config)
+                return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+            logger.error(f"   🛑 follow 类目闸拦截（CREATE 不直采）: {reason}")
+            _log_match_attempt(state, title, _f_source_cat, title, {},
+                               match_layer="blocked", confidence=0.0,
+                               candidates=[], config=config)
+            return _blocked_exit(state, draft, [],
+                                 f"跟卖类目未通过交叉校验（{reason}），需人工确认类目",
+                                 match_confidence=0.0)
+
         if state.description_category_id:
-            return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
-        elif draft_ozon_cat.get("description_category_id"):
+            # 前序 follow_sell_import 已定稿（跟卖对象卡平台真值）——补审计 + meta（非致命）
+            _pre_dc = str(state.description_category_id)
+            _pre_tp = str(getattr(state, "type_id", "") or "")
+            _pre_node = None
+            try:
+                if _pre_dc.isdigit() and _pre_tp.isdigit():
+                    _pre_node = q.get_node(int(_pre_dc), int(_pre_tp), language="RU")
+            except Exception:
+                _pre_node = None
+            _out = _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+            _out["category_match_meta"] = _f_follow_meta(
+                _pre_dc, _pre_tp, 0.95, "follow_import_preset",
+                str((_pre_node or {}).get("full_path") or ""))
+            _out["match_confidence"] = 0.95
+            return _out
+
+        if draft_ozon_cat.get("description_category_id"):
             dc_val = str(draft_ozon_cat["description_category_id"])
             tp_val = str(draft_ozon_cat.get("type_id", dc_val))
-            # ✅ 若是纯数字 → 直接用；若是文本 → 搜 PG 类目树找到真实 ID
             if dc_val.isdigit() and tp_val.isdigit():
-                # ✅ v0.20 A: 数字 ID 必须通过类目树校验才采用——品牌页 ID（甩脂机
-                # Luxhommè/101029485）会被 Ozon 以"类型不属于该类目"整包拒绝，
-                # 导致图也不落卡。校验失败则保持空（prepare 省略类目，UPDATE 由
-                # Ozon 保留原卡片类目）。
-                q = get_category_query()
-                node = q.get_node_by_description_category_id(int(dc_val))
+                # 闸① (dc,tp) 配对校验——取代旧 dc 存在性校验（dc 下任取 type 有错配风险）
+                node = q.get_node(int(dc_val), int(tp_val), language="ZH_HANS")
                 if node:
-                    state.description_category_id = dc_val
-                    state.type_id = tp_val
-                    logger.info(f"✅ 跟卖类目(来自 Skill 数字ID, 已校验): dc={dc_val} type={tp_val}")
-                    return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+                    # 闸③ 面包屑交叉：Web 面包屑与数字 dc/tp 并存时精配，不一致弃数字按面包屑重配
+                    _crumb_node = _resolve_follow_breadcrumb(draft_ozon_cat)
+                    if _crumb_node and (
+                        int(_crumb_node["description_category_id"]) != int(dc_val)
+                        or int(_crumb_node["type_id"]) != int(tp_val)
+                    ):
+                        logger.warning(
+                            f"   ⚠️ follow 闸③ 面包屑与数字猜测不一致，弃数字按面包屑重配: "
+                            f"[{dc_val}/{tp_val}] → "
+                            f"[{_crumb_node['description_category_id']}/{_crumb_node['type_id']}]")
+                        dc_val = str(_crumb_node["description_category_id"])
+                        tp_val = str(_crumb_node["type_id"])
+                        node = q.get_node(int(dc_val), int(tp_val), language="ZH_HANS") or _crumb_node
+                    _crumb_ok = _crumb_node is not None  # 面包屑=Ozon 页面事实，佐证即视为可信
+                    if node and not _f_trusted and not _crumb_ok:
+                        # 闸② 双语名交叉（仅非权威 source）：ZH 名 vs 1688 源词，
+                        # 剥泛尾字后零交集 → 拒采（切面器×去核器判据）
+                        _zh_hits = _follow_zh_overlap(str(node.get("node_name") or ""), _f_source_text)
+                        if not _zh_hits:
+                            return _f_reject(
+                                f"类目 ZH 名「{node.get('node_name', '')}」与 1688 源词零词面交集 "
+                                f"(source={_f_src_tag or 'n/a'})")
+                    if node:
+                        _ru_node = None
+                        try:
+                            _ru_node = q.get_node(int(dc_val), int(tp_val), language="RU")
+                        except Exception:
+                            _ru_node = None
+                        _ru_path = str((_ru_node or {}).get("full_path") or "")
+                        # 西里尔零交集预检（validate common_cyr_words 同判据 + 豁免词表）
+                        if not _follow_cyr_preflight_ok(title, _ru_path):
+                            return _f_reject(
+                                f"标题与 RU 类目路径「{_ru_path[:60]}」零公共西里尔词")
+                        return _f_adopt(dc_val, tp_val,
+                                        str(node.get("node_name") or ""),
+                                        str((_ru_node or {}).get("full_path")
+                                            or node.get("full_path") or ""),
+                                        0.9 if (_f_trusted or _crumb_ok) else 0.7,
+                                        f"follow_gate(source={_f_src_tag or 'n/a'}, "
+                                        f"crumb={_crumb_ok})", _ru_path)
+                    logger.warning(f"⚠️ Skill 数字类目 {dc_val}/{tp_val} 未通过类目树配对校验"
+                                   "（可能是品牌页/毒 tp），不采用")
                 else:
-                    logger.warning(f"⚠️ Skill 数字类目 {dc_val}/{tp_val} 未通过类目树校验"
-                                   "（可能是品牌页），不采用，走 1688/省略类目")
+                    logger.warning(f"⚠️ Skill 数字类目 {dc_val}/{tp_val} 未通过 (dc,tp) 配对校验")
             else:
-                # 文本类目名 → pg_trgm 搜索（使用模块级导入的 get_category_query）
-                q = get_category_query()
+                # 文本类目名 → pg_trgm 搜索（language=RU，返回的 (dc,tp) 天然是树配对）
                 candidates = q.search_nodes(dc_val, top_k=5, node_type="type", language="RU")
                 if candidates:
                     best = candidates[0]
-                    state.description_category_id = str(best["description_category_id"])
-                    state.type_id = str(best["type_id"])
-                    logger.info(f"✅ 跟卖类目(来自 Skill 文本→pg_trgm): '{dc_val}' → dc={state.description_category_id} type={state.type_id} ({best['full_path']})")
-                    return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+                    _b_dc = str(best["description_category_id"])
+                    _b_tp = str(best["type_id"])
+                    _b_ok = True
+                    if not _f_trusted:
+                        # 闸② 同判据：pg_trgm 文本命中也要过 1688 源词词面交叉
+                        _zh_node = None
+                        try:
+                            _zh_node = q.get_node(int(_b_dc), int(_b_tp), language="ZH_HANS")
+                        except Exception:
+                            _zh_node = None
+                        _zh_hits = _follow_zh_overlap(
+                            str((_zh_node or {}).get("node_name") or best.get("node_name") or ""),
+                            _f_source_text)
+                        if not _zh_hits:
+                            _b_ok = False
+                    if _b_ok and not _follow_cyr_preflight_ok(title, str(best.get("full_path") or "")):
+                        _b_ok = False
+                    if _b_ok:
+                        return _f_adopt(_b_dc, _b_tp,
+                                        str(best.get("node_name") or ""),
+                                        str(best.get("full_path") or ""),
+                                        0.9 if _f_trusted else 0.7,
+                                        f"follow_gate_text(source={_f_src_tag or 'n/a'})",
+                                        str(best.get("full_path") or ""))
+                    return _f_reject(
+                        f"pg_trgm 命中「{best.get('node_name', '')}」与 1688 源词零词面交集/西里尔零交集")
                 else:
-                    logger.warning(f"⚠️ Skill 类目文本 '{dc_val}' 在 PG 树中未找到，省略类目走 UPDATE")
-            # ✅ v0.20 A: 类目不可用（品牌页/未找到）→ 置空并直接走跟卖组装，
-            # 绝不掉进 1688 类目匹配（会匹配出无效 dc/type 对，整包被 Ozon 拒）
-            state.description_category_id = ""
-            state.type_id = ""
-            return _assemble_follow_sell(state, draft, title, images, pricing_info, progress)
+                    logger.warning(f"⚠️ Skill 类目文本 '{dc_val}' 在 PG 树中未找到")
+            # 类目不可用（闸拦截/未找到）→ UPDATE 省略类目 / CREATE 阻断入箱
+            return _f_reject("skill 类目猜测未通过 follow 类目闸")
 
     # 初始化查询助手
     query = get_category_query()
@@ -1962,6 +2241,9 @@ def assemble_ozon_product_node(
                     "reason": f"R2b_LLM_confirm({_reason}, sim={_sim_now:.3f}, {_confirm_why})",
                     "similarity": _confirm.get("similarity", 0),
                     "matcher": _confirm.get("matcher", "jieba"),
+                    # ✅ catfix: LLM 原文随定稿走（category_match_meta + match_log 留痕）
+                    "_r2b_llm_reason": str(_confirm.get("_llm_reason", "") or ""),
+                    "_r2b_llm_confidence": _confirm.get("_llm_confidence"),
                 }
                 match_confidence = _confidence_from_sim(_confirm.get("similarity"))
                 if _cross_top:
@@ -1973,6 +2255,10 @@ def assemble_ozon_product_node(
                         match_confidence = max(match_confidence, float(_llm_c))
                     _r2b_cross_top = True
                 _r2b_confirmed = True
+                # ✅ catfix 审计落列：R2b 确认采纳后 match_layer 写 "R2b"（不再留 L1）——
+                # 采纳率/带偏取证可按列统计（09-findings 类目#1）。下游豁免语义不变：
+                # Step6.5 豁免本就按 _r2b_confirmed 旗标；learning 侧 "R2b" 原在 0.7 档。
+                match_layer = "R2b"
                 logger.info(
                     f"   ✅ R2b LLM 确认通过（{_confirm_why}）: "
                     f"{category_result['category_path'][:80]}"
@@ -2012,7 +2298,20 @@ def assemble_ozon_product_node(
 
     # ✅ v4: 审计日志 — 记录本次匹配详情到 category_match_log
     # v0.67 P1-6: 传 config（task_id 取 thread_id = 任务 DB 行 uuid，可关联留存表）
-    _log_match_attempt(state, title, source_category, keywords, category_result, match_layer, match_confidence, candidates, config=config)
+    # ✅ catfix: R2b 确认采纳时 LLM 原文随行留痕（adopted_extra → candidates_json 末元素）
+    _adopted_extra = None
+    if match_layer == "R2b":
+        _adopted_extra = {
+            "dc": (category_result or {}).get("description_category_id"),
+            "tp": (category_result or {}).get("type_id"),
+            "llm_reason": (category_result or {}).get("_r2b_llm_reason", ""),
+            "llm_confidence": (category_result or {}).get("_r2b_llm_confidence"),
+            "cross_top": bool(_r2b_cross_top),
+            "confirm_why": str((category_result or {}).get("reason", ""))[:200],
+        }
+    _log_match_attempt(state, title, source_category, keywords, category_result,
+                       match_layer, match_confidence, candidates, config=config,
+                       adopted_extra=_adopted_extra)
 
     description_category_id: int = int(category_result["description_category_id"])
     type_id: int = int(category_result["type_id"])
@@ -2518,6 +2817,9 @@ def assemble_ozon_product_node(
             "type_id": str(type_id),
             # ✅ v0.69 T0.3: R2b 跨大类高置信解锁旗标（审计/学习溯源；普通采纳恒 False）
             "cross_top_high_confidence": bool(_r2b_cross_top),
+            # ✅ catfix: R2b 确认采纳的 LLM 原文（学习溯源/取证；非 R2b 恒空）
+            "r2b_llm_reason": str((category_result or {}).get("_r2b_llm_reason", "") or "") if match_layer == "R2b" else "",
+            "r2b_llm_confidence": (category_result or {}).get("_r2b_llm_confidence") if match_layer == "R2b" else None,
         },
         "attributes_schema": attr_list,
         "dictionary_values": {str(k): v for k, v in dict_lookup.items()},  # ← 键必须是 str（PrepareOzonUploadInput 要求）
@@ -2630,6 +2932,22 @@ def _check_category_consistency(
     overlap = [kw for kw in leaf_keywords if kw in name_lower]
 
     if not overlap and leaf_keywords:
+        # ✅ fix/category-root-cause-v1 (catfix): 零交集先查同义豁免词表再判死——
+        # 今日误杀面实证：Блузка 官方 ZH 译「短衫」，中文源词永远召回不到；译词
+        # «Блузка» × 邻叶 «Рубашка» 零词面交集被本闸误杀。词表只做放行面扩张
+        # （组内词根前缀≥4 互认），绝无新拦截面；两闸共用唯一加载器
+        # utils/category_consistency_lexicon（与 validate common_cyr_words 同源）。
+        try:
+            from utils.category_consistency_lexicon import sets_overlap as _lex_overlap
+            _name_cyr = set(re.findall(r"[а-яё]+", name_lower))
+            if _name_cyr and _lex_overlap(_name_cyr, leaf_keywords):
+                logger.info(
+                    f"✅ 跨类目一致性经同义豁免词表放行：产品名与类目「{category_path}」"
+                    f"零字面交集但属同义组（如 блузка↔рубашка）"
+                )
+                return True
+        except Exception:
+            pass  # 词表加载失败 → 维持零交集原判（宁严勿松）
         logger.warning(
             f"⚠️ 跨类目一致性警告：产品名「{llm_name[:80]}」与类目「{category_path}」"
             f" 无共同关键词。类目词: {leaf_keywords}。"
@@ -4098,8 +4416,13 @@ def _llm_rank_categories(
         except Exception:
             pass
 
+        # ✅ fix/category-root-cause-v1 (catfix): source=search_kw 的 skill 猜测候选
+        # 在 prompt 里显式标注「非权威猜测」——防 LLM 把 sim=1.0 的树校验候选当
+        # 已验证答案锚定（实机 gate：R2b 仲裁 4 次全被它带偏）。
         cand_text = "\n".join(
             f"{i+1}. {c.get('full_path', '')} (sim={c.get('similarity', 0):.2f})"
+            + (" [skill关键词猜测,非权威,仅作参考]"
+               if str(c.get("source") or "") == "search_kw" else "")
             for i, c in enumerate(candidates)
         )
 
@@ -4241,12 +4564,23 @@ def _match_category_layered(
 
 
 def _apply_fingerprint_rerank(query, candidates: list, source_keywords: str, keywords: str) -> list:
-    """L2: 指纹重排"""
-    jieba_kw = [w.strip() for w in (source_keywords or keywords).split() if len(w.strip()) >= 2]
-    if not jieba_kw:
-        jieba_kw = [w.strip() for w in keywords.split() if len(w.strip()) >= 2]
+    """L2: 指纹重排
+
+    ✅ fix/category-root-cause-v1 (catfix): keywords = source_keywords + 标题词，
+    把「标题独有的 tokens」以 0.3× 低权重并进指纹（score_candidates_by_fingerprint
+    的 title_keywords 通道）——类目词存在时不丢标题词（化妆收纳 4 单实锤：
+    [化妆品,收纳盒] 对精准叶 «化妆包» 零召回，标题词「化妆」可给叶记分）。
+    """
+    src_tokens = [w.strip() for w in (source_keywords or "").split() if len(w.strip()) >= 2]
+    kw_tokens = [w.strip() for w in keywords.split() if len(w.strip()) >= 2]
+    title_tokens = [w for w in kw_tokens if w.lower() not in {s.lower() for s in src_tokens}]
+    jieba_kw = src_tokens or kw_tokens
     if jieba_kw and len(candidates) > 1:
-        candidates = query.score_candidates_by_fingerprint(candidates, jieba_kw)
+        # source_keywords 为空时 keywords 即标题词全集（沿用原满权重语义，不双计）。
+        # ⚠️ 无标题独有 tokens 时不传 title_keywords——既有测试桩按旧签名实现，
+        # 强传 kwarg 会 TypeError（test_manual_category_authority_v070 实证）。
+        _fp_kwargs = {"title_keywords": title_tokens} if (src_tokens and title_tokens) else {}
+        candidates = query.score_candidates_by_fingerprint(candidates, jieba_kw, **_fp_kwargs)
         if candidates:
             best = candidates[0]
             logger.info(f"🔢 L2指纹: top={best['node_name'][:30]} fp={best.get('fingerprint_score',0):.2f}")
@@ -4255,12 +4589,16 @@ def _apply_fingerprint_rerank(query, candidates: list, source_keywords: str, key
 
 def _log_match_attempt(state, title: str, source_category: str, keywords: str,
                        category_result: dict, match_layer: str, confidence: float,
-                       candidates: list, config=None) -> None:
+                       candidates: list, config=None,
+                       adopted_extra: dict | None = None) -> None:
     """v4: 写入 category_match_log 审计表
 
     v0.67 P1-6: task_id 优先取 config.configurable.thread_id（= ozon_product_tasks.id /
     PG 任务行 uuid），回退 state.task_id（ingest 随机 uuid，历史不一致根源——
     修复后 category_match_log 可与任务表/留存表按 uuid 关联取证）。
+    ✅ fix/category-root-cause-v1 (catfix): adopted_extra——R2b 确认采纳的 LLM 原文
+    （reason/confidence 等）追加为 candidates_json 末元素 {"adopted": {...}}，
+    采纳证据随审计行留痕（此前 R2b 采纳只在内存，采纳率/带偏取证无法按列统计）。
     """
     try:
         import json as _json, psycopg2 as _pg
@@ -4290,6 +4628,12 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
         conn = _pg.connect(_gdu())
         try:
             cur = conn.cursor()
+            _cands_json = [{"dc": c.get("description_category_id"), "tp": c.get("type_id"),
+                            "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
+                            "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
+                            } for c in (candidates or [])[:15]]
+            if adopted_extra:
+                _cands_json = _cands_json + [{"adopted": adopted_extra}]
             cur.execute("""
                 INSERT INTO category_match_log (task_id, source_title, source_category, source_url,
                     source_keywords,
@@ -4302,10 +4646,7 @@ def _log_match_attempt(state, title: str, source_category: str, keywords: str,
                 int(category_result.get("description_category_id", 0)),
                 int(category_result.get("type_id", 0)),
                 match_layer, confidence,
-                _json.dumps([{"dc": c.get("description_category_id"), "tp": c.get("type_id"),
-                    "name": c.get("node_name", ""), "sim": c.get("similarity", 0),
-                    "fp": c.get("fingerprint_score", 0), "path": c.get("full_path", "")
-                } for c in (candidates or [])[:15]], ensure_ascii=False),
+                _json.dumps(_cands_json, ensure_ascii=False),
                 _tenant_id,
             ))
             conn.commit()
