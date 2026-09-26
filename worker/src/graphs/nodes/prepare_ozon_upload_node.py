@@ -2672,26 +2672,12 @@ def prepare_ozon_upload_node(
             final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
         )
 
-    # v0.40: 富内容（Rich Content，属性 11254）——Ozon 图文交错小插件，
-    # 用 AI 图 + 俄语卖点组装 chess 布局（attributes id=11254 传 JSON）。
-    # 富内容代替描述显示，提升商品卡转化（Ozon 官方 +2% 销量）。
-    try:
-        _rc_images = [img for img in shared_marketing_images if isinstance(img, str) and img.strip()]
-        # 卖点文字：从 4191 富文本提取纯文本段（去 HTML 标签）
-        _rc_texts: list[str] = []
-        if rich_desc:
-            import re as _re_rc
-            _plain = _re_rc.sub(r'<[^>]+>', ' ', rich_desc)
-            _rc_texts = [t.strip() for t in _plain.split('.') if len(t.strip()) > 15][:6]
-        _rc_json = _build_rich_content_json(_rc_images, title_ru, _rc_texts)
-        if _rc_json:
-            final_attributes.append({
-                "id": 11254,
-                "values": [{"dictionary_value_id": 0, "value": _rc_json}],
-            })
-            logger.info(f"✅ 富内容(Rich Content 11254)已构建: {len(_rc_json)} 字符，{min(len(_rc_images), 6)} 图")
-    except Exception as _rc_exc:
-        logger.warning(f"⚠️ 富内容构建失败（不影响主流程）: {_rc_exc}")
+    # ✅ v0.81 内容评分闭环：富内容（Rich Content，属性 11254）与 4191 简介改为
+    # 「payload 出口恒填闸」统一补齐（_ensure_content_attrs_in_payload，位于
+    # 图片出口硬闸之后，用最终 images + 确定性 utils/content_enrich 生成）。
+    # 旧 v0.40 出口在此处 append 11254 时用了 `{"id": ...}` 键——属性主转换循环只认
+    # `attribute_id` → 静默丢弃 → 11254 从不上卡（内容评级文本组 50% 权重空转，
+    # 2026-09-26 实机取证）。两属性此后只走出口闸一条路（唯一入口）。
 
     # Step 6: 组装Ozon payload（严格遵守Ozon结构规范）
     logger.info("组装Ozon payload（严格遵守Ozon结构规范）")
@@ -4191,7 +4177,21 @@ def prepare_ozon_upload_node(
     # ∪ {salvage}），防 restore/镜像残余路径把草稿原图塞进上传载荷。
     # 不通过 → IMAGE_GEN_ALL_FAILED（非永久，任务级失败重试）。
     _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled())
-    
+
+    # ✅ v0.81 内容评分闭环（预防层）：4191/11254 出口恒填——最终图定型后
+    # 确定性补齐（文本描述组占内容评级 50% 权重，缺失卡分 42-57，补齐 90+）。
+    # 跟卖卡跳过（UPDATE 竞品卡，不得改写卡面简介/富内容）。
+    if not is_follow_sell:
+        try:
+            _ensure_content_attrs_in_payload(
+                ozon_payload,
+                title_ru=title_ru,
+                draft_attrs=_draft_attrs_1688 if isinstance(_draft_attrs_1688, dict) else {},
+                llm_desc_text=(rich_desc or description or ""),
+            )
+        except Exception as _ce_exc:
+            logger.warning("⚠️ 4191/11254 出口恒填闸异常（不阻断上传）: %s", _ce_exc)
+
     # ✅ dimension_weight_issues仅作为日志记录，不加入validation_errors（已用默认值修复）
     if dimension_weight_issues:
         logger.info(f"ℹ️ 尺寸重量默认值应用记录：{dimension_weight_issues}")
@@ -4260,63 +4260,80 @@ def prepare_ozon_upload_node(
     )
 
 
-def _build_rich_content_json(
-    images: list[str],
+def _ensure_content_attrs_in_payload(
+    ozon_payload: Dict[str, Any],
     title_ru: str,
-    selling_texts: list[str],
-) -> str:
-    """v0.40: 构建 Ozon 富内容（Rich Content）JSON（属性 11254）。
+    draft_attrs: Dict[str, Any],
+    llm_desc_text: str,
+) -> None:
+    """v0.81 内容评分闭环：payload 出口恒填闸（4191 简介 / 11254 Rich JSON）。
 
-    Ozon 富内容 = 图文交错小插件（chess 棋盘格），商家通过 attributes
-    id=11254 传 JSON（POST /v2/product/import 方式）。格式参考
-    rich-content.ozon.ru/docs：{"content":[{widgetName:raShowcase,
-    type:chess,blocks:[{img,title,text,reverse}]}],"version":0.3}。
-    chess 最低 2 个 blocks、最高 6 个。
+    实机取证（2026-09-26）：内容评级文本描述组占 50% 权重，4191/11254 缺失时
+    卡分 42-57；import 补齐后 90+。本闸是两属性的唯一出口——在图片出口硬闸
+    （_enforce_payload_image_policy）之后运行，使用**最终 images**（加速域名改写 +
+    图来源闸已过）与确定性 utils/content_enrich 生成器：
+    - 4191 恒填：属性链没产出时，优先 LLM 已生成的 RU 描述纯文本版，
+      不够 40 字符（或无）再 build_annotation（标题+draft 中文证据）兜底；
+    - 11254 有图恒填：build_rich_json（最终图前 4 张，实机验证结构；
+      有效图 < 2 张不强造）。
 
-    用 AI 生成图（COS 公开 URL）+ 俄语标题/卖点组装。图片不足 2 张时
-    返回空串（chess 最低 2 blocks，缺图不如不上）。
+    非致命：任何异常只 warning，不影响主流程。跟卖卡由调用方跳过
+    （跟卖 UPDATE 竞品卡，不得改写卡面简介）。
     """
-    import json as _json
+    from utils.content_enrich import (
+        ANNOTATION_ATTR_ID,
+        RICH_CONTENT_ATTR_ID,
+        build_annotation,
+        build_rich_json,
+    )
 
-    imgs = [i for i in (images or []) if isinstance(i, str) and i.strip()]
-    if len(imgs) < 2:
-        logger.warning("⚠️ 富内容构建跳过：AI 图不足 2 张（chess 最低 2 blocks）")
-        return ""
-    blocks: list[dict] = []
-    texts = [t for t in (selling_texts or []) if t and t.strip()]
-    default_text = "Качественный товар для вашего комфорта"
-    for i, img in enumerate(imgs[:6]):
-        t = texts[i] if i < len(texts) else default_text
-        blocks.append({
-            "img": {
-                "src": img,
-                "srcMobile": img,
-                "alt": (title_ru or "")[:60],
-                "width": 708,
-                "height": 708,
-                "widthMobile": 640,
-                "heightMobile": 640,
-            },
-            "title": {
-                "content": [(title_ru or "")[:60]],
-                "size": "size4",
-                "align": "left",
-                "color": "color1",
-            },
-            "text": {
-                "size": "size2",
-                "align": "left",
-                "color": "color1",
-                "content": [t[:120]],
-            },
-            "reverse": bool(i % 2),
-        })
-    payload = {
-        "content": [{
-            "widgetName": "raShowcase",
-            "type": "chess",
-            "blocks": blocks,
-        }],
-        "version": 0.3,
-    }
-    return _json.dumps(payload, ensure_ascii=False)
+    items = (ozon_payload or {}).get("items") or []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        attrs = item.get("attributes")
+        if not isinstance(attrs, list):
+            attrs = []
+            item["attributes"] = attrs
+        try:
+            existing = {
+                int(a.get("id", 0))
+                for a in attrs if isinstance(a, dict)
+            }
+        except (ValueError, TypeError):
+            existing = set()
+
+        if ANNOTATION_ATTR_ID not in existing:
+            # 优先 LLM 已生成的 RU 描述纯文本版（去标签/去中文残留）
+            plain = _norm_text_soft(_HTML_TAG_RE.sub(" ", str(llm_desc_text or "")))
+            if len(plain) < 40:
+                plain = build_annotation(title_ru, draft_attrs if isinstance(draft_attrs, dict) else {})
+            if plain:
+                attrs.append({
+                    "complex_id": 0,
+                    "id": ANNOTATION_ATTR_ID,
+                    "values": [{"dictionary_value_id": 0, "value": plain}],
+                })
+                logger.info(f"✅ 出口恒填 4191（Аннотация）: {len(plain)} 字符")
+
+        if RICH_CONTENT_ATTR_ID not in existing:
+            imgs: List[str] = []
+            primary = item.get("primary_image")
+            if isinstance(primary, str) and primary.strip():
+                imgs.append(primary.strip())
+            for u in item.get("images") or []:
+                if isinstance(u, str) and u.strip() and u.strip() not in imgs:
+                    imgs.append(u.strip())
+            rich = build_rich_json(imgs, str(item.get("name") or title_ru or ""))
+            if rich:
+                attrs.append({
+                    "complex_id": 0,
+                    "id": RICH_CONTENT_ATTR_ID,
+                    "values": [{"dictionary_value_id": 0, "value": rich}],
+                })
+                logger.info(f"✅ 出口恒填 11254（Rich-контент）: {len(rich)} 字符，{min(len(imgs), 4)} 图")
+
+
+def _norm_text_soft(text: str) -> str:
+    """去多余空白（出口恒填闸用，不依赖 content_enrich 私有函数）。"""
+    return re.sub(r"\s+", " ", str(text or "")).strip()
