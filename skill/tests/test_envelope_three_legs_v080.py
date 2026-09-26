@@ -114,7 +114,9 @@ def _run_follow_capture(builder_envelope: dict, *, store_profile: dict,
 def test_follow_injects_template_three_tier_keys():
     """follow 腿接入模板层：模板三档键（margin_floor 等）进入信封 extensions。"""
     builder = {"token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-               "envelope": {"draft": {"item_id": "980815374096"},
+               "envelope": {"draft": {"item_id": "980815374096",
+                                      "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                                      "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
                             "extensions": {}}}
     tpl = {"margin_floor": 0.6, "margin_anchor": 2.0,
            "variable_cost_rate": 0.155, "offer_id_prefix": "MX"}
@@ -128,7 +130,9 @@ def test_follow_injects_template_three_tier_keys():
 def test_follow_excludes_prefix_and_traffic_even_from_builder():
     """builder 模板层带来的 offer_id_prefix/traffic_keywords 在 follow 腿剥离。"""
     builder = {"token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-               "envelope": {"draft": {"item_id": "980815374096"},
+               "envelope": {"draft": {"item_id": "980815374096",
+                                      "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                                      "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
                             "extensions": {"offer_id_prefix": "MX",
                                            "traffic_keywords": ["корм"]}}}
     cap = _run_follow_capture(builder, store_profile={}, template_profile=None)
@@ -142,7 +146,9 @@ def test_follow_excludes_prefix_and_traffic_even_from_builder():
 def test_follow_type_not_overridden_by_template():
     """模板下发 follow_type=api 也不得翻掉 follow 腿 setdefault 的 hand。"""
     builder = {"token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-               "envelope": {"draft": {"item_id": "980815374096"},
+               "envelope": {"draft": {"item_id": "980815374096",
+                                      "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                                      "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
                             "extensions": {}}}
     tpl = {"follow_type": "api", "margin_rate": 0.3}
     cap = _run_follow_capture(builder, store_profile={}, template_profile=tpl)
@@ -154,7 +160,9 @@ def test_follow_type_not_overridden_by_template():
 def test_follow_store_tier_still_works_without_template():
     """模板不可用 → stores.json 层照常注入（三段降级第二兜底，旧语义保持）。"""
     builder = {"token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-               "envelope": {"draft": {"item_id": "980815374096"},
+               "envelope": {"draft": {"item_id": "980815374096",
+                                      "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                                      "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
                             "extensions": {}}}
     cap = _run_follow_capture(
         builder,

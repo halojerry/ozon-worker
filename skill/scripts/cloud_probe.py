@@ -4664,7 +4664,24 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         logger.debug("follow 预估打印跳过(不阻断): %s", _ee)
                     # ⚠️ P4: success 必须在提交之后才置位——图搜命中 ≠ 上架成功
                     with log_stage("follow · 提交 Worker"):
-                        if auto_submit and not _low_margin_block:
+                        # ✅ v0.80 handover: follow 腿补 _source_preflight（此前仅 graph 腿接线，
+                        # 反爬页抓到 46 图 0 属性仍可能直提——09-findings #5 收尾）。
+                        # --to-box 入箱只 warning 放行（与 graph 腿同口径）；展示态只警示。
+                        _ok_src, _why_src = _source_preflight(draft)
+                        _src_hard_block = False
+                        if not _ok_src:
+                            if to_box:
+                                logger.warning("⚠️ 源数据质量警示（--to-box 入箱放行）: %s", _why_src)
+                            elif auto_submit:
+                                _src_hard_block = True
+                                result["blocked_reason"] = "source_preflight"
+                                result["success"] = False
+                                result["submit_result"] = None
+                                print(f"❌ 提交被前置拦截: {_why_src}", flush=True)
+                                logger.warning("⛔ follow 源前置拦截（提交前）: %s", _why_src)
+                            else:
+                                logger.warning("⚠️ 展示态源数据质量警示: %s", _why_src)
+                        if auto_submit and not _low_margin_block and not _src_hard_block:
                             if notify:
                                 envelope["notify"] = True
                             submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
@@ -4678,8 +4695,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             else:
                                 result["task_id"] = submit_res.get("task_id", "")
                                 result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
-                        elif auto_submit and _low_margin_block:
-                            pass  # low_margin 拦截：不提交（success 已置 False）
+                        elif auto_submit and (_low_margin_block or _src_hard_block):
+                            pass  # min-margin / 源前置拦截：不提交（success 已置 False）
                         else:
                             # dry-run：仅组装信封，构建成功即算成功
                             result["success"] = True

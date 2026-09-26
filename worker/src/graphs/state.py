@@ -735,11 +735,17 @@ class VariantLoopState(BaseModel):
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表")
     variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
     current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-    
+
     # Phase1生成的图片（作为辅助参考）
     white_bg_image: str = Field(default="", description="白底图")
     multi_angle_image: str = Field(default="", description="多角度展示图")
     draft: Dict[str, Any] = Field(default_factory=dict, description="产品数据")
+    # fix/handover-batch-v1: 补 token（VariantPrimaryLoopInput 同名同义）。生产无影响
+    # （langgraph 按 variant_primary_loop_node 的 Input model 过滤 channel，该节点真实
+    # 输入是 VariantPrimaryLoopInput）；此前测试以本模型构造 state 时 _gen_one 读
+    # state.token 抛 AttributeError → 被宽 except 吞成「生图失败」分支——mock 断言
+    # 靠异常路径凑绿，属测试保真度陷阱（09-findings worker 骨架移交项）。
+    token: str = Field(default="", description="api.mxou.cn API Key（生图调用用）")
 
 
 class VariantLoopOutput(BaseModel):

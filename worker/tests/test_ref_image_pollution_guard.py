@@ -142,3 +142,27 @@ def test_variant_fallback_never_returns_original():
         out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
     assert list(out.variant_primary_images) == [""], out.variant_primary_images
     assert GOOD_ORIGINAL not in out.variant_primary_images, "失败产物绝不含 1688 原图"
+
+
+def test_variant_state_token_reaches_real_gen_path():
+    """fix/handover-batch-v1: VariantLoopState 补 token 后 _gen_one 走真实生图路径。
+
+    保真度锁：此前本模型无 token 字段，_gen_one 读 state.token 抛 AttributeError
+    → 被宽 except 吞成「生图失败」分支——上面两个测试的 mock 断言靠异常路径凑绿
+    （mock 从未被消费）。补字段（VariantPrimaryLoopInput 同名同义）后 mock 必须
+    被真实调用且产物入列，防该陷阱复发。"""
+    from graphs.state import VariantLoopState
+    gen_url = ("https://yss-1256275613.cos.ap-guangzhou.myqcloud.com"
+               "/file/images/gen_variant.png")
+    state = VariantLoopState(
+        variants=[{"name": "红色", "image": GOOD_ORIGINAL}],
+        draft={"title": "保温杯"},
+    )
+
+    with patch.object(_variant_mod, "call_mxou_image_api", return_value=gen_url) as mock_api, \
+         patch.object(_variant_mod, "get_image", return_value=None), \
+         patch.object(_variant_mod, "save_image"):
+        out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
+
+    assert mock_api.called, "token 缺失时 _gen_one 走 AttributeError 异常分支，mock 未被消费"
+    assert list(out.variant_primary_images) == [gen_url], out.variant_primary_images

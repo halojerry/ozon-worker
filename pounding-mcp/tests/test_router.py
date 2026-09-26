@@ -1,7 +1,9 @@
-"""意图路由层 + /ask REST 端点测试（v1 纯规则路由）。
+"""意图路由层 + /ask REST 端点测试（v2 纯规则路由）。
 
 覆盖 docs/PLAN-conversation-entry-v1.md Phase 1 验收：
 - route_intent：URL → A/B/C、图片 → D1、意图词 → C/D/E、多 URL → F、歧义 → unknown 追问
+- v2：查进度意图 → query（带/缺 task_id 两态）；A/B 强意图直提腿带 --wait；
+  「上传图片」被图片分支截住不漏 D（G1 评估结论现状锁定）
 - tasks_server /ask：正常路由 / 澄清 / 确认 / 长时后台 / 500 不回显 / OPTIONS 204 无 CORS
 - v0.76 T18 起 8902 网关强制 Bearer 鉴权：本文件所有请求默认带合法 token
   （401/免鉴权语义专项在 test_tasks_server_auth.py）
@@ -24,27 +26,37 @@ from pounding_mcp.router import ROUTER_VERSION, normalize_intent, route_intent
 # ── route_intent 纯函数 ──────────────────────────────────────────────
 
 def test_router_version():
-    """ROUTER_VERSION 常量存在（防漂移锚点，后续 LLM 消歧层同接口）。"""
-    assert ROUTER_VERSION == "v1"
+    """ROUTER_VERSION 常量存在（防漂移锚点，后续 LLM 消歧层同接口）。
+
+    v2：新增 query 意图类 + A/B 强意图腿补 --wait（接口形态变化必须升版本号）。"""
+    assert ROUTER_VERSION == "v2"
 
 
 def test_router_1688_url_to_pipeline_a():
-    """1688 商品页 URL → A + graph --url（明确 URL 自动执行，无需确认）。"""
+    """1688 商品页 URL → A + graph --url --wait（明确 URL 自动执行，无需确认）。
+
+    v2：直提腿带 --wait（闸排队+提交后轮询终态，failed exit 3），
+    对齐 SKILL.md §1「graph --url <URL> --wait」与 §3 二分法口径。"""
     r = route_intent("帮我把这个 1688 链接上架 https://detail.1688.com/offer/980815374096.html")
     assert r["pipeline"] == "A"
     assert r["command"] == "graph"
     assert "--url" in r["args"]
+    assert "--wait" in r["args"]
     assert r["needs_confirmation"] is False
     assert r["needs_clarification"] is False
 
 
 def test_router_ozon_product_url_to_pipeline_b():
-    """Ozon 商品页 URL → B + follow --ozon-url --auto-submit（强意图直提；缺省 follow 只展示不提交）。"""
+    """Ozon 商品页 URL → B + follow --ozon-url --auto-submit --wait（强意图直提）。
+
+    缺省 follow 只展示不提交，--auto-submit 由 router 直带（arch-findings 修复）；
+    v2 再补 --wait，逐字对齐 SKILL.md §1「follow --ozon-url <URL> --auto-submit --wait」。"""
     r = route_intent("跟卖这个商品 https://www.ozon.ru/product/123456789/")
     assert r["pipeline"] == "B"
     assert r["command"] == "follow"
     assert "--ozon-url" in r["args"]
     assert "--auto-submit" in r["args"]
+    assert "--wait" in r["args"]
 
 
 def test_router_ozon_list_url_to_pipeline_c():
@@ -161,6 +173,80 @@ def test_router_category():
     assert "护手霜" in r["args"]
 
 
+# ── v2 query 意图（查任务进度）──────────────────────────────────────
+
+def test_router_query_with_uuid_id():
+    """「查任务进度 <uuid>」→ query + args=[uuid]（只读秒级，无确认无澄清）。"""
+    tid = "550e8400-e29b-41d4-a716-446655440000"
+    r = route_intent(f"帮我查一下任务 {tid} 跑到哪了")
+    assert r["pipeline"] == "query"
+    assert r["command"] == "query"
+    assert r["args"] == [tid]
+    assert r["needs_confirmation"] is False
+    assert r["needs_clarification"] is False
+
+
+def test_router_query_with_local_hex_id():
+    """本地采集箱短任务 ID（uuid4().hex[:12]，含 a-f 字母）→ query args=[id]。"""
+    r = route_intent("任务 a1b2c3d4e5f6 处理完了吗")
+    assert r["pipeline"] == "query"
+    assert r["args"] == ["a1b2c3d4e5f6"]
+
+
+def test_router_query_with_numeric_id():
+    """纯数字串 + 进度词 → query（数字兜底只在进度词在场时被采用）。"""
+    r = route_intent("123456789 好了吗")
+    assert r["pipeline"] == "query"
+    assert r["args"] == ["123456789"]
+
+
+def test_router_query_without_id_clarifies():
+    """进度问句缺 task_id → needs_clarification + 追问 task_id（禁止猜测执行）。"""
+    r = route_intent("查进度")
+    assert r["pipeline"] == "query"
+    assert r["command"] == "query"
+    assert r["needs_clarification"] is True
+    assert r["questions"]
+    assert r["args"] == []
+
+
+def test_router_query_bare_id_token():
+    """裸任务凭证（12 位 hex 含字母）无进度词也按 query 处理。"""
+    r = route_intent("a1b2c3d4e5f6")
+    assert r["pipeline"] == "query"
+    assert r["args"] == ["a1b2c3d4e5f6"]
+
+
+def test_router_numeric_item_id_without_query_word_stays_search():
+    """纯数字串（1688 item_id 形态）无进度词 → 不误入 query（让位 search/unknown）。"""
+    r = route_intent("搜一下 980815374096")
+    assert r["pipeline"] == "search"
+    assert "980815374096" in r["args"]
+    assert route_intent("980815374096")["pipeline"] == "unknown"
+
+
+# ── v2「上传」词现状锁定（G1 评估结论）─────────────────────────────
+
+def test_router_upload_image_locked_to_d1():
+    """「上传图片」不漏到 D：图片意图分支（③）先于 D 词表判定，现状即正确。
+
+    G1 曾担心 _LIST_WORDS 的「上传」会把「上传图片」误路由到 discover——实测
+    被分支顺序正确截住（router 无需改词表），本测试锁定该现状防回归。"""
+    r = route_intent("上传图片找同款")
+    assert r["pipeline"] == "D1"
+    assert r["command"] == "image_search"
+    assert r["needs_confirmation"] is True
+    assert route_intent("上传一张图片")["pipeline"] == "D1"
+
+
+def test_router_upload_goods_still_discover():
+    """「上传」词对货品类话术保持 D 腿不变（评估不动词表的前提）。"""
+    r = route_intent("上传宠物用品")
+    assert r["pipeline"] == "D"
+    assert r["command"] == "discover"
+    assert "--auto-submit" in r["args"]
+
+
 def test_normalize_intent():
     """中文标点归一 + strip。"""
     assert normalize_intent("  帮我，选品；宠物、用品。  ") == "帮我 选品 宠物 用品"
@@ -226,6 +312,45 @@ def test_ask_direct_command(server, monkeypatch):
     assert body["ok"] is True
     assert body["output"] == {"ok": True, "raw": "环境正常"}
     assert captured["cmd"] == "check"
+
+
+def test_ask_query_direct_command(server, monkeypatch):
+    """/ask 查进度（带 task_id）→ query 同步执行组，task_id 走位置参数（非 --query 伪 flag）。"""
+    captured = {}
+
+    def fake_run(cmd, *pos, **kw):
+        captured["cmd"] = cmd
+        captured["pos"] = pos
+        captured["kw"] = kw
+        return {"ok": True, "raw": "running (35%)"}
+
+    monkeypatch.setattr(tasks_server, "run_skill_command", fake_run)
+    tid = "550e8400-e29b-41d4-a716-446655440000"
+    status, body, _resp = _request("POST", server.server_port, "/ask",
+                                   {"text": f"任务 {tid} 好了吗"})
+    assert status == 200
+    assert body["ok"] is True
+    assert body["command"] == "query"
+    assert body["output"] == {"ok": True, "raw": "running (35%)"}
+    assert captured["cmd"] == "query"
+    assert captured["pos"] == (tid,)      # CLI 位置参数 task_id
+    assert "--query" not in str(captured) # 不许落成伪 flag
+
+
+def test_ask_query_without_id_clarifies(server, monkeypatch):
+    """/ask 查进度缺 task_id → 200 {ok: False, questions}，不执行任何命令。"""
+    stub = _StubManager()
+    monkeypatch.setattr(tasks_server, "get_manager", lambda: stub)
+
+    def fake_run(cmd, *pos, **kw):  # pragma: no cover — 澄清路径绝不执行
+        raise AssertionError("澄清分支不得执行 skill 命令")
+
+    monkeypatch.setattr(tasks_server, "run_skill_command", fake_run)
+    status, body, _resp = _request("POST", server.server_port, "/ask", {"text": "查进度"})
+    assert status == 200
+    assert body["ok"] is False
+    assert body["questions"]
+    assert stub.created == []
 
 
 def test_ask_long_command_to_background(server, monkeypatch):

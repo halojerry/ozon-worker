@@ -72,7 +72,7 @@ description: >
 ## 2. 命令速查表
 
 > **所有命令都是黑盒**：不确定参数时跑 `--help`（recipe 命令直接跑，不必先 --help），**不要读 `cli.py` 源码**。
-> 完整参数/示例按域查：上架类 `references/commands-listing.md` · 选品类 `references/commands-discovery.md` · 运维类 `references/commands-ops.md`。
+> 完整参数/示例按域查：上架类 `references/commands-listing.md` · 选品类 `references/commands-discovery.md` · 运维类 `references/commands-ops.md`。字段映射细则 `field_mapping.md`（随包分发）。
 > 自由度：**[照抄]**=用 §0.5/§1 给的模板勿改 flag；**[可调]**=分析类可按需组合。
 
 | 命令 | 用途 | 自由度 |
@@ -113,18 +113,18 @@ description: >
 | 命令 | heavy 闸 | preflight | min-margin | min-density | `--wait` | 展示态 | 出口码 |
 |---|---|---|---|---|---|---|---|
 | `graph` | ✅ | ✅ 拦 exit 3（`--to-box` 只 warning 放行） | ✅ exit 3 | ✅ exit 3 | 闸排队 + 轮询终态；failed→exit 3 | `--no-submit` | 0/1/2/3/4 |
-| `follow` | ✅ | 接线中（fix 对齐） | ✅ exit 3（缓存命中也过闸） | — | 同 graph | 缺省即展示（不加 `--auto-submit`） | 0/1/3/4 |
-| `discover` / `-multi` / `-task` | ✅ | — | 匹配期筛选门槛（**非**提交拦截） | — | 排队；auto-submit 逐个等终态（批量 failed 回传失败码：fix 对齐中） | discover-task 缺省干跑 | 0/1/2/4 |
-| `search` | — | 批量腿缺口（fix 对齐中） | 同左 | 同左 | 同 graph 语义 | — | 恒 0（fix 对齐中） |
+| `follow` | ✅ | ✅ 拦 exit 3（`--to-box` 只 warning 放行；展示态仅警示） | ✅ exit 3（缓存命中也过闸） | — | 同 graph | 缺省即展示（不加 `--auto-submit`） | 0/1/3/4 |
+| `discover` / `-multi` / `-task` | ✅ | — | 匹配期筛选门槛（**非**提交拦截） | — | 排队；auto-submit 逐个等终态（任一 failed → exit 3；入箱出口 warning 跳过轮询） | discover-task 缺省干跑 | 0/1/2/3/4 |
+| `search` | — | ✅ 拦截跳过（全拦/全败 exit 3） | ✅ flag 缺省 0=不拦 | ✅ flag 缺省 0=不拦 | 同 graph 语义 | — | 0/1/3 |
 | `batch_test.py` | —（进程内直调，不进闸） | — | — | — | ✅ 轮询到完成 | `--dry-run` | 0/1（有失败项即 1） |
 | `seller` | ✅ | — | — | — | — | — | 0/4 |
 | `image_search` / `queries` / `category` | — | — | — | — | — | — | 0/1 |
 | `check` / `query` / `report` / `session-sync` / 凭证配置 | — | — | — | — | — | — | 0/1（session-sync 无 sc_company_id→2） |
 
 - **check 口径**：cookie 在 ≠ 会话活——seller 会话探针只看 HTTP 状态码（`probe_seller_session_alive`）。
-  **`check` 全绿才是可跑单前提**；非全绿先按 NEXT 行修复再提交（优先级 bug 修复后口径完全成立：fix/arch-findings-v1 对齐中）。细则见 `references/commands-ops.md`。
-- **批量 ≠ 门禁豁免**：`search --auto-submit` / `batch_test` 的批量提交腿当前不过 preflight/min-margin/min-density
-  （fix/arch-findings-v1 对齐中）——需要逐单拦截时改走 `graph` 逐条提交。
+  **`check` 全绿才是可跑单前提**；非全绿先按 NEXT 行修复再提交（check 优先级 bug 已于 PR #73 修复，口径完全成立）。细则见 `references/commands-ops.md`。
+- **批量 ≠ 门禁豁免**：`search` 批量腿已接三闸（preflight 无条件 + min-margin/min-density 缺省 0=关；全拦/全败 exit 3）；
+  `batch_test` 进程内直调仍不进闸（已知 defer，登记 09-findings）——需要逐单拦截时改走 `graph` 逐条提交。
 
 ## 3. 决策边界（提交确认二分法）
 

@@ -22,9 +22,19 @@ draft_image_mirror 把 draft.images 回写为本方 COS URL → 本白名单不�
 但只豁免图床域白名单，缩略/`.webp` 恒拒对 COS 域照常生效（镜像 key 带
 `_310x310` 之类后缀照样拒）。同批 `is_cos_url` 唯一实现自 cos_uploader.py
 迁入本模块（cos_uploader 侧模块级 re-export，既有消费方 import 路径零改动）。
+
+⚠️ 2026-09-25 域判定收紧（fix/handover-batch-v1，09-findings #4-图片）：旧实现
+对整条 URL 裸子串判定（`.myqcloud.com` in url or `cos.` in url）——
+`mycos.evil.com/file/images/x.jpg`、`https://evil.com/?pad=cos.x` 这类伪装面
+全判本方 COS（第一层防线名不副实）。现改 hostname 感知：urlparse 取 host 后
+按域判定（myqcloud 后缀 / COS_PUBLIC_DOMAIN 自定义公网域 / `cos` 须为完整域
+标签），路径与查询串不再参与判定。消费面（image_source 分类闸 / E1 passthrough /
+validate 全外链硬拦 / assemble 补位 / draft 镜像闸 / retry 取图）语义不变——
+唯一实现仍在本函数，消费方零改动。
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Iterable, List
 from urllib.parse import urlparse
@@ -46,6 +56,51 @@ IMAGE_HOST_SUFFIXES = (
     "pddpic.com", "yangkeduo.com", "pinduoduo.com",
 )
 
+def _public_domain_host() -> str:
+    """COS_PUBLIC_DOMAIN（cos_uploader.cos_upload_bytes 的公网 URL 前缀）→ hostname。
+
+    取证结论（2026-09-25）：cos_upload_bytes 发的公网 URL = `{COS_PUBLIC_DOMAIN}/{key}`，
+    配了非 myqcloud 自定义域时 is_cos_url 必须认得它，否则 AI 图被判 external →
+    整单 IMAGE_GEN_ALL_FAILED（docs/PLAN-image-ref-cos-whitelist-fix-v1.md:85 登记
+    的已知限制，随本批一并收口）。生产默认空（走 myqcloud 默认域），本分支零触发。
+
+    刻意**每次现读 env 不缓存**：生产 env 恒定读一次与缓存无差；测试套件对 COS_*
+    env 有「import 节点后统一清空」的隔离纪律（load_dotenv 会把本地 deploy/.env
+    注入进程），缓存一次会把注入值烘焙进进程——本仓曾有 env 自污染致测试时红时绿
+    的教训（test_dict_cache_singleflight），不再犯。
+    """
+    raw = os.environ.get("COS_PUBLIC_DOMAIN", "").strip().lower()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    try:
+        return urlparse(raw).hostname or ""
+    except ValueError:
+        return ""
+
+
+def _is_our_cos_host(host: str) -> bool:
+    """host 级判定「是否本方 COS 域」（is_cos_url 的域判定核心，hostname 感知）。
+
+    - myqcloud 后缀：区域域 `{bucket}.cos.{region}.myqcloud.com` 与全球加速
+      `cos.accelerate.myqcloud.com` 全形态（is_cos_url docstring 的既有覆盖面）。
+    - 自定义公网域：COS_PUBLIC_DOMAIN 配置时按 host 精确/子域匹配（与
+      cos_upload_bytes 的改写前缀同源）。
+    - `cos` 须以完整域标签出现（host 按标签切分，不再是裸子串）：兜底未知
+      非 myqcloud COS 形态（如 cos.accelerate.* 变体），同时消灭 mycos.evil.com
+      （`mycos` 标签 ≠ `cos`）这类伪装面。
+    """
+    if not host:
+        return False
+    if host == "myqcloud.com" or host.endswith(".myqcloud.com"):
+        return True
+    extra = _public_domain_host()
+    if extra and (host == extra or host.endswith("." + extra)):
+        return True
+    return "cos" in host.split(".")
+
+
 def is_cos_url(url: object) -> bool:
     """判断 URL 是否已托管在本方 COS（幂等判定的唯一共享实现，自 cos_uploader 迁入）。
 
@@ -56,16 +111,19 @@ def is_cos_url(url: object) -> bool:
     v0.69 declined IMAGE_ERROR 根因修复的共享件：submit 镜像闸（draft_service）、
     validate 全外链硬拦（ozon_validate_node）、retry pictures/import 取图
     （validation_retry_loop）、镜像回写（draft_image_mirror）同源判定，
-    禁止各自内联（防漂移）。消费方统一经 `utils.cos_uploader` re-export
-    import（路径不变）。覆盖 区域域名 cos.{region}.myqcloud.com 与全球加速
-    cos.accelerate.myqcloud.com。
+    禁止各自内联（防漂移）。域判定 2026-09-25 起 hostname 感知（见模块头
+    「域判定收紧」注记）：路径/查询串不参与判定，`cos.` 须为完整域标签。
     """
     if not isinstance(url, str):
         return True
     lowered = url.strip().lower()
     if not lowered:
         return True
-    return ".myqcloud.com" in lowered or "cos." in lowered
+    try:
+        host = urlparse(lowered).hostname or ""
+    except ValueError:
+        return False
+    return _is_our_cos_host(host)
 
 
 def is_product_image_candidate(url: object) -> bool:
@@ -91,7 +149,9 @@ def is_product_image_candidate(url: object) -> bool:
         host = (urlparse(lowered).hostname or "").lower()
     except ValueError:
         return False
-    if not (is_cos_url(lowered)
+    # fix/handover-batch-v1: 直接复用已解析 host 走域判定核心（旧处二次调
+    # is_cos_url 会重复 urlparse；判定语义同一实现 _is_our_cos_host）。
+    if not (_is_our_cos_host(host)
             or any(host == d or host.endswith("." + d) for d in IMAGE_HOST_SUFFIXES)):
         return False
     # 拒缩略/转换后缀（COS 域不豁免：镜像 key 带 _310x310 之类后缀照样拒）

@@ -5,6 +5,8 @@
   （completed: task_id+product_id / failed: 原因首行）
 - 不带 --wait：poll_task_status 零调用（fire-and-forget 行为回归锁定）
 - poll_task_status 自身：状态变化 INFO、连续 3 次不可达 WARNING、每次 poll DEBUG
+- 移交批（09-findings）：--to-box×--wait 组合——入箱出口 draft_id 无任务句柄，
+  warning 一行 + 零轮询 + 出口码不变（graph/follow/discover/discover-task 四腿）
 
 ⚠️ 语义拍板：--wait 在 v0.76 已是重采集串行闸的「排队等锁」标志——本批合并语义：
 闸被占排队（原语义）+ 提交后轮询到终态（新语义），缺省（不带 --wait）逐字不变。
@@ -190,7 +192,7 @@ def _discover_args(**overrides):
 
 
 def _run_discover(args, candidates, calls: list, terminal: dict,
-                  submit_res: dict | None = None):
+                  submit_res: dict | None = None, draft_res: dict | None = None):
     submit_res = submit_res or {"ok": True, "task_id": "T-D1"}
     poll = _fake_poll(calls, terminal)
 
@@ -215,6 +217,10 @@ def _run_discover(args, candidates, calls: list, terminal: dict,
             "scripts.lib.config_store.get_store", return_value={}))
         stack.enter_context(mock.patch(
             "scripts.cloud_probe.submit_envelope", side_effect=_fake_submit))
+        # 移交批：--to-box 腿走 submit_draft（draft_id 出口）
+        if draft_res is not None:
+            stack.enter_context(mock.patch(
+                "scripts.cloud_probe.submit_draft", return_value=dict(draft_res)))
         stack.enter_context(mock.patch(
             "scripts.cloud_probe.build_envelope_from_discovery",
             side_effect=lambda c, sc, store_id="": {"token": "t", "envelope": {}}))
@@ -502,6 +508,164 @@ def test_discover_task_wait_failed_exit3(tmp_path, monkeypatch):
     assert rc == 3, f"--wait 终态 failed 应 exit 3, got {rc}"
     assert "❌ 任务失败 task_id=T-DT-1" in out.getvalue()
     assert "1/1 个任务终态 failed" in out.getvalue()
+
+
+# ── 移交批（09-findings）：--to-box × --wait 组合 ──────────────────────────
+# 入箱出口是 draft_id 非 worker 任务句柄，此前 --wait 被静默跳过；现在四命令
+# （graph/follow/discover/discover-task）warning 一行 + 零轮询 + 出口码不变。
+
+_BOX_WARN = "⚠️ --wait 与 --to-box 组合：入箱出口无任务句柄，--wait 轮询跳过"
+
+
+def test_graph_to_box_wait_warns_zero_poll_exit0():
+    """⑯graph --to-box --wait：warning 一行 + 零轮询 + exit 0（入箱出口码不变）。"""
+    calls: list = []
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.preflight_check", return_value=[]))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.build_graph_envelope_with_retry",
+            return_value=_GRAPH_ENV))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe._source_preflight", return_value=(True, "")))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe._check_min_density", return_value=(True, "")))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.submit_draft",
+            return_value={"ok": True, "draft_id": "D-G1"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status",
+            side_effect=_fake_poll(calls, _completed())))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        args = cli.build_arg_parser().parse_args(
+            ["graph", "--item-id", "123", "--to-box", "--wait"])
+        rc = cli.cmd_graph(args)
+    assert rc == 0
+    assert calls == [], "入箱出口 draft_id 无任务句柄，不得触发轮询"
+    assert _BOX_WARN in out.getvalue()
+    assert "📥 已入采集箱" in out.getvalue()
+
+
+def test_graph_to_box_no_wait_no_warning():
+    """⑰graph --to-box 不带 --wait：无 warning（提示只在显式 --wait 时出现）。"""
+    calls: list = []
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.preflight_check", return_value=[]))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.build_graph_envelope_with_retry",
+            return_value=_GRAPH_ENV))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe._source_preflight", return_value=(True, "")))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe._check_min_density", return_value=(True, "")))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.submit_draft",
+            return_value={"ok": True, "draft_id": "D-G1"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status",
+            side_effect=_fake_poll(calls, _completed())))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        args = cli.build_arg_parser().parse_args(
+            ["graph", "--item-id", "123", "--to-box"])
+        rc = cli.cmd_graph(args)
+    assert rc == 0
+    assert calls == []
+    assert _BOX_WARN not in out.getvalue()
+
+
+def test_follow_to_box_wait_warns_zero_poll_exit0():
+    """⑱follow --to-box --wait：warning 一行 + 零轮询 + exit 0。"""
+    calls: list = []
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.preflight_check", return_value=[]))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.follow_sell_cloud",
+            return_value={"success": True, "draft_id": "D-F1"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status",
+            side_effect=_fake_poll(calls, _completed())))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        args = cli.build_arg_parser().parse_args(
+            ["follow", "--ozon-url", "https://www.ozon.ru/product/x-1/",
+             "--to-box", "--wait"])
+        rc = cli.cmd_follow(args)
+    assert rc == 0
+    assert calls == []
+    assert _BOX_WARN in out.getvalue()
+
+
+def test_discover_to_box_wait_warns_zero_poll_exit0():
+    """⑲discover --to-box --auto-submit --wait：warning + 零轮询 + exit 0
+    （discover-multi 共用 _finish_discover_flow，同覆盖）。"""
+    cands = [_profitable("p1")]
+    calls: list = []
+    rc, out = _run_discover(_discover_args(to_box=True), cands, calls,
+                            _completed(), draft_res={"ok": True, "draft_id": "D-D1"})
+    assert rc == 0
+    assert calls == []
+    assert _BOX_WARN in out
+    assert "📥 已入采集箱" in out
+
+
+def test_discover_to_box_no_wait_no_warning():
+    """⑳discover --to-box --auto-submit 不带 --wait：无 warning、零轮询。"""
+    cands = [_profitable("p1")]
+    calls: list = []
+    rc, out = _run_discover(_discover_args(to_box=True, wait=False), cands, calls,
+                            _completed(), draft_res={"ok": True, "draft_id": "D-D1"})
+    assert rc == 0
+    assert calls == []
+    assert _BOX_WARN not in out
+
+
+def test_discover_task_to_box_wait_warns_zero_poll_exit0(tmp_path, monkeypatch):
+    """㉑discover-task --to-box --wait：warning + 零轮询 + exit 0（draft_id 无句柄）。"""
+    from scripts.lib import chrome_launcher, config_store
+    from scripts.lib import ozon_discovery as od
+    calls: list = []
+    cands = [_dt_cand("701")]
+    monkeypatch.setattr("scripts._const.LOGS_DIR", tmp_path)
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch.object(od, "DISCOVERY_CACHE_DIR", tmp_path))
+        stack.enter_context(mock.patch.object(
+            chrome_launcher, "ensure_chrome_cdp", return_value=(True, "ok")))
+        stack.enter_context(mock.patch.object(
+            od, "collect_and_analyze", return_value=cands))
+        stack.enter_context(mock.patch.object(
+            od, "match_selected",
+            side_effect=lambda pool, cdp, **kw: [
+                setattr(c, "status", "profitable") or
+                setattr(c, "match_1688_url",
+                        f"https://detail.1688.com/offer/{c.ozon_product_id}.html") or
+                setattr(c, "profit_margin", 25.0)
+                for c in pool] and pool))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_store_profile", return_value={}))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_setting", return_value=None))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_store", return_value={"client_id": "1", "api_key": "k"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.submit_draft",
+            return_value={"ok": True, "draft_id": "D-DT-1"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.build_envelope_from_discovery",
+            side_effect=lambda c, sc, store_id="": {"token": "t", "envelope": {}}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status",
+            side_effect=_fake_poll(calls, _completed())))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        rc = cli.cmd_discover_task(_dt_args(to_box=True, auto_submit=False))
+    assert rc == 0
+    assert calls == []
+    assert _BOX_WARN in out.getvalue()
+    assert "📥 已入采集箱" in out.getvalue()
 
 
 # ── poll_task_status 可观测性增强（B3.1，行为逐字保持）────────────────────

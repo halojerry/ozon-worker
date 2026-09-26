@@ -110,7 +110,7 @@ python3 scripts/cli.py discover-task --url "https://www.ozon.ru/highlight/xxx/" 
 python3 scripts/cli.py discover-task --keyword "宠物饮水机" --to-box --resume
 ```
 
-- **参数补充**：`--filters <JSON规则文件>`（区间/品牌/价格/发货模式，FBS 含 rFBS，子串匹配，同名键覆盖 ai 默认）、`--min-price/--max-price/--brand-filter`、`--expend-shop N` 拓店（`--url` 须商品页种子，竞品卖家评级优先，预算 max(N×4,60)，与 `--keyword` 互斥）、`--dry-run`（强制干跑）、`--wait`（auto-submit 出口逐个等终态；⚠️ 批量项 failed 当前只打印不回传失败码、出口仍按成功计——fix/arch-findings-v1 对齐中，**逐行核对输出里的 failed 项**，勿只看 exit 0 当全成）
+- **参数补充**：`--filters <JSON规则文件>`（区间/品牌/价格/发货模式，FBS 含 rFBS，子串匹配，同名键覆盖 ai 默认）、`--min-price/--max-price/--brand-filter`、`--expend-shop N` 拓店（`--url` 须商品页种子，竞品卖家评级优先，预算 max(N×4,60)，与 `--keyword` 互斥）、`--dry-run`（强制干跑）、`--wait`（auto-submit 出口逐个等终态；**任一任务终态 failed → exit 3**，全成功 → 0——fix/arch-findings-v1 已对齐 graph/follow 单腿语义；入箱出口是 draft_id 无任务句柄，`--to-box`×`--wait` 组合不轮询、打 ⚠️ 一行后按入箱出口码返回）
 - **流程**：`collect_and_analyze`（粗筛档位**缺省 `ai`**，与交互 discover 相反）→ `rank_match_pool` 排序 → `match_selected`（**`target_profitable` 达标即停** + `--match-limit` 限额 + 连续 `--no-match-streak-stop`（默认 5）次 no_match 早停、请求间 2s 节奏抖动、并发 ≤2）→ profitable 逐条 `build_envelope_from_discovery` → 双出口
 - **进度输出**：`目标 N（达标）｜扫描上限 M` 开场、`[k/N] 达标进度` 行、结尾 `🎯 已达标` 或 `⚠️ 未达标` + 续采提示；出口末行 `👉 NEXT:`（v0.79）
 - **结构化出口（v0.70）**：结尾输出尾部 JSON（`task_id` / `summary` / `state_path`）——MCP 后台任务收割与 agent 机读都靠它；`--export <路径.csv>` 落盘全量候选供人工复核
