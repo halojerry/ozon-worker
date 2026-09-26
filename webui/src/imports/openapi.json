@@ -1622,7 +1622,7 @@
         "examples": [
           {
             "id": "tok_02",
-            "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+            "key": "__API_KEY_EXAMPLE__",
             "name": "webui"
           }
         ],
@@ -1696,7 +1696,7 @@
         "description": "切换密钥响应（key 仅此一次返回——用户复制后不再可查）。",
         "examples": [
           {
-            "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+            "key": "__API_KEY_EXAMPLE__"
           }
         ],
         "properties": {
@@ -1717,7 +1717,7 @@
         "examples": [
           {
             "balance": 128.4,
-            "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+            "key": "__API_KEY_EXAMPLE__",
             "keys": [
               {
                 "id": "tok_01",
@@ -7339,7 +7339,7 @@
                     "ozon_api_key": "",
                     "ozon_client_id": "",
                     "source": "skill",
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -7444,7 +7444,7 @@
                       "a1b2c3d4-0000-4000-8000-000000000001",
                       "a1b2c3d4-0000-4000-8000-000000000004"
                     ],
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -7772,7 +7772,7 @@
                 "description": "T14b: 单字段 AI 重新生成请求。\n\n请求体仅携带 token（与全站一致：token 在 body 而非 header）；\n草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。",
                 "examples": [
                   {
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -7842,7 +7842,7 @@
                 "description": "T14b: 单字段 AI 重新生成请求。\n\n请求体仅携带 token（与全站一致：token 在 body 而非 header）；\n草稿读取由 {draft_id} + token 鉴权得到的 tenant_id 共同限定。",
                 "examples": [
                   {
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -7968,7 +7968,7 @@
                 "examples": [
                   {
                     "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -8134,7 +8134,7 @@
                 "examples": [
                   {
                     "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -11092,7 +11092,7 @@
                     "ozon_client_id": "5381204",
                     "priority": 0,
                     "timeout_seconds": 1800,
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
@@ -11511,7 +11511,7 @@
                 "description": "POST /tasks/{id}/images/{slot}/regen 请求体（Bearer 优先，body token 兜底，可整体省略）。",
                 "examples": [
                   {
-                    "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+                    "token": "__TOKEN_EXAMPLE__"
                   }
                 ],
                 "properties": {
