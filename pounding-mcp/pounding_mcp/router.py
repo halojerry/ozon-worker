@@ -1,12 +1,20 @@
-"""意图路由层 v1 —— 把用户自由中文输入路由到 skill 命令。
+"""意图路由层 v2 —— 把用户自由中文输入路由到 skill 命令。
 
-规则表优先：按 skill/SKILL.md §1 决策树 + references/command-reference.md 固化
+规则表优先：按 skill/SKILL.md §1 决策树 + references/commands-*.md 固化
 （有 URL 先判类型 A/B/C/F；无 URL 按意图词 E/C/D；指代不清必须追问）。
 本版纯规则，LLM 只留 needs_clarification 追问出口（后续 LLM 消歧层同接口，防漂移）。
 
+v2 变更（handover-batch-v1）：
+    ① A/B 强意图直提腿补 --wait（SKILL.md §1「graph --url --wait」/
+    「follow --ozon-url --auto-submit --wait」逐行对齐；--wait=闸排队+提交后
+    轮询终态，failed exit 3，符合 §3「明确上架意图→直提带 --wait」口径）；
+    ② 新增 query 意图类（查任务进度，SKILL.md §1「查任务进度/完成了吗→
+    query <task_id>」行）；③ v1 的「上传」词评估结论以测试锁定（见
+    test_router_upload_image_locked_to_d1——图片意图分支先于 D 判定，无需改词表）。
+
 输出 schema（见 docs/PLAN-conversation-entry-v1.md L86-88）：
     {
-        "pipeline": "A"|"B"|"C"|"C2"|"D"|"D1"|"E"|"F"|"category"|"check"|"search"|"unknown",
+        "pipeline": "A"|"B"|"C"|"C2"|"D"|"D1"|"E"|"F"|"query"|"category"|"check"|"search"|"unknown",
         "command": str,
         "args": list[str],
         "needs_confirmation": bool,     # 写类命令（graph 提交/discover --auto-submit/批量）必须二次确认
@@ -19,7 +27,7 @@ from __future__ import annotations
 
 import re
 
-ROUTER_VERSION = "v1"
+ROUTER_VERSION = "v2"
 
 # ── URL 正则（① 有 URL 先判类型：1688 商品页 → A / Ozon 商品页 → B / Ozon 搜索类目页 → C）
 _RE_1688 = re.compile(
@@ -36,6 +44,14 @@ _RE_IMAGE_URL = re.compile(
     re.IGNORECASE,
 )
 
+# ── 任务 ID 形态（v2 query 意图用）：worker 云任务=带连字符 uuid；本地采集箱短
+# 任务=uuid4().hex[:12]（12 位 hex）；「≥6 位纯数字串」按口径兜底（用户手抄 ID）。
+_RE_TASK_UUID = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
+_RE_TASK_HEX12 = re.compile(r"\b[0-9a-f]{12}\b", re.IGNORECASE)
+_RE_TASK_DIGITS = re.compile(r"\b\d{6,}\b")
+
 # ── 意图词表（规则表优先；长词在前避免子串吞词，如「搜一下」先于「搜」）
 _IMAGE_WORDS = ("以图搜款", "图搜", "以图", "找款", "找同款", "同款", "图片", "照片")  # D1
 _TREND_WORDS = ("有什么好卖的", "热卖", "爆款", "新品风向", "趋势", "卖得动")  # E
@@ -47,6 +63,14 @@ _COLLECT_WORDS = ("采集",)  # C
 _CATEGORY_WORDS = ("查类目", "类目")
 _CHECK_WORDS = ("检查", "诊断", "环境", "凭证")
 _SEARCH_WORDS = ("搜索", "搜一下", "查一下", "找货源", "查找", "搜")
+# v2 查进度意图（SKILL.md §1「查任务进度/完成了吗→query <task_id>」行）。
+# 长词在前（防 _extract_keyword 子串吞词）；裸「进度」兜底放最后。
+_QUERY_WORDS = (
+    "查进度", "任务进度", "任务状态", "查任务", "查询任务",
+    "跑到哪", "跑哪了", "处理完了吗", "处理好了吗",
+    "完成了吗", "完成了没", "好了吗", "好了没", "怎么样了",
+    "进度",
+)
 # v0.79 口径统一（PLAN-agent-ergonomics-v1 B2 / SKILL.md §1⑨）：URL + 弱化词 →
 # 展示态（graph --no-submit / follow 不带 --auto-submit），不上架。
 _WEAK_INTENT_WORDS = ("看看", "能不能上", "能上吗", "多少钱", "怎么样", "评估", "分析一下", "值不值得")
@@ -62,6 +86,7 @@ _ALL_INTENT_WORDS = (
     + _CATEGORY_WORDS
     + _CHECK_WORDS
     + _SEARCH_WORDS
+    + _QUERY_WORDS
 )
 
 # 关键词提取时剔除的口语/衬词（⚠️ 单字衬词须谨慎：不能含「用」（"用品"类目后缀））
@@ -75,6 +100,7 @@ _QUESTION_NEED_OBJECT = "请提供 1688 链接 / Ozon 链接 / 商品图片 / �
 _QUESTION_TREND = "请提供品类，我先 web_search 分析趋势再 discover"
 _QUESTION_CATEGORY = "请提供品类关键词（如：宠物用品）"
 _QUESTION_IMAGE = "请提供商品图片（URL 或本地路径）"
+_QUESTION_TASK_ID = "请提供要查询的任务 ID（submit/graph --wait/job_status 输出里的 task_id，如 550e8400-e29b-… 或 12 位短 ID）"
 _QUESTION_TARGET_COUNT = "要多少个符合要求的产品？（控制采集/达标数量，缺省 50；也可直接说「选品 30个 宠物用品」）"
 
 
@@ -138,6 +164,24 @@ def _find_image_url(text: str) -> str:
     return m.group(0) if m else ""
 
 
+def _extract_task_id(text: str) -> str:
+    """从原文提取任务 ID：带连字符 uuid → 12 位 hex（本地采集任务）→ ≥6 位纯数字串。
+
+    12 位 hex 必须 ≥1 个 a-f 字母才算任务 ID——纯数字 12 位可能是 1688 item_id
+    （如 980815374096），不能单独当任务凭证认领；纯数字串同理只在伴随进度词时
+    才被采用（本函数的 digits 兜底仅由 query 词命中的分支消费）。
+    """
+    m = _RE_TASK_UUID.search(text)
+    if m:
+        return m.group(0)
+    for m in _RE_TASK_HEX12.finditer(text):
+        tok = m.group(0)
+        if any(c in "abcdefABCDEF" for c in tok):
+            return tok
+    m = _RE_TASK_DIGITS.search(text)
+    return m.group(0) if m else ""
+
+
 def route_intent(text: str) -> dict:
     """自由中文输入 → 路由结果 dict（schema 见模块 docstring）。"""
     raw = normalize_intent(text)
@@ -158,24 +202,42 @@ def route_intent(text: str) -> dict:
             if _weak:
                 return _route("A", "graph", ["--url", url, "--no-submit"],
                               note="弱意图——先展示信封与预估，用户确认后再提交")
-            return _route("A", "graph", ["--url", url])
+            # v2 对齐 SKILL.md §1「发 1688 链接 + 上架/整一批 → graph --url --wait」：
+            # 直提腿带 --wait（闸排队+提交后轮询终态，failed exit 3），§3 二分法口径。
+            return _route("A", "graph", ["--url", url, "--wait"])
         if kind == "ozon_product":
             if _weak:
                 return _route("B", "follow", ["--ozon-url", url],
                               note="弱意图——follow 缺省即展示 1688 候选，用户确认后加 --auto-submit")
             # arch-findings 修复：强意图跟卖必须带 --auto-submit（follow 缺省只展示不提交，
             # 旧返回会导致 agent 照令牌执行后零动作，与 SKILL.md §1 二分法「明确意图→直提」相悖）
-            return _route("B", "follow", ["--ozon-url", url, "--auto-submit"])
+            # v2 再补 --wait（§1「follow --ozon-url <URL> --auto-submit --wait」逐字口径）。
+            return _route("B", "follow", ["--ozon-url", url, "--auto-submit", "--wait"])
         return _route("C", "discover", ["--url", url])
 
-    # ② 图片意图（无 URL）→ D1：图搜结果须用户确认再 graph，绝不直接上架
+    # ② 查进度意图（v2 新增，SKILL.md §1「查任务进度/完成了吗→query <task_id>」）。
+    # 插在 URL 判定之后：进度问句贴的是 task_id 不是 URL，URL 优先级不变；插在
+    # 图片意图之前：「…好了吗/进度」是问既有任务状态而非发起新图搜，缺 id 时
+    # 追问 task_id（指代不清必须追问，禁止猜测执行）。已知取舍：极少数「环境
+    # 好了吗」类问句会被本分支截住追问 task_id（check 词不占优）——宁可追问
+    # 不猜跑，与模块「歧义→追问」原则一致。
+    _task_id = _extract_task_id(raw)
+    if any(w in raw for w in _QUERY_WORDS) or (_task_id and not _task_id.isdigit()):
+        # 裸 ID 兜底：无进度词但出现 uuid/12 位 hex 任务凭证（含字母），按查进度
+        # 处理（纯数字串不放行——可能只是 1688 item_id，让位给 search/unknown）。
+        if _task_id:
+            return _route("query", "query", [_task_id])
+        return _route("query", "query", [], needs_clarification=True,
+                      questions=[_QUESTION_TASK_ID])
+
+    # ③ 图片意图（无 URL）→ D1：图搜结果须用户确认再 graph，绝不直接上架
     if any(w in raw for w in _IMAGE_WORDS):
         img = _find_image_url(raw)
         args = ["--image", img] if img else ["--image"]
         return _route("D1", "image_search", args, needs_confirmation=True,
                       questions=[] if img else [_QUESTION_IMAGE])
 
-    # ③ 无 URL 按意图词优先级（SKILL.md ②）
+    # ④ 无 URL 按意图词优先级（SKILL.md ②）
     # 趋势选品：命令层无 trend，须先 web_search + LLM 提炼 → 本层纯规则只能追问
     if any(w in raw for w in _TREND_WORDS):
         return _route("E", "discover", [], needs_clarification=True,
