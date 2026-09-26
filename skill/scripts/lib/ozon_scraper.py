@@ -496,8 +496,10 @@ def scrape_ozon_product_via_cdp(
             return ""
 
     # ⚠️ v0.14 E4: 用 CdpConnection/CdpTab 统一封装
-    # - 复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome），find_tab 命中后 release 防止 conn.close() 误关
-    # - 新建 tab 由本函数显式关闭
+    # - v0.81: 不再复用用户可见 tab——cookie 是 profile 级共享（跨 tab 天然生效），
+    #   复用可见 tab 的唯一效果是批量抓取时用户前台 tab 被反复导航+滚动（「电脑
+    #   完全没法做事情」实测反馈）。改用专属后台 tab + force_active（可见性渲染
+    #   不抢焦点，懒加载照常），用完即关（tab_is_new → close_remote=True）。
     from scripts.lib.cdp_client import CdpConnection
     own_conn = conn is None
     tab = None
@@ -512,18 +514,11 @@ def scrape_ozon_product_via_cdp(
             result["error"] = "CDP Chrome 未运行"
             return result
 
-        # ✅ v0.10: 优先复用已有 ozon.ru tab（保留 cookie/session，避免 DataDome）
-        # ⚠️ v0.14 E4: find_tab 失败降级 new_tab（与旧逻辑一致，find 异常不阻断）
-        try:
-            tab = conn.find_tab("ozon.ru")
-            if tab:
-                logger.info("复用已有 Ozon tab")
-                conn.release(tab)  # 用户已有 tab → 不随 conn.close() 被远程关闭
-        except Exception:
-            tab = None
-        if tab is None:
-            tab = conn.new_tab()
-            tab_is_new = True
+        # ✅ v0.81: 专属后台 tab（不弹前台）+ force_active（visibilityState→visible，
+        # rAF 恢复、IntersectionObserver 正常派发——懒加载区块照常渲染）。
+        tab = conn.new_tab(background=True)
+        tab.force_active()
+        tab_is_new = True
 
         # Navigate and wait for load (event-driven)
         tab.navigate(ozon_url, wait_until="load", timeout=timeout)
@@ -792,17 +787,21 @@ def scrape_ozon_product_via_cdp(
                 # v0.85 A7 (feat/competitor-fullattrs-v1): 全表特征懒加载 DOM 兜底。
                 # 取证（2026-09-25）：entrypoint/composer API 已不再下发
                 # webCharacteristics 全表（95 缓存 0 全表，v0.78 起恒空），特征
-                # section 改为前端 IntersectionObserver 懒加载——前台 tab 滚动到
-                # 视口才渲染（前台+滚动实测 7/7 行命中）。API fullChars 为空时：
+                # section 改为前端 IntersectionObserver 懒加载——可见 tab 滚动到
+                # 视口才渲染（可见+滚动实测 7/7 行命中）。API fullChars 为空时：
                 # 点开展开按钮 + 滚动触发 + DOM dl(dt/dd) 解析兜底，非致命。
-                # ⚠️ 首版 gate 失败根因：v0.78 静默化复用的后台 tab 滚动 0 行
-                # （IO 回调不派发）——DOM 兜底前必须 bring_to_front 激活 tab
-                # （短暂前台 ~6s，滑块重试路径已有可见 tab 先例）。
+                # ✅ v0.81：本 tab 已是后台 tab+force_active（visibilityState=
+                # visible，IO 正常派发，无需抢前台）——先 force_active 兜加固，
+                # 仅当 visibilityState 仍 hidden（老 Chrome 无 setWebLifecycleState）
+                # 才降级 bring_to_front 抢前台（最后手段）。
                 if not result.get("characteristics"):
                     try:
-                        tab.bring_to_front()
+                        tab.force_active()
                         import time as _tf
-                        _tf.sleep(0.4)  # 前台化生效后再滚动，IO 才开始派发
+                        _tf.sleep(0.4)  # 可见化生效后再滚动，IO 才开始派发
+                        if (tab.evaluate("document.visibilityState") or "") != "visible":
+                            tab.bring_to_front()
+                            _tf.sleep(0.4)
                     except Exception:
                         pass
                     _js_dom = """

@@ -1885,7 +1885,10 @@ def discover_from_url(cdp_url: str, url: str, max_products: int = 50) -> list[st
     from scripts.lib.cdp_client import CdpConnection
 
     with CdpConnection(cdp_url) as cdp:
-        tab = cdp.new_tab(url)
+        # v0.81: 后台 tab + force_active——商品瀑布流靠滚动懒加载，
+        # 后台 hidden 状态 IO 不派发；force_active 可见化渲染不抢前台。
+        tab = cdp.new_tab(url, background=True)
+        tab.force_active()
         try:
             time.sleep(6)
 

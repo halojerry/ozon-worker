@@ -250,6 +250,28 @@ class CdpTab:
             logger.warning("bring_to_front 失败（忽略）: %s", exc)
             return False
 
+    def force_active(self, timeout: float = 5) -> bool:
+        """让后台 tab 以「可见」状态渲染而不抢 macOS 前台（v0.81 静默抓取基石）。
+
+        原理（2026-09-26 实机实证）：``Page.setWebLifecycleState('active')`` +
+        ``Emulation.setFocusEmulationEnabled(true)`` 把后台 tab 的
+        ``document.visibilityState`` 从 hidden 翻成 visible、rAF 从冻结恢复
+        64fps——IntersectionObserver 正常派发，懒加载区块（Ozon 全表特征、
+        搜索结果流）照常渲染。对比 :meth:`bring_to_front`：后者真的把窗口
+        激活到 macOS 前台（抢用户焦点）；本方法全程后台，用户无感。
+        返回是否成功（失败静默，调用方继续——老 Chrome 无此命令时懒加载
+        调用方自行走 bring_to_front 兜底）。
+        """
+        try:
+            msg_id = self._send("Page.setWebLifecycleState", {"state": "active"})
+            self._recv_until_id(msg_id, timeout=timeout)
+            msg_id = self._send("Emulation.setFocusEmulationEnabled", {"enabled": True})
+            self._recv_until_id(msg_id, timeout=timeout)
+            return True
+        except Exception as exc:
+            logger.warning("force_active 失败（忽略）: %s", exc)
+            return False
+
     def set_extra_headers(self, headers: dict[str, str]) -> None:
         """Set extra HTTP headers for all subsequent requests.
 
@@ -321,12 +343,20 @@ class CdpConnection:
     # Tab management
     # ------------------------------------------------------------------
 
-    def new_tab(self, url: str = "about:blank", background: bool = False) -> CdpTab:
+    def new_tab(self, url: str = "about:blank", background: bool = True) -> CdpTab:
         """Create a new tab and return a :class:`CdpTab`.
 
-        ``background=False`` 走 ``PUT /json/new?``（可见 tab，激活到前台）。
+        ⚠️ v0.81 默认翻转：``background=True``（后台 tab，零前台弹窗）。
+        依据：批量抓取链每商品 4-6 次前台激活曾把用户 Chrome 反复弹前台
+        （用户原话「电脑完全没法做事情了」）。后台 tab 懒加载渲染配合
+        :meth:`CdpTab.force_active`（visibilityState→visible，IO 正常派发，
+        实机实证 rAF 64fps）——需要渲染懒加载的调用方创建 tab 后立刻调
+        ``force_active()``。真正需要用户看见的路径（登录引导、滑块人工
+        重试、``cli._open_tab``）必须显式传 ``background=False``。
+
         ``background=True`` 走浏览器级 ``Target.createTarget(background=true)``，
-        创建后台 tab（不激活、不弹前台）——用于静默图搜等用户无感场景。
+        创建后台 tab（不激活、不弹前台）。
+        ``background=False`` 走 ``PUT /json/new?``（可见 tab，激活到前台）。
         """
         # 清理已关闭的 tab 引用
         self._tabs = [t for t in self._tabs if not t._closed]

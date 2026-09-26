@@ -1184,7 +1184,9 @@ def cmd_check(args) -> int:
         try:
             from scripts.lib.cdp_client import CdpConnection
             conn = CdpConnection("http://127.0.0.1:9222")
-            tab = conn.new_tab(url)
+            # v0.81: 用户要亲自看的页面（登录/信任建立）——显式前台，不受
+            # new_tab 默认后台化影响。
+            tab = conn.new_tab(url, background=False)
             tab.close(close_remote=False)  # 保留标签页给用户，只关 WS
             conn.close()
         except Exception:
@@ -2347,7 +2349,10 @@ def _collect_keyword_pids(cdp_url: str, keyword: str, max_each: int,
     else:
         url = f"https://www.ozon.ru/search/?text={urllib.parse.quote(kw)}"
     with CdpConnection(cdp_url) as cdp:
-        tab = cdp.new_tab(url)
+        # v0.81: 默认后台 tab + force_active——搜索结果流是懒加载渲染，
+        # 后台 hidden 状态 IO 不派发；force_active 让其可见化渲染且不抢前台。
+        tab = cdp.new_tab(url, background=True)
+        tab.force_active()
         try:
             time.sleep(5)  # 初始加载
             return _lazy_collect_urls(tab, max_each)
