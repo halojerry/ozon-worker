@@ -67,6 +67,7 @@ description: >
 6. **趋势选品**命令层无 trend：先 web_search + LLM 提炼再 discover（`references/trend-selection.md`）。
 7. **免登录**：readiness 自动从本机浏览器导入 cookie（每小时最多一次）；手动 `import-cookies`，失败走人工登录。
 8. **任务 failed 无解 / 未知错误码 / 假成功** → `report` 上报（`references/error-report.md`），把 report_id 回给用户。
+9. **信封 extensions 注入唯一入口** `_merge_config_tiers`（cloud_probe.py）——任何提交腿不得手工拼定价键；follow/discover-降级腿已纳入（排除 offer_id_prefix/traffic_keywords，跟卖并卡语义不变）（fix/arch-findings-v1 对齐中）。看到信封 extensions 定价键来自三条腿不一致时，以本条为准报 `report`，勿手工"补齐"。
 
 ## 2. 命令速查表
 
@@ -103,6 +104,28 @@ description: >
 - **出口 `👉 NEXT:` 行**（v0.79）：每条命令出口末行给下一步建议（汇报/查询/修复/结束）——照它执行，不自己发明动作。
 - **运行日志**：每条命令打 `📋 运行日志: data/logs/run_*.log`；discover 族另写 `data/logs/report_*.json` 运行报告并打 `📄 运行报告: <path>`。
 
+### 门禁速查矩阵（v0.80）
+
+> 出口码总约定：**0**=成功（含 `--no-submit` 展示态 / `--to-box` 入箱）· **1**=鉴权/环境/参数 ·
+> **2**=产品数据校验失败 · **3**=提交失败/拦截/`--wait` 终态 failed · **4**=heavy 闸被占。
+> 「—」=该命令无此门禁。数据源：docs/ARCHITECTURE/01-skill-line.md §1/§6（v0.80 快照）。
+
+| 命令 | heavy 闸 | preflight | min-margin | min-density | `--wait` | 展示态 | 出口码 |
+|---|---|---|---|---|---|---|---|
+| `graph` | ✅ | ✅ 拦 exit 3（`--to-box` 只 warning 放行） | ✅ exit 3 | ✅ exit 3 | 闸排队 + 轮询终态；failed→exit 3 | `--no-submit` | 0/1/2/3/4 |
+| `follow` | ✅ | 接线中（fix 对齐） | ✅ exit 3（缓存命中也过闸） | — | 同 graph | 缺省即展示（不加 `--auto-submit`） | 0/1/3/4 |
+| `discover` / `-multi` / `-task` | ✅ | — | 匹配期筛选门槛（**非**提交拦截） | — | 排队；auto-submit 逐个等终态（批量 failed 回传失败码：fix 对齐中） | discover-task 缺省干跑 | 0/1/2/4 |
+| `search` | — | 批量腿缺口（fix 对齐中） | 同左 | 同左 | 同 graph 语义 | — | 恒 0（fix 对齐中） |
+| `batch_test.py` | —（进程内直调，不进闸） | — | — | — | ✅ 轮询到完成 | `--dry-run` | 0/1（有失败项即 1） |
+| `seller` | ✅ | — | — | — | — | — | 0/4 |
+| `image_search` / `queries` / `category` | — | — | — | — | — | — | 0/1 |
+| `check` / `query` / `report` / `session-sync` / 凭证配置 | — | — | — | — | — | — | 0/1（session-sync 无 sc_company_id→2） |
+
+- **check 口径**：cookie 在 ≠ 会话活——seller 会话探针只看 HTTP 状态码（`probe_seller_session_alive`）。
+  **`check` 全绿才是可跑单前提**；非全绿先按 NEXT 行修复再提交（优先级 bug 修复后口径完全成立：fix/arch-findings-v1 对齐中）。细则见 `references/commands-ops.md`。
+- **批量 ≠ 门禁豁免**：`search --auto-submit` / `batch_test` 的批量提交腿当前不过 preflight/min-margin/min-density
+  （fix/arch-findings-v1 对齐中）——需要逐单拦截时改走 `graph` 逐条提交。
+
 ## 3. 决策边界（提交确认二分法）
 
 | 意图强度 | 判定 | 动作 |
@@ -124,6 +147,8 @@ description: >
 | "上次会话用户确认过，这次直接提交" | 每次会话重新按 §3 判意图；确认不复用跨会话 |
 | "选品结果不错，直接 --auto-submit 了" | 双出口纪律——没确认不直提 |
 | "我并行跑几个 discover 快一点" | 串行闸会 exit 4；批量场景用一次调用或 `--wait` 排队 |
+| "批量命令肯定和 graph 一样有拦截" | 不一定——各命令门禁差异查 §2「门禁速查矩阵」（search/batch_test 批量腿缺口在 fix 分支对齐中） |
+| "check 大部分绿，先跑一单再说" | `check` 全绿才是可跑单前提——cookie 在 ≠ 会话活，半绿状态提交大概率白烧额度 |
 | "命令输出里没写下一步，我猜一个" | 出口末行有 `👉 NEXT:`——照它执行；没有 NEXT 才需要自己判断 |
 
 ## 5. 参考文件索引
@@ -140,7 +165,7 @@ description: >
 - `env-setup.md` — 凭证/环境/check 排查（首次使用查）
 - `trend-selection.md` / `discover-fission.md` — 趋势/裂变细则（对应场景查）
 - `anti-patterns.md` — 越界行为对照（每次操作前自查）
-- `envelope_example.json` — 信封结构示例；`field_mapping.md` — 字段映射规则
+- `envelope_example.json` — 信封结构示例（含 follow 与主链信封键差异对照）
 
 ## 6. 常见问题与升级
 

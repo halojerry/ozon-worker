@@ -393,6 +393,117 @@ def test_discover_task_no_wait_zero_polls(tmp_path, monkeypatch):
     assert calls == []
 
 
+# ── arch-findings #4: 批量 --wait 终态 failed → exit 3（对齐 graph/follow 腿）──
+
+def test_discover_wait_failed_exit3():
+    """⑫discover --auto-submit --wait：终态 failed → 命令 exit 3（原实现只打印回 0）。"""
+    cands = [_profitable("p1")]
+    calls: list = []
+    rc, out = _run_discover(_discover_args(), cands, calls, _failed("T-D1"))
+    assert rc == 3, f"--wait 终态 failed 应 exit 3, got {rc}"
+    assert "❌ 任务失败 task_id=T-D1" in out
+    assert "1/1 个任务终态 failed" in out
+
+
+def test_discover_wait_all_completed_exit0():
+    """⑬discover --wait 全部 completed：保持 exit 0（成功路径零变化）。"""
+    cands = [_profitable("p1"), _profitable("p2")]
+    calls: list = []
+    rc, out = _run_discover(_discover_args(), cands, calls, _completed())
+    assert rc == 0
+    assert out.count("✅ 任务完成 task_id=") == 2
+
+
+def test_discover_wait_partial_failed_exit3():
+    """⑭批量 --wait 一成一败：任一 failed 即 exit 3（逐 task_id 判定与顺序无关）。"""
+    cands = [_profitable("p1"), _profitable("p2")]
+    calls: list = []
+
+    seq = {"n": 0}
+
+    def _submit(envelope):
+        seq["n"] += 1
+        return {"ok": True, "task_id": f"T-D{seq['n']}"}
+
+    def _poll_by_id(task_id, timeout=900, on_status=None, token=""):
+        calls.append(str(task_id))
+        return _failed(task_id) if task_id == "T-D1" else _completed()
+
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch(
+            "scripts.lib.chrome_launcher.ensure_chrome_cdp", return_value=(True, "ok")))
+        stack.enter_context(mock.patch(
+            "scripts.lib.ozon_discovery.collect_and_analyze",
+            return_value=cands))
+        stack.enter_context(mock.patch(
+            "scripts.lib.ozon_discovery.apply_selection_rules",
+            side_effect=lambda cands, *a, **k: list(cands)))
+        stack.enter_context(mock.patch("scripts.lib.ozon_discovery.match_selected"))
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.get_mxou_token", return_value=""))
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.get_store_profile", return_value={}))
+        stack.enter_context(mock.patch(
+            "scripts.lib.config_store.get_store", return_value={}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.submit_envelope", side_effect=_submit))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.build_envelope_from_discovery",
+            side_effect=lambda c, sc, store_id="": {"token": "t", "envelope": {}}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status", side_effect=_poll_by_id))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        rc = cli.cmd_discover(_discover_args())
+    assert rc == 3
+    assert sorted(calls) == ["T-D1", "T-D2"]
+    assert "1/2 个任务终态 failed" in out.getvalue()
+
+
+def test_discover_task_wait_failed_exit3(tmp_path, monkeypatch):
+    """⑮discover-task --auto-submit --wait：终态 failed → exit 3（原实现只打印回 0）。"""
+    from scripts.lib import chrome_launcher, config_store
+    from scripts.lib import ozon_discovery as od
+    calls: list = []
+    cands = [_dt_cand("601")]
+    monkeypatch.setattr("scripts._const.LOGS_DIR", tmp_path)
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch.object(od, "DISCOVERY_CACHE_DIR", tmp_path))
+        stack.enter_context(mock.patch.object(
+            chrome_launcher, "ensure_chrome_cdp", return_value=(True, "ok")))
+        stack.enter_context(mock.patch.object(
+            od, "collect_and_analyze", return_value=cands))
+        stack.enter_context(mock.patch.object(
+            od, "match_selected",
+            side_effect=lambda pool, cdp, **kw: [
+                setattr(c, "status", "profitable") or
+                setattr(c, "match_1688_url",
+                        f"https://detail.1688.com/offer/{c.ozon_product_id}.html") or
+                setattr(c, "profit_margin", 25.0)
+                for c in pool] and pool))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_store_profile", return_value={}))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_setting", return_value=None))
+        stack.enter_context(mock.patch.object(
+            config_store, "get_store", return_value={"client_id": "1", "api_key": "k"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.submit_envelope",
+            return_value={"ok": True, "task_id": "T-DT-1"}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.build_envelope_from_discovery",
+            side_effect=lambda c, sc, store_id="": {"token": "t", "envelope": {}}))
+        stack.enter_context(mock.patch(
+            "scripts.cloud_probe.poll_task_status",
+            side_effect=_fake_poll(calls, _failed("T-DT-1"))))
+        out = io.StringIO()
+        stack.enter_context(mock.patch("sys.stdout", out))
+        rc = cli.cmd_discover_task(_dt_args())
+    assert rc == 3, f"--wait 终态 failed 应 exit 3, got {rc}"
+    assert "❌ 任务失败 task_id=T-DT-1" in out.getvalue()
+    assert "1/1 个任务终态 failed" in out.getvalue()
+
+
 # ── poll_task_status 可观测性增强（B3.1，行为逐字保持）────────────────────
 
 def test_poll_task_status_status_change_info_and_poll_debug(caplog, monkeypatch):

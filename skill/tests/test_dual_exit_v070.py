@@ -134,10 +134,17 @@ def _run_search(args, calls, products):
         mock.patch.object(config_store, "get_ozon_credentials",
                           return_value={"margin_rate": 0.25, "commission_rate": 0.10}),
         mock.patch.object(od, "_query_logistics_from_worker", return_value=6.0),
+        # arch-findings #5: 批量腿门禁接线后，信封须带可过闸的最小 draft
+        # （purchase_cost>0 + 属性非空；否则 preflight 按源失效拦截——这正是闸的本意）
         mock.patch("scripts.cloud_probe.build_graph_envelope_with_retry",
                    side_effect=lambda item_id, detail_url, store_id="":
                        (calls.setdefault("build", []).append(item_id)
-                        or {"token": "t", "envelope": {}})),
+                        or {"token": "t", "envelope": {"draft": {
+                            "item_id": item_id, "title": "Перчатки",
+                            "purchase_cost": 5.0, "weight": 500,
+                            "images": ["https://cbu01.alicdn.com/img/x.jpg"],
+                            "attributes": {"颜色": "红色"}},
+                           "source": {}, "extensions": {}}})),
         mock.patch("scripts.cloud_probe.submit_draft",
                    side_effect=lambda env: (calls.setdefault("draft", []).append(env)
                                             or {"draft_id": f"d{len(calls['draft'])}"})),
