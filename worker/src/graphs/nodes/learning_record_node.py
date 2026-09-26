@@ -54,6 +54,23 @@ def _leaf_path_overlap(leaf: str, path_zh: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# ✅ fix/category-root-cause-v1 (catfix): 写侧守卫② — 学习闭环自污染斩断
+# 实机 gate 取证（2026-09-26）：row 148（收纳盒族）succ=3 被写成权威档——R2b 跨大类
+# 高置信采纳与超泛词 leaf 的 approved 成功反复给同一行加证据，最终 L0 独立权威直通。
+# 两类来源 approved 也拒写 category_mapping（属性学习不受影响）：
+#   1. match_meta.cross_top_high_confidence=true —— R2b 跨大类高置信解锁是
+#      「锚点在场 + LLM 自报置信」的弱证据采纳（双语缺口场景），不足以当类目真值回灌；
+#   2. leaf 属超泛词黑名单 —— 收纳/置物/整理/储物族词在 Ozon 树跨多域出现
+#      （厨房/化妆品/桌面/车库…），leaf 键本身无类目指向性，命中即污染池。
+# 拒写（而非压 confidence）是刻意的：add_category_mapping 的 confidence 冲突侧取
+# greatest 只升不降，压低值写不回去；拒写才能斩断 succ 累积（row 148 教训）。
+_LEARNING_OVERGENERIC_LEAF_WORDS = frozenset({
+    "收纳", "收纳盒", "收纳箱", "收纳架", "置物", "置物架",
+    "整理", "整理盒", "整理架", "储物", "储物盒", "储物架",
+})
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # 真跟卖判定（改 discover/follow 学习行为前必读）
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -649,6 +666,18 @@ def learning_record_node(
                         and (not _meta_tp or _meta_tp == str(tp_val))
                     ):
                         logger.info("📚 category_mapping 跳过（L0 自证：本次 dc 来自学习表，无新证据）")
+                    elif (
+                        # ✅ catfix 写侧守卫②：R2b 跨大类高置信 / 超泛词 leaf 拒写
+                        #（防自污染，见 _LEARNING_OVERGENERIC_LEAF_WORDS 注释块）
+                        bool(_meta.get("cross_top_high_confidence"))
+                        or any(_w in leaf for _w in _LEARNING_OVERGENERIC_LEAF_WORDS)
+                    ):
+                        logger.warning(
+                            f"📚 category_mapping 拒写（catfix 自污染守卫）："
+                            f"leaf='{leaf}' layer={_layer or 'default'} "
+                            f"cross_top={bool(_meta.get('cross_top_high_confidence'))} "
+                            f"超泛词={any(_w in leaf for _w in _LEARNING_OVERGENERIC_LEAF_WORDS)}"
+                        )
                     else:
                         conf = 0.85  # 缺省兼容（旧行为置信度）
                         if _layer == "L0":
@@ -657,7 +686,9 @@ def learning_record_node(
                             conf = 0.7
                         elif _layer == "Skill":
                             conf = 0.9
-                        elif _layer in ("L1", "R2b"):
+                        elif _layer in ("L1", "R2b", "follow"):
+                            # ✅ catfix: follow 轻量出口采纳（树配对+交叉闸通过）与 L1/R2b
+                            # 同档 0.7——它是闸放行而非匹配链定稿，不给 0.85 缺省高信
                             conf = 0.7
                         if is_true_follow:
                             conf = min(conf, 0.6)   # 断点1: 真跟卖图搜来源压弱档
