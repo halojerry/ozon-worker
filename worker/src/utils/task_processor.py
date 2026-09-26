@@ -285,18 +285,33 @@ async def _send_task_notify_async(task_id, status, graph_result, payload) -> Non
 
 
 # ── 进度回调 ──
-# 节点名 → 阶段名映射
+# 节点名 → 阶段名映射。
+# ⚠️ v0.80 修复（进度条从高位跳回 0%，arch-findings #2）：映射缺失时
+# ProgressCallback 回落用裸节点名当 stage，而 update_progress 对不在
+# STAGE_ORDER 的 stage 记 stage_idx=0 → assemble_ozon_product 等节点
+# 每单必现一次进度倒退。**新增 graph 节点必须同步登记本表**（语义就近：
+# 节点做什么就映射到 STAGE_ORDER 里最贴近的阶段），tests/
+# test_progress_map_v080.py 从 graphs.graph 反射锁定全覆盖。
+# "category_match"/"attributes"/"description" 三个键是阶段名（历史遗留，
+# 已无同名节点），保留供 progress_logger 等旁路调用方对齐。
 _NODE_STAGE_MAP = {
     "auth": "auth", "ingest": "ingest", "category_match": "category_match",
     "pricing": "pricing", "attributes": "attributes", "description": "description",
+    "check_quota": "check_quota",
+    "follow_sell_import": "ingest",
+    "assemble_ozon_product": "category_match",
+    "scene_generation_llm": "description", "visual_vars_llm": "description",
     "main_image_gen": "image_generation", "white_bg_gen": "image_generation",
     "detail_gen": "image_generation", "scene_1_gen": "image_generation",
     "scene_2_gen": "image_generation", "scene_3_gen": "image_generation",
     "comparison_gen": "image_generation", "social_proof_gen": "image_generation",
     "multi_angle_gen": "image_generation",
+    "variant_primary_loop": "image_generation",
     "prepare_ozon_upload": "prepare_ozon_upload",
     "ozon_validate": "ozon_validate", "ozon_upload": "ozon_upload",
-    "ozon_status": "ozon_status", "learning_record": "learning_record",
+    "ozon_status": "ozon_status",
+    "fetch_back": "ozon_status", "validation_retry_wrapper": "ozon_status",
+    "learning_record": "learning_record",
 }
 
 

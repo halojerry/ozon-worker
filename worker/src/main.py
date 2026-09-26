@@ -87,11 +87,17 @@ def get_current_task_id() -> str | None:
     """获取当前协程正在处理的 task_id"""
     return _current_task_id.get()
 
-# 节点执行顺序（用于计算进度百分比）
+# 节点执行顺序（用于计算进度百分比）。
+# ⚠️ v0.80 重排为拓扑序（arch-findings #2）：check_quota 实际是 auth 后第二跳
+# （graph.py route_after_auth → check_quota），旧序排第 10 位导致中段阶段百分比
+# 虚高、后续节点回调时进度回跳。本表是**展示序**（13 项不变，仅排序），
+# 与真实拓扑仍存在局部错位（如 pricing 先于 assemble 执行但 category_match
+# 展示在前）——由 update_progress 的单调不降钳制兜底。新测试
+# tests/test_progress_map_v080.py 锁定集合等价 + 本顺序。
 STAGE_ORDER = [
-    "auth", "ingest", "category_match", "pricing", "attributes",
-    "description", "image_generation", "prepare_ozon_upload",
-    "ozon_validate", "check_quota", "ozon_upload", "ozon_status", "learning_record"
+    "auth", "check_quota", "ingest", "category_match", "pricing",
+    "attributes", "description", "image_generation", "prepare_ozon_upload",
+    "ozon_validate", "ozon_upload", "ozon_status", "learning_record"
 ]
 
 # ✅ v0.9: 合并为单一 update_progress（内存 + PG 持久化），避免重复定义
@@ -154,14 +160,37 @@ def _purge_stale_progress():
 
 
 def update_progress(task_id: str, stage: str, message: str = ""):
-    """更新任务进度（内存 + 异步 PG）"""
+    """更新任务进度（内存 + 异步 PG）。
+
+    ✅ v0.80 防倒退（arch-findings #2）：进度对同一 task 单调不降——
+    - stage 不在 STAGE_ORDER（_NODE_STAGE_MAP 漏配 / 未知节点 / "error" 等
+      旁路调用）→ 保留上一阶段与百分比，只刷新 message（旧行为 stage_idx=0，
+      进度条从高位跳回 0%；首跳无历史时按 0 起步）。
+    - 已知阶段但展示序低于当前进度（展示序与真实拓扑局部错位，如 pricing
+      之后的 assemble→category_match）→ 钳到当前进度，stage 标签跟随钳后
+      下标保持 stage/stage_index/stages_* 自洽，节点明细在 message 里。
+    - auth（STAGE_ORDER 首位，图的唯一入口）是新一轮哨兵：重试重跑允许把
+      基线重置回 0，否则上一轮残留的高位会把整轮重试钉在旧百分比上。
+    终态归位（completed/failed/rejected）不走本函数，由 http_task_status
+    覆盖 progress，不受影响。
+    """
     if not task_id:
         return
-    stage_idx = STAGE_ORDER.index(stage) if stage in STAGE_ORDER else 0
+    prev = _task_progress.get(task_id) or {}
+    prev_idx = int(prev.get("stage_index") or 0)
+    if stage == STAGE_ORDER[0]:
+        stage_idx = 0
+        cur_stage = stage
+    elif stage in STAGE_ORDER:
+        stage_idx = max(STAGE_ORDER.index(stage), prev_idx)
+        cur_stage = STAGE_ORDER[stage_idx]
+    else:
+        stage_idx = prev_idx
+        cur_stage = str(prev.get("stage") or stage)
     total = len(STAGE_ORDER)
     percent = int((stage_idx / total) * 100)
     data = {
-        "stage": stage,
+        "stage": cur_stage,
         "stage_index": stage_idx,
         "total_stages": total,
         "percent": percent,

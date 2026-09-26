@@ -8,7 +8,8 @@ worker 生图节点拿它当参考（AI 重绘出别家产品）/ 变体原图�
   1. white_bg / multi_angle / main_image 的参考图白名单过滤
      （拒缩略图/竞品域，保序保留合格 alicdn 原图）
   2. 参考图全不合格 → 跳过生图（不拿垃圾图硬生成）
-  3. variant 原图兜底同样过白名单
+  3. variant 生图失败绝不返回原图（fix/arch-findings-v1 行为翻转：
+     v0.60 原图兜底已废除——失败原图撞出口硬闸毒化整单）
 
 运行（无需 PG/GPU）：
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_ref_image_pollution_guard.py -q
@@ -124,8 +125,10 @@ def test_variant_fallback_rejects_thumbnail():
     assert list(out.variant_primary_images) == [""], out.variant_primary_images
 
 
-def test_variant_fallback_keeps_good_original():
-    """variant：生图失败 + 原图是合格 alicdn 原图 → 正常兜底（v0.60 行为保持）。"""
+def test_variant_fallback_never_returns_original():
+    """variant：生图失败 + 原图是合格 alicdn 原图 → **也不兜底**（fix/arch-findings-v1
+    行为翻转：v0.60 原图兜底已废除——失败原图被出口硬闸判 external → 整单
+    IMAGE_GEN_ALL_FAILED 毒化；缺图走 prepare 统一主图降级）。"""
     from graphs.state import VariantLoopState
     state = VariantLoopState(
         variants=[{"name": "红色", "image": GOOD_ORIGINAL}],
@@ -137,4 +140,5 @@ def test_variant_fallback_keeps_good_original():
 
     with patch.object(_variant_mod, "call_mxou_image_api", side_effect=_fail):
         out = variant_primary_loop_node(state, _CONFIG, _RUNTIME)
-    assert list(out.variant_primary_images) == [GOOD_ORIGINAL], out.variant_primary_images
+    assert list(out.variant_primary_images) == [""], out.variant_primary_images
+    assert GOOD_ORIGINAL not in out.variant_primary_images, "失败产物绝不含 1688 原图"

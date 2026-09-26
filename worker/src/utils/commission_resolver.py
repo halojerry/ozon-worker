@@ -66,10 +66,16 @@ def _updated_at_epoch(value: Any) -> Optional[float]:
 def pick_price_band(price_rub: Optional[float]) -> str:
     """按 RUB 售价选价格段：≤1500 → leq_1500；1501-5000 → leq_5000；>5000 → gt_5000。
 
-    价格 ≤0 或 None → leq_1500（最保守分段）。
+    价格 ≤0 或 None（售价未知/非 RUB）→ leq_5000 **中性档**。
+    ✅ v0.80 中性档统一（docs/ARCHITECTURE/09-findings.md §定价 #6）：原默认
+    leq_1500 自称「最保守」，但现实佣金矩阵该段费率通常最低——无价场景落它 =
+    低估佣金、利润虚高；且两个调用方（pricing_node 无价、learning_record 回填
+    无价/非 RUB）早已各自手工取 leq_5000。三处口径收敛于此：无价不假设低价段
+    （leq_1500 低佣）也不假设高价段（gt_5000 高佣把价顶高），取中间段 leq_5000；
+    真实售价在场时仍按上边界精确选段，不受影响。
     """
     if not price_rub or price_rub <= 0:
-        return "leq_1500"
+        return "leq_5000"
     if price_rub <= 1500:
         return "leq_1500"
     if price_rub <= 5000:

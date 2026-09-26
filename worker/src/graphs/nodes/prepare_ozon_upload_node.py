@@ -4018,7 +4018,15 @@ def prepare_ozon_upload_node(
         # 提案过确定性验证（字典唯一/布尔/数值/禁填）才落卡。用户驱动：
         # 「每个类目的特征属性都缓存了，这样 LLM 就知道怎么填写了」。
         import os as _os
-        if _os.getenv("LLM_SCHEMA_FILL", "1") != "0":
+        # ✅ v0.80 arch-findings #9: kill-switch 当前态显式留痕——默认开（未设变量
+        # 即生效），部署核对/排错时不用猜 A5 是否在跑。
+        _llm_fill_env = _os.getenv("LLM_SCHEMA_FILL", "1")
+        logger.info(
+            "A5 schema-LLM 兜底开关: LLM_SCHEMA_FILL=%s → %s（语义：设 0 关，默认开）",
+            _llm_fill_env,
+            "启用" if _llm_fill_env != "0" else "关闭",
+        )
+        if _llm_fill_env != "0":
             try:
                 from utils.attr_fill_extras import build_llm_schema_prompt, apply_llm_schema_fill
                 _llm_prompt, _llm_todo = build_llm_schema_prompt(
@@ -4040,6 +4048,8 @@ def prepare_ozon_upload_node(
                             ozon_payload.get("items", []), _llm_todo, _llm_ans,
                             draft, state, audit_task_id=_audit_task_id,
                         )
+            except MxouOutOfQuotaError:
+                raise  # v0.80 arch-findings #4: 余额/鉴权永久错误 → 任务明确失败，不吞成「兜底异常」warning
             except Exception as _e:
                 logger.warning("schema-LLM 兜底异常（不影响主流程）: %s", _e)
         # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征合并（在 A4/A5 之后——
@@ -4060,6 +4070,8 @@ def prepare_ozon_upload_node(
             ozon_payload["items"] = merge_copied_card_attributes(
                 ozon_payload.get("items", []), _copied_attrs,
             )
+    except MxouOutOfQuotaError:
+        raise  # v0.80 arch-findings #4: A5 段内层 re-raise 的余额错误必须在整段出口继续上抛——否则被本层 except Exception 吞回 warning，任务照跑白烧
     except Exception as _e:
         logger.warning("必填字典属性补齐异常（不影响主流程）: %s", _e)
 

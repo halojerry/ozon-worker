@@ -3462,6 +3462,7 @@ V1 Task Status — 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TA
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -3472,7 +3473,6 @@ V1 Task Status — 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TA
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"
@@ -5355,6 +5355,7 @@ GET /tasks/{id}/images 响应。
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -5365,7 +5366,6 @@ GET /tasks/{id}/images 响应。
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"
@@ -5479,6 +5479,7 @@ GET /tasks/{id}/images 响应。
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -5489,7 +5490,6 @@ GET /tasks/{id}/images 响应。
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"
