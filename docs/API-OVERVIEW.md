@@ -296,6 +296,7 @@ submit_task → pending → running → completed / failed / cancelled
 | 行为变更（2026-09-11，repo-gov B4） | ①`POST /cancel_task/{id}` 对不可取消（终态）任务从 200+failed 改为 **409 + TASK_NOT_CANCELLABLE**；②删除 shelf 三个无消费 bulk 端点（POST /products/bulk-prices、/bulk-stocks、/bulk-archive——现行 webui 零引用，路径 147→144）；③error_reports/forensics 三端点迁至租户 guard 路由（路径不变，body 坏+鉴权失败并发时错误码优先 401/429/503）；④7 个高频 POST 补 requestBody 声明、schema 示例率 11%→71%（纯文档生成面） | cancel_task 客户端需处理 409（现行 skill/MCP/webui 零调用该端点的 failed 分支，零破坏面） |
 | 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 30）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
 | 行为变更（2026-09-16，安全修复批） | — | ①`GET /task_statistics` 补鉴权+租户强制：无 Bearer 401，非 admin 恒查自身租户（`tenant_id` 参数跨租户 403）；②`POST /drafts/{id}/resubmit` 新增 **402**（低余额预检）/ **409**（并发重复提交）语义；③`GET /store/health` 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header 传递（query 传参仅为存量向后兼容保留），上游失败改 **502** 固定文案（200 体不再有 error 形态）；④`POST /logistics/quote` 补 Bearer+限流（无凭据 401、超限 429）；⑤`POST /cancel_task/{id}` 与 `GET /progress/{run_id}` 补 Bearer（无凭据 401；cancel 跨租户 404） |
+| 行为变更（2026-09-26，安全收尾批 fix/sec-closeout-v081） | — | ①`POST /async_run`（已弃用）补 T3 鉴权门：无/空/无效 token **401**（消费矩阵一直标需鉴权但实现漏挂，对齐同族 /run、/node_run）；②`GET /graph_parameter` 补 `_require_bearer`：无 Bearer **401**（消费矩阵标需鉴权但实现漏挂）；③`POST /logistics/quote` 的 tpl_provider/service_level 入口白名单归一（大小写不敏感到权威拼写，未知值原样透传走既有 fallback——报价语义不变，纯加固） |
 
 ## 13. 文档地图
 

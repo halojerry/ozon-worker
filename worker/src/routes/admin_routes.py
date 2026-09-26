@@ -27,6 +27,16 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 async def _authenticate_admin(request: Request) -> str:
+    """本文件全部端点的鉴权唯一链（v0.81 安全收尾留痕：Mimosa medium「敏感
+    操作未观察到角色或权限检查」= 扫描器误报——鉴权在函数体内 ``await`` 调用
+    而非 FastAPI ``Depends``，静态扫描常漏判）。
+
+    链路：``_authenticate_token``（Bearer 有效 token → user_id，无/失效 401）
+    → ``admin_service.require_admin``（非管理员 403；本地 local_dev 放行）。
+    本文件每个 handler（含 POST/PATCH /users 写端点）首行都强制
+    ``await _authenticate_admin(request)``，无旁路——勿改为可选调用或移到
+    条件分支内。
+    """
     from main import _authenticate_token  # 延迟导入防循环
 
     auth = request.headers.get("Authorization", "")

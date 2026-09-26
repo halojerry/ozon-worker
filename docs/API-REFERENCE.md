@@ -2347,7 +2347,7 @@ Select Mxou Key — 切换密钥：解出明文 key（仅此一次返回）+ 幂
 ```
 
 ### `POST /api/v1/mxou/login`
-Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
+Mxou Login — MXOU 账号密码登录（v0.81 安全收尾判定：**设计公开**，非缺鉴权）。
 
 **响应**
 

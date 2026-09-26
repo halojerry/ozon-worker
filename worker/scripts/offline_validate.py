@@ -42,6 +42,35 @@ ATTR_SCHEMA_URL = "/v1/description-category/attribute"
 VALUES_URL = "/v1/description-category/attribute/values"
 VALUES_SEARCH_URL = "/v1/description-category/attribute/values/search"
 
+# v0.81 SSRF 出口闸白名单：本脚本请求目标 host 唯一合法值（Ozon Seller API）。
+_SELLER_ALLOWED_HOSTS = ("api-seller.ozon.ru",)
+
+
+def _assert_offline_target(base: str, path: str) -> None:
+    """SSRF 出口闸（离线运维脚本简化版，v0.81 安全收尾 Mimosa High-2 留痕）。
+
+    本脚本请求目标 base/path 均为**模块常量**（SELLER_BASE 与三个 *_URL），
+    无外部输入面——Mimosa 判 SSRF 属「常量拼 URL 无校验」形态告警。按 scripts
+    上下文自实现一份简化断言（**不复用** worker 运行时
+    utils/secure_fetch.safe_fetch——离线工具无租户/代理语义，拉全量运行时闸
+    反而引入 import 面）。三段断言：
+    - scheme 必须 https（Ozon Seller API 无明文形态；拒 http/file/gopher 等）；
+    - host 白名单精确匹配 api-seller.ozon.ru（拒 localhost/127.0.0.1/内网字面
+      IP/169.254.169.254 元数据段——防未来有人把常量改成 env/args 可配时回归）；
+    - path 必须以 / 开头的相对路径（无 scheme/netloc，防拼出绝对 URL 绕过 base）。
+    若未来确需抓任意外链，必须改走 worker 运行时 safe_fetch 同款逐跳校验。
+    """
+    from urllib.parse import urlparse
+
+    parsed_base = urlparse(base)
+    if parsed_base.scheme != "https":
+        raise RuntimeError(f"SELLER_BASE scheme must be https, got {parsed_base.scheme!r}")
+    if (parsed_base.hostname or "") not in _SELLER_ALLOWED_HOSTS:
+        raise RuntimeError(f"SELLER_BASE host not in allowlist: {parsed_base.hostname!r}")
+    parsed_path = urlparse(path)
+    if not path.startswith("/") or parsed_path.scheme or parsed_path.netloc:
+        raise RuntimeError(f"API path must be relative (leading '/'), got {path!r}")
+
 
 def load_store_credentials(client_id: Optional[str], api_key: Optional[str], store_name: str, stores_file: str = "") -> tuple[str, str]:
     """读 skill/data/config/stores.json 拿凭证（--store 用店名或 client_id）。"""
@@ -65,6 +94,7 @@ def load_store_credentials(client_id: Optional[str], api_key: Optional[str], sto
 
 
 def seller_get(client_id: str, api_key: str, path: str, body: dict) -> dict:
+    _assert_offline_target(SELLER_BASE, path)  # v0.81 SSRF 出口闸（每次请求前断言）
     headers = {"Client-Id": client_id, "Api-Key": api_key, "Content-Type": "application/json"}
     resp = requests.post(SELLER_BASE + path, json=body, headers=headers, timeout=30)
     if resp.status_code != 200:

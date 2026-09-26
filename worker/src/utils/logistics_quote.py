@@ -21,6 +21,36 @@ from utils.ozon_client import ozon_post
 logger = logging.getLogger(__name__)
 
 KNOWN_TPLS = ["RETS", "ATC", "ZTO", "Ural", "GUOO", "CEL", "GBS", "OYX", "ABT", "Xingyuan", "Tanais"]
+KNOWN_SERVICE_LEVELS = ["Standard", "Economy", "Express"]
+
+
+def canonical_tpl_provider(value: Optional[str]) -> Optional[str]:
+    """tpl_provider 大小写不敏感归一到 KNOWN_TPLS 权威拼写（v0.81 安全收尾）。
+
+    用户可控自由文本（POST /api/v1/logistics/quote 的 body.tpl_provider）在进
+    任何 DB 查询前先归一：命中 KNOWN_TPLS（忽略大小写/首尾空白）→ 权威拼写；
+    未命中剥空白后**原样透传**——下游 SQLAlchemy ORM ``==`` 比较生成绑定参数
+    （参数化证明见 query_logistics_cost docstring），未知值只会查不到行走既有
+    fallback 链，无注入面，也无需在此硬拒（保持 Q3 跨 3PL 兜底语义）。
+    """
+    if not isinstance(value, str) or not value.strip():
+        return value
+    stripped = value.strip()
+    for known in KNOWN_TPLS:
+        if known.lower() == stripped.lower():
+            return known
+    return stripped
+
+
+def canonical_service_level(value: Optional[str]) -> Optional[str]:
+    """service_level 归一到 KNOWN_SERVICE_LEVELS 权威拼写（口径同 canonical_tpl_provider）。"""
+    if not isinstance(value, str) or not value.strip():
+        return value
+    stripped = value.strip()
+    for known in KNOWN_SERVICE_LEVELS:
+        if known.lower() == stripped.lower():
+            return known
+    return stripped
 
 
 def get_store_logistics_config(ozon_client_id: str, ozon_api_key: str) -> tuple[str, str]:
@@ -75,6 +105,18 @@ def query_logistics_cost(
     Returns: (logistics_cost_cny, channel_name, detail_dict)
     - detail_dict: {tpl_provider, service_level, scoring_group, base_cost,
       per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
+
+    参数化证明（v0.81 安全收尾，Mimosa High「_logistics_quote_sync SQL 注入」
+    判定为 ORM 误报的反驳留痕）：本函数全部 4 处 ``session.execute`` 均为
+    SQLAlchemy ORM ``select(...).where(...)``——tpl_provider/service_level（用户
+    可控自由文本）经 ``LogisticsRate.tpl_provider == :x`` 等比较符生成**绑定
+    参数**（compiled SQL 形如 ``WHERE tpl_provider = %(tpl_provider_1)s``，值在
+    compiled.params 里，从不进 SQL 文本）；weight/dims 在入口
+    ``main._logistics_quote_sync`` 已 ``float()`` 强转。全链无 f-string/percent/
+    %s 拼 SQL（项目纪律同 utils/like_escape.py）。入口白名单归一见
+    ``canonical_tpl_provider``/``canonical_service_level``（quote_logistics 接线）。
+    tests/test_sec_closeout_v081.py 以 ``stmt.compile().params`` 断言恶意串只
+    出现在绑定参数、不出现在 SQL 文本。
     """
     from storage.database.db import get_session
     from storage.database.shared.model import LogisticsRate
@@ -240,9 +282,12 @@ def quote_logistics(
 ) -> dict:
     """一键报价: 探测 3PL(可覆盖) → 查费率表 → 返回完整明细。
 
-    端点 /api/v1/logistics/quote 与 skill 端共用。
+    端点 /api/v1/logistics/quote 与 skill 端共用。tpl_provider/service_level
+    先过白名单归一（canonical_tpl_provider/canonical_service_level，v0.81
+    安全收尾）再进查询链。
     """
-    tpl, svc = tpl_provider, service_level
+    tpl = canonical_tpl_provider(tpl_provider)
+    svc = canonical_service_level(service_level)
     if not tpl or not svc:
         if ozon_client_id and ozon_api_key:
             tpl, svc = get_store_logistics_config(ozon_client_id, ozon_api_key)

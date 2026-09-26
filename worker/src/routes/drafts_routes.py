@@ -66,7 +66,15 @@ _EXPORT_OK_EXTRA = {"responses": {"200": {"content": {"text/csv": {"example":
 
 
 async def _authenticate(request: Request) -> str:
-    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。"""
+    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。
+
+    v0.81 安全收尾留痕（Mimosa medium「未观察到权限检查」= 扫描器误报）：鉴权
+    在函数体内 ``await`` 调用而非 FastAPI ``Depends``，静态扫描常漏判。本文件
+    全部 handler 首行强制 ``tenant_id = await _authenticate(request)``（或
+    draft_ai_field/draft_assemble 直调 ``_authenticate_token``，同源），无旁路；
+    租户隔离由 draft_service 各读写按 tenant_id 过滤（跨租户 404），定时上架链
+    另有 ``get_decrypted(tenant_id, credential_id)`` 凭证归属校验。
+    """
     from main import _authenticate_token  # 延迟导入防循环
 
     auth = request.headers.get("Authorization", "")

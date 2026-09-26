@@ -26,6 +26,11 @@ resolve_tenant 前移到 body 解析之前——「body 坏 + 租户解析失败
 
 设计依据：docs/audit/2026-09-11-repo-gov/design-b2b-tenant-guard.md §3
 Phase 1（试点接线）；main.py 18 处全量收敛是 Phase 2。
+
+v0.81 安全收尾留痕（Mimosa medium「未观察到权限检查」= 扫描器误报）：本文件
+全部端点经 FastAPI ``Depends(get_tenant)`` / ``Depends(get_tenant_no_rate_limit)``
+强制鉴权+租户解析（实现在 api/deps_tenant.py：Bearer 提取 →
+_verify_analytics_token → resolve_tenant），依赖签名对扫描器结构可见。
 """
 from __future__ import annotations
 

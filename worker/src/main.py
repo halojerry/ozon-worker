@@ -878,10 +878,27 @@ openai_handler = OpenAIChatHandler(service)
         "status": "queued",
     }}}}})
 async def http_async_run(request: Request) -> dict:
-    """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。"""
+    """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
+
+    v0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写
+    操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行
+    🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效
+    token → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。
+    """
     logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
+    raw_body = await request.body()
     try:
-        payload = await request.json()
+        body_text = raw_body.decode("utf-8")
+    except UnicodeDecodeError:
+        # T2(api-M1): 400 不回显 body 原文
+        logger.warning("Invalid JSON body on %s: %s", "/async_run", traceback.format_exc()[-500:])
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    # T3 鉴权门（镜像 /run、/node_run）：无/空/无效 token → 401，限流超限 → 429
+    _authenticate_token(_extract_token_from_body(body_text))
+
+    try:
+        payload = json.loads(body_text)
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error in http_async_run: {e}")
         raise HTTPException(status_code=400, detail="Invalid JSON")
@@ -2814,6 +2831,12 @@ async def http_task_statistics(request: Request):
         "msg": "",
     }}}}})
 async def http_graph_inout_parameter(request: Request):
+    # v0.81 安全收尾（Mimosa medium 判定「真缺」已修）：消费矩阵标「需鉴权」
+    # （webui API-INTEGRATION-GUIDE §任务·运行 🔒 GET /graph_parameter），实现
+    # 漏挂——补 ``_require_bearer``（v0.76 后鉴权唯一入口）。纯 GraphInput/
+    # GraphOutput schema 元数据只读、无租户数据，但对外按矩阵收口：匿名 401
+    # "Token is required"。
+    _require_bearer(request)
     return service.graph_inout_schema()
 
 
@@ -2897,6 +2920,11 @@ def _logistics_quote_sync(body: dict) -> dict:
     if depth <= 0 or width <= 0 or height <= 0:
         raise HTTPException(status_code=400, detail="dimensions must be > 0")
 
+    # v0.81 安全收尾（Mimosa High 判定留痕）：tpl/svc 为用户可控自由文本——
+    # ①quote_logistics 入口先过白名单归一（canonical_tpl_provider/
+    #   canonical_service_level）；②下游 query_logistics_cost 全部 ORM
+    #   select().where() 绑定参数（参数化证明见其 docstring），无字符串拼 SQL。
+    # weight/dims 上面已 float() 强转。
     tpl = str(body.get("tpl_provider", "") or "") or None
     svc = str(body.get("service_level", "") or "") or None
 
