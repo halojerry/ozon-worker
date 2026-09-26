@@ -44,8 +44,10 @@ from utils.content_enrich import (
     parse_rating_products,
 )
 
-# /v3/product/list、/v4 批量回显、rating-by-sku 的契约批量上限
+# /v3/product/list、/v4 批量回显的契约批量上限
 _BATCH = 1000
+# rating-by-sku 端点独立上限（实测 validateSKUs: too many skus: count=315, limit=100）
+_RATING_BATCH = 100
 
 
 def list_products(client_id: str, api_key: str, visibility: str) -> list[dict]:
@@ -72,10 +74,10 @@ def list_products(client_id: str, api_key: str, visibility: str) -> list[dict]:
 
 
 def rating_by_skus(client_id: str, api_key: str, skus: list[str]) -> list[dict]:
-    """批量评级（≤1000/批），返回 products 列表。"""
+    """批量评级（实测上限 100/批），返回 products 列表。"""
     products: list[dict] = []
-    for i in range(0, len(skus), _BATCH):
-        chunk = skus[i:i + _BATCH]
+    for i in range(0, len(skus), _RATING_BATCH):
+        chunk = skus[i:i + _RATING_BATCH]
         resp = ozon_post(
             client_id, api_key, "/v1/product/rating-by-sku",
             {"skus": chunk}, timeout=60, language="RU",
@@ -119,9 +121,11 @@ def fetch_card_echoes(client_id: str, api_key: str, product_ids: list[str]) -> d
 
 
 def fetch_price_map(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
-    """批量拉 /v3/product/info/list 现价（price/old_price/currency_code 顶层字符串）。
+    """批量拉现价（price/old_price/currency_code）。
 
-    ⚠️ 契约坑（shelf_service 实证）：product_id 必须整数数组（字符串数组返回空）。
+    ⚠️ 契约：/v3/product/info/list **不返回价格**（实测响应无 price 键）——
+    价格唯一来源是 /v5/product/info/prices，形状 items[].price{price,old_price,
+    currency_code}（嵌套对象，非顶层）。product_id 走 filter 且必须整数数组。
     """
     prices: dict[str, dict] = {}
     for i in range(0, len(product_ids), _BATCH):
@@ -129,17 +133,17 @@ def fetch_price_map(client_id: str, api_key: str, product_ids: list[str]) -> dic
         if not int_ids:
             continue
         resp = ozon_post(
-            client_id, api_key, "/v3/product/info/list",
-            {"product_id": int_ids}, timeout=60, language="RU",
+            client_id, api_key, "/v5/product/info/prices",
+            {"filter": {"product_id": int_ids}, "limit": _BATCH}, timeout=60, language="RU",
         )
-        items = ((resp or {}).get("result") or {}).get("items") or []
-        for it in items:
-            if not isinstance(it, dict) or not it.get("id"):
+        for it in (resp or {}).get("items") or []:
+            if not isinstance(it, dict) or not it.get("product_id"):
                 continue
-            prices[str(it["id"])] = {
-                "price": it.get("price"),
-                "old_price": it.get("old_price") or it.get("marketing_price") or it.get("price"),
-                "currency_code": str(it.get("currency_code") or "CNY"),
+            p = it.get("price") or {}
+            prices[str(it["product_id"])] = {
+                "price": p.get("price"),
+                "old_price": p.get("old_price") or p.get("marketing_price") or p.get("price"),
+                "currency_code": str(p.get("currency_code") or "CNY"),
             }
     return prices
 

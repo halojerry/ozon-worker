@@ -460,7 +460,14 @@ def build_enrich_update_body(
             except (ValueError, TypeError):
                 return 0
 
-        for im in sorted([x for x in images_in if isinstance(x, dict)], key=_img_key):
+        # ⚠️ /v4 回显双形状（2026-09-27 实测）：新卡为 dict[{file_name,index,default}]，
+        # 旧 workbuddy 卡为**纯字符串 URL 数组**——字符串直接采纳，dict 走原逻辑。
+        _str_urls = [str(x).strip() for x in images_in if isinstance(x, str) and str(x).strip()]
+        _dict_imgs = sorted([x for x in images_in if isinstance(x, dict)], key=_img_key)
+        for url in _str_urls:
+            if url not in img_urls:
+                img_urls.append(url)
+        for im in _dict_imgs:
             url = str(im.get("file_name") or "").strip()
             if url and url not in img_urls:
                 img_urls.append(url)
