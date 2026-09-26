@@ -951,6 +951,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
                       flush=True)
                 _print_next("draft_id 已出，本次结束（可逆入箱）——上架由用户到 WebUI 认领，无需后续命令")
                 _logger.info("✅ 已入采集箱: draft_id=%s", submit_result.get("draft_id"))
+                # 移交批（09-findings）：--to-box×--wait 此前静默忽略——入箱出口是
+                # draft_id 无任务句柄，无终态可轮询；显式 warning 一次，出口码不变。
+                if getattr(args, "wait", False):
+                    print("⚠️ --wait 与 --to-box 组合：入箱出口无任务句柄，--wait 轮询跳过",
+                          flush=True)
             else:
                 _logger.info("✅ 已提交 Worker: task_id=%s", submit_result.get("task_id"))
                 summary["task_id"] = submit_result.get("task_id")
@@ -1624,6 +1629,11 @@ def cmd_follow(args) -> int:
     if getattr(args, "to_box", False) and result.get("draft_id"):
         print(f"📥 已入采集箱，请到 WebUI 认领: draft_id={result['draft_id']}", flush=True)
         _print_next("draft_id 已出，本次结束（可逆入箱）——上架由用户到 WebUI 认领，无需后续命令")
+        # 移交批（09-findings）：--to-box×--wait 此前静默忽略——入箱出口是
+        # draft_id 无任务句柄，无终态可轮询；显式 warning 一次，出口码不变。
+        if getattr(args, "wait", False):
+            print("⚠️ --wait 与 --to-box 组合：入箱出口无任务句柄，--wait 轮询跳过",
+                  flush=True)
     elif result.get("task_id") and not getattr(args, "wait", False):
         # v0.79 Task C1: fire-and-forget 给 stdout 一行句柄 + NEXT
         print(f"✅ 已提交 Worker: task_id={result['task_id']}", flush=True)
@@ -1634,7 +1644,7 @@ def cmd_follow(args) -> int:
                     "用户确认后加 --auto-submit 重跑本命令提交（可加 --wait 直达终态）")
     # ✅ v0.78 批B6: --min-margin 拦截在 follow_sell_cloud 内部提交前执行（预估后），
     # 这里只认领退出码（对齐 graph 腿 exit 3 语义）。
-    if result.get("blocked_reason") == "low_margin":
+    if result.get("blocked_reason") in ("low_margin", "source_preflight"):
         return 3
     # ✅ v0.78 批B3: --wait 一次性命令——直提 task_id 此前只埋 _out JSON 不打行，
     # 现在轮询到终态并打印人话一行（缺省 fire-and-forget 零变化）。
@@ -2266,17 +2276,22 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         # （缺省 fire-and-forget 零变化；--to-box 出口是 draft_id 非 worker 任务，不轮询）
         # arch-findings #4: 终态 failed 必须回传——此前只打印不回传，exit 0 是假成功；
         # 对齐 graph/follow 单腿语义（任一任务 failed → 命令 exit 3，全成功 → 0）。
-        if (getattr(args, "wait", False) and submitted_task_ids
-                and not getattr(args, "to_box", False)):
-            print(f"\n⏳ --wait: 等待 {len(submitted_task_ids)} 个任务到终态（每单最多 900s）...",
-                  flush=True)
-            _wait_failed = [
-                _wt for _wt in submitted_task_ids
-                if str(_wait_task_terminal(_wt).get("status")) == "failed"
-            ]
-            if _wait_failed:
-                print(f"\n❌ --wait: {len(_wait_failed)}/{len(submitted_task_ids)} "
-                      "个任务终态 failed（原因见上方逐行）", flush=True)
+        if getattr(args, "wait", False) and submitted_task_ids:
+            if getattr(args, "to_box", False):
+                # 移交批（09-findings）：--to-box×--wait 此前静默忽略——入箱出口是
+                # draft_id 无任务句柄，无终态可轮询；显式 warning 一次，出口码不变。
+                print("⚠️ --wait 与 --to-box 组合：入箱出口无任务句柄，--wait 轮询跳过",
+                      flush=True)
+            else:
+                print(f"\n⏳ --wait: 等待 {len(submitted_task_ids)} 个任务到终态（每单最多 900s）...",
+                      flush=True)
+                _wait_failed = [
+                    _wt for _wt in submitted_task_ids
+                    if str(_wait_task_terminal(_wt).get("status")) == "failed"
+                ]
+                if _wait_failed:
+                    print(f"\n❌ --wait: {len(_wait_failed)}/{len(submitted_task_ids)} "
+                          "个任务终态 failed（原因见上方逐行）", flush=True)
 
     _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
@@ -3392,6 +3407,13 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
             state["summary"] = {"submitted": ok_n, "skipped": skip_n, "failed": err_n}
             _verb = "上架" if args.auto_submit else "入箱"
             print(f"\n📦 {_verb}完成: 成功 {ok_n} / 跳过 {skip_n} / 失败 {err_n}")
+            if getattr(args, "wait", False) and args.to_box \
+                    and not args.auto_submit and ok_n:
+                # 移交批（09-findings）：--to-box×--wait 此前静默忽略——入箱出口是
+                # draft_id 无任务句柄，无终态可轮询；显式 warning 一次，出口码不变。
+                # （auto_submit 腿在上方逐条分流走 task_id，--wait 照常轮询不进此分支。）
+                print("⚠️ --wait 与 --to-box 组合：入箱出口无任务句柄，--wait 轮询跳过",
+                      flush=True)
 
         # ✅ v0.78 批B3: --wait 一次性命令——auto-submit 出口逐个轮询到终态
         # （缺省 fire-and-forget 零变化；draft_id 非 worker 任务不轮询）

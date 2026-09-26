@@ -9,6 +9,9 @@
 ③ COMPILE_FILES ∩ COPY_FILES == ∅（同理由）
 ④ ozon_seller.py 必须在 AUX_FILES（明文随包保留 premium spoof 能力）且不在
    COMPILE_FILES（防回潮——重新加回编译清单即构建时间浪费复发）
+⑤⑥ 四清单零死条目（移交批 09-findings）：清单里每个路径必须真实存在——
+   compile.py 复制/编译腿对缺失条目只打 warning 跳过，CI 层在此锁死
+   （删文件必须同步清条目，加条目必须随文件一起提交）。
 
 运行：
     cd skill && .venv314/bin/python tests/test_compile_lists.py
@@ -86,6 +89,27 @@ def test_compile_files_disjoint_from_copy_files():
     """编译模块绝不能同时出现在 COPY_FILES（同 AUX 覆盖理由）。"""
     overlap = set(compile_mod.COMPILE_FILES) & set(compile_mod.COPY_FILES)
     assert not overlap, f"COMPILE_FILES 与 COPY_FILES 重叠: {sorted(overlap)}"
+
+
+def test_doc_files_no_dead_entries():
+    """⑤移交批（09-findings）：DOC_FILES 零死条目——每个条目必须真实存在。
+
+    compile.py 复制腿对缺失条目只打 warning 跳过（打包不红、客户端缺文档）；
+    死引用在 CI 层于此锁死：删文件必须同步清条目，加条目必须随文件一起提交。
+    """
+    skill_dir = _COMPILE_PATH.parent
+    missing = [f for f in compile_mod.DOC_FILES
+               if not (skill_dir / f).exists()]
+    assert not missing, f"DOC_FILES 死条目（文件不存在，静默跳过会丢随包文档）: {missing}"
+
+
+def test_pack_lists_no_dead_entries():
+    """⑥同口径顺带锁 COPY/AUX/COMPILE 三清单——防同类静默缺文件。"""
+    skill_dir = _COMPILE_PATH.parent
+    for list_name in ("COPY_FILES", "AUX_FILES", "COMPILE_FILES"):
+        missing = [f for f in getattr(compile_mod, list_name)
+                   if not (skill_dir / f).exists()]
+        assert not missing, f"{list_name} 死条目（文件不存在）: {missing}"
 
 
 def _main() -> int:

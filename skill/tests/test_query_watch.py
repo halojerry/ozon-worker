@@ -233,7 +233,10 @@ def _follow_ctx(best=None, cdp_results=None):
                         "image": "http://img/1688/1.jpg", "badge": "全部符合"}]
     envelope = {
         "token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-        "envelope": {"draft": {"item_id": "980815374096"}, "extensions": {}},
+        "envelope": {"draft": {"item_id": "980815374096",
+                               "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                               "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
+                     "extensions": {}},
     }
     patches = [
         mock.patch("scripts.lib.cache.cache_get", return_value=None),
