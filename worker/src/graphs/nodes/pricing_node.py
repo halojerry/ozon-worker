@@ -109,6 +109,18 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         weight, dims_mm, _wd_marks = normalize_weight_dimensions(
             draft.get("weight", 0), dims_obj, extensions
         )
+        # ✅ v0.81 上架质量止血：箱级毛重 reconcile（唯一入口
+        # utils/weight_dimension_normalizer.reconcile_weight_with_attrs）。
+        # 根因：skill 信封 draft.weight 常是 1688 包装表第一行=箱级毛重（30支香
+        # 962g vs 卡属性「商品重量=50g」实锤）→ 运费虚高数倍。仅 3×比值+候选≥10g
+        # 才采信候选，marks 进 wd_audit.reasons（既有标疑通道，随下方 Sentry 留痕）。
+        from utils.weight_dimension_normalizer import reconcile_weight_with_attrs
+
+        weight, _reconcile_marks = reconcile_weight_with_attrs(
+            weight, draft.get("attributes", {}) if isinstance(draft, dict) else {}
+        )
+        if _reconcile_marks:
+            _wd_marks["reasons"].extend(_reconcile_marks)
         # mm → cm（物流费率表按 cm 匹配）
         depth: float = dims_mm["length"] / 10.0
         width: float = dims_mm["width"] / 10.0
@@ -148,9 +160,18 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 pass
         
         # cost_cny为0时使用默认值
+        _cost_suspect: bool = False
         if cost_cny <= 0:
             cost_cny = 10.0
             logger.warning("⚠️ cost_cny为0或空，使用默认值: 10 CNY")
+        elif cost_cny < 1.0:
+            # ✅ v0.81 上架质量止血：采购价低值标疑（非阻断——真实单件小商品存在，
+            # 只留痕防「1688 按箱价/尾数价错当采购成本 → 卡价离谱」类审计盲区）
+            _cost_suspect = True
+            logger.warning(
+                "⚠️ cost_cny=%.2f 低于 1 CNY，疑似箱价/单价错位（purchase_cost_suspect），价格可能不可靠",
+                cost_cny,
+            )
         
         # 获取扩展配置
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
@@ -322,6 +343,9 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             # ✅ BL-24 一期: 缓存行超龄降级（stale）时留痕——审计可回答「这个价
             # 的佣金哪来的」；非 stale 不加键（零行为噪音，与现状逐字一致）。
             **({"commission_source": "stale_fallback"} if _commission_stale else {}),
+            # ✅ v0.81: 采购价低值标疑（<1 CNY 非阻断留痕，供审计「价格离谱是否
+            # 源于 1688 箱价/尾数价错当单件采购成本」）；正常成本不加键零噪音。
+            **({"purchase_cost_suspect": True} if _cost_suspect else {}),
             "fx_buffer": fx_buffer,
             "currency_code": currency_code,
             "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,
