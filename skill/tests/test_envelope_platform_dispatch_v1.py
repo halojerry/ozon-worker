@@ -438,21 +438,72 @@ class TestVariantCollapse:
         assert draft["sku_id"] == "734654654654_0"
 
     def test_quantity_variants_pick_single_unit(self):
-        """数量变体（1只装/5只装）→ 复用 _collapse_variants_to_single 的
-        「1只装中位」策略（平台 SKU 命名同构）。"""
+        """数量变体 → 「代表档」（fix v081 修复2，旧「1只装特判」废弃）。
+
+        实锤回归：1只装 ¥0.13 散件价曾当采购成本（parse_price 取 range 首数字
+        0.13~2.5→0.13）→ 定价全错；新语义取各变体数量的中位数档（10只装
+        ¥1.1）整档价，非最小档打 purchase_cost_representative_sku 标记。"""
         product = _product_info(
             "pdd",
             sku_details=[
-                {"sku_id": "q1", "name": "1只装", "price": 5.00, "image": ""},
-                {"sku_id": "q2", "name": "5只装", "price": 20.00, "image": ""},
-                {"sku_id": "q3", "name": "10只装", "price": 36.00, "image": ""},
+                {"sku_id": "q1", "name": "1只装", "price": 0.13, "image": ""},
+                {"sku_id": "q2", "name": "10只装", "price": 1.10, "image": ""},
+                {"sku_id": "q3", "name": "30只装", "price": 2.90, "image": ""},
             ],
-            price="5.00", price_ranges=[5.00, 36.00])
+            price="0.13", price_ranges=[0.13, 2.90])
         with ExitStack() as stack:
             _patch_env(stack, _adapter_mod("pdd"), product)
             graph = cloud_probe.build_graph_envelope(
                 item_id="734654654654", detail_url=_PDD, poll_category=True)
-        assert graph["envelope"]["draft"]["purchase_cost"] == pytest.approx(5.00)
+        draft = graph["envelope"]["draft"]
+        assert draft["purchase_cost"] == pytest.approx(1.10)
+        assert draft["purchase_cost_representative_sku"] is True
+
+    def test_quantity_variants_target_qty_picks_tier(self):
+        """target_qty 显式指定 → 取该数量档整档价（竞品卡件数场景预留，
+        build_graph_envelope 本批恒传 None=中位数档）。"""
+        variants = [
+            {"sku_id": "q1", "name": "1只装", "price": 0.13},
+            {"sku_id": "q2", "name": "10只装", "price": 1.10},
+            {"sku_id": "q3", "name": "30只装", "price": 2.90},
+        ]
+        collapsed, cost = cloud_probe._collapse_variants_to_single(
+            [dict(v) for v in variants], 0.13, {}, target_qty=30)
+        assert cost == pytest.approx(2.90)
+        assert collapsed[0]["name"] == "30只装"
+
+    def test_pure_color_variants_unchanged(self):
+        """纯颜色/尺寸变体（数量解析全为 1）→ 代表档不介入，旧中位价策略不变。"""
+        variants = [
+            {"sku_id": "c1", "name": "白色", "price": 10.0},
+            {"sku_id": "c2", "name": "黑色", "price": 20.0},
+            {"sku_id": "c3", "name": "红色", "price": 30.0},
+        ]
+        collapsed, cost = cloud_probe._collapse_variants_to_single(
+            [dict(v) for v in variants], 10.0, {})
+        assert cost == pytest.approx(20.0)
+        assert "purchase_cost_representative_sku" not in collapsed[0]
+
+    def test_qty_variants_zero_price_falls_back_legacy(self):
+        """数量档全无正价（解析异常/单价 0）→ 回落旧逻辑，代表档不误打标。"""
+        variants = [
+            {"sku_id": "q1", "name": "1只装", "price": 0.0},
+            {"sku_id": "q2", "name": "10只装", "price": 0.0},
+        ]
+        collapsed, cost = cloud_probe._collapse_variants_to_single(
+            [dict(v) for v in variants], 5.0, {})
+        assert cost == pytest.approx(5.0)  # 旧逻辑：价空兜 cost_cny
+        assert "purchase_cost_representative_sku" not in collapsed[0]
+
+    def test_qty_in_name(self):
+        f = cloud_probe._qty_in_name
+        assert f("1只装") == 1
+        assert f("10只装") == 10
+        assert f("2 pack") == 2
+        assert f("5шт") == 5
+        assert f("白色 300ml") == 1  # ml 非数量单位 → 视同单件
+        assert f("白色") == 1
+        assert f("") == 1
 
     def test_no_sku_details_default_variant(self):
         """sku_details 空 → 兜底默认变体（1688 同语义），价取商品价。"""

@@ -697,19 +697,83 @@ def _is_single_unit(variant: dict) -> bool:
     return bool(_SINGLE_UNIT_RE.search(name))
 
 
+# fix/listing-quality-v081 修复2: 变体名数量解析（「10只装」→10；无命中 → 1）。
+_QTY_IN_NAME_RE = re.compile(
+    r"(\d+)\s*(只|个|件|片|包|瓶|袋|盒|罐|卷|根|PIC|pcs|pack|piece|pc|шт)",
+    re.IGNORECASE,
+)
+
+
+def _qty_in_name(name: str) -> int:
+    """变体名称里的数量档（「1只装」→1、「10只装」→10、「2 pack」→2）。
+
+    无命中/解析异常 → 1（视同单件，纯颜色/尺寸变体语义）。"""
+    try:
+        m = _QTY_IN_NAME_RE.search(str(name or ""))
+        if not m:
+            return 1
+        n = int(m.group(1))
+        return n if n > 0 else 1
+    except Exception:
+        return 1
+
+
+def _pick_representative_qty_tier(
+    variants: list[dict], target_qty: int | None,
+) -> dict | None:
+    """数量变体「代表档」挑选（fix/listing-quality-v081 修复2）。
+
+    旧行为「1只装特判」把散件价（¥0.13~¥1.0）当采购成本 → 定价全错（实锤
+    5 单）。新语义：取 target_qty 档；target 缺省取各变体数量的中位数档；
+    并列取数量最接近者的整档价（档内并列取价格中位变体）。
+
+    Returns:
+        代表变体（未加运费的原价 dict）；None = 无法判定（调用方回落旧逻辑）：
+        纯颜色/尺寸变体（数量解析全为 1）、无有效价格、档内无正价变体。
+    """
+    qtys: list[int] = []
+    for v in variants:
+        q = _qty_in_name(v.get("name", ""))
+        qtys.append(q)
+    # 纯颜色/尺寸变体（数量解析全为 1）→ 不归本函数管（调用方走旧中位数策略）
+    if all(q == 1 for q in qtys):
+        return None
+    priceable = [v for v in variants if float(v.get("price", 0) or 0) > 0]
+    if not priceable:
+        return None
+    sorted_q = sorted(qtys)
+    median_qty = sorted_q[len(sorted_q) // 2]
+    want = target_qty if (target_qty and target_qty > 0) else median_qty
+    # 数量最接近 target 的档（同距取大档——档价信息量更高）
+    tier = min(sorted(set(qtys)), key=lambda q: (abs(q - want), -q))
+    cands = [v for v in priceable if _qty_in_name(v.get("name", "")) == tier]
+    if not cands:
+        return None
+    prices = sorted(float(v.get("price", 0) or 0) for v in cands)
+    median_price = prices[len(prices) // 2]
+    return min(cands, key=lambda v: abs(float(v.get("price", 0) or 0) - median_price))
+
+
 def _collapse_variants_to_single(
     variants: list[dict],
     cost_cny: float,
     shipping: dict,
+    target_qty: int | None = None,
 ) -> tuple[list[dict], float]:
     """
     将多变体折叠为单产品。
 
-    策略:
-    - 纯数量变体 → 筛选"1只装"变体
+    策略（fix/listing-quality-v081 修复2 起）:
+    - 数量变体（含混合「颜色×数量」）→ 「代表档」：target_qty 档，缺省取
+      各变体数量的中位数档（旧「1只装特判」废弃——散件价当采购成本，
+      ¥0.13/¥0.2/¥0.43/¥0.75/¥1.0 实锤定价全错）；代表档非最小档时给
+      representative dict 打 ``purchase_cost_representative_sku=True`` 标记
+      （调用方透传 draft，对齐 marks 纪律）；无法判定回落旧逻辑
     - 纯颜色/尺寸变体 → 取中位数价格
-    - 混合变体（颜色×数量）→ 先筛"1只装"，再取中位数
     - 采购成本 = 代表变体价格 + 1688国内运费(freightCny)
+
+    Args:
+        target_qty: 竞品卡件数（调用方今后可传；本批调用方恒缺省 None=中位数档）。
 
     Returns:
         (折叠后的variants列表(1个元素), 修正后的采购成本)
@@ -732,6 +796,29 @@ def _collapse_variants_to_single(
     _QTY_KW_RE = re.compile(r"\d+\s*(只|个|件|片|包|瓶|袋|盒|罐|卷|根|PIC|pcs|pack|piece|pc)")
     one_piece = [v for v in variants if _is_single_unit(v)]
     has_qty_keywords = any(_QTY_KW_RE.search(str(v.get("name", ""))) for v in variants)
+
+    # ✅ fix/listing-quality-v081 修复2: 数量变体先走「代表档」；返回 None
+    # （纯颜色全为 1 / 无正价 / 解析异常）→ 回落旧逻辑，旧行为逐字保留。
+    if one_piece or has_qty_keywords:
+        rep = _pick_representative_qty_tier(variants, target_qty)
+        if rep is not None:
+            total_cost = float(rep.get("price", 0) or cost_cny) + freight
+            representative = dict(rep)
+            representative["price"] = total_cost
+            representative["original_price"] = total_cost
+            # 代表档非最小档 → 打标（采购成本口径变化留痕，调用方透传 draft）
+            _tier_qty = _qty_in_name(rep.get("name", ""))
+            _min_tier = min(_qty_in_name(v.get("name", "")) for v in variants)
+            if _tier_qty > _min_tier:
+                representative["purchase_cost_representative_sku"] = True
+                logger.info(
+                    "数量变体代表档: qty=%d（非最小档 %d, target=%s）→ 采购成本 ¥%.2f"
+                    "（purchase_cost_representative_sku）: %s",
+                    _tier_qty, _min_tier, target_qty, total_cost,
+                    str(rep.get("name", ""))[:40],
+                )
+            return [representative], total_cost
+        # fall-through: 回落旧逻辑（解析异常/单价为 0）
 
     if one_piece:
         # 有1只装变体 → 在1只装中取中位数
@@ -1575,6 +1662,92 @@ def _sanitize_weight_g(weight_g) -> int:
     return 0 if 0 < w < 10 else w
 
 
+# ── 取重优先级链（fix/listing-quality-v081 修复1）──
+# 1688 packaging_rows[0].weightGrams 是「箱级毛重」（整箱 N 件合计）而非单件
+# 重量——盲取流入物流定价（实锤：30支香 962g vs 卡属性 50g、吸顶灯 9150g）。
+# 单件真值信任序：contextPath unitWeight > 页面属性重量键 > 毛重兜底（旧行为）。
+_WEIGHT_ATTR_KEYS = ("商品重量", "含包装重量", "净重", "单件重量", "重量")
+# 数值+可选单位（「50克」「0.05kg」「500g」「净重：53g」）；区间「40-50g」取首段。
+_WEIGHT_TEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|千克|公斤|克|g)?", re.IGNORECASE)
+
+
+def _parse_attr_weight_g(val) -> int:
+    """属性重量文本 → 克（整数）。「50克」→50、「0.05kg」→50、裸数字按克。
+    无有效数值 → 0。"""
+    try:
+        s = str(val or "").strip()
+    except Exception:
+        return 0
+    if not s:
+        return 0
+    m = _WEIGHT_TEXT_RE.search(s)
+    if not m:
+        return 0
+    try:
+        num = float(m.group(1))
+    except (TypeError, ValueError):
+        return 0
+    unit = (m.group(2) or "").strip().lower()
+    if unit in ("kg", "千克", "公斤"):
+        num *= 1000
+    try:
+        g = int(round(num))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return g if g > 0 else 0
+
+
+def _select_unit_weight_g(pkg_first: dict, attrs: dict, data: dict) -> tuple[int, str]:
+    """单件重量优先级链 → (克, 来源标记)（fix/listing-quality-v081 修复1）。
+
+    优先级：
+      1. ``data["unit_weight"]``（contextPath unitWeight，单件真值——本函数调用前
+         解析块必须已执行）→ 来源 "contextPath"
+      2. attrs 重量键（商品重量/含包装重量/净重/单件重量/重量）→ 来源 "page_attr"
+      3. ``pkg_first.weightGrams``（毛重兜底）→ 来源 "packaging_gross"（旧行为，
+         逐字节兼容）；毛重缺失回落 ``data["weight_grams"]``（AK offer_detail）
+
+    sanity：选中值 > 箱级毛重 → 属性是脏数据（把整箱当单件），回落毛重。
+    (0,10)g 按 _sanitize_weight_g 归零（Ozon 硬下限，缺失语义），继续沿链下探。
+    """
+    gross_raw = pkg_first.get("weightGrams", 0) if pkg_first else 0
+    if not gross_raw:
+        gross_raw = data.get("weight_grams") or 0
+    gross_g = _sanitize_weight_g(gross_raw)
+
+    def _gross_dirty(val_g: float) -> bool:
+        return gross_g > 0 and val_g > gross_g
+
+    # 1. contextPath unitWeight（克，解析层已 kg→g）
+    try:
+        unit_g = float(data.get("unit_weight") or 0)
+    except (TypeError, ValueError):
+        unit_g = 0.0
+    if unit_g > 0:
+        if _gross_dirty(unit_g):
+            logger.warning(
+                "取重: contextPath unitWeight %.0fg > 箱级毛重 %dg（脏数据）→ 回落",
+                unit_g, gross_g)
+        else:
+            cand = _sanitize_weight_g(int(round(unit_g)))
+            if cand > 0:
+                return cand, "contextPath"
+
+    # 2. 属性重量键（顺序即信任序）
+    for key in _WEIGHT_ATTR_KEYS:
+        cand = _sanitize_weight_g(_parse_attr_weight_g((attrs or {}).get(key)))
+        if cand > 0:
+            if _gross_dirty(cand):
+                logger.warning(
+                    "取重: 属性 %s=%dg > 箱级毛重 %dg（脏数据）→ 回落毛重",
+                    key, cand, gross_g)
+                break
+            return cand, "page_attr"
+
+    # 3. 箱级毛重兜底（旧行为）
+    return gross_g, "packaging_gross"
+
+
 def _build_graph_envelope_cross_platform(
     *,
     target: Any,
@@ -1678,6 +1851,9 @@ def _build_graph_envelope_cross_platform(
     # ── 2.1 单产品折叠（1688 同一唯一入口；采购成本=代表变体价+freightCny）──
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
+    _rep_sku_flag = bool(
+        variants and variants[0].pop("purchase_cost_representative_sku", False))
     logger.info(
         "跨平台(%s) 单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
         platform, original_count, cost_cny,
@@ -1758,6 +1934,10 @@ def _build_graph_envelope_cross_platform(
         draft["dimensions_estimated"] = True
     if weight_estimated:
         draft["weight_estimated"] = True
+    if _rep_sku_flag:
+        # fix/listing-quality-v081 修复2: 采购成本取「代表档」整档价（非最小档/散件档），
+        # 对齐 marks 纪律——worker/审计可识别成本口径。
+        draft["purchase_cost_representative_sku"] = True
     if ozon_category:
         draft["ozon_category"] = ozon_category
     if platform_category_path:
@@ -2094,16 +2274,76 @@ def build_graph_envelope(
             except Exception:
                 pass
 
+    # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
+    # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
+    # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
+    # ⚠️ fix/listing-quality-v081 修复1: 本块整体前移到取重之前——unitWeight
+    # （单件真值）旧序在取重后才解析进 data["unit_weight"]，全仓零消费（箱级
+    # 毛重当单件重量的源头根因之一）。前移后 attrs 完整在场，取重优先级链
+    # （_select_unit_weight_g）可消费属性重量键。块内顺序与键覆盖语义不变。
+    attrs: dict[str, str] = {}
+    # v0.40: AK 必填 CPV 属性（最大承重/功率/品牌）——API 直取，无需 CDP
+    for _cpv_map in (api_data.get("cpv_attributes") or {}).items():
+        _k, _v_list = _cpv_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
+    # v0.40: AK SKU 属性（颜色/规格等）——多值取首个
+    for _sk_map in (api_data.get("sku_attributes") or {}).items():
+        _k, _v_list = _sk_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and _k not in attrs and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
+    ctx_path = None
+    for _sd in data.get("pageStructuredData") or []:
+        if isinstance(_sd, dict) and _sd.get("name") == "contextPath":
+            ctx_path = _sd
+            break
+    if ctx_path:
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            for a in _cp.get("featureAttributes") or []:
+                name = str(a.get("name", "")).strip()
+                val = str(a.get("value", "") or "").strip()
+                if name and val and len(name) < 30 and len(val) < 80:
+                    attrs[name] = val
+        except Exception:
+            pass
+    # DOM 属性表补充（contextPath 缺失的属性名，如"颜色分类"等页面特有字段）
+    for a in data.get("attributes", []):
+        name = str(a.get("name", "")).strip()
+        val = str(a.get("value", "")).strip()
+        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
+            attrs[name] = val
+        if len(attrs) >= 40:  # 上限 40（信封体积控制）
+            break
+    # 单件重量（contextPath unitWeight，克）——取重优先级链第 1 源（fix v081 前移）
+    if ctx_path and not (data.get("weight") or data.get("unit_weight")):
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            _uw = _cp.get("unitWeight")
+            if _uw:
+                data["unit_weight"] = float(_uw) * 1000  # 0.1kg → 100g
+        except Exception:
+            pass
+
     # ── 4. 提取数据（必须来自 CDP，不使用硬编码默认值）──
     item_title = title or data.get("title", "")
     cost_cny = _parse_price(data.get("price", ""))
 
-    # 重量：取 packaging_rows 第一个 SKU 的重量
+    # 重量（fix/listing-quality-v081 修复1 优先级链）：
+    #   contextPath unitWeight（单件真值）> 页面属性重量键 > packaging_rows[0]
+    #   箱级毛重（旧行为兜底）。旧行为盲取毛重：1688 包装表第一行=整箱毛重
+    #   （实锤 30支香 962g vs 卡属性 50g、吸顶灯 9150g），流入物流定价全错。
     pkg_rows = data.get("packaging_rows") or []
     pkg_first = pkg_rows[0] if pkg_rows else {}
-    # ✅ v0.68.1: (0,10)g 低于 Ozon 硬下限 → 归零（缺失语义，下游 50g 兜底）
-    weight_g = _sanitize_weight_g(
-        int(pkg_first.get("weightGrams", 0) or data.get("weight_grams") or 0))
+    weight_g, weight_source = _select_unit_weight_g(pkg_first, attrs, data)
     if not weight_g:
         weight_g = 0  # 管线定价需要真实重量，0 会让运费计算降到最低
 
@@ -2175,60 +2415,10 @@ def build_graph_envelope(
     # AI 图，线上「产品A卡片出现产品B图」根因之一）。1688 图空即图空，
     # 「产品图片为空」校验门拦截，宁阻断不上错图。
 
-    # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
-    # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
-    # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
-    attrs: dict[str, str] = {}
-    # v0.40: AK 必填 CPV 属性（最大承重/功率/品牌）——API 直取，无需 CDP
-    for _cpv_map in (api_data.get("cpv_attributes") or {}).items():
-        _k, _v_list = _cpv_map
-        _k = str(_k or "").strip()
-        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
-        if _k and _v and len(_k) < 30 and len(_v) < 80:
-            attrs[_k] = _v
-    # v0.40: AK SKU 属性（颜色/规格等）——多值取首个
-    for _sk_map in (api_data.get("sku_attributes") or {}).items():
-        _k, _v_list = _sk_map
-        _k = str(_k or "").strip()
-        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
-        if _k and _v and _k not in attrs and len(_k) < 30 and len(_v) < 80:
-            attrs[_k] = _v
-    ctx_path = None
-    for _sd in data.get("pageStructuredData") or []:
-        if isinstance(_sd, dict) and _sd.get("name") == "contextPath":
-            ctx_path = _sd
-            break
-    if ctx_path:
-        try:
-            import json as _json
-            _sample = ctx_path.get("sample")
-            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
-            for a in _cp.get("featureAttributes") or []:
-                name = str(a.get("name", "")).strip()
-                val = str(a.get("value", "") or "").strip()
-                if name and val and len(name) < 30 and len(val) < 80:
-                    attrs[name] = val
-        except Exception:
-            pass
-    # DOM 属性表补充（contextPath 缺失的属性名，如"颜色分类"等页面特有字段）
-    for a in data.get("attributes", []):
-        name = str(a.get("name", "")).strip()
-        val = str(a.get("value", "")).strip()
-        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
-            attrs[name] = val
-        if len(attrs) >= 40:  # 上限 40（信封体积控制）
-            break
-    # 单件重量（contextPath unitWeight，克）——缺重量时的可靠来源
-    if ctx_path and not (data.get("weight") or data.get("unit_weight")):
-        try:
-            import json as _json
-            _sample = ctx_path.get("sample")
-            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
-            _uw = _cp.get("unitWeight")
-            if _uw:
-                data["unit_weight"] = float(_uw) * 1000  # 0.1kg → 100g
-        except Exception:
-            pass
+    # fix/listing-quality-v081: 属性/contextPath 解析块整体前移至「4. 提取数据」
+    # 之前（原在取重之后——unitWeight 解析进 data["unit_weight"] 后全仓零消费，
+    # 是箱级毛重当单件重量的源头根因之一）。块内顺序（CPV→SKU→contextPath→DOM）
+    # 与键覆盖语义逐字保留，仅位置前移。
 
     # 卖家
     seller_raw = data.get("seller", "") or ""
@@ -2460,6 +2650,9 @@ def build_graph_envelope(
     # 采购成本偏低 → 定价利润失真（每单必现）。
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
+    _rep_sku_flag = bool(
+        variants and variants[0].pop("purchase_cost_representative_sku", False))
     logger.info(
         "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
         original_count, cost_cny,
@@ -2509,6 +2702,15 @@ def build_graph_envelope(
         draft["dimensions_estimated"] = True  # ✅ v0.21: 尺寸为估算值，供 worker 决策
     if weight_estimated:
         draft["weight_estimated"] = True  # ✅ v0.37 A3: 重量被兜底/保留（非原始抓取值），供 worker/审计识别
+    # fix/listing-quality-v081 修复1: 单件真值来源标记（对齐 weight_estimated 布尔纪律）——
+    # weight 取自 contextPath unitWeight / 页面属性重量键（非箱级毛重兜底）时打标，
+    # worker/审计可区分「单件真值」与「整箱毛重」。packaging_gross 兜底不打（byte-identical 旧行为）。
+    if weight_source in ("contextPath", "page_attr"):
+        draft["weight_source_page_attr"] = True
+    if _rep_sku_flag:
+        # fix/listing-quality-v081 修复2: 采购成本取「代表档」整档价（非最小档/散件档），
+        # 对齐 marks 纪律——worker/审计可识别成本口径。
+        draft["purchase_cost_representative_sku"] = True
     if ozon_category:
         draft["ozon_category"] = ozon_category
     # ✅ v0.21: 传完整 1688 类目路径（旧版只传末两级，丢失顶级信号如"成人用品"导致类目错配）
