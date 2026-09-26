@@ -8922,7 +8922,7 @@
     },
     "/api/v1/mxou/login": {
       "post": {
-        "description": "MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。",
+        "description": "MXOU 账号密码登录（v0.81 安全收尾判定：**设计公开**，非缺鉴权）。\n\n设计依据：登录入口本身无 token 可验（模块 docstring「唯一无 token 鉴权\n端点」）；防滥用由按 username 独立限流承担（429 防爆破）；鉴权语义由登录\n成功后签发的 access_token/session 承担。对齐 docs/API-OVERVIEW.md 鉴权矩阵\n——不补 Bearer（补了登录就死锁）。",
         "operationId": "mxou_login_api_v1_mxou_login_post",
         "responses": {
           "200": {
@@ -12022,7 +12022,7 @@
     },
     "/async_run": {
       "post": {
-        "description": "[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。",
+        "description": "[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。\n\nv0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写\n操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行\n🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效\ntoken → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。",
         "operationId": "http_async_run_async_run_post",
         "responses": {
           "200": {

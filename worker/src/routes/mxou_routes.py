@@ -31,7 +31,15 @@ router = APIRouter(prefix="/api/v1/mxou", tags=["mxou"])
 
 
 async def _authenticate(request: Request) -> str:
-    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。"""
+    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。
+
+    v0.81 安全收尾留痕（Mimosa medium「未观察到权限检查」= 扫描器误报）：除
+    ``POST /login``（设计公开，见其 docstring）外，本文件全部端点首行强制
+    ``await _authenticate(request)``（函数体内调用而非 Depends，扫描器常漏判）；
+    密钥读/建/吊销/切换均以返回的 tenant_id 过滤（租户隔离，跨租户不可见）。
+    ``GET /my-key`` 不走 Bearer——鉴权=verify_session_user 用请求自带 cookie
+    向平台校验 uid 归属（防 IDOR，未通过 401），见该端点 docstring。
+    """
     from main import _authenticate_token  # 延迟导入防循环
 
     auth = request.headers.get("Authorization", "")
@@ -51,7 +59,13 @@ async def _authenticate(request: Request) -> str:
 
 @router.post("/login", response_model=MxouLoginResponse)
 async def mxou_login(request: Request):
-    """MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。"""
+    """MXOU 账号密码登录（v0.81 安全收尾判定：**设计公开**，非缺鉴权）。
+
+    设计依据：登录入口本身无 token 可验（模块 docstring「唯一无 token 鉴权
+    端点」）；防滥用由按 username 独立限流承担（429 防爆破）；鉴权语义由登录
+    成功后签发的 access_token/session 承担。对齐 docs/API-OVERVIEW.md 鉴权矩阵
+    ——不补 Bearer（补了登录就死锁）。
+    """
     from main import rate_limiter  # 延迟导入防循环（main 模块加载后再取单例）
 
     # 解析 body（缺 username/password → 400）
