@@ -4244,6 +4244,44 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
     return []
 
 
+def _normalize_search_match(p: dict) -> dict | None:
+    """follow Step 4 单候选整形（模块级便于测试）：id 归一 + badge 评分 +
+    类目键透传。
+
+    ✅ fix/listing-quality-v081 修复3a: 透传 aibuy 候选 1688 类目键
+    （category_name/cate_level1_id/cate_level2_id）——follow 类目一致性闸的
+    判定语料 + _attach_match_meta 补 category_id/name（此前 follow 信封 match
+    类目恒空的存量缺陷根因：本整形层把键剥掉了）。
+
+    Returns:
+        整形后的候选 dict；None = 无有效 id（调用方跳过）。
+    """
+    pid = p.get("product_id") or p.get("itemId") or str(p.get("id", ""))
+    if not pid:
+        return None
+    from scripts.lib.ozon_image_search import _get_badge_score
+
+    badge_text = p.get("badge", "")
+    badge_score = _get_badge_score(badge_text) if badge_text else 0
+    _m = {
+        "id": pid,
+        "title": p.get("title", "")[:80],
+        "price": p.get("price", ""),
+        "image": p.get("image", ""),
+        "badge": badge_text,
+        "badge_score": badge_score,
+    }
+    # v0.39 aibuy 通道: 透传 normalization_score（trusted_source 放行信号辅助）
+    if "normalization_score" in p:
+        _m["normalization_score"] = p.get("normalization_score")
+    # ✅ fix/listing-quality-v081 修复3a: 类目键透传（truthy 才带，CDP/AK 候选
+    # 无此字段不写空壳）
+    for _cat_key in ("category_name", "cate_level1_id", "cate_level2_id"):
+        if p.get(_cat_key):
+            _m[_cat_key] = p.get(_cat_key)
+    return _m
+
+
 def _cached_ozon_scrape(
     url: str,
     *,
@@ -4603,28 +4641,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # Step 4: 整理搜索结果
     matches = []
     if matches_raw:
-        # ✅ 保留 badge 评分（1688 图搜匹配质量）
-        from scripts.lib.ozon_image_search import _get_badge_score
-
+        # ✅ 保留 badge 评分（1688 图搜匹配质量）——整形逻辑在
+        # _normalize_search_match（fix v081 3a 起模块级，含类目键透传，可测）
         matches = []
         for p in matches_raw:
-            pid = p.get("product_id") or p.get("itemId") or str(p.get("id", ""))
-            if not pid:
-                continue
-            badge_text = p.get("badge", "")
-            badge_score = _get_badge_score(badge_text) if badge_text else 0
-            _m = {
-                "id": pid,
-                "title": p.get("title", "")[:80],
-                "price": p.get("price", ""),
-                "image": p.get("image", ""),
-                "badge": badge_text,
-                "badge_score": badge_score,
-            }
-            # v0.39 aibuy 通道: 透传 normalization_score（trusted_source 放行信号辅助）
-            if "normalization_score" in p:
-                _m["normalization_score"] = p.get("normalization_score")
-            matches.append(_m)
+            _m = _normalize_search_match(p)
+            if _m is not None:
+                matches.append(_m)
 
         # 按 badge_score 降序排列（最高分在前）
         matches.sort(key=lambda m: m["badge_score"], reverse=True)
@@ -4641,7 +4664,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # ✅ v0.39: aibuy 来源 trusted_source=True（信任官方排序前 2 位放行），
             # CDP/AK 来源保持 False 维持原护栏
             _trusted = search_method == "aibuy"
-            best = _pick_best_match(matches, ozon_title, token=mxou_token, trusted_source=_trusted) if ozon_title else matches[0]
+            # ✅ fix/listing-quality-v081 修复3b: follow 开类目一致性闸——竞品页
+            # 面包屑（3a 通道已抓 result["ozon_category"]["category_path"]）vs 候选
+            # 1688 类目语义一致才可作跟卖货源（实锤错配：家用橡胶手套→月季修剪
+            # 园艺手套、钓鱼腰包→宽檐渔夫帽）。discover 链不传（默认 False 零变化）。
+            _ozon_cat_path = str(
+                (result.get("ozon_category") or {}).get("category_path", "") or "")
+            best = _pick_best_match(
+                matches, ozon_title, token=mxou_token, trusted_source=_trusted,
+                ozon_category_path=_ozon_cat_path,
+                require_category_consistency=True,
+            ) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
                 # ── D3 L3: 人工评审暂停（--review）──
