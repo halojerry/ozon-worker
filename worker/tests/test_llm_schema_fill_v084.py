@@ -98,6 +98,10 @@ def test_fill_dict_unique_and_boolean_and_free_text(monkeypatch):
 def test_fill_strips_when_no_dict_hit_or_chinese_or_banned(monkeypatch):
     import utils.ozon_dict_values as m
     monkeypatch.setattr(m, "search_dictionary_values", lambda *a, **k: [], raising=True)
+    # arch-findings 补密封性：_translate_ru 收口后不再吞 MxouOutOfQuotaError（401 也归类
+    # 余额错误），不 mock 会在 CI 里打真实 api.mxou.cn → 401 → re-raise。翻译不可用=返空串
+    # =走剥除分支，与本测试「中文自由文本 → 剥」的原始语义一致。
+    monkeypatch.setattr("utils.attr_fill_extras._translate_ru", lambda *a, **k: "")
     raw = '{"fills": [' \
           '{"id": 6829, "value": "微波炉适用"},' \
           '{"id": 4384, "value": "塑料盒和盖子"},' \
