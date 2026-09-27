@@ -712,6 +712,46 @@ def build_enrich_update_body(
     return {"items": [item]}, audit
 
 
+def build_price_update_body(
+    product_id: Any,
+    stored_item: Dict[str, Any],
+    *,
+    price: Any,
+    old_price: Any = None,
+    currency_code: str = "CNY",
+    vat: Any = None,
+    images360: Optional[List[Any]] = None,
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """价格单字段修复场景的 /v3/product/import 全量回显 UPDATE（防洗卡家族构造器）。
+
+    card_audit 域 D 不变量（PLAN-card-audit-sweep-v1）自动修唯一出口：old_price
+    缺失 / 低于现价 / 差价不足时，_card_echo_base 骨架内 clamp_old_price
+    （enforce_old_price_rule 唯一规则出口）产出合规 old_price（≥ price×1.2 且
+    差价 <400 时 ≥20），attributes 现卡特征全量回显（与 build_image_update_body
+    同源口径，不动卡上内容）。**新自动修出口必须走本家族，绝不裸拼 import POST。**
+
+    Args:
+        price: 现价（/v5 嵌套 price 对象取出的字符串）。
+        old_price: 现划线价（None/畸形 → 规则下限兜底）。
+        其余参数语义见 _card_echo_base。
+
+    Returns:
+        (body, reason)。body=None 表示保守放弃（reason 同 _card_echo_base），
+        调用方落 finding 不裸发。
+    """
+    parts, reason = _card_echo_base(
+        product_id, stored_item,
+        price=price, old_price=old_price, currency_code=currency_code,
+        vat=vat, images360=images360,
+    )
+    if parts is None:
+        return None, reason
+    item = parts["item"]
+    # 现卡特征原样带回（含 4191/11254——价格修复不动卡上内容，全量回显保全）
+    item["attributes"] = _echo_attributes(parts["card_attrs"])
+    return {"items": [item]}, ""
+
+
 def build_image_update_body(
     product_id: Any,
     stored_item: Dict[str, Any],
