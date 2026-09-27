@@ -554,8 +554,11 @@ def test_sweep_dry_run_plans_but_never_imports():
                                      {"id": 21841, "name": "Видео"}])
         if ep == "/v4/product/info/attributes":
             return {"result": [dict(_STORED)]}
-        if ep == "/v3/product/info/list":
-            return {"result": {"items": [{"id": 6443821910, "price": "254", "old_price": "305", "currency_code": "CNY"}]}}
+        if ep == "/v5/product/info/prices":
+            # fetch_price_map 走 /v5（/v3 info/list 不返回价格），嵌套 price 对象
+            return {"items": [{"product_id": 6443821910,
+                               "price": {"price": "254", "old_price": "305",
+                                         "currency_code": "CNY"}}]}
         raise AssertionError(f"unexpected {ep}")
 
     with mock.patch.object(mod, "ozon_post", side_effect=_post), \
@@ -579,8 +582,10 @@ def test_sweep_real_run_submits_import():
             return _rating_resp(55, [{"id": 4191, "name": "Аннотация"}])
         if ep == "/v4/product/info/attributes":
             return {"result": [dict(_STORED)]}
-        if ep == "/v3/product/info/list":
-            return {"result": {"items": [{"id": 6443821910, "price": "254", "old_price": "305", "currency_code": "CNY"}]}}
+        if ep == "/v5/product/info/prices":
+            return {"items": [{"product_id": 6443821910,
+                               "price": {"price": "254", "old_price": "305",
+                                         "currency_code": "CNY"}}]}
         if ep == "/v3/product/import":
             return {"result": {"task_id": 42}}
         raise AssertionError(f"unexpected {ep}")
