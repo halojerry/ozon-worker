@@ -670,6 +670,9 @@ def apply_llm_schema_fill(
 
         from utils.ozon_dict_values import search_dictionary_values
         from utils.attr_value_matcher import unique_or_none
+        # 判别词交叉验证辅助（v0.81 retry-quality Fix4）——唯一事实源在 attr_defaults
+        # （8229 主分支/干扰类型分支同款判定），此处复用不另维护词表。
+        from utils.attr_defaults import _discriminant_conflict
 
         for p in proposals:
             if not isinstance(p, dict):
@@ -776,14 +779,56 @@ def apply_llm_schema_fill(
                 # 逐个落卡（Ozon collection 契约本就收数组）；单值行为不变。
                 _parts = ([p.strip() for p in re.split(r"[;；,，、/]", sval) if p.strip()]
                           if meta.get("collection") and len(sval) > 2 else [sval])
+                # ✅ v0.81 retry-quality Fix4: 判别/类型属性（名含 Тип/тип/类型）唯一命中
+                # 落卡前的判别词交叉验证——历史事故「桌面扇→落地扇」在 A5 路径仍可
+                # 复现：LLM 提案 «Напольный» 且字典唯一/近义归一命中即上卡，无人复核
+                # 标题形态证据。冲突 → 整条剥除 + skipped_discriminant_conflict 审计，
+                # 绝不硬塞（宁缺红线）。判别源 = 标题 + 类目路径 + draft 已知属性值
+                # （1688 中文 + 竞品 RU）。8229 本体已在禁填清单（_LLM_FILL_BANNED_ATTR_IDS）。
+                _disc_conflict_val = ""
+                _disc_hits: list = []
+                if "тип" in aname.lower() or "类型" in aname:
+                    _d0 = draft if isinstance(draft, dict) else {}
+                    _src_parts = [str(_d0.get("title") or ""), str(_d0.get("category_path") or "")]
+                    for _ak in ("attributes", "ozon_attributes"):
+                        _av = _d0.get(_ak)
+                        if isinstance(_av, dict):
+                            _src_parts.extend(str(v) for v in _av.values() if v)
+                    _disc_src = " ".join(_sp for _sp in _src_parts if _sp)
+                    for _p in _parts:
+                        _hit = _resolve_one(_p)
+                        if not _hit:
+                            continue
+                        if _discriminant_conflict(_disc_src, str(_hit[1] or "")):
+                            _disc_conflict_val = str(_hit[1] or "")
+                            break
+                        _disc_hits.append(_hit)
+                else:
+                    for _p in _parts:
+                        _hit = _resolve_one(_p)
+                        if _hit:
+                            _disc_hits.append(_hit)
+                if _disc_conflict_val:
+                    logger.info(
+                        "⏭️ schema-LLM 剥除 %s(%s): 判别词冲突（标题/已知属性形态证据 × 提案值=%s）",
+                        aid, aname, _disc_conflict_val[:30])
+                    try:  # 审计（非致命）：skipped_* 键进 attr_match_log 缺口榜
+                        from utils.attr_match_log import log_attr_match
+                        log_attr_match(
+                            task_id=_task, attr_id=aid, attr_name=aname,
+                            source_value=_disc_conflict_val[:60],
+                            status="skipped_discriminant_conflict",
+                            match_layer="llm_schema", dictionary_value_id=0,
+                            source="attr_fill_extras", tenant_id=_tenant,
+                        )
+                    except Exception:
+                        pass
+                    continue
                 _resolved: list[dict] = []
-                for _p in _parts:
-                    _hit = _resolve_one(_p)
-                    if _hit:
-                        _dv, _fv = _hit
-                        if any('\u4e00' <= ch <= '\u9fff' for ch in _fv):
-                            _fv = ""  # 中文值清空，dict_id 权威
-                        _resolved.append({"dictionary_value_id": _dv, "value": _fv})
+                for _dv, _fv in _disc_hits:
+                    if any('\u4e00' <= ch <= '\u9fff' for ch in _fv):
+                        _fv = ""  # 中文值清空，dict_id 权威
+                    _resolved.append({"dictionary_value_id": _dv, "value": _fv})
                 if not _resolved:
                     continue  # 全部未命中（含无命中/多分歧）→ 剥，日志已在 _resolve_one 打
                 attrs.append({"id": aid, "values": _resolved})

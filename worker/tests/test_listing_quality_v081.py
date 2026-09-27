@@ -266,13 +266,29 @@ class TestCompositionDefaultRemoved:
         assert not self._has_key_entry(src, "8050"), "8050 成分硬编码默认不得在 retry 已知默认表复活"
         assert '"полимерные материалы"' not in src
 
-    def test_other_fallback_keys_kept(self):
-        """爆炸半径控制：其余键（7578/10350/10351/8787）保持不动。"""
+    def test_other_fallback_keys_removed_too(self):
+        """v0.81 retry-quality 假事实兜底清退：7578/10350/10351/8787（保质期天数/
+        储存温度上下限/储存条件）与 8050 同构（任意商品被塞同一「事实」），已随
+        表收敛到 attr_defaults.FACT_NEUTRAL_FREE_TEXT_DEFAULTS 一并清退——
+        源码级锁定不再复活。"""
         from graphs.nodes import prepare_ozon_upload_node as prep
 
         src = inspect.getsource(prep.prepare_ozon_upload_node)
         for key in ("7578", "10350", "10351", "8787"):
-            assert key in src, f"{key} 是既有兜底键，不得被误删"
+            assert not self._has_key_entry(src, key), f"{key} 编造事实默认键不得在 prepare 兜底表复活"
+        for text in ("\"365\"", "\"сухое место\""):
+            assert text not in src, f"编造事实默认值 {text} 不得复活"
+
+    def test_shared_fact_neutral_whitelist_shape(self):
+        """收敛后的唯一出口：FACT_NEUTRAL_FREE_TEXT_DEFAULTS 只含事实中性条目
+        （8962 件数=1 / 9048 型号=空 / 23487 制造商=Нет бренда），编造事实键禁入。"""
+        from utils.attr_defaults import FACT_NEUTRAL_FREE_TEXT_DEFAULTS as T
+
+        assert T.get(8962) == "1"
+        assert T.get(9048) == ""
+        assert T.get(23487) == "Нет бренда"
+        for banned in (7578, 8205, 10350, 10351, 8787, 8050):
+            assert banned not in T, f"{banned} 是编造事实键，禁入事实中性白名单"
 
 
 # ═══════════════ 4. 干扰类型属性判别词交叉验证 ═══════════════

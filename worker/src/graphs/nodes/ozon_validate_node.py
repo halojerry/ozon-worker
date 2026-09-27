@@ -110,6 +110,19 @@ def _lexicon_zero_overlap_pass(title: str, category_path: str) -> bool:
         return False
 
 
+def _box_reviewed(state: "OzonValidateInput") -> bool:
+    """v0.70 采集箱即权威（v0.81 retry-quality 扩面到 validate）：信封
+    extensions.box_reviewed=True 的草稿是人工审核过的成品卡——validate 级类目
+    重配（_try_validate_recategorize，改写 (dc,tp)）属自主重决策，禁用；类目
+    错如实走 mismatch 拦截（retry 入箱/failed），改类目由用户在采集箱改后
+    resubmit。与 validation_retry_loop._box_reviewed 同判定，独立实现避免跨
+    模块循环导入（后者 lazy import 本模块）。"""
+    try:
+        return bool((state.extensions or {}).get("box_reviewed"))
+    except Exception:
+        return False
+
+
 def _try_validate_recategorize(item: dict, index: int) -> bool:
     """validate 级类目重配（杀之前先试救）：RU 标题搜树找强匹配叶，命中改写 (dc,tp)。
 
@@ -121,6 +134,9 @@ def _try_validate_recategorize(item: dict, index: int) -> bool:
     - 每 item 只重配一次（本函数每 item 至多被调一次，命中即返回）、不做 LLM、
       不写学习表（validate 无终态语义，approve/declined 才是学习信号）；
     - 树查询任何异常 → False 降级（维持原入箱路径，validate 不因救场新增故障面）。
+    - ⚠️ v0.81 retry-quality: box_reviewed 草稿（采集箱审核态）不做本重配——
+      调用方先过 _box_reviewed 闸，命中即跳过走既有 mismatch 拦截（类目错如实
+      failed，「所见即所得」契约，对齐 validation_retry_loop R4 同款禁用）。
     命中返回 True：调用方跳过 mismatch 报错（该 item 类目相关错误清除=不再报
     critical，其他校验照跑）；False = 找不到强匹配，走原拦截。
     """
@@ -512,9 +528,12 @@ def ozon_validate_node(
                                 f"标题「{str(_consistency_name)[:40]}」× "
                                 f"类目「{_ru_path[:80]}」"
                             )
-                        elif _try_validate_recategorize(item, i):
+                        elif not _box_reviewed(state) and _try_validate_recategorize(item, i):
                             # 重配命中：该 item 类目相关错误已随 (dc,tp) 改写解除——
                             # 不再因 mismatch 报 critical（下方其余校验照跑）。
+                            # ✅ v0.81 retry-quality: box_reviewed 草稿跳过 validate 级
+                            # 重配（短路不调用，防闸前改写 item）→ 走下方既有 mismatch
+                            # 拦截（类目错如实 failed，采集箱即权威）。
                             pass
                         else:
                             item_errors.append(
