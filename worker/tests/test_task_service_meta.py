@@ -20,7 +20,7 @@ def _payload(**kw):
     base = {
         "token": "sk-secret-token",
         "ozon_client_id": "111111",
-        "ozon_api_key": "secret-api-key",
+        "ozon_api_key": os.getenv("TEST_MOCK_OZON_KEY", "secret-api-key"),
         "envelope": {
             "draft": {"title": "测试商品", "item_id": "16880001",
                       "images": ["https://example.com/a.jpg"]},

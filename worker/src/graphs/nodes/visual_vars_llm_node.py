@@ -16,7 +16,6 @@ import os
 import re
 from typing import Dict, Any, Optional
 
-from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
@@ -24,6 +23,7 @@ from runtime.context import Context
 from graphs.state import VisualVarsInput, VisualVarsOutput
 from utils.color_preset import get_preset_colors, resolve_color_preset
 from utils.progress_logger import ProgressLogger
+from utils.safe_template import render_safe_mapping
 from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import _resolve_category_for_prompt, extract_visual_vars_from_draft
@@ -302,7 +302,8 @@ def visual_vars_llm_node(state: VisualVarsInput, config: RunnableConfig, runtime
 
     # v0.64: vision 模型传入产品图片，推断更准确的视觉变量（颜色/材质/形状）
     extracted = extract_visual_vars_from_draft(draft)
-    user_prompt = Template(up).render({
+    # v0.81: 渲染走 SandboxedEnvironment 沙箱（utils/safe_template，Mimosa SSTI 加固）
+    user_prompt = render_safe_mapping(up, {
         "title": title,
         "description": description,
         "category": category,

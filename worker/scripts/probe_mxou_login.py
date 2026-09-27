@@ -29,6 +29,7 @@ import re
 import ssl
 import sys
 import time
+from urllib.parse import quote, urlparse
 
 try:
     import requests  # noqa: F401
@@ -287,6 +288,25 @@ def _classify_token_list(body):
 # ---------------------------------------------------------------------------
 
 
+def _assert_base_scheme(base: str) -> None:
+    """--base scheme 断言（v0.81 安全收尾 Mimosa medium 留痕）。
+
+    「角色/权限检查」对本脚本**不适用**（判定：本地人工运维工具，非服务端
+    端点）：T0 只读探测，操作者自带账号密码，输出全程脱敏、不落盘、不持久化
+    会话（见模块 docstring 纪律节）。可加固面只剩出站目标本身：
+    - scheme 必须 http/https（拒 file:/gopher:/ftp: 等非 http 族 scheme 被
+      requests/urllib 当作奇怪 handler）；
+    - 非 https 明文传输告警（密码明文走 http 属操作者显式选择，本地 dev
+      one-api 探测场景保留，但必须知情）。
+    """
+    scheme = (urlparse(base).scheme or "").lower()
+    if scheme not in ("http", "https"):
+        print(f"ERROR: --base scheme 必须是 http/https，收到 {scheme or '(空)'}", file=sys.stderr)
+        sys.exit(2)
+    if scheme != "https":
+        print("WARNING: --base 非 https，账号密码将明文传输（仅限本地 dev 探测）", file=sys.stderr)
+
+
 def _print_body(status, body_bytes, pretty=True):
     text = body_bytes.decode("utf-8", errors="replace")
     print(f"    HTTP {status}")
@@ -410,7 +430,9 @@ def _probe_token_list(base, tok, verify_ssl):
 
 def _probe_unmask(base, tok, token_id, verify_ssl):
     print("\n=== [4/4] POST /api/token/{id}/key（取完整 key，只打印前6后4）===")
-    url = f"{base.rstrip('/')}/api/token/{token_id}/key"
+    # v0.81: token_id 来自被探测平台响应（可能非数值/含 URL 特殊字符），路径段
+    # 强制 quote 防拼接出意外 URL 形态。
+    url = f"{base.rstrip('/')}/api/token/{quote(str(token_id), safe='')}/key"
     headers = {"Content-Type": "application/json"}
     if tok:
         headers["Authorization"] = "Bearer " + tok
@@ -465,6 +487,8 @@ def main():
 
     global _URLLIB_VERIFY
     _URLLIB_VERIFY = args.verify_ssl
+
+    _assert_base_scheme(args.base)  # v0.81 安全收尾：出站目标 scheme 断言
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")

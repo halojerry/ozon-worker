@@ -31,6 +31,35 @@ DEFAULT_VARIABLE_COST_RATE = 0.155
 DEFAULT_PROMO_VARIABLE_COST_RATE = 0.245
 
 
+def is_dual_margin(
+    *,
+    margin_floor_present: bool,
+    margin_anchor_present: bool,
+    has_margin_rate: bool,
+) -> bool:
+    """三档（dual_margin）激活判定唯一口径：floor/anchor 任一在场，或 margin_rate 缺失 → 三档。
+
+    ✅ v0.80 对齐（docs/ARCHITECTURE/09-findings.md Top10 #10）：此前三档判定双实现——
+    pricing_node 认「extensions 键存在」、estimate_service 认「floor 值非 None」，
+    extensions 同时带 margin_rate+margin_anchor（无 floor）的信封会 graph 三档 /
+    /estimate 单档分叉，两端给用户看的价不同。本函数统一为**键存在**语义（对齐
+    skill `_merge_config_tiers`「配置了才注入」的注入约定：键在场 = 用户配置了该档），
+    两处调用方（pricing_node / estimate_service）必须都走它，禁止再各写一份判定。
+
+    Args:
+        margin_floor_present: extensions 是否带 margin_floor 键（estimate_service 把
+            请求级显式 margin_floor 参数并入此位——「请求级显式参数优先」由调用方保持）。
+        margin_anchor_present: extensions 是否带 margin_anchor 键。
+        has_margin_rate: margin_rate 是否显式存在（pricing_node 只看 extensions；
+            estimate_service 请求参数与 extensions 任一存在即 True）。
+
+    Returns:
+        True → 三档（compute_price 透传 margin_anchor/margin_floor/vcr/pvcr，
+        销售净利率口径）；False → 单档 legacy（三档参数全不透传，成本利润率口径）。
+    """
+    return margin_floor_present or margin_anchor_present or not has_margin_rate
+
+
 def derive_list_prices(price: int) -> tuple[int, int]:
     """给定最终日常价，派生 Ozon 划线价与促销底线 (old_price, min_price)。
 
@@ -88,6 +117,15 @@ def compute_price(
         - 单档（margin_anchor/margin_floor 均 None）：与旧行为完全一致，无 promo_price。
         - 三档：price=日常价、old_price=划线原价、promo_price=促销底线；
           profit_rate = 销售净利率（净利/售价）。
+
+    ⚠️ 激活语义陷阱（docs/ARCHITECTURE/09-findings.md Top10 #10，裸调方必读）：
+    本函数自身**全缺省（anchor/floor 均不传）→ 单档 legacy**（成本利润率口径，
+    分母 1-commission）；但经 pricing_node / estimate_service 外层时，margin 键
+    全缺省 = 「店铺未配置」→ 外层按 is_dual_margin 判三档并注入默认
+    （margin 1.5 / anchor 2.0 / floor 0.6 / vcr 0.155 / pvcr 0.245）→ 三档公式
+    （销售净利率口径，分母 1-commission-vcr）。同一信封两条路径价不同——
+    第三方直接复用本函数时勿假设「缺省 = graph 外层行为」；三档/单档激活
+    判定唯一口径见 is_dual_margin。
     """
     legacy = margin_anchor is None and margin_floor is None
     vcr = variable_cost_rate if variable_cost_rate is not None else DEFAULT_VARIABLE_COST_RATE

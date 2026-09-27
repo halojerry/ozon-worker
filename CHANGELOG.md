@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.81.0] — 2026-09-27（上架质量战役 + 内容评分闭环 + Mimosa 安全批）
+
+> dev 自 v0.80.0 共 10 个 PR（#73-#82）。三大战役：①类目/上架质量根因修复
+> （架构梳理 10 文档驱动 + 4718259 店实机取证）；②Ozon 内容评分闭环进管线；
+> ③Mimosa L3 全量分诊修复（真漏洞 2 处实锤）。实机 gate：主店 4718259 两轮
+> 批量上架 + discover 新防线全链（语义闸/重量/价格/标题四验证，10/10 一次过审）。
+
+### 上架质量根因（#73 架构梳理 / #74 handover / #75 类目 / #77+78 质量）
+
+- **架构文档体系**：docs/ARCHITECTURE/ 10 文件（节点卡/信任序/门禁图/模型矩阵）+
+  09-findings 台账，全部实机取证锚定。
+- **类目自污染闭环斩断**（#75）：learning 拒写超泛词/R2b 跨大类、follow 三闸
+  （(dc,tp) 配对 + ID 双语名反查 + 面包屑交叉 + 零交集预检）、R2b 剔 search_kw
+  锚点、validate 一致性闸词表豁免 + RU 标题 type 级重配、入箱带 top-3 推荐类目。
+- **静默 CDP**（#76）：`new_tab` 默认后台 + `CdpTab.force_active()`
+  （setWebLifecycleState 实机实证 visibilityState→visible / rAF 64fps）——批量
+  抓取零前台弹窗；商品页抓取废除复用用户可见 tab。
+- **采购价代表档**（#77）：`_collapse_variants_to_single` 1只装特判废除
+  （¥0.13 散件价实锤根因），数量变体取中位档/target_qty 整档价 + 标记。
+- **重量 reconcile**（#78）：`reconcile_weight_with_attrs` 唯一入口（pricing +
+  prepare 双接线）——箱级毛重 vs 属性单件重 ≥3× 比值 → 采信单件重（962g→50g
+  实锤），marks 全留痕。
+- **图搜语义闸**（#77）：follow 链补 `ozon_category_path` + 候选 category_name
+  透传，`_pick_best_match` 直通口前置 LLM 类目一致性闸（cap 6），不一致取下一
+  候选/全拒 `no_relevant_match`；顺带修复 follow 信封 match_category_id 恒空。
+- **标题结构闸**（#78）：`sanitize_title_structure`（空槽/残壳/俄语小数逗号）+
+  prepare 兜底链 + validate 名称闸 + `_remove_latin_llm` 丢词守卫（", 1" 类根因）。
+- **荒谬值源头**（#78）：8050「成分=полимерные материалы」硬编码默认表 ×2 删除、
+  干扰类型判别词交叉验证接线（桌面扇→落地扇根因）、采购价 <1 CNY 标疑。
+
+### 内容评分闭环（#79）
+
+- `/v1/product/rating-by-sku` 进管线两层：prepare 出口**恒填** Аннотация(4191) +
+  Rich-контент(11254)（跟卖跳过）；fetch_back 过审复检 rating<90 → 按
+  improve_attributes 可填集自动补填（非致命/防抖/`CONTENT_RATING_ENHANCE` 闸）。
+- **根因实锤**：v0.40 Rich 生成是死代码且 append 用 `{"id"}`（应 `attribute_id`）
+  → 11254 从未上卡。
+- 存量清扫 `worker/scripts/content_rating_sweep.py`：实机 100 张补齐（315 张
+  全店，112 低于 90 → 100 补 + 12 诚实跳过）。
+
+### Mimosa 安全批（#80/#81/#82）
+
+- **SSTI ×7**：jinja2 全量 `SandboxedEnvironment`（唯一入口
+  `utils/safe_template.py`，良性模板行为逐字一致，恶意 payload 矩阵零泄漏，
+  回潮守卫锁定 src 内禁直引）。
+- **SSRF/证书/凭据 ×5**：repair_cards `verify=False` 恢复校验、webhook URL
+  校验（scheme 白名单/内网段/元数据地址拒 + `TASK_NOTIFY_ALLOW_PRIVATE` 逃生门）、
+  fx_rate scheme 断言、`sk-` 示例占位符化（API docs 重生成）。
+- **SQL/权限 ×10**：物流报价链判定 ORM 误报（绑定参数实证）+ 白名单归一纵深；
+  offline_validate 三段断言闸；10 条权限候选逐一判定（8 已保护留证据注释）。
+- **⚠️ 真漏洞 2 处实锤修复（行为变更）**：`/async_run` 匿名可提交任务、
+  `/graph_parameter` 无鉴权——v0.76 矩阵漏挂，现无 token 一律 401。
+- 测试 +103 安全用例（恶意模板矩阵/webhook 校验矩阵/权限行为/gitleaks 夹具对齐）。
+
+### 行为变更（发版说明必读）
+
+1. **purchase_cost 口径**：数量变体取代表档（整档价），不再取 1只装散件价——
+   定价系统性回归正常（旧信封 `<1 CNY` 打 `purchase_cost_suspect` 标疑不阻断）。
+2. **weight 口径**：单件真值优先（信封键 `weight_source_page_attr` /
+   worker marks `weight_lot_reconciled`），运费按单件重。
+3. **follow 匹配语义闸**：图搜候选与竞品类目不一致 → 拒配（`no_relevant_match`，
+   宁缺毋滥），LLM ≤6 次/单。
+4. **新信封键**：`weight_source_page_attr` / `purchase_cost_representative_sku`
+   （worker 零强制消费，审计用）。
+5. **CDP**：`new_tab` 默认后台 tab；需要用户看见的页面必须显式 `background=False`。
+6. **/async_run、/graph_parameter**：匿名 200→401（grep 全仓零现网调用方）。
+7. **Ozon 卡内容**：新卡恒带 Аннотация + Rich-контент；过审后评分 <90 自动补填。
+
+### 升级注意
+
+- 需跑 `init_data`（无新表，Docker 镜像重建即生效）；`CONTENT_RATING_ENHANCE=0`
+  可关复检闭环；老卡内容由 `content_rating_sweep.py` 存量清扫补齐（一次性运维）。
+
 ## [0.80.0] — 2026-09-25（特征属性填满战役 A1-A7 七期同车 + 两 chore 批）
 
 > dev 自 v0.79.0 共 30 commits。主体 = **特征属性填满战役七期**（PR #65-#70 +

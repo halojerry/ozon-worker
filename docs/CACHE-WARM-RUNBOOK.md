@@ -137,3 +137,23 @@ TTL 到期自动衰减回懒加载（不报错，只是首单变慢）。建议�
 | `--export-from-pg` | **v0.73 起导出 JSON 用这个**：从 PG 读缓存流式导出到 `worker/assets/`（秒级、零 API、无需凭证；与其他模式互斥） |
 | `--export-only` | 旧「边拉边导」：仅导出本次进程内 API 拉取的部分（需凭证）——预热后单独导出请用 `--export-from-pg` |
 | `--import-only` | 从 JSON upsert 进 PG（无需凭证；部署脚本自动调用） |
+
+## v0.80.0+ 重签入口：CI refill-cache-hashes（推荐）
+
+带外重传缓存 JSON 到 COS `/ozon-worker/cache/` 后，把 `cache_sha256` 灌进当前
+manifest（缺了它 cos-update 会 warn「未登记…不下载」，运行时懒加载兜底）。两条路：
+
+1. **CI 手动触发（推荐——私钥只在 GitHub secret `COS_UPDATE_SIGN_KEY`）**：
+   `gh workflow run cd.yml --ref dev`（workflow_dispatch → job=refill-cache-hashes）。
+   流程：拉当前 manifest+sig → 仓库公钥验签（防洗白）→ coscli 拉 cache/ 全部
+   JSON → `sign_cache_hashes.sh` 整表灌哈希+重签+回验 → 成对覆盖上传。
+2. **本地/服务器手动**（需私钥文件）：`deploy/sign_cache_hashes.sh <cache_dir>
+   <manifest_in> <sec_key> <out_dir> [pub]` → coscli 成对上传 manifest.json +
+   manifest.sig。
+
+⚠️ **命名纪律（2026-09-25 v0.80.0 实机事故）**：COS 签名对象恒为 `manifest.sig`
+（CI 签名/上传口径 + 公读白名单 key）。任何下载侧禁止 `${MANIFEST_URL}.sig` 推导
+（= manifest.json.sig，COS 无此对象）——cos-update.sh 与 cd.yml prev 继承下载两处
+曾因此断链：前者 exit 3 拒升，后者 `|| true` 静默吞 404 致 versions 表被截 +
+cache_sha256 继承恒空。锁定断言在 `test_cos_update_verify_v076.py`（含 stub 对
+错误命名的显式拒绝）。

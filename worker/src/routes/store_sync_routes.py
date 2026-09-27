@@ -123,6 +123,14 @@ _ANALYSIS_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"ex
 
 
 async def _authenticate(request: Request) -> str:
+    """Bearer token → ``_authenticate_token`` → user_id（v0.81 安全收尾留痕：
+    Mimosa medium「未观察到权限检查」= 扫描器误报——鉴权在函数体内 ``await``
+    调用而非 FastAPI ``Depends``，静态扫描常漏判）。
+
+    本文件全部 handler 首行强制 ``await _authenticate(request)``，无旁路；
+    店铺资源归属由 ``get_decrypted(tenant_id, credential_id)`` 二段校验（跨租户
+    404）；``GET /admin/sync-health`` 另挂 ``require_admin``（admin-only）。
+    """
     from main import _authenticate_token  # 延迟导入防循环
 
     auth = request.headers.get("Authorization", "")

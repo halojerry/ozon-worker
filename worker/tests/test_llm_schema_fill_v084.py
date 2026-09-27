@@ -98,6 +98,10 @@ def test_fill_dict_unique_and_boolean_and_free_text(monkeypatch):
 def test_fill_strips_when_no_dict_hit_or_chinese_or_banned(monkeypatch):
     import utils.ozon_dict_values as m
     monkeypatch.setattr(m, "search_dictionary_values", lambda *a, **k: [], raising=True)
+    # arch-findings 补密封性：_translate_ru 收口后不再吞 MxouOutOfQuotaError（401 也归类
+    # 余额错误），不 mock 会在 CI 里打真实 api.mxou.cn → 401 → re-raise。翻译不可用=返空串
+    # =走剥除分支，与本测试「中文自由文本 → 剥」的原始语义一致。
+    monkeypatch.setattr("utils.attr_fill_extras._translate_ru", lambda *a, **k: "")
     raw = '{"fills": [' \
           '{"id": 6829, "value": "微波炉适用"},' \
           '{"id": 4384, "value": "塑料盒和盖子"},' \
@@ -164,5 +168,62 @@ def test_chinese_free_text_dropped_when_translation_fails(monkeypatch):
     todo = [{"id": 4384, "name": "配套", "type": "String", "dict": 0, "collection": False}]
     out = apply_llm_schema_fill([{"attributes": []}], todo,
                                 '{"fills": [{"id": 4384, "value": "20个罐子"}]}',
+                                _DRAFT, _state())
+    assert out[0]["attributes"] == []
+
+
+def test_collection_multi_value_split_each_verified(monkeypatch):
+    """A8b② 集合类多值拆分：LLM「A; B」拆分逐值过字典，命中的落数组。"""
+    import utils.ozon_dict_values as m
+    DICT = {"На подставке": 11, "Вращающийся": 22}
+
+    def fake_search(cid, key, aid, dc, tp, term):
+        # 字典里只有「На подставке」和「Вращающийся」两个独立值
+        return [{"id": DICT[term], "value": term}] if term in DICT else []
+
+    monkeypatch.setattr(m, "search_dictionary_values",
+                        lambda cid, key, aid, dc, tp, term: fake_search(cid, key, aid, dc, tp, term),
+                        raising=True)
+    todo = [{"id": 6829, "name": "炊具的特点", "type": "String", "dict": 412,
+             "collection": True}]
+    out = apply_llm_schema_fill(
+        [{"attributes": []}], todo,
+        '{"fills": [{"id": 6829, "value": "На подставке; Вращающийся; НеСуществует"}]}',
+        _DRAFT, _state())
+    vals = out[0]["attributes"][0]["values"]
+    assert len(vals) == 2  # 命中 2 个落数组，未命中的剥
+    assert {v["dictionary_value_id"] for v in vals} == {11, 22}
+
+
+def test_dict_synonym_variants_unanimous_take_first(monkeypatch):
+    """A8b③ 近义归一：3 个候选全是同一概念的不同写法 → 取字典序第一。"""
+    import utils.ozon_dict_values as m
+    monkeypatch.setattr(
+        m, "search_dictionary_values",
+        lambda cid, key, aid, dc, tp, term: [
+            {"id": 31, "value": "нерж. сталь"},
+            {"id": 32, "value": "нержавеющая сталь"},
+            {"id": 33, "value": "нержавеющая  сталь"},  # 仅空格差
+        ], raising=True)
+    todo = [{"id": 6383, "name": "Материал", "type": "String", "dict": 700, "collection": False}]
+    out = apply_llm_schema_fill([{"attributes": []}], todo,
+                                '{"fills": [{"id": 6383, "value": "Нержавеющая сталь"}]}',
+                                _DRAFT, _state())
+    got = out[0]["attributes"][0]["values"][0]
+    assert got["dictionary_value_id"] == 31  # 归一后同概念 → 字典序第一
+
+
+def test_dict_genuinely_divergent_candidates_still_dropped(monkeypatch):
+    """A8b③ 红线：候选语义真分歧（归一后不同）→ 照剥。"""
+    import utils.ozon_dict_values as m
+    monkeypatch.setattr(
+        m, "search_dictionary_values",
+        lambda cid, key, aid, dc, tp, term: [
+            {"id": 41, "value": "сталь"},
+            {"id": 42, "value": "стекло"},
+        ], raising=True)
+    todo = [{"id": 6383, "name": "Материал", "type": "String", "dict": 700, "collection": False}]
+    out = apply_llm_schema_fill([{"attributes": []}], todo,
+                                '{"fills": [{"id": 6383, "value": "сталь"}]}',
                                 _DRAFT, _state())
     assert out[0]["attributes"] == []

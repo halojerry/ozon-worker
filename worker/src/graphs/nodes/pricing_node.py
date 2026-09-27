@@ -12,6 +12,8 @@ from utils.logger import get_logger, set_trace_context, log_ozon_api_call
 from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
 from utils.draft_sanity import check_weight_suspect  # v0.21 P2 定价防线
 from utils.price_sanity_guard import check_price_sanity  # ✅ v0.73: 价差守卫（Issue5b，锚价在场时校验终价倍数）
+from utils.pricing_estimate import is_dual_margin  # v0.80: 三档判定唯一口径（compute_price 保持函数内懒导入——
+# 既有测试族按「utils.pricing_estimate.compute_price 模块属性可 patch」锁定异常出口，改模块级绑定会静默失效）
 from utils.commission_resolver import (  # 任务 1.3: 佣金唯一解析入口（explicit>缓存表>segments>0.10）
     get_category_commission,
     pick_price_band,
@@ -107,6 +109,18 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         weight, dims_mm, _wd_marks = normalize_weight_dimensions(
             draft.get("weight", 0), dims_obj, extensions
         )
+        # ✅ v0.81 上架质量止血：箱级毛重 reconcile（唯一入口
+        # utils/weight_dimension_normalizer.reconcile_weight_with_attrs）。
+        # 根因：skill 信封 draft.weight 常是 1688 包装表第一行=箱级毛重（30支香
+        # 962g vs 卡属性「商品重量=50g」实锤）→ 运费虚高数倍。仅 3×比值+候选≥10g
+        # 才采信候选，marks 进 wd_audit.reasons（既有标疑通道，随下方 Sentry 留痕）。
+        from utils.weight_dimension_normalizer import reconcile_weight_with_attrs
+
+        weight, _reconcile_marks = reconcile_weight_with_attrs(
+            weight, draft.get("attributes", {}) if isinstance(draft, dict) else {}
+        )
+        if _reconcile_marks:
+            _wd_marks["reasons"].extend(_reconcile_marks)
         # mm → cm（物流费率表按 cm 匹配）
         depth: float = dims_mm["length"] / 10.0
         width: float = dims_mm["width"] / 10.0
@@ -146,21 +160,34 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 pass
         
         # cost_cny为0时使用默认值
+        _cost_suspect: bool = False
         if cost_cny <= 0:
             cost_cny = 10.0
             logger.warning("⚠️ cost_cny为0或空，使用默认值: 10 CNY")
+        elif cost_cny < 1.0:
+            # ✅ v0.81 上架质量止血：采购价低值标疑（非阻断——真实单件小商品存在，
+            # 只留痕防「1688 按箱价/尾数价错当采购成本 → 卡价离谱」类审计盲区）
+            _cost_suspect = True
+            logger.warning(
+                "⚠️ cost_cny=%.2f 低于 1 CNY，疑似箱价/单价错位（purchase_cost_suspect），价格可能不可靠",
+                cost_cny,
+            )
         
         # 获取扩展配置
         fx_buffer: float = float(extensions.get("fx_buffer", 0.05))  # 汇率缓冲 5%
 
-        # ✅ v0.65 三档默认激活：与 estimate_service 同规则——floor/anchor 在场，或 margin 键全缺 → 三档。
+        # ✅ v0.65 三档默认激活：floor/anchor 键在场，或 margin 键全缺 → 三档。
         # 用户决策（2026-08-21 + v0.65 拍板）：未配置店铺自动三档（margin 默认 1.5 / anchor 2.0 /
         # floor 0.6 / vcr 0.155 / pvcr 0.245）；显式配了 margin_rate 且无 floor/anchor 的店保持旧单档
         # （存量显式配置向后兼容——单档缺省 margin 0.25，不透传三档参数，compute_price 旧公式逐字一致）。
+        # ✅ v0.80 对齐（09-findings Top10 #10）：判定唯一口径 is_dual_margin（键存在语义），
+        # 与 estimate_service 同源——此前两处各写一份，margin_rate+margin_anchor 无 floor
+        # 的信封会 graph 三档 / /estimate 单档分叉。
         ext_margin_raw = extensions.get("margin_rate")
-        dual_margin: bool = (
-            "margin_floor" in extensions or "margin_anchor" in extensions
-            or ext_margin_raw is None
+        dual_margin: bool = is_dual_margin(
+            margin_floor_present="margin_floor" in extensions,
+            margin_anchor_present="margin_anchor" in extensions,
+            has_margin_rate=ext_margin_raw is not None,
         )
         if dual_margin:
             margin_rate: float = float(ext_margin_raw) if ext_margin_raw is not None else 1.5  # 三档日常价（默认 1.5）
@@ -174,6 +201,21 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             margin_floor = None
             variable_cost_rate = None
             promo_variable_cost_rate = None
+
+        # ✅ v0.80 对齐临时价口径（09-findings #10-provisional）：三档 kwargs 提前组装、
+        # provisional 与最终价共用（与 estimate_service 的 provisional band pass 同参）——
+        # 此前临时价不传三档 kwargs，与最终价分母不同（1-c vs 1-c-vcr），选出的佣金
+        # 价格段可能漂移。单档时全不传 → compute_price 保持旧行为。
+        _dual_kwargs: Dict[str, Any] = (
+            {
+                "margin_anchor": margin_anchor,
+                "margin_floor": margin_floor,
+                "variable_cost_rate": variable_cost_rate,
+                "promo_variable_cost_rate": promo_variable_cost_rate,
+            }
+            if dual_margin
+            else {}
+        )
         
         # Step 2: 查询物流费率（PG logistics_rates + Ozon API获取3PL/服务等级）
         # ⚠️ v0.29.x: 改用公共模块 logistics_quote(与 /api/v1/logistics/quote 端点同源)
@@ -203,9 +245,10 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 与 estimate 端点同源。公式 = 总成本 × (1+margin)/(1-commission) [× (1+fx_buffer)×汇率 if RUB]）
         # 总成本 = 产品成本 + 物流成本 + 包装成本
         total_cost_cny: float = cost_cny + logistics_cost + packaging_cost
-        
+
+        # 懒导入（模块属性可 patch——test_error_code_wiring_v0772 等按此锁异常出口）
         from utils.pricing_estimate import compute_price
-        
+
         # ✅ 任务 1.3: 佣金三重 bug 修复（provisional-price band pass）
         # 旧逻辑: 调 Ozon prices 接口用 offer_id 空数组 filter → 查不到数据 → 恒 fallback 0.10。
         # 新逻辑: 佣金档位依赖售价、售价依赖佣金（鸡生蛋）——先用 0.10 算临时价（仅选档，
@@ -220,19 +263,23 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             fx_buffer=fx_buffer,
             currency_code=currency_code,
             exchange_rate=exchange_rate,
+            **_dual_kwargs,  # ✅ v0.80 对齐：临时价与最终价同参（与 estimate_service 一致）
         )
         _provisional_price: float = float(_est_provisional["price"])
         # 临时售价 → RUB 档位判定价：
         # - RUB 店铺：price 即 RUB，直接用
         # - CNY 店铺：有真实汇率(>1)时换算成 RUB 等价价选档
-        # - CNY 且无有效汇率 / 货币不明：中性档 leq_5000（避免低估佣金亏钱）
+        # - CNY 且无有效汇率 / 货币不明：pick_price_band(None) → 中性档 leq_5000
+        #   （✅ v0.80 统一：resolver 内部对 None 同取 leq_5000，与手工兜底口径合一）
         if currency_code == "RUB":
             _price_rub = _provisional_price
         elif exchange_rate and exchange_rate > 1:
             _price_rub = _provisional_price * exchange_rate
         else:
             _price_rub = None
-        band: str = pick_price_band(_price_rub) if _price_rub is not None else "leq_5000"
+        # band 仅作日志留痕（真实选段在 resolve_commission_rate_detail 内部按同参数重算）；
+        # 口径已与 resolver 对齐（同 pick_price_band 同输入），杜绝双处漂移。
+        band: str = pick_price_band(_price_rub)
         
         dc_id: str = getattr(state, "description_category_id", "") or ""
         dc_id_int = int(dc_id) if str(dc_id).isdigit() else None
@@ -256,18 +303,8 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             + (", stale_fallback=缓存行超龄降级" if _commission_stale else "")
         )
         
-        # 三档时透传新参数给 compute_price（唯一定价公式入口）；单档时全不传 → compute_price 保持旧行为
-        _dual_kwargs: Dict[str, Any] = (
-            {
-                "margin_anchor": margin_anchor,
-                "margin_floor": margin_floor,
-                "variable_cost_rate": variable_cost_rate,
-                "promo_variable_cost_rate": promo_variable_cost_rate,
-            }
-            if dual_margin
-            else {}
-        )
-
+        # 三档 kwargs 已在判定块提前组装（_dual_kwargs，provisional/最终价共用）；
+        # 单档时全不传 → compute_price 保持旧行为。
         _est = compute_price(
             total_cost_cny=total_cost_cny,
             margin_rate=margin_rate,
@@ -306,6 +343,9 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             # ✅ BL-24 一期: 缓存行超龄降级（stale）时留痕——审计可回答「这个价
             # 的佣金哪来的」；非 stale 不加键（零行为噪音，与现状逐字一致）。
             **({"commission_source": "stale_fallback"} if _commission_stale else {}),
+            # ✅ v0.81: 采购价低值标疑（<1 CNY 非阻断留痕，供审计「价格离谱是否
+            # 源于 1688 箱价/尾数价错当单件采购成本」）；正常成本不加键零噪音。
+            **({"purchase_cost_suspect": True} if _cost_suspect else {}),
             "fx_buffer": fx_buffer,
             "currency_code": currency_code,
             "exchange_rate": exchange_rate if currency_code == "RUB" else 1.0,

@@ -23,10 +23,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from services import draft_service
 
+import os
+
 ITEM_ID = "980815374096"
 COMPETITOR_ID = "3852000144"
 CLIENT_ID = "4718259"
-API_KEY = "sk-api-key-AAAA1111"
+API_KEY = os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential")
 
 
 def make_envelope(*, follow: bool = False) -> dict:

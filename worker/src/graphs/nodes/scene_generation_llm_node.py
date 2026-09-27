@@ -1,12 +1,12 @@
 import os
 import json
 from typing import Dict, List, Any
-from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import SceneGenerationInput, SceneGenerationOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
+from utils.safe_template import render_safe_mapping
 from utils.mxou_llm import call_mxou_chat_api
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.mxou_api import MxouOutOfQuotaError  # v0.63.1: 余额/鉴权/额度永久错误
@@ -42,9 +42,8 @@ def scene_generation_llm_node(state: SceneGenerationInput, config: RunnableConfi
     description = draft.get("description", "")
     category = draft.get("category", "")
     
-    # 使用jinja2模板渲染用户提示词
-    up_tpl = Template(up)
-    user_prompt = up_tpl.render({
+    # 使用jinja2模板渲染用户提示词（v0.81 起走 SandboxedEnvironment 沙箱，见 utils/safe_template）
+    user_prompt = render_safe_mapping(up, {
         "title": title,
         "description": description,
         "category": category

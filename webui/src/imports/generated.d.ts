@@ -835,7 +835,7 @@ export interface paths {
         put?: never;
         /**
          * V1 Cancel Task
-         * @description 取消待处理的任务。
+         * @description 取消待处理的任务（v0.76 T6: Bearer 鉴权 + 租户校验，TASK_STATUS_AUTH=0 应急关）。
          */
         post: operations["v1_cancel_task_api_v1_cancel_task__task_id__post"];
         delete?: never;
@@ -1507,7 +1507,11 @@ export interface paths {
          *            tpl_provider?, service_level?, ozon_client_id?, ozon_api_key?}
          *     - 未传 tpl_provider/service_level 时, 若有 ozon 凭证自动探测 3PL;
          *       否则默认 RETS/Standard。
-         *     - token 校验与 auth_verify 一致(Supabase 未配置时本地放行)。
+         *     - T10(api-M4): Authorization Bearer **必填**（``_require_bearer``）——
+         *       此前 token 走 body 可选字段，缺省直接跳过鉴权（匿名可拉费率表、可打满
+         *       带 Ozon 凭证的 3PL 探测），且无 rate limit；现 ``logistics:{clean_token}``
+         *       独立限流键（不与提交限流额度互挤），超限 429。
+         *     - body token 保留向后兼容（有值仍校验，语义同 auth_verify）。
          *
          *     返回: {logistics_cost_cny, channel, tpl_provider_used, service_level_used,
          *            base_cost, per_gram_rate, billable_weight, weight, dims_cm, fallback_chain}
@@ -2078,7 +2082,7 @@ export interface paths {
         put?: never;
         /**
          * V1 Resubmit Task
-         * @description 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口）。
+         * @description 重新提交被拒(rejected)/失败(failed)的任务（P0-2 自动修复链入口；race-L1: 补余额预检 402 + 并发 IntegrityError 409）。
          */
         post: operations["v1_resubmit_task_api_v1_resubmit_task__task_id__post"];
         delete?: never;
@@ -2224,7 +2228,15 @@ export interface paths {
          * Store Health
          * @description 查询 Ozon 店铺配额健康状态。
          *
-         *     Query params (可选):
+         *     T9(api-M3): Bearer 必填（``_require_bearer``，无 Bearer 401 "Token is
+         *     required"）——此前完全无鉴权，匿名可拿任意店铺凭证探测 Ozon 店铺配额/
+         *     存在性。凭证取值：优先 ``X-Ozon-Client-Id`` / ``X-Ozon-Api-Key`` header，
+         *     缺省回落 query（**query 传凭证已弃用**——query 会进反代/访问日志留痕面，
+         *     仅为存量调用方向后兼容保留）。上游失败（意外异常或 Ozon error）→ 502
+         *     固定文案，原文只进 logger——此前 ``message: str(e)`` / Ozon error 原文
+         *     直接进 200 响应体，上游内部细节泄漏给客户端。
+         *
+         *     凭证（header 或 query）:
          *     - client_id: Ozon Client-Id
          *     - api_key: Ozon Api-Key
          *
@@ -2541,7 +2553,8 @@ export interface paths {
         };
         /**
          * V1 Task Statistics
-         * @description 获取任务统计信息。
+         * @description 获取任务统计信息（v0.76 T7: Bearer 必填 + 租户强制，tenant_id 缺省=查自己，
+         *     跨租户仅 admin——语义与旧路径同源）。
          *
          *     ⚠️ v0.19.2: 旧路径返回 {"status","statistics"} 包裹结构（无 response_model），
          *     v1 声明了 TaskStatisticsResponse 响应模型，必须解包 statistics 再返回，
@@ -2862,6 +2875,11 @@ export interface paths {
          * Http Cancel Task
          * @description 取消任务（仅pending状态的任务可取消）
          *
+         *     T6(api-H2): 补 Bearer 鉴权 + 租户校验（语义与 task_status v0.73 同源，
+         *     复用 ``_task_status_guard``：TASK_STATUS_AUTH=0 应急关 / 无 Bearer 401 /
+         *     跨租户 404 "task not found" 不泄漏存在性 / 老数据无租户宽容放行）。
+         *     修复前匿名持有 task uuid 即可跨租户取消任意 pending 任务（安全探针实证）。
+         *
          *     Returns:
          *         取消结果
          */
@@ -3029,6 +3047,10 @@ export interface paths {
          * Http Progress
          * @description 查询工作流执行进度。
          *
+         *     v0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，
+         *     匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，
+         *     语义见 helper docstring。
+         *
          *     优先从 LangGraph checkpointer 读取实时 state，
          *     降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。
          */
@@ -3059,6 +3081,11 @@ export interface paths {
          *
          *     ⚠️ v0.38.1 安全修复：请求体必须携带调用者 token（与 submit_task 一致），
          *     校验 token 归属租户 == 任务 tenant_id，防跨租户凭证重放（CRITICAL）。
+         *
+         *     ⚠️ race-L1（v0.76 Task 26）：与 submit_task 同款两段——入队前
+         *     _check_mxou_balance 余额预检（欠费 → 402，重提交重跑生图/LLM 同样烧额度）；
+         *     入队 IntegrityError（并发撞部分唯一索引）→ 干净 409 DUPLICATE_SUBMIT
+         *     （此前冒泡成 500）。
          */
         post: operations["http_resubmit_task_resubmit_task__task_id__post"];
         delete?: never;
@@ -3132,26 +3159,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/task/{task_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Http Get Task
-         * @description [DEPRECATED] 使用 GET /task_status/{task_id} 代替。此端点将在未来版本移除。
-         */
-        get: operations["http_get_task_task__task_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/task_statistics": {
         parameters: {
             query?: never;
@@ -3163,8 +3170,17 @@ export interface paths {
          * Http Task Statistics
          * @description 获取任务统计信息
          *
+         *     T7(api-H3): 补 Bearer 鉴权 + 租户强制。修复前端点完全无鉴权——匿名可枚举
+         *     任意租户任务量，且不传 tenant_id 时 task_processor 层跨全租户聚合。
+         *     规则（保持 MCP get_task_statistics 兼容，其恒传自己租户）：
+         *     - 无 Authorization Bearer → 401 "Token is required"。
+         *     - Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。
+         *     - query ``tenant_id`` 缺省/为空/等于自己 → 恒查自己租户。
+         *     - ``tenant_id`` 指向他人租户 → 仅 admin（``resolve_analytics_scope`` 放行），
+         *       否则 403 "admin only"。
+         *
          *     Args:
-         *         tenant_id: 租户ID（可选，不传则查询所有租户）
+         *         tenant_id: 租户ID（可选，缺省=自己租户；指定他人租户需 admin）
          *
          *     Returns:
          *         任务统计信息（总数、成功率、平均耗时等）
@@ -4058,6 +4074,10 @@ export interface components {
         /**
          * ListingTemplateConfig
          * @description 模板扩展参数（白名单；全部可选，None 表示不注入）。
+         *
+         *     v0.80: stock/warehouse_id 已退役删除（我方永不设库存口径，
+         *     docs/PLAN-n8n-legacy-purge-v1.md 批次 2）；存量数据中的退役键由
+         *     template_service 静默剥离。
          * @example {
          *       "fx_buffer": 0.05,
          *       "margin_anchor": 2,
@@ -4135,6 +4155,7 @@ export interface components {
          *         "margin_rate": 0.25,
          *         "offer_id_prefix": "MX",
          *         "promo_variable_cost_rate": 0.245,
+         *         "stock": 10,
          *         "variable_cost_rate": 0.155
          *       },
          *       "created_at": "2026-09-01T00:00:00Z",
@@ -4282,7 +4303,7 @@ export interface components {
          * @description 新建 API Key 响应（key 仅此一次返回——用户复制后不再可查）。
          * @example {
          *       "id": "tok_02",
-         *       "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+         *       "key": "__API_KEY_EXAMPLE__",
          *       "name": "webui"
          *     }
          */
@@ -4342,7 +4363,7 @@ export interface components {
          * MxouKeySelectResponse
          * @description 切换密钥响应（key 仅此一次返回——用户复制后不再可查）。
          * @example {
-         *       "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+         *       "key": "__API_KEY_EXAMPLE__"
          *     }
          */
         MxouKeySelectResponse: {
@@ -4357,7 +4378,7 @@ export interface components {
          * @description MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返回用于建立登录态）。
          * @example {
          *       "balance": 128.4,
-         *       "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+         *       "key": "__API_KEY_EXAMPLE__",
          *       "keys": [
          *         {
          *           "id": "tok_01",
@@ -5663,6 +5684,7 @@ export interface components {
          *         "stage": "image_generation",
          *         "stages_completed": [
          *           "auth",
+         *           "check_quota",
          *           "ingest",
          *           "category_match",
          *           "pricing",
@@ -5673,7 +5695,6 @@ export interface components {
          *           "image_generation",
          *           "prepare_ozon_upload",
          *           "ozon_validate",
-         *           "check_quota",
          *           "ozon_upload",
          *           "ozon_status",
          *           "learning_record"
@@ -5887,6 +5908,7 @@ export interface components {
          *         "stage": "image_generation",
          *         "stages_completed": [
          *           "auth",
+         *           "check_quota",
          *           "ingest",
          *           "category_match",
          *           "pricing",
@@ -5897,7 +5919,6 @@ export interface components {
          *           "image_generation",
          *           "prepare_ozon_upload",
          *           "ozon_validate",
-         *           "check_quota",
          *           "ozon_upload",
          *           "ozon_status",
          *           "learning_record"
@@ -8023,6 +8044,15 @@ export interface operations {
                     "application/json": components["schemas"]["CancelTaskResponse"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -9594,6 +9624,24 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     v1_mappings_lookup_api_v1_mappings_lookup_get: {
@@ -10586,6 +10634,15 @@ export interface operations {
                     "application/json": components["schemas"]["SubmitTaskResponse"];
                 };
             };
+            /** @description Payment Required */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -10869,6 +10926,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10876,6 +10942,20 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "detail": "upstream store health check failed"
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
         };
@@ -11589,6 +11669,24 @@ export interface operations {
                     "application/json": components["schemas"]["TaskStatisticsResponse"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     v1_task_status_api_v1_task_status__task_id__get: {
@@ -12264,6 +12362,24 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Conflict */
             409: {
                 headers: {
@@ -12604,6 +12720,15 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -12651,6 +12776,22 @@ export interface operations {
                      *       "message": "任务 3fa85f64-5717-4562-b3fc-2c963f66afa6 已重新提交（rejected → pending，parent_task_id=3fa85f64-5717-4562-b3fc-2c963f66afa6）",
                      *       "ok": true,
                      *       "task_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Payment Required */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error_code": "INSUFFICIENT_BALANCE",
+                     *       "message": "MXOU 余额不足 (current: -5.0). 请充值",
+                     *       "ok": false
                      *     }
                      */
                     "application/json": unknown;
@@ -12782,49 +12923,6 @@ export interface operations {
             };
         };
     };
-    http_get_task_task__task_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "created_at": 1726000000,
-                     *       "result": {
-                     *         "output": {}
-                     *       },
-                     *       "status": "succeeded",
-                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
-                     *     }
-                     */
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     http_task_statistics_task_statistics_get: {
         parameters: {
             query?: never;
@@ -12855,6 +12953,24 @@ export interface operations {
                      *     }
                      */
                     "application/json": unknown;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

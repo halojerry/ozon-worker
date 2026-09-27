@@ -37,6 +37,7 @@ from api.schemas import (
 )
 from services import draft_service
 from services.ai_field_service import AI_FIELDS, extract_current_value, regenerate_field
+from utils.mxou_api import MxouOutOfQuotaError
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,15 @@ _EXPORT_OK_EXTRA = {"responses": {"200": {"content": {"text/csv": {"example":
 
 
 async def _authenticate(request: Request) -> str:
-    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。"""
+    """token 来源：Authorization: Bearer 优先，body token 兜底（C6「token body 或 Bearer」）。
+
+    v0.81 安全收尾留痕（Mimosa medium「未观察到权限检查」= 扫描器误报）：鉴权
+    在函数体内 ``await`` 调用而非 FastAPI ``Depends``，静态扫描常漏判。本文件
+    全部 handler 首行强制 ``tenant_id = await _authenticate(request)``（或
+    draft_ai_field/draft_assemble 直调 ``_authenticate_token``，同源），无旁路；
+    租户隔离由 draft_service 各读写按 tenant_id 过滤（跨租户 404），定时上架链
+    另有 ``get_decrypted(tenant_id, credential_id)`` 凭证归属校验。
+    """
     from main import _authenticate_token  # 延迟导入防循环
 
     auth = request.headers.get("Authorization", "")
@@ -322,7 +331,15 @@ async def draft_ai_field(draft_id: str, field: str, request: Request):
     _traffic_keywords = (
         _extensions.get("traffic_keywords") if isinstance(_extensions, dict) else None
     )
-    value = regenerate_field(field, current_value, mxou_token, traffic_keywords=_traffic_keywords)
+    # ✅ v0.80 arch-findings #4: MXOU 余额/鉴权永久错误显式 402（对齐 submit_task
+    # 余额 402 口径）——此前裸异常穿透路由 = 500，前端只见「服务器错误」不知要充值。
+    try:
+        value = regenerate_field(field, current_value, mxou_token, traffic_keywords=_traffic_keywords)
+    except MxouOutOfQuotaError:
+        raise HTTPException(
+            status_code=402,
+            detail="MXOU 余额不足或鉴权失效（OUT_OF_QUOTA），请充值或更换 API Key 后重试",
+        )
     if value is None:
         raise HTTPException(
             status_code=422,
@@ -354,4 +371,12 @@ async def draft_assemble(draft_id: str, request: Request):
     token = _extract_token_from_body(raw_body)
     tenant_id = _authenticate_token(token)  # 401/403/429（在 DB 读取之前）
 
-    return draft_service.assemble_draft(tenant_id, draft_id, token)
+    # ✅ v0.80 arch-findings #4: 预组装链 ai_field_service.assemble_draft 对余额/鉴权
+    # 永久错误已改显式上抛（四字段 except 前置放行）——这里映射 402，杜绝裸 500。
+    try:
+        return draft_service.assemble_draft(tenant_id, draft_id, token)
+    except MxouOutOfQuotaError:
+        raise HTTPException(
+            status_code=402,
+            detail="MXOU 余额不足或鉴权失效（OUT_OF_QUOTA），预组装中止，请充值后重试",
+        )

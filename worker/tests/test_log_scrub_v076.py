@@ -78,9 +78,12 @@ def test_async_storage_503_no_exception_text(monkeypatch):
             raise AsyncTaskStorageError("secret-bucket-internal")
 
     monkeypatch.setattr(main_mod, "async_runtime", _FakeRuntime())
+    monkeypatch.setattr("services.tenant_service.resolve_tenant", lambda t: "28")
     # 无 lifespan 时 async_task_config 是 stub（缺 RECURSION_LIMIT），补上避免无关 500
     monkeypatch.setattr(main_mod.async_task_config, "RECURSION_LIMIT", 25, raising=False)
-    r = client.post("/async_run", content=b'{"foo": "bar"}',
+    # v0.81 安全收尾（fix/sec-closeout-v081）：/async_run 补 T3 鉴权门——匿名提交
+    # 已 401（test_sec_closeout_v081 锁定），本用例锁 503 形态须带 token 过门。
+    r = client.post("/async_run", content=b'{"foo": "bar", "token": "sk-probe-scrub"}',
                     headers={"Content-Type": "application/json"})
     assert r.status_code == 503
     assert "secret-bucket-internal" not in r.text

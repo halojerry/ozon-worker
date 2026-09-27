@@ -200,7 +200,11 @@ def test_vocab_divergence_attr_enters_output():
 
 # ── prepare 侧：中文零容忍 ──
 def test_prepare_russian_required_translation_failure_skipped():
-    """_russian_required_attrs（4191）翻译返回拉丁 → 跳过该属性（绝不拉丁原文上传）"""
+    """_russian_required_attrs（4191）翻译返回拉丁 → 该拉丁值被跳过。
+
+    ⚠️ v0.81 内容评分闭环改口径：跳过后出口恒填闸（_ensure_content_attrs_in_payload）
+    会以确定性 RU 简介补回 4191——不变式从「拉丁失败 → 卡上无 4191」变为
+    「拉丁原文绝不上卡 + 4191 恒以俄语在场」。"""
     from graphs.state import PrepareOzonUploadInput
     from graphs.nodes.prepare_ozon_upload_node import prepare_ozon_upload_node
 
@@ -238,7 +242,11 @@ def test_prepare_russian_required_translation_failure_skipped():
     for item in (output.ozon_payload or {}).get("items", []):
         payload_attrs.extend(item.get("attributes", []))
     payload_ids = {int(a["id"]) for a in payload_attrs}
-    assert 4191 not in payload_ids, "俄语必填属性翻译失败（拉丁）应被跳过"
+    v4191 = [a for a in payload_attrs if int(a["id"]) == 4191]
+    assert v4191, "v0.81 出口恒填闸：4191 必须以 RU 简介在场"
+    ann = v4191[0]["values"][0]["value"]
+    assert "Pet toy for cat" not in ann and "LatinOnlyText" not in ann, "拉丁原文绝不上卡"
+    assert any("\u0400" <= ch <= "\u04ff" for ch in ann), "4191 兜底简介必须为俄语"
 
 
 def test_prepare_sku_chinese_translated():

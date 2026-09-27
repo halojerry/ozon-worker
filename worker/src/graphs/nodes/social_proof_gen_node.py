@@ -11,7 +11,7 @@ from runtime.context import Context
 from graphs.state_image_gen import SocialProofInput, SocialProofOutput
 from utils.progress_logger import ProgressLogger  # 导入进度日志助手
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
-from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.62 R4 / v0.63.1
+from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError, MxouModelConfigError  # v0.62 R4 / v0.63.1 / 批D v0.78
 from utils.mxou_api import clean_title_for_image_prompt
 from utils.prompt_assembler import assemble_prompt, merge_visual_vars  # ✅ v0.31: 视觉变量注入（Wave 2: LLM + 确定性合并）
 from utils.color_preset import resolve_color_preset  # ✅ v0.32 Wave 2: 配色预设路由
@@ -115,6 +115,15 @@ def social_proof_gen_node(state: SocialProofInput, config: RunnableConfig, runti
                 raise  # v0.62 R4: 内容违规不降级
             except MxouOutOfQuotaError:
                 raise  # v0.63.1: 余额/鉴权/额度永久错误 → 不尝试降级模型
+            except MxouModelConfigError:
+                # 批D v0.78 形态对齐 main_image_gen（fix/arch-findings-v1）：该降级模型
+                # （及其链内后继）也配置错（API 层已响亮告警 + 每模型仅 1 POST）→
+                # 立即 break，不再对同一批坏模型重烧 POST
+                logger.error(
+                    "⚠️ social_proof_gen: 降级模型 %s 配置错误（未配价/无渠道），已快停，终止降级循环",
+                    _fb_model,
+                )
+                break
             except Exception as _fb_exc:
                 logger.error(f"social_proof 降级生成失败({_fb_model}): {_fb_exc}")
                 image_url = None

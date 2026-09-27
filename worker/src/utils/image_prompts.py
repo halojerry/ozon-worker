@@ -23,7 +23,7 @@ import json
 import logging
 import os
 
-from jinja2 import Template
+from utils.safe_template import render_safe
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def get_image_prompt(key: str, **kwargs) -> str:
         logger.warning("生图提示词 key 不存在且无默认值: %s", key)
         return ""
     try:
-        return Template(template).render(**kwargs)
+        return render_safe(template, **kwargs)
     except Exception as e:
         logger.warning("生图提示词渲染失败(key=%s): %s，回退默认模板", key, e)
         return _DEFAULT_PROMPTS.get(key, template)

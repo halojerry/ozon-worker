@@ -55,6 +55,8 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-
 **触发**：用户消息含 `ozon.ru` 商品链接
 
 > ⚠️ 串行闸：follow 与 graph/discover 族/seller 跨进程互斥，闸被占 exit 4（`--wait` 排队 / `--force` 强制并行）。
+> ⚠️ follow 腿当前**未接 `_source_preflight`**（反爬/源失效前置拦截，fix/arch-findings-v1 对齐中）——
+> 跟卖单提交前只有 min-margin 一道闸；信封里 purchase_cost≤0 / 零图时人工核一眼再提。
 
 ```bash
 # 明确跟卖意图：直接提交 + 等终态
@@ -131,6 +133,9 @@ python3 scripts/cli.py search "宠物饮水机" --rules "ai" --auto-submit   # �
 
 - 耗 1688 搜索配额；`--rules` 两段式同 discover（挑选期/匹配期，`"ai"` 一键预设）
 - 出口 flag 触发逐个信封组装+提交；`--wait` 语义同 graph
+- **⚠️ 门禁缺口（fix/arch-findings-v1 对齐中）**：批量提交腿（`--auto-submit`）当前**绕过
+  preflight/min-margin/min-density**，且单条失败不影响出口码（恒 0）——需要逐单利润拦截时改走
+  `graph` 逐条提交，跑完后逐行核对输出里的失败项
 
 ## 批量处理（batch_test.py）
 
@@ -159,6 +164,9 @@ python3 scripts/batch_test.py --urls-file urls.txt --submit --wait --notify
 ```
 
 URL 文件混合 1688/Ozon 链接，自动识别管线。
+
+> ⚠️ batch_test 进程内直调组装链，**不进 heavy 串行闸**（六命令闸拦不住它）——不要与
+> graph/follow/discover 并行跑（会互踩 Chrome/缓存）；出口码 0=全部成功，1=有失败项。
 
 参数：`--urls-file`（必填）、`--submit`（提交 Worker，默认不提交）、`--wait`（轮询到完成，含产品明细）、`--dry-run`（只组装验证）、`--start` / `--limit`（处理范围）、`--delay`（间隔秒，默认 3.0）、`--wait-timeout`（轮询超时秒，默认 900）、`--type-filter`（按类型过滤 URL：`1688`/`ozon`/`all`）、`--resume`（断点续传，跳过已成功项）、`--resume-from`（显式指定续传来源结果文件，默认自动找最新）、`--notify`（提交时 `notify=True`，Worker 完成推 webhook）。
 

@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -23,14 +24,13 @@ def _fake_workspace(prompts=None, corrupt=False, no_config=False):
     old_workspace = os.environ.get("APP_WORKSPACE_PATH")
     try:
         if not no_config:
-            cfg_dir = os.path.join(tmp, "config")
-            os.makedirs(cfg_dir, exist_ok=True)
+            # pathlib 写 fixture（resolve 根定在 tmp 下，SAST 路径校验友好）
+            cfg_file = Path(tmp).resolve() / "config" / "image_prompts.json"
+            cfg_file.parent.mkdir(parents=True, exist_ok=True)
             if corrupt:
-                with open(os.path.join(cfg_dir, "image_prompts.json"), "w", encoding="utf-8") as fd:
-                    fd.write("{ 这不是合法 JSON !!!")
+                cfg_file.write_text("{ 这不是合法 JSON !!!", encoding="utf-8")
             elif prompts is not None:
-                with open(os.path.join(cfg_dir, "image_prompts.json"), "w", encoding="utf-8") as fd:
-                    json.dump(prompts, fd, ensure_ascii=False)
+                cfg_file.write_text(json.dumps(prompts, ensure_ascii=False), encoding="utf-8")
         os.environ["APP_WORKSPACE_PATH"] = tmp
         yield tmp
     finally:
@@ -134,8 +134,9 @@ def test_hot_reload():
         assert p1 == "V1 版本提示词"
 
         # 修改文件 → 下一次调用直接读到新值（无需重启/重建）
-        with open(os.path.join(tmp, "config", "image_prompts.json"), "w", encoding="utf-8") as fd:
-            json.dump({"main": "V2 更新后的提示词"}, fd, ensure_ascii=False)
+        cfg_file = Path(tmp).resolve() / "config" / "image_prompts.json"
+        cfg_file.write_text(json.dumps({"main": "V2 更新后的提示词"}, ensure_ascii=False),
+                            encoding="utf-8")
         p2 = get_image_prompt("main", title="x")
         assert p2 == "V2 更新后的提示词"
 

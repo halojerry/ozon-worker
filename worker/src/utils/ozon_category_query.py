@@ -1327,14 +1327,22 @@ class OzonCategoryQuery:
 
     def score_candidates_by_fingerprint(
         self, candidates: list[dict], source_keywords: list[str],
+        title_keywords: list[str] | None = None,
     ) -> list[dict]:
         """v4: Re-rank pg_trgm candidates using keyword overlap + learned mappings + domain hints.
         Returns candidates sorted by (fingerprint_score DESC, pg_trgm_similarity DESC).
+
+        ✅ fix/category-root-cause-v1 (catfix): title_keywords（标题 tokens）以 0.3×
+        低权重并入 path/name overlap——类目词存在时不丢弃标题词。实机 gate 取证
+        （化妆收纳 4 单）：jieba tokens [化妆品,收纳盒] 对精准叶 «化妆包» 全零命中，
+        而「化妆」来自标题能记分——标题词单独给满分会被营销长尾稀释信号，故低权重。
         """
         if not source_keywords or not candidates:
             return candidates
 
         source_kw_set = {kw.lower() for kw in source_keywords if len(kw) >= 2}
+        # 标题 tokens 去掉与类目词重叠的部分（已按满权重计过，不重复计分）
+        title_kw_set = {kw.lower() for kw in (title_keywords or []) if len(kw) >= 2} - source_kw_set
 
         # Load domain hints (with caching)
         domain_hints = self._load_domain_hints()
@@ -1381,6 +1389,10 @@ class OzonCategoryQuery:
             depth = c.get("depth", 0) or 0
             path_overlap = sum(1 for kw in source_kw_set if kw in path)
             name_overlap = sum(1 for kw in source_kw_set if kw in name)
+            # ✅ catfix: 标题 tokens 低权重（0.3×）并入——类目词不丢标题词信号
+            if title_kw_set:
+                path_overlap += 0.3 * sum(1 for kw in title_kw_set if kw in path)
+                name_overlap += 0.3 * sum(1 for kw in title_kw_set if kw in name)
             learned_bonus = 0.0
             key = (c.get("description_category_id"), c.get("type_id"))
             if key in learned:

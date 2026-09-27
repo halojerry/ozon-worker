@@ -1885,7 +1885,10 @@ def discover_from_url(cdp_url: str, url: str, max_products: int = 50) -> list[st
     from scripts.lib.cdp_client import CdpConnection
 
     with CdpConnection(cdp_url) as cdp:
-        tab = cdp.new_tab(url)
+        # v0.81: 后台 tab + force_active——商品瀑布流靠滚动懒加载，
+        # 后台 hidden 状态 IO 不派发；force_active 可见化渲染不抢前台。
+        tab = cdp.new_tab(url, background=True)
+        tab.force_active()
         try:
             time.sleep(6)
 
@@ -1959,6 +1962,10 @@ _EXPORT_FIELDS: list[str] = [
     # data-pool 批7（卡片缺口三键之一）：商品点击率 %（qtyViewPdp/views 派生；
     # 增长率 sales_growth/广告份额 drr 为既有列不另增键）
     'custom_click_rate',
+    # fix/category-root-cause-v1：类目语义复核分歧标记（_category_semantic_review
+    # 置 True 并把 match_confidence 封顶 0.5——此前死在候选对象上，导出/上报/信封
+    # 三面均不可见）。列序契约只尾追加；行值非 True 落空串（见 _candidate_row）。
+    'match_category_divergent',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -1973,6 +1980,9 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         ('match_1688_url', '1688链接'), ('match_1688_title', '1688标题'),
         ('match_1688_image', '1688主图'), ('match_1688_category_name', '1688类目'),
         ('match_confidence', '匹配置信度'),
+        # fix/category-root-cause-v1：类目语义复核分歧（与 CSV 同名字段，四区
+        # 列合计必须等于 CSV 字段数——test_discovery_export_xlsx 锁定）
+        ('match_category_divergent', '类目分歧'),
     ]),
     ("销售数据", [
         ('monthly_sales', '月销量'), ('monthly_revenue', '月销售额(RUB)'),
@@ -2065,6 +2075,11 @@ def _candidate_row(c: ProductCandidate) -> dict:
         'match_1688_freight_cny': _opt(c.match_1688_freight_cny),
         # data-pool 批7：点击率 None=未知 → 空串（漏斗组同款）
         'custom_click_rate': _opt(getattr(c, 'custom_click_rate', None)),
+        # fix/category-root-cause-v1：类目语义复核分歧标记。仅 True 落值
+        # （非 True 空串=正常，不写 False 噪音），对齐 discovery_meta「非 True
+        # 不写」纪律；列本身已尾追加进 _EXPORT_FIELDS（列序契约）。
+        'match_category_divergent': (
+            True if getattr(c, 'match_category_divergent', False) else ''),
     }
 
 
@@ -2754,6 +2769,24 @@ def _ru_zh_title_overlap(ozon_title: str, cn_title: str) -> float:
     return rate * weight
 
 
+def _breadcrumb_zh_words(breadcrumb: str) -> list[str] | None:
+    """竞品面包屑（俄语类目路径）→ _RU_ZH_PRODUCT_WORDS 映射的中文产品词
+    （fix/listing-quality-v081 修复3c 类目一致性闸的降级快筛语料）。
+
+    Returns:
+        中文词列表；None = 面包屑为空或整条无任何词典条目（数据不全，
+        调用方 fail-open no-op）。
+    """
+    lower = str(breadcrumb or "").lower()
+    if not lower:
+        return None
+    words: list[str] = []
+    for ru, zh_list in _RU_ZH_PRODUCT_WORDS.items():
+        if ru in lower:
+            words.extend(zh_list)
+    return words if words else None
+
+
 def _badge_effectiveness(badge_str: str) -> float:
     """badge 匹配有效性 0-1（区别于 _get_badge_score 的原始数值分）：
     '全部符合'（matchBadgeFull）→ 1.0；'符合N/M个条件' → N/M；
@@ -2843,6 +2876,7 @@ def _pick_best_match(
     token: str = "",
     trusted_source: bool = False,
     ozon_category_path: str = "",
+    require_category_consistency: bool = False,
 ) -> dict[str, Any] | None:
     """从图搜结果中挑选最相关的匹配。
 
@@ -2865,6 +2899,9 @@ def _pick_best_match(
             （idx_rank ≥ 0.33）即放行——与 AK/CDP 通道的 conf 护栏区分。
             ⚠️ 实测 normalizationScore 最高分≠最相似（质量分），不作放行
             信号，仅作评分加分。AK/CDP 来源保持 False 维持现有护栏。
+        require_category_consistency: fix/listing-quality-v081 修复3c——follow
+            专用类目一致性闸（竞品面包屑 vs 候选 1688 类目语义一致才放行，
+            插在 badge/trusted 直通之前）。**默认 False，discover 链行为零变化**。
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
@@ -3009,6 +3046,68 @@ def _pick_best_match(
     )["confidence"]
     _gate_conf = max(_title_only_conf, _conf_of_best)
     _bt = best.get("title", "") or ""
+
+    # ✅ fix/listing-quality-v081 修复3c: follow 类目一致性闸——require_category_
+    # consistency=True 才启用（follow 专用；discover 链缺省 False 行为零变化）。
+    # 必须插在 badge「全部符合」直通与 aibuy trusted 直通之前：trusted 原始排名
+    # 前 2 无条件放行会绕过一切标题/LLM 护栏（实锤错配：家用橡胶手套→月季修剪
+    # 牛皮园艺手套、钓鱼腰包→宽檐渔夫帽——图搜视觉相近但品类不同）。
+    if require_category_consistency and ozon_category_path:
+        _GATE_CAP = 6  # LLM 费用封顶：沿排序列表最多判 6 个候选
+        _breadcrumb_last = ozon_category_path.split(">")[-1].strip()
+        _judge_query = _breadcrumb_last or ozon_category_path
+        _picked: tuple[float, int, dict[str, Any]] | None = None
+        if token:
+            # 主判定：LLM 语义（mode="category"，进程内缓存）。category_name
+            # 缺失回落 title（3a 断链修复后 aibuy 候选恒带 category_name）。
+            for _sc, _idx, _r in scored[:_GATE_CAP]:
+                _cand_text = str(_r.get("category_name") or "") or str(_r.get("title", "") or "")
+                if not _cand_text:
+                    continue
+                if _llm_semantic_match(_judge_query, _cand_text, token, mode="category"):
+                    _picked = (_sc, _idx, _r)
+                    break
+            if _picked is None:
+                # 全部候选不一致 → 拒绝（follow 通道 no_relevant_match，不组装信封）。
+                # ⚠️ token 在场时 LLM 调用失败与真 NO 不可区分（均返回 False）→
+                # fail-closed（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。
+                logger.warning(
+                    "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，拒绝（不组装信封）",
+                    min(len(scored), _GATE_CAP), ozon_category_path[:60])
+                _log_review_record(_block_record("category_divergent", best, _conf_of_best))
+                return None
+        else:
+            # 无 token → 降级词对快筛（fail-open）：面包屑经词典映射的中文词在
+            # 候选 category_name/title 命中则放行该候选；词典完全无法映射面包屑
+            # （数据不全）→ no-op 放行 best（行为与现状一致，不回归）。
+            _zh_words = _breadcrumb_zh_words(_judge_query)
+            if _zh_words is None:
+                logger.info(
+                    "类目一致性闸: 无 token 且词典无法映射面包屑「%s」，fail-open no-op",
+                    _judge_query[:40])
+            else:
+                for _sc, _idx, _r in scored[:_GATE_CAP]:
+                    _cand_text = f"{_r.get('category_name') or ''}{_r.get('title') or ''}"
+                    if any(zw in _cand_text for zw in _zh_words):
+                        _picked = (_sc, _idx, _r)
+                        break
+                if _picked is None:
+                    logger.warning(
+                        "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，拒绝",
+                        _zh_words[:4])
+                    _log_review_record(_block_record("category_divergent", best, _conf_of_best))
+                    return None
+        if _picked is not None:
+            _sc, _idx, _r = _picked
+            _conf_r = _title_conf(ozon_title, _r, is_ru_title)
+            if trusted_source:
+                # 对齐 trusted 放行基准（aibuy 候选 conf 恒 0，原样透传会被
+                # _MIN_SOURCE_CONFIDENCE 下游硬门误杀语义——见 trusted 直通注释）
+                _conf_r = max(_conf_r, 0.5)
+            logger.info("类目一致性闸放行（rank=%d, conf=%.2f）: %s",
+                        _idx + 1, _conf_r, str(_r.get("title", ""))[:40])
+            return _attach_match_meta(
+                _r, _conf_r, _badge_effectiveness(_r.get("badge", "") or ""), _sc)
 
     # ✅ v0.19: 1688 官方"全部符合"（matchBadgeFull）直接放行——最强信号，
     # 不再被标题相关性否决（修复棘轮扳手/创可贴卷误拒）
@@ -4238,6 +4337,9 @@ REPORT_FIELDS: list[str] = [
     # （ozon_old_price/match_1688_freight_cny 默认 None → 键省略）
     "follow_profit_cny", "follow_margin", "ozon_old_price",
     "match_1688_freight_cny",
+    # fix/category-root-cause-v1：类目语义复核分歧标记（单布尔，+~5B）。
+    # 上报循环非 True 不写（默认 False 键省略，不产生噪音行）。
+    "match_category_divergent",
 ]
 
 # 只上报这三种状态的候选（filtered/rejected/no_match/error/uncertain 不上报）
@@ -4272,6 +4374,8 @@ def _report_discovery_run(keyword: str, filters: dict | None,
                 val = getattr(c, k)
                 if val is None:  # 漏斗扩容字段 None=无数据 → 键省略（对齐 discovery_meta 纪律）
                     continue
+                if k == "match_category_divergent" and val is not True:
+                    continue  # divergent 信号非 True 不写（默认 False 键省略，无噪音）
                 row[k] = val
             if getattr(c, "ozon_images", None):
                 row["ozon_image"] = c.ozon_images[0]  # 派生单键：完整图列表维持裁剪

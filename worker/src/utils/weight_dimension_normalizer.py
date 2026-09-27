@@ -23,6 +23,7 @@ marks 语义（供调用方写入 state/payload/审计）：
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Tuple
 
 # Ozon 密度校验范围（kg/m³），来自 Ozon ML 经验值
@@ -200,3 +201,136 @@ def _safe_float(val: Any) -> float:
         return float(val) if val else 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+# ── v0.81 上架质量止血：箱级毛重 reconcile（唯一入口）────────────────────────
+# 根因（实锤）：skill 信封 draft.weight 常是 1688 包装表第一行 = 箱级毛重
+# （30支香 final_weight_g=962g 而卡属性「商品重量=50g」；吸顶灯 9150g；风扇 3000g）
+# → worker pricing/prepare 原样信任 → 运费/卡价虚高数倍。本函数从 1688 属性
+# （draft.attributes，键为中文属性名）提取单件重候选，仅在「信封重 ≥ 3×候选 且
+# 候选 ≥ Ozon 硬下限」时采信候选——证据不足原样返回零 marks（宁缺毋滥，
+# 真实重货如 962g 整箱香薰蜡烛不被误杀需 3× 门槛）。
+# 契约：不得 raise；输入畸形（None/非 dict/乱码值/非数值 weight_g）一律原样返回。
+
+# reconcile 触发比值：信封重 ≥ 3×单件候选 才判「箱级毛重混入」
+RECONCILE_LOT_RATIO = 3.0
+
+# 单件重候选键优先序：单件语义在前，箱/包级语义殿后（箱级键与信封重同源，
+# 会被比值闸自然挡住，仅当它是唯一证据时才可能命中）
+_WEIGHT_CANDIDATE_KEYS: Tuple[str, ...] = (
+    "净重", "单件重量", "商品重量", "weight", "重量", "含包装重量",
+)
+
+_WEIGHT_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+
+# 单位换算表（长单位优先匹配，防止「毫克」被「克」截胡）
+_WEIGHT_UNIT_FACTORS: Dict[str, float] = {
+    "千克": 1000.0, "公斤": 1000.0, "毫克": 0.001,
+    "kg": 1000.0, "кг": 1000.0, "мг": 0.001,
+    "克": 1.0, "г": 1.0, "g": 1.0,
+    "斤": 500.0,
+    "吨": 1_000_000.0, "т": 1_000_000.0, "t": 1_000_000.0,
+    "盎司": 28.3495, "oz": 28.3495,
+    "磅": 453.592, "lbs": 453.592, "lb": 453.592,
+}
+_WEIGHT_UNIT_ORDER: Tuple[str, ...] = tuple(
+    sorted(_WEIGHT_UNIT_FACTORS, key=len, reverse=True)
+)
+
+
+def _fmt_g(v: float) -> str:
+    """重量留痕格式：整数不带小数点（962 而非 962.0），非整数保留 1 位。"""
+    fv = float(v)
+    return str(int(fv)) if fv.is_integer() else f"{fv:.1f}"
+
+
+def _parse_attr_weight_g(raw: Any) -> float:
+    """解析 1688 属性重量值 → 克。「50克」「0.05kg」「50」「0.05」均可；
+    无单位时带小数点判 kg（与 _parse_weight_g 同纪律）、整数判 g。解析失败返 0。"""
+    try:
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else None
+        if raw is None or isinstance(raw, bool):
+            return 0.0
+        if isinstance(raw, (int, float)):
+            v = float(raw)
+            return v if v > 0 else 0.0  # 裸数字 = 克
+        s = str(raw).strip()
+        if not s:
+            return 0.0
+        m = _WEIGHT_NUM_RE.search(s)
+        if not m:
+            return 0.0
+        num = float(m.group())
+        after = s[m.end():].lstrip().lower()
+        for unit in _WEIGHT_UNIT_ORDER:
+            if after.startswith(unit.lower()):
+                return num * _WEIGHT_UNIT_FACTORS[unit]
+        # 无单位：小数点 = kg 证据（skill 抓取层 A3 先例），整数 = 克
+        if "." in m.group():
+            return num * 1000.0
+        return num
+    except Exception:
+        return 0.0
+
+
+def _extract_single_item_weight_g(draft_attrs: Any) -> float:
+    """从 draft.attributes 提取单件重候选（克）。按候选键优先序 + 其余含
+    「重量/weight」键兜底扫描，首个可解析正值返回；无候选返回 0。"""
+    if not isinstance(draft_attrs, dict):
+        return 0.0
+    ordered: list = []
+    lower_index: Dict[str, Any] = {}
+    for k in draft_attrs:
+        try:
+            lower_index[str(k).strip().casefold()] = k
+        except Exception:
+            continue
+    for pk in _WEIGHT_CANDIDATE_KEYS:
+        k = lower_index.get(pk.casefold())
+        if k is not None and k not in ordered:
+            ordered.append(k)
+    for k in draft_attrs:
+        if k in ordered:
+            continue
+        ks = str(k).strip().casefold()
+        if "重量" in ks or "weight" in ks:
+            ordered.append(k)
+    for k in ordered:
+        v = _parse_attr_weight_g(draft_attrs.get(k))
+        if v > 0:
+            return v
+    return 0.0
+
+
+def reconcile_weight_with_attrs(weight_g: Any, draft_attrs: Any) -> Tuple[Any, list]:
+    """箱级毛重 reconcile（v0.81 止血唯一入口）：信封重 vs 1688 单件重属性交叉裁决。
+
+    判定：候选 ≥ 10g（OZON_MIN_WEIGHT_G）且 weight_g ≥ 3×候选 → 采信候选，
+    marks 追加 ``weight_lot_suspected_reconciled:{原值}->{候选}``；
+    无候选 / 不满足比值 → 原样返回零 marks。
+
+    契约：纯函数不 raise——None/非 dict/乱码值/非数值 weight_g 一律 (原值, [])。
+    调用方（pricing_node / prepare._resolve_weight_dimensions）必须在
+    normalize_weight_dimensions 之后、ensure_volume_weight_floor 之前接线。
+    """
+    try:
+        if not isinstance(draft_attrs, dict) or not draft_attrs:
+            return weight_g, []
+        try:
+            w_val = float(weight_g)
+        except (TypeError, ValueError):
+            return weight_g, []
+        if w_val <= 0:
+            return weight_g, []
+        candidate = _extract_single_item_weight_g(draft_attrs)
+        if candidate < OZON_MIN_WEIGHT_G:
+            return weight_g, []
+        if w_val < RECONCILE_LOT_RATIO * candidate:
+            return weight_g, []
+        marks = [
+            f"weight_lot_suspected_reconciled:{_fmt_g(w_val)}->{_fmt_g(candidate)}"
+        ]
+        return candidate, marks
+    except Exception:
+        return weight_g, []

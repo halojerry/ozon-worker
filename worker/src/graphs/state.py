@@ -112,6 +112,10 @@ class GlobalState(BaseModel):
     attributes_adjusted: Annotated[List[Dict[str, Any]], operator.add] = Field(
         default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
     )
+    # ✅ v0.81 内容评分闭环：过审后复检审计块 {rating, filled, skipped, media_gap,
+    # action, ...}——fetch_back 写入，与 pricing_info 同级透出 GraphOutput
+    # （唯一入口 utils/content_enrich；防抖：非空即不再复检）。
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（fetch_back 写入）")
 
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
@@ -281,6 +285,9 @@ class GraphOutput(BaseModel):
     attributes_adjusted: List[Dict[str, Any]] = Field(
         default_factory=list, description="数值属性清洗调整记录（attr_id/attr_name/before/after/reason）"
     )
+    # ✅ v0.81 内容评分闭环：审计块透出（与 pricing_info 同级；output_schema 按名
+    # 过滤——GlobalState 同名通道加进 GraphOutput 即透传，任务终态/取证可见）
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（rating/filled/skipped/media_gap）")
     notice: str = Field(default="", description="中文可读失败说明")
 
 
@@ -524,7 +531,13 @@ class PrepareOzonUploadOutput(BaseModel):
     
     validation_errors: List[str] = Field(default_factory=list, description="验证错误列表")
     error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="prepare_ozon_upload", description="失败的节点名称")
+    # ✅ v0.80 arch-findings: 默认值归零（v0.73「Output 默认值归零」纪律，对齐
+    # OzonUploadOutput.failed_stage 先例）——默认非空 + error_message 非空会被
+    # task_processor._graph_result_is_failed 双条件（error_message 且 failed_stage）
+    # 放大成 failed。失败出口由 prepare_ozon_upload_node 显式带
+    # "prepare_ozon_upload"（唯一失败出口 :4157），成功出口显式空串；节点异常路径
+    # 不构造 Output（异常直接上抛），默认值不参与。
+    failed_stage: str = Field(default="", description="失败节点名称（失败出口显式带 prepare_ozon_upload，成功恒空）")
     # ✅ v0.67.1 wave②: 归一后真值（_resolve_weight_dimensions 裁决点）——留存表
     # weight_g/dims_mm 的数据源（信封 draft 可能是 1688 原始垃圾值如 1g）
     final_weight_g: int = Field(default=0, description="归一后重量(g)，0=未走到 prepare")
@@ -640,7 +653,16 @@ class OzonValidateOutput(BaseModel):
     profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="利润预估明细")
     
     error_message: str = Field(default="", description="错误信息")
-    
+    # ✅ v0.80 arch-findings #7: 错误码透出——validate 阶段失败此前在留存表
+    # error_code 恒空（归因只能靠文本），与 v0.77.2「终态必须带码」方向不一致。
+    # GlobalState/GraphOutput 已有同名 channel，Output 声明即透传（对照
+    # OzonUploadOutput.error_code 先例），不声明则被 channel 静默吞（wave2/0.77.2
+    # 双实证）。失败出口赋 LOCAL_VALIDATION_FAILED，成功恒空。
+    # ⚠️ 有意不加 failed_stage：validate 失败走 retry wrapper（可修复路径），
+    # wrapper Output 不声明/不清 failed_stage，非空值会粘连到修复成功后的终态
+    # （v0.73「failed_stage 粘连」问题类回归），归因交给 error_code。
+    error_code: str = Field(default="", description="错误码（validate 失败出口 LOCAL_VALIDATION_FAILED，成功恒空）")
+
     # ✅ 新增：循环修复相关字段
     retry_count: int = Field(default=0, description="验证失败重试次数")
     error_type: str = Field(default="", description="错误类型分类")
@@ -720,11 +742,17 @@ class VariantLoopState(BaseModel):
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表")
     variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
     current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-    
+
     # Phase1生成的图片（作为辅助参考）
     white_bg_image: str = Field(default="", description="白底图")
     multi_angle_image: str = Field(default="", description="多角度展示图")
     draft: Dict[str, Any] = Field(default_factory=dict, description="产品数据")
+    # fix/handover-batch-v1: 补 token（VariantPrimaryLoopInput 同名同义）。生产无影响
+    # （langgraph 按 variant_primary_loop_node 的 Input model 过滤 channel，该节点真实
+    # 输入是 VariantPrimaryLoopInput）；此前测试以本模型构造 state 时 _gen_one 读
+    # state.token 抛 AttributeError → 被宽 except 吞成「生图失败」分支——mock 断言
+    # 靠异常路径凑绿，属测试保真度陷阱（09-findings worker 骨架移交项）。
+    token: str = Field(default="", description="api.mxou.cn API Key（生图调用用）")
 
 
 class VariantLoopOutput(BaseModel):
@@ -942,6 +970,10 @@ class FetchBackInput(BaseModel):
     attributes_schema: list = Field(default_factory=list, description="属性Schema（备用）")
     description_category_id: str = Field(default="", description="Ozon类目ID")
     type_id: str = Field(default="", description="Ozon类型ID")
+    # ✅ v0.81 内容评分闭环：复检闭环证据面（channel 纪律：不声明=静默拿不到）
+    draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿（draft.attributes 中文证据，可填属性裁决）")
+    pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（UPDATE 回显 price/old_price/currency_code）")
+    content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（非空=本任务已复检，防抖）")
 
 
 class FetchBackOutput(BaseModel):
@@ -949,6 +981,8 @@ class FetchBackOutput(BaseModel):
     progress_counter: int = Field(default=25, description="节点计数器（更新为25）")
     fetch_back_result: Dict[str, Any] = Field(default_factory=dict,
                                               description="回读 diff 结果（mismatches/erased/defaulted_by_ozon/stored_attrs）")
+    content_rating: Dict[str, Any] = Field(default_factory=dict,
+                                           description="内容评级复检审计块（rating/filled/skipped/media_gap，非致命）")
 
 
 # ==================== 修复结果判断在 graph.py 的 should_learn_after_repair 中处理 ====================

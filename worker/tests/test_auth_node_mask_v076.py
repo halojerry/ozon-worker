@@ -15,23 +15,24 @@ from graphs.nodes import auth_node as an
 
 
 def test_mask_api_key_shape():
-    assert an.mask_api_key("AKIAIOSFODNN7EXAMPLE") == "***MPLE"
+    # 示例串非真实凭据（AWS 文档示例 key 的指纹会被 SAST 命中，改为中性假串）
+    assert an.mask_api_key("MOCKKEYXXEXAMPLE99ZZ") == "***99ZZ"
     assert an.mask_api_key("abc") == "***"
     assert an.mask_api_key("") == "***"
 
 
 def test_log_line_never_contains_key_prefix(caplog):
-    key = "AKIAIOSFODNN7EXAMPLE"
+    key = "MOCKKEYXXEXAMPLE99ZZ"
     caplog.set_level(logging.INFO)
     an.logger.info("鉴权校验: Api-Key=%s", an.mask_api_key(key))
     assert key[:10] not in caplog.text
-    assert "***MPLE" in caplog.text
+    assert "***99ZZ" in caplog.text
 
 
 def test_query_ozon_seller_info_log_masks_key_and_collapses_response(monkeypatch, caplog):
     """真实日志点验证：Api-Key 只出掩码；响应体值不落日志（只出 keys）。"""
-    key = "AKIAIOSFODNN7EXAMPLE"
-    marker_value = "TOPSECRETVENDORNAME"
+    key = "MOCKKEYXXEXAMPLE99ZZ"
+    marker_value = "EXAMPLEVENDORNAME"
     monkeypatch.setattr(
         an,
         "ozon_post",
@@ -42,7 +43,7 @@ def test_query_ozon_seller_info_log_masks_key_and_collapses_response(monkeypatch
     assert result == {"currency_code": "RUB"}
     assert key[:10] not in caplog.text
     assert key not in caplog.text
-    assert "***MPLE" in caplog.text
+    assert "***99ZZ" in caplog.text
     # 响应值不落日志：只允许出结构 keys
     assert marker_value not in caplog.text
     assert "company" in caplog.text

@@ -24,6 +24,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -254,11 +255,10 @@ def main() -> int:
         "elapsed_sec": round(time.time() - started, 1),
     }
     os.makedirs(DATA_DIR, exist_ok=True)
-    out = os.path.join(
+    out = Path(
         DATA_DIR,
         f"category_tree_refresh_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(report_doc, f, ensure_ascii=False, indent=2)
+    out.write_text(json.dumps(report_doc, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report_doc, ensure_ascii=False, indent=2))
     print(f"📄 报告已落: {out}")
     failed = [r for r in reports if r.get("error")]

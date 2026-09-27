@@ -55,7 +55,7 @@ def make_envelope(item_id: str = "980815374096") -> dict:
 
 
 def graph_input(client_id: str, envelope: dict, token: str = TOKEN_A) -> dict:
-    return {"token": token, "ozon_client_id": client_id, "ozon_api_key": "sk-test-key", "envelope": envelope}
+    return {"token": token, "ozon_client_id": client_id, "ozon_api_key": os.getenv("TEST_MOCK_OZON_KEY", "mock-key-not-a-credential"), "envelope": envelope}
 
 
 @pytest.fixture(scope="module")

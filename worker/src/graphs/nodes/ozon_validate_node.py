@@ -3,15 +3,16 @@ import json
 import re
 import logging
 from typing import Dict, Any, List, Optional
-from jinja2 import Template
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 from graphs.state import OzonValidateInput, OzonValidateOutput
 # ✅ v0.69 Wave3: 数值属性清洗唯一入口 + 尺寸契约硬边界（唯一事实源，与 normalizer 同源）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
+from utils.category_consistency_lexicon import sets_overlap
 from utils.cos_uploader import is_cos_url
 from utils.secure_fetch import safe_fetch
+from utils.title_sanitizer import has_cyrillic_word  # v0.81 名称结构闸（与标题结构闸同源判定）
 from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,95 @@ def _fetch_ru_category_path(description_category_id, type_id) -> str:
     except Exception as _e:
         logger.debug(f"RU 类目路径查询失败（跳过标题一致性检查）: {_e}")
         return ""
+
+
+# ── fix/category-root-cause-v1（2026-09-26）: 零交集误杀救济两段 ──
+# 实机 gate 取证（docs/ARCHITECTURE/09-findings.md）：任务 37ee72d9 «Блузка…»×
+# «Рубашка» 是 Ozon 官方译名错位（Блузка 译「短衫」，两词零词面交集）——闸没坏，
+# 词形不同义但电商语义等价；任务 6022b0c9 «Держатель для душа…»×«Полка» 则是
+# 真错配，但 RU 标题 search_nodes（pg_trgm）一跳即中正确叶 «Держатель для
+# душа»(0.567)——validate 只杀不救。救济次序（本节两 helper，只放行不新增拦截）：
+#   ① 词表豁免 _lexicon_zero_overlap_pass：同义根词表（实机误杀证据对，见
+#     config/category_consistency_lexicon.json 红线注释）扩词后相交 → 放行；
+#   ② type 级重配 _try_validate_recategorize：词表也不放行时，RU 标题搜树找
+#     强匹配叶，命中即改写 (dc,tp) 解除 mismatch 拦截。
+# 都失败 → 维持原入箱路径（真错配防线不动：держатель×полка 双保持被拦）。
+
+
+def _cyr_words_len4(text: str) -> set:
+    """≥_MIN_COMMON_WORD_LEN 的西里尔词集（词表豁免取词口径，与 common_cyr_words
+    的词长约定一致——短词 для/и 恒不参与，防零交集判定被虚词假相交绕过）。"""
+    return {w for w in _cyr_words(text) if len(w) >= _MIN_COMMON_WORD_LEN}
+
+
+def _lexicon_zero_overlap_pass(title: str, category_path: str) -> bool:
+    """词表豁免判定：标题词集 × 类目路径词集经同义根词表扩展后存在交集。
+
+    只在原判等（common_cyr_words）零交集后调用；词表只做放行面扩张（加载失败
+    退化为空表 → False，宁严勿松）。返回 True 时调用方放行并留痕「lexicon 豁免」。
+    """
+    try:
+        return sets_overlap(_cyr_words_len4(title), _cyr_words_len4(category_path))
+    except Exception as _e:
+        logger.debug(f"词表豁免判定异常（按不豁免处理）: {_e}")
+        return False
+
+
+def _try_validate_recategorize(item: dict, index: int) -> bool:
+    """validate 级类目重配（杀之前先试救）：RU 标题搜树找强匹配叶，命中改写 (dc,tp)。
+
+    保守边界（改前必读）：
+    - 只信强匹配：候选 node_name+full_path 与标题须有公共西里尔词（相等或前缀
+      ≥4，复用 common_cyr_words 判据）——pg_trgm 相似度本身不作数（0.3 门槛太松，
+      «Полка»×«Держатель» 也能凑出分数）；
+    - 新 (dc,tp) 必须在树中有效（_fetch_ru_category_path 非空=行存在）且 ≠ 当前值；
+    - 每 item 只重配一次（本函数每 item 至多被调一次，命中即返回）、不做 LLM、
+      不写学习表（validate 无终态语义，approve/declined 才是学习信号）；
+    - 树查询任何异常 → False 降级（维持原入箱路径，validate 不因救场新增故障面）。
+    命中返回 True：调用方跳过 mismatch 报错（该 item 类目相关错误清除=不再报
+    critical，其他校验照跑）；False = 找不到强匹配，走原拦截。
+    """
+    _title = str(item.get("name") or "")
+    if not _title:
+        return False
+    try:
+        from utils.ozon_category_query import OzonCategoryQuery
+        _candidates = OzonCategoryQuery().search_nodes(
+            _title[:120], top_k=10, node_type="type", language="RU")
+    except Exception as _e:
+        logger.warning(f"⚠️ item[{index}] validate 级类目重配跳过（树查询失败降级）: {_e}")
+        return False
+    try:
+        _old_key = (int(item.get("description_category_id") or 0),
+                    int(item.get("type_id") or 0))
+    except (TypeError, ValueError):
+        _old_key = (0, 0)
+    for _node in _candidates or []:
+        if not isinstance(_node, dict):
+            continue
+        try:
+            _new_dc = int(_node.get("description_category_id") or 0)
+            _new_tp = int(_node.get("type_id") or 0)
+        except (TypeError, ValueError):
+            continue
+        if _new_dc <= 0 or _new_tp <= 0 or (_new_dc, _new_tp) == _old_key:
+            continue
+        # 强匹配判据：标题 × 候选 node_name+full_path 有公共西里尔词（相等/前缀≥4）
+        if not common_cyr_words(
+                _title, f"{_node.get('node_name') or ''} {_node.get('full_path') or ''}"):
+            continue
+        # 树中有效性：(dc,tp) 有 RU 行（无效类目会撞 description_category_invalid 400）
+        if not _fetch_ru_category_path(_new_dc, _new_tp):
+            continue
+        item["description_category_id"] = _new_dc
+        item["type_id"] = _new_tp
+        logger.warning(
+            f"🔧 item[{index}] validate 级类目重配: {_old_key} → "
+            f"({_new_dc},{_new_tp})「{str(_node.get('node_name') or '')[:60]}」"
+            f"（RU 标题强匹配命中，mismatch 拦截解除）"
+        )
+        return True
+    return False
 
 
 def ozon_validate_node(
@@ -157,6 +247,8 @@ def ozon_validate_node(
                 validation_errors=validation_errors,
                 auto_fixed=False,
                 error_message="Payload结构验证失败",
+                # ✅ v0.80 arch-findings #7: 失败出口带码（留存表 error_code 归因）
+                error_code="LOCAL_VALIDATION_FAILED",
                 is_valid=False,
                 stages={"ozon_validate": "failed"}
             )
@@ -400,13 +492,30 @@ def ozon_validate_node(
                 if _ru_path:
                     _consistency_name = item.get("name", "")
                     if _consistency_name and not common_cyr_words(_consistency_name, _ru_path):
-                        if _category_source == "authoritative":
+                        # ✅ fix/category-root-cause-v1: 零交集救济两段（只放行不新增拦截）。
+                        # ① 词表豁免：同义根词表扩词相交（Блузка×Рубашка 译名错位对，
+                        #    实机误杀证据）→ info 留痕放行；
+                        # ② 词表不放行再按权威来源降级（v0.78 Q7 语义不动）；
+                        # ③ 仍拦之前试 type 级重配（RU 标题强匹配救场，6022b0c9 型）；
+                        #    重配失败维持入箱路径——错误文案逐字保持（retry 子图按
+                        #    「标题与类目不一致」归 LOCAL_TITLE_CATEGORY_MISMATCH，
+                        #    改一字即重演 v0.73 错归 BR_chinese 老坑）。
+                        if _lexicon_zero_overlap_pass(_consistency_name, _ru_path):
+                            logger.info(
+                                f"✅ item[{i}]标题与类目零交集但命中同义根词表，lexicon 豁免放行: "
+                                f"标题「{str(_consistency_name)[:40]}」× 类目「{_ru_path[:80]}」"
+                            )
+                        elif _category_source == "authoritative":
                             logger.warning(
                                 f"⚠️ item[{i}]标题与类目零交集但类目为权威来源，降级放行"
                                 f"（Ozon DESCRIPTION_DECLINE 风险留痕）: source=authoritative, "
                                 f"标题「{str(_consistency_name)[:40]}」× "
                                 f"类目「{_ru_path[:80]}」"
                             )
+                        elif _try_validate_recategorize(item, i):
+                            # 重配命中：该 item 类目相关错误已随 (dc,tp) 改写解除——
+                            # 不再因 mismatch 报 critical（下方其余校验照跑）。
+                            pass
                         else:
                             item_errors.append(
                                 f"item[{i}]标题与类目不一致（Ozon DESCRIPTION_DECLINE 风险）: "
@@ -432,6 +541,15 @@ def ozon_validate_node(
                 if _chinese_re.search(item_name):
                     item_errors.append(f"item[{i}].name含中文字符（Ozon要求俄语名称）: {item_name[:60]}")
                     logger.error(f"❌ item[{i}]名称含中文字符: {item_name[:80]}")
+                # ✅ v0.81 上架质量止血：名称结构闸——无 ≥4 字符西里尔词（单位残壳
+                # Вт/шт/мл 与标点碎屑不算词，判定与 title_sanitizer.has_cyrillic_word
+                # 同源共享）→ item_errors。⚠️ 不受 authoritative 类目降级豁免影响
+                # （该豁免只属于上方标题-类目交集闸），LLM 空槽坏标题必须在此拦截。
+                if not has_cyrillic_word(item_name):
+                    item_errors.append(
+                        f"item[{i}].name无≥4字符西里尔词（疑似单位残壳/空槽坏标题）: {item_name[:60]}"
+                    )
+                    logger.error(f"❌ item[{i}]名称无有效西里尔词: {item_name[:80]}")
 
             # 检查description字段（商品简介）
             description = item.get("description", "")
@@ -655,7 +773,9 @@ def ozon_validate_node(
         # 本地预检）——零交集标题×类目是 Ozon 事后必拒项，必须判 critical 拦在上传前。
         # ✅ v0.69 镜像闸: 新增关键词「全外链」——Ozon 抓外链失败=必拒（IMAGE_ERROR
         # declined 实证），与「不可访问」同级的上传前硬拦。
-        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "全外链", "超出", "无法解析", "标题与类目不一致"])]
+        # ✅ v0.81 止血批: 新增关键词「西里尔词」——name 无 ≥4 字符西里尔词（单位
+        # 残壳/空槽坏标题）是 DESCRIPTION_DECLINE 必拒项，名称结构闸必须判 critical。
+        critical_errors = [err for err in validation_errors if any(kw in err for kw in ["缺失", "为空", "格式错误", "变体颜色", "拉丁字母", "非俄语", "中文字符", "危化品", "不可访问", "全外链", "超出", "无法解析", "标题与类目不一致", "西里尔词"])]
         if critical_errors:
             logger.error(f"Ozon预检测发现严重错误: {len(critical_errors)}个")
             return OzonValidateOutput(
@@ -668,6 +788,8 @@ def ozon_validate_node(
                 validation_errors=validation_errors,
                 auto_fixed=auto_fixed,
                 error_message=f"Payload验证失败: {len(critical_errors)}个严重错误",
+                # ✅ v0.80 arch-findings #7: 失败出口带码（留存表 error_code 归因）
+                error_code="LOCAL_VALIDATION_FAILED",
                 is_valid=False,
                 stages={"ozon_validate": "failed"}
             )
@@ -704,6 +826,9 @@ def ozon_validate_node(
             validation_errors=[f"预检测异常: {str(e)}"],
             auto_fixed=False,
             error_message=str(e),
+            # ✅ v0.80 arch-findings #7: 异常出口同带码（下游 retry/wrapper 崩溃等
+            # 未走子图终态路径时，留存表仍有码可归因）
+            error_code="LOCAL_VALIDATION_FAILED",
             is_valid=False,
             stages={"ozon_validate": "failed"}
         )

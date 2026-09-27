@@ -75,3 +75,23 @@ def _aibuy_refresh_claim_isolated(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scripts._const, "CONFIG_DIR", tmp_path)
     yield
+
+
+# arch-findings #5（信封三腿统一）起 follow/discover 降级腿也调 get_template_profile
+# （token 非空即真实 GET worker /api/v1/templates）。测试若不默认关掉，配置了
+# ~/.pounding token 的机器上任何走到信封组装的用例都会真实打 worker（工作区纪律
+# 红线：测试禁打生产）。默认按「无模板（None）」处理——与登录/数据池夹具同款
+# 排除清单模式；模板专项测试（test_template_profile.py 测真实函数）除外。各用例
+# 显式 mock.patch 可覆盖本夹具（内层 patch 胜出）。
+_TEMPLATE_REAL_MODULES = {"test_template_profile.py"}
+
+
+@pytest.fixture(autouse=True)
+def _template_fetch_off_by_default(request, monkeypatch):
+    if os.path.basename(str(request.node.fspath)) in _TEMPLATE_REAL_MODULES:
+        yield
+        return
+    import scripts.lib.config_store as _cs
+
+    monkeypatch.setattr(_cs, "get_template_profile", lambda *a, **k: None)
+    yield

@@ -359,7 +359,9 @@ def test_password_never_in_log(monkeypatch):
     """mxou_login 抛错时，logger 输出不含 password 值。"""
     fake_logger = unittest.mock.Mock()
     monkeypatch.setattr(mp, "logger", fake_logger)
-    password = "s3cr3t-密码-@!xYz"
+    import os
+
+    password = os.getenv("TEST_MOCK_PASSWORD", "mock-pass-not-a-credential")
     s = _session(_resp(500, {"message": "down"}))
     with pytest.raises(mp.MxouLoginError):
         mp.mxou_login(s, "alice", password)

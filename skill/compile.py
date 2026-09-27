@@ -636,21 +636,27 @@ def main():
     print(f"\n📚 复制参考文档")
     for doc_file in DOC_FILES:
         src = skill_dir / doc_file
-        if src.exists():
-            dst = dist_dir / doc_file
-            dst.parent.mkdir(parents=True, exist_ok=True)  # references/ 子目录
-            shutil.copy2(src, dst)
-            # Q10/Q13 (Wave2): dist/SKILL.md frontmatter version 与 VERSION 同步，
-            # 防 SKILL.md 内版本号滞后于发布包（agent 读取的 version 必须等于 VERSION）
-            if doc_file == "SKILL.md":
-                _ver = (skill_dir / "VERSION").read_text(encoding="utf-8").strip()
-                dst.write_text(
-                    _rewrite_skill_frontmatter_version(
-                        dst.read_text(encoding="utf-8"), _ver
-                    ),
-                    encoding="utf-8",
-                )
-            print(f"  📚 {doc_file}")
+        if not src.exists():
+            # ⚠️ 移交批（09-findings）：DOC 条目缺失此前被 if src.exists() 静默
+            # 跳过——死引用应在打包时就出声（删条目或恢复文件），别等客户端
+            # 发现包里缺文档。exit 行为不变（完整性由 tests/test_compile_lists
+            # 的 DOC_FILES 存在性用例兜底）。
+            print(f"  ⚠️ DOC_FILES 条目不存在，跳过: {doc_file}")
+            continue
+        dst = dist_dir / doc_file
+        dst.parent.mkdir(parents=True, exist_ok=True)  # references/ 子目录
+        shutil.copy2(src, dst)
+        # Q10/Q13 (Wave2): dist/SKILL.md frontmatter version 与 VERSION 同步，
+        # 防 SKILL.md 内版本号滞后于发布包（agent 读取的 version 必须等于 VERSION）
+        if doc_file == "SKILL.md":
+            _ver = (skill_dir / "VERSION").read_text(encoding="utf-8").strip()
+            dst.write_text(
+                _rewrite_skill_frontmatter_version(
+                    dst.read_text(encoding="utf-8"), _ver
+                ),
+                encoding="utf-8",
+            )
+        print(f"  📚 {doc_file}")
 
     # 配置目录（生成空模板，不泄露真实凭证）
     import json as _json

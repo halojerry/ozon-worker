@@ -1,7 +1,7 @@
 {
-  "_说明": "信封结构参考 — Agent 组装 GraphInput 时参考此文件",
+  "_说明": "信封结构参考 — Agent 组装 GraphInput 时参考此文件（v0.80 口径，对照 docs/ARCHITECTURE/01-skill-line.md §2/§7）。旧版示例中的 stock / warehouse_id 键已退役（我方永不设库存，rFBS 库存人工管理）；draft.price / draft.original_price 亦非合法键——划线价归 worker 三档定价，绝不写 draft.original_price",
 
-  "_单SKU选品": {
+  "_主链信封_1688直采_graph提交腿": {
     "token": "supabase_token（Worker 鉴权用，由 Skill 自动填充）",
     "ozon_client_id": "5371047（Ozon 卖家后台 Client ID）",
     "ozon_api_key": "xxx（Ozon API Key）",
@@ -13,8 +13,9 @@
           "https://cbu01.alicdn.com/xxx.jpg（商品主图）",
           "https://cbu01.alicdn.com/xxx2.jpg（详情图）"
         ],
+        "_images_说明": "至少 1 张，建议 3-10 张；占位图/追踪像素已被 Skill 过滤",
         "weight": 1000,
-        "_weight_说明": "单位：克（int）。1688 原始数据可能为 kg，Skill 自动转换",
+        "_weight_说明": "单位：克（int）。1688 原始数据可能为 kg，Skill 自动转换；(0,10)g 视同缺失走 50g 兜底",
         "dimensions": {
           "length": 220,
           "width": 165,
@@ -33,43 +34,58 @@
         "_attributes_说明": "dict[中文属性名→值]。Worker 自动翻译为俄语并匹配 Ozon 属性",
         "supplier": "义乌市xxx厂",
         "_supplier_说明": "1688 供应商名，Worker 用于填充制造商属性(attr=23487)",
-        "stock": 100,
-        "sku_id": "1688 SKU ID（可选）",
-        "price": 25.0,
-        "original_price": 30.0,
-        "_price_说明": "SKU 价格（CNY），由 Skill 自动填充"
+        "ozon_category": {
+          "description_category_id": 17027907,
+          "type_id": 92359,
+          "source": "what_to_sell"
+        },
+        "_ozon_category_说明": "可选。source ∈ manual/search_kw/what_to_sell/page；无真值不写键（Worker 自动匹配）",
+        "sku_id": "1688 SKU ID（可选）"
       },
       "source": {
         "purchase_url": "https://detail.1688.com/offer/xxx.html",
         "purchase_cost": 25.0
       },
+      "_source_说明": "1688 链另带 source_category_path/source_category_id（中文类目路径+叶子 cid）；跨平台链带 platform；discover/follow 链带 match_category_id/match_name",
       "extensions": {
         "margin_rate": 0.25,
-        "_margin_rate_说明": "利润率（默认 0.25 = 25%）",
+        "_margin_rate_说明": "配置了才注入（非固定默认）——注入唯一入口 _merge_config_tiers（cloud_probe.py），三级降级：显式配置 > worker 模板 > stores.json；未配置时 Worker 走三档默认（日常/划线/促销）",
         "commission_rate": 0.10,
-        "_commission_rate_说明": "Ozon 佣金率（默认 0.10 = 10%）",
+        "_commission_rate_说明": "Ozon 佣金率（同上，配置了才注入）",
         "fx_buffer": 0.05,
-        "_fx_buffer_说明": "汇率缓冲（默认 0.05 = 5%）。CNY 店铺不使用"
-      }
+        "_fx_buffer_说明": "汇率缓冲。CNY 店铺不使用",
+        "offer_id_prefix": "p123",
+        "_offer_id_prefix_说明": "可选。9048 防并卡前缀（模板），仅主链（graph/跨平台）携带",
+        "traffic_keywords": ["поилка", "кормушка"],
+        "_traffic_keywords_说明": "可选。SEO 流量词（what-to-sell），仅主链携带；进标题生成与 hashtag"
+      },
+      "_extensions_说明": "三档定价键 margin_floor/margin_anchor/variable_cost_rate/promo_variable_cost_rate 同经 _merge_config_tiers 注入（可选）；任何提交腿不得手工拼定价键（SKILL.md §1 规则 9）"
     }
   },
 
-  "_跟卖示例": {
+  "_跟卖信封_Ozon竞品_follow提交腿": {
     "token": "supabase_token",
     "ozon_client_id": "5371047",
     "ozon_api_key": "xxx",
     "envelope": {
       "draft": {
-        "item_id": "1688商品ID",
-        "title": "中文标题",
-        "images": ["https://cbu01.alicdn.com/xxx.jpg"],
+        "item_id": "1688 货源商品ID",
+        "title": "竞争商品的俄语原标题（原样跟卖，不再翻译）",
+        "images": ["https://cdn1.ozone.ru/s3/xxx.jpg"],
+        "_images_说明": "竞品主图[:1]（仅 1 张）——绝不混入 1688 图",
         "weight": 500,
         "dimensions": {"length": 150, "width": 100, "height": 80},
         "purchase_cost": 12.0,
         "purchase_url": "https://detail.1688.com/offer/xxx.html",
         "currency": "CNY",
         "ozon_product_id": "1925631822",
-        "_ozon_product_id_说明": "Ozon 竞品的产品 ID（跟卖时必填）"
+        "_ozon_product_id_说明": "竞品的 Ozon 产品 ID（跟卖必填；UPDATE 并卡语义）",
+        "ozon_category": {
+          "description_category_id": 17027907,
+          "type_id": 92359,
+          "source": "what_to_sell"
+        },
+        "_ozon_category_说明": "follow 的 dc/tp 只信 what_to_sell 权威形态；面包屑只作 web_category_id 线索，绝不伪造 dc/tp"
       },
       "source": {
         "purchase_url": "https://detail.1688.com/offer/xxx.html",
@@ -77,16 +93,30 @@
       },
       "extensions": {
         "follow_sell": true,
-        "_follow_sell_说明": "标记为跟卖，Worker 走跟卖管线（import-by-sku）"
+        "follow_type": "hand",
+        "_follow_type_说明": "hand（默认）= CREATE 重建防侵权；api = import-by-sku 复制（Worker 在无货源时自动降级）；discover = 变体跟卖",
+        "competitor_ref_images": ["https://cdn1.ozone.ru/s3/xxx.jpg"],
+        "_competitor_ref_images_说明": "竞品图只进此键作生图参考——参考≠上卡（竞品图恒被上卡闸拒绝）"
       }
     }
+  },
+
+  "_follow与主链键差异": {
+    "images": "主链=1688 商品图 3-10 张；follow=竞品主图[:1]（绝不混 1688 图）",
+    "title": "主链=中文标题（Worker 翻译）；follow=俄语原标题（原样）",
+    "ozon_product_id": "主链无；follow 必填（竞品 ID，UPDATE 并卡）",
+    "offer_id_prefix_traffic_keywords": "仅主链携带；follow 不带（跟卖本就要与同竞品并卡，勿加 9048 前缀防并卡）",
+    "follow_type": "follow 专属（hand/api/discover）；主链无此键",
+    "competitor_ref_images": "follow 专属（生图参考，不上卡）",
+    "定价键注入": "两条腿统一走 _merge_config_tiers（follow 腿排除 offer_id_prefix/traffic_keywords，跟卖并卡语义不变）——fix/arch-findings-v1 对齐中"
   },
 
   "_关键约定": {
     "单产品上传": "Skill 自动将多变体折叠为单产品，一个 1688 item = 一个 Ozon 产品卡",
     "purchase_cost": "= 代表变体价格 + 1688 国内运费(freightCny)，已在 Skill 层完成",
     "dimensions_单位": "mm（1688 原数据 cm → Skill ×10。Worker 再 /10 转回 cm 定价）",
-    "weight_单位": "克（直传）",
-    "图片": "images 数组至少 1 张，建议 3-10 张"
+    "weight_单位": "克（直传；(0,10)g 视同缺失走 50g 兜底）",
+    "图片": "主链 images 至少 1 张建议 3-10 张；follow 固定竞品主图 1 张",
+    "notes": "运营备注只走 POST /api/v1/drafts 请求体顶层，绝不进信封 draft/payload/extensions"
   }
 }

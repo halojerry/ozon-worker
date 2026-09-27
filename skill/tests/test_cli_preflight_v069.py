@@ -355,3 +355,57 @@ class TestArgparseAndDoc:
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+# ── arch-findings #3: --no-submit 展示态数据质量闸（降级 warning）───────────
+
+
+class TestNoSubmitDisplayGate:
+    """展示态也要跑 _source_preflight/_check_min_density——只警示不拦截。
+
+    原实现 --no-submit 跳过整段提交逻辑（连 preflight 也不跑），反爬页/失效源
+    信封在展示态不可见。修复后展示态同闸执行，唯一差异是处置力度（warning、
+    不 exit 3、不提交、出口 0，NEXT 行带质量警示）。
+    """
+
+    def test_dirty_draft_warns_but_exits_0(self, capsys):
+        """反爬脏 draft（0 属性）：⚠️ 警示在 stdout、不提交、exit 0、NEXT 带警示。"""
+        draft = _draft(attributes={})
+        rc, payloads, calls = _run_cli(_args("--no-submit"), graph=_graph(draft))
+        assert rc == 0
+        assert calls == [], "展示态绝不提交"
+        out = capsys.readouterr().out
+        assert "⚠️" in out and "反爬" in out, f"缺反爬警示:\n{out}"
+        assert "展示模式（--no-submit）" in out
+        assert "数据质量警示" in out, "NEXT 行须提示数据质量警示"
+
+    def test_dead_source_warns_but_exits_0(self, capsys):
+        """失效源 draft（采购价 0）：同样只警示不拦（preflight 单问题短路语义）。"""
+        draft = _draft(purchase_cost=0)
+        rc, payloads, calls = _run_cli(_args("--no-submit"), graph=_graph(draft))
+        assert rc == 0
+        assert calls == []
+        out = capsys.readouterr().out
+        assert "⚠️" in out and "源失效" in out, f"缺源失效警示:\n{out}"
+        assert "数据质量警示" in out
+
+    def test_clean_draft_no_warnings_standard_next(self, capsys):
+        """干净 draft：零警示、标准展示态 NEXT 行（原行为零变化）。"""
+        rc, payloads, calls = _run_cli(_args("--no-submit"), graph=_graph())
+        assert rc == 0
+        assert calls == []
+        out = capsys.readouterr().out
+        assert "⚠️" not in out
+        assert "展示模式（--no-submit）" in out
+        assert "数据质量警示" not in out
+
+    def test_density_threshold_warns_not_blocks(self, capsys):
+        """--min-density 命中：展示态只警示，提交态同参会被硬拦（对照 TestCliMinDensityGate）。"""
+        paojiao = _draft(weight=950, purchase_cost=12.5,
+                         dimensions={"length": 330, "width": 330, "height": 130})
+        rc, payloads, calls = _run_cli(_args("--no-submit", "--min-density", "0.15"),
+                                       graph=_graph(paojiao))
+        assert rc == 0, "展示态密度警示不得改出口码"
+        assert calls == []
+        out = capsys.readouterr().out
+        assert "⚠️" in out and "密度" in out, f"缺密度警示:\n{out}"

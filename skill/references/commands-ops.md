@@ -26,6 +26,10 @@ python3 scripts/cli.py check --logs <task_id>    # 打印该任务 JSONL 事件�
 ```
 
 - 全量诊断：Chrome / 凭证 / Worker / Ozon API / seller 会话；输出末行 `👉 NEXT:`（v0.79）——失败给修复命令，成功给首条业务命令
+- **⚠️ cookie 在 ≠ 会话活**：seller 会话探针（`probe_seller_session_alive`）只看 HTTP 状态码——
+  cookie 文件存在、探针非 2xx 即判会话死。**`check` 全绿才是可跑单前提**：半绿状态提交
+  大概率白烧 1688 配额/上架额度，先按 NEXT 行修复（seller 会话死走 `session-sync`）。
+  （check 各项汇总判定含优先级笔误，fix/arch-findings-v1 对齐中——修复后「全绿=可跑单」口径完全成立）
 - `check --logs <task_id>` 零副作用，适合取证
 
 ## 任务查询（query）

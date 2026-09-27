@@ -83,9 +83,13 @@ _BALANCE_ALERT_LOCK = threading.Lock()  # F-E3: 告警去重标记读写锁
 
 # R4 (v0.62): 内容违规关键词 — 命中即视为不可重试（重复 POST 只会重复计费）。
 # 覆盖中英俄常见违规提示：content policy / sensitive / adult / nudity / 违规 / 敏感 / 成人。
+# fix/arch-findings-v1: 去掉裸 "content" 子串——任何含 content 的普通错误文案
+# （如 invalid content type）曾被误判永久违规（不重试不降级、任务直接终态失败）；
+# 改用精确词（content_policy/policy/violation/sensitive/moderation + 中俄文违规词）。
 _CONTENT_VIOLATION_KEYWORDS = (
-    "content", "violation", "sensitive", "adult", "porn", "nudity",
-    "inappropriate", "违规", "敏感", "成人",
+    "content_policy", "policy", "violation", "sensitive", "moderation",
+    "adult", "porn", "nudity", "inappropriate",
+    "违规", "敏感", "成人",
 )
 
 # 批D (v0.78, 取证 I5): 模型配置类错误特征词 — 响应 body 命中任一 → 该模型

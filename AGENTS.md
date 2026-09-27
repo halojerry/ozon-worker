@@ -12,7 +12,7 @@
 **命令（均已实测）**
 | 目的 | 命令 |
 |---|---|
-| worker 全量测试（需本地 PG 5433） | `cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q` |
+| worker 全量测试（需本地 PG 5433） | `cd worker && PGDATABASE_URL="postgresql://postgres:ozon123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q` |
 | worker 单文件（纯 mock） | `cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/<file>.py -q` |
 | skill 测试 | `cd skill && .venv314/bin/python -m pytest tests/ -q` |
 | pounding-mcp 测试（须自身 venv） | `cd pounding-mcp && .venv/bin/python -m pytest tests/ -q` |
@@ -40,9 +40,41 @@
 **先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；
 建表/改列 → `docs/DB-SCHEMA-AUDIT.md`；部署 → `docs/DEPLOY.md`；多会话协作/分支拓扑/发版流 → `docs/WORKFLOW.md`；
-子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`。
+子 Agent 规范 → `docs/SUBAGENT-SPEC.md`；恢复演练 → `docs/RESTORE-RUNBOOK.md`；
+架构全景/函数级细节 → `docs/ARCHITECTURE/`（v0.80 口径，含问题清单 09-findings）。
 
-**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:localdev123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
+**高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:ozon123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
+
+## 最近更新（v0.81.0 — 上架质量战役 + 内容评分闭环 + Mimosa 安全批，10 PR 同车）
+
+> 2026-09-27 发版（tag v0.81.0）。dev 自 v0.80.0 共 10 个 PR（#73-#82）。
+> **改类目匹配/重量/采购价/标题/图搜匹配/CDP 抓取/评分复检/鉴权前先读
+> CHANGELOG 0.81.0 对应节**；架构细节 `docs/ARCHITECTURE/`（#73 落地的 10 文档）。
+
+- **上架质量四病根全堵（#75/#77/#78，4718259 实机取证驱动）**：重量箱级毛重
+  reconcile 唯一入口（`reconcile_weight_with_attrs`，3× 比值闸，pricing+prepare
+  双接线）；采购价代表档（1只装散件价特判废除，改中位档/target_qty）；图搜语义
+  闸（follow 直通口前置 LLM 类目一致性，不一致拒配 no_relevant_match）；标题
+  结构闸（空槽/残壳/俄语小数逗号 → 兜底重生成链）+ 8050 成分硬编码默认删除 ×2
+  + 判别词交叉验证接线。实机：上架测试 10/10 一次过审、错配 6 拦截。
+- **静默 CDP（#76，改抓取链前必读）**：`new_tab` 默认 `background=True`——
+  前台只允许显式传 `background=False`（滑块人工重试/登录引导/_open_tab）；
+  后台 tab 懒加载渲染靠 `CdpTab.force_active()`（visibilityState→visible 实机
+  实证），v0.78 的「前台白名单」教义已翻转。
+- **内容评分闭环（#79，改 prepare 出口/fetch_back 前必读）**：4191 Аннотация +
+  11254 Rich 出口恒填（跟卖跳过）；过审后 rating<90 自动按 improve_attributes
+  补填（`CONTENT_RATING_ENHANCE=0` 关）。**v0.40 死代码根因**：Rich append 用
+  `{"id"}`（应 attribute_id）从未上卡。存量清扫
+  `worker/scripts/content_rating_sweep.py`（已实机跑：100 张补齐）；坑：rating
+  批量上限 100、价格走 /v5 嵌套 price 对象、/v4 老卡回显 images 是字符串数组。
+- **Mimosa 安全批（#80/#81/#82）**：SSTI ×7 全量 SandboxedEnvironment（唯一入口
+  `utils/safe_template.py`，src 内禁 jinja2 直引有守卫用例）；SSRF/证书/假凭据
+  ×5（webhook URL 校验+`TASK_NOTIFY_ALLOW_PRIVATE` 逃生门）；**真漏洞 2 处**：
+  `/async_run`、`/graph_parameter` 匿名 200→401（矩阵漏挂，grep 零现网调用方）。
+- **⚠️ 行为变更（写客户端/信封前必读）**：purchase_cost 取数量代表档（非散件
+  价）；weight 单件真值优先；新信封键 `weight_source_page_attr` /
+  `purchase_cost_representative_sku`（审计用零强制消费）；follow 语义闸拒配走
+  no_relevant_match。全文见 CHANGELOG 0.81.0「行为变更」七条。
 
 ## 最近更新（v0.80.0 — 特征属性填满战役 A1-A7 七期 + n8n 清理/extensions.stock 退役两 chore 同车）
 
@@ -1133,8 +1165,8 @@ GraphInput = { token, ozon_client_id, ozon_api_key, envelope }
 
 ```bash
 # Worker 全量测试（关键：必须用 skill venv 的 python——系统 python3 无 pytest/psycopg2/pytest-asyncio；
-# 需连本地 Docker PG，端口 5433 密码 localdev123，URL 见下）
-cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q
+# 需连本地 Docker PG，端口 5433 密码 ozon123，URL 见下）
+cd worker && PGDATABASE_URL="postgresql://postgres:ozon123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q
 # 无本地 PG 时跑单文件（纯 mock 用例）：
 cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_attr_defaults_wave1.py -q
 
@@ -1152,9 +1184,9 @@ docker run --rm -e PYTHONUTF8=1 -v $PWD:/workspace -w /workspace/skill python:3.
 cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 ```
 
-> ⚠️ **测试环境前置（v0.34 实测）**：worker 测试的 pytest 全家桶（pytest-asyncio/psycopg2-binary）装在 `skill/.venv314`；CI（ci.yml）已声明这些依赖，本地需自己 `skill/.venv314/bin/pip install pytest-asyncio psycopg2-binary`。本地 Docker PG 端口 **5433**（非 5432），密码 `localdev123`（见 `deploy/.env` 的 `POSTGRES_PASSWORD`）。
+> ⚠️ **测试环境前置（v0.34 实测）**：worker 测试的 pytest 全家桶（pytest-asyncio/psycopg2-binary）装在 `skill/.venv314`；CI（ci.yml）已声明这些依赖，本地需自己 `skill/.venv314/bin/pip install pytest-asyncio psycopg2-binary`。本地 Docker PG 端口 **5433**（非 5432），密码 `ozon123`（见 `deploy/.env` 的 `POSTGRES_PASSWORD`）。
 
-> ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
+> ⚠️ **worker 全量测试失败先查类目树（v0.59 实测）**：本地 PG 若 `category_tree_nodes` 空（未跑 init_data），learning_record_gate / skill_category_direct / attr_4958 / index_backfill 等测试会失败（`_mapping_valid` 走真实 PG 查树）。先导入：`cd worker && PGDATABASE_URL="postgresql://postgres:ozon123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -c "from sqlalchemy import create_engine; from scripts.init_data import import_category_tree; import os; import_category_tree(create_engine(os.environ['PGDATABASE_URL']), language='ZH_HANS', tree_file='category_tree.json')"`。
 
 > ⚠️ **pounding-mcp 测试必须用自身 .venv（v0.60 实测）**：`server.py` import FastMCP（`pounding-mcp/pyproject.toml` 依赖），用 `../skill/.venv314` 跑 `pytest tests/` 会 collection error（`pounding_mcp` 未安装）。需 `cd pounding-mcp && python3 -m venv .venv && .venv/bin/pip install -e .` 后跑 `.venv/bin/python -m pytest tests/ -q`（26 passed：test_router 23 + test_smoke 3；smoke 锁 30 工具注册）。
 
@@ -1174,7 +1206,7 @@ cd skill && python3.12 scripts/cli.py graph --url "<1688 URL>"
 | skill | `python3.12 scripts/batch_test.py --urls-file urls.txt --client-id xxx --api-key xxx --submit` |
 | skill | `python3.12 compile.py`（Cython 编译核心库 → .so/.pyd，必须用 Python 3.12） |
 | skill | `python3.12 compile.py --clean`（清理 build/dist 后重新编译） |
-| worker | `cd worker && PGDATABASE_URL="postgresql://postgres:localdev123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q`（全量，需本地 PG） |
+| worker | `cd worker && PGDATABASE_URL="postgresql://postgres:ozon123@localhost:5433/ozon" PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/ -q`（全量，需本地 PG） |
 | worker | `cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_attr_defaults_wave1.py -q`（单文件，纯 mock 无需 PG） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_attribute_fill_v013.py`（属性字典值回归，8 断言，无需 PG/GPU） |
 | worker | `PYTHONPATH=src ../skill/.venv314/bin/python tests/test_audit_a_fixes.py`（A 批审计修复回归：P1-4 阻断路由 + P0-2 跟卖属性，5 断言，无需 PG） |

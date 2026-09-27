@@ -90,7 +90,9 @@ def test_review_weak_accept_submits_and_records_approved():
     submitted: list[str] = []
 
     def _build(c, store_config, store_id=""):
-        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id,
+                          "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                          "attributes": {"品牌": "x"}, "purchase_cost": 5.5}}
 
     def _submit(envelope):
         submitted.append(envelope["draft"]["item_id"])
@@ -118,7 +120,9 @@ def test_review_weak_reject_records_and_blocks_submit():
     submitted: list[str] = []
 
     def _build(c, store_config, store_id=""):
-        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id,
+                          "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                          "attributes": {"品牌": "x"}, "purchase_cost": 5.5}}
 
     def _submit(envelope):
         submitted.append(envelope["draft"]["item_id"])
@@ -147,7 +151,9 @@ def test_review_agent_reject_excluded_from_mixed_batch():
     submitted: list[str] = []
 
     def _build(c, store_config, store_id=""):
-        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id,
+                          "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                          "attributes": {"品牌": "x"}, "purchase_cost": 5.5}}
 
     def _submit(envelope):
         submitted.append(envelope["draft"]["item_id"])
@@ -194,7 +200,9 @@ def test_default_no_review_auto_submit_only_confirm_gate():
         return "y"
 
     def _build(c, store_config, store_id=""):
-        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id,
+                          "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                          "attributes": {"品牌": "x"}, "purchase_cost": 5.5}}
 
     def _submit(envelope):
         submitted.append(envelope["draft"]["item_id"])
@@ -236,7 +244,10 @@ def _follow_ctx(best=None, cdp_results=None):
                         "image": "http://img/1688/1.jpg", "badge": "全部符合"}]
     envelope = {
         "token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-        "envelope": {"draft": {"item_id": "980815374096"}, "extensions": {}},
+        "envelope": {"draft": {"item_id": "980815374096",
+                               "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                               "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
+                     "extensions": {}},
     }
     patches = [
         mock.patch("scripts.lib.cache.cache_get", return_value=None),
@@ -381,7 +392,9 @@ def test_review_eof_skips_instead_of_crash():
     submitted: list[str] = []
 
     def _build(c, store_config, store_id=""):
-        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id}}
+        return {"draft": {"title": c.ozon_title, "item_id": c.ozon_product_id,
+                          "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                          "attributes": {"品牌": "x"}, "purchase_cost": 5.5}}
 
     def _submit(envelope):
         submitted.append(envelope["draft"]["item_id"])

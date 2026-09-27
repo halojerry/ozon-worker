@@ -12,9 +12,8 @@ extra 视觉变量（lighting/background/effects/atmosphere 等 LLM 值）由 Wa
 """
 import logging
 
-from jinja2 import Template
-
 from utils.image_prompts import _DEFAULT_PROMPTS, _load_prompt_config, get_image_prompt
+from utils.safe_template import render_safe_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +214,7 @@ def assemble_prompt(
         }
         # Wave 2: extra 变量透传 Jinja2 render —— 模板含占位符则渲染，无则静默忽略
         render_kwargs.update({k: v for k, v in extra.items() if isinstance(v, str)})
-        return Template(template).render(**render_kwargs)
+        return render_safe_mapping(template, render_kwargs)
     except Exception as e:
         logger.warning("prompt_assembler 渲染失败(key=%s): %s，回退 get_image_prompt", slot_key, e)
         return get_image_prompt(slot_key, title=title, scene_context=effective_scene)

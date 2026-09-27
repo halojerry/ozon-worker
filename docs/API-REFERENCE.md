@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.80.0 · 143 个 path / 179 个操作（154 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.81.0 · 143 个 path / 179 个操作（154 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -1500,7 +1500,7 @@ Create Draft
   "ozon_api_key": "",
   "ozon_client_id": "",
   "source": "skill",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1566,7 +1566,7 @@ Batch Submit Drafts — 批量提交草稿(≤50):逐条进行中守卫;返回 s
     "a1b2c3d4-0000-4000-8000-000000000001",
     "a1b2c3d4-0000-4000-8000-000000000004"
   ],
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1769,7 +1769,7 @@ Draft Ai Field — 单字段 AI 重新生成（T14b）：只读，返回 RU 值�
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1802,7 +1802,7 @@ Draft Assemble — 一键预组装（v0.70）：LLM 生成整卡上架信息并�
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1868,7 +1868,7 @@ Resubmit Draft — 失败/被拒草稿重新提交(进行中 → 409)。
 ```json
 {
   "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -1923,7 +1923,7 @@ Submit Draft
 ```json
 {
   "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -2301,7 +2301,7 @@ Create Mxou Key — 新建密钥（响应含完整 key 仅一次；同时幂等 
 ```json
 {
   "id": "tok_02",
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "key": "__API_KEY_EXAMPLE__",
   "name": "webui"
 }
 ```
@@ -2342,12 +2342,12 @@ Select Mxou Key — 切换密钥：解出明文 key（仅此一次返回）+ 幂
 
 ```json
 {
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+  "key": "__API_KEY_EXAMPLE__"
 }
 ```
 
 ### `POST /api/v1/mxou/login`
-Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
+Mxou Login — MXOU 账号密码登录（v0.81 安全收尾判定：**设计公开**，非缺鉴权）。
 
 **响应**
 
@@ -2360,7 +2360,7 @@ Mxou Login — MXOU 账号密码登录（无 token 鉴权——登录入口本�
 ```json
 {
   "balance": 128.4,
-  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "key": "__API_KEY_EXAMPLE__",
   "keys": [
     {
       "id": "tok_01",
@@ -3352,11 +3352,11 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
     }
   },
   "max_retries": 3,
-  "ozon_api_key": "00000000-0000-0000-0000-000000000000",
+  "ozon_api_key": "mock-key-not-a-credential",
   "ozon_client_id": "5381204",
   "priority": 0,
   "timeout_seconds": 1800,
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -3462,6 +3462,7 @@ V1 Task Status — 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TA
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -3472,7 +3473,6 @@ V1 Task Status — 查询任务状态（v0.73: Bearer 鉴权 + 租户校验，TA
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"
@@ -3599,7 +3599,7 @@ Regen Task Image
 
 ```json
 {
-  "token": "sk-xxxxxxxxxxxxxxxxxxxx"
+  "token": "__TOKEN_EXAMPLE__"
 }
 ```
 
@@ -4488,7 +4488,7 @@ POST /tasks/{id}/images/{slot}/regen 响应（新版本行）。
 ```json
 {
   "id": "tok_02",
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy",
+  "key": "__API_KEY_EXAMPLE__",
   "name": "webui"
 }
 ```
@@ -4525,7 +4525,7 @@ MXOU API Key 条目（脱敏展示，绝不含 full_key）。
 
 ```json
 {
-  "key": "sk-yyyyyyyyyyyyyyyyyyyy"
+  "key": "__API_KEY_EXAMPLE__"
 }
 ```
 
@@ -4547,7 +4547,7 @@ MXOU 登录成功响应（keys 已脱敏；选中 key 完整值仅此一次返�
 ```json
 {
   "balance": 128.4,
-  "key": "sk-xxxxxxxxxxxxxxxxxxxx",
+  "key": "__API_KEY_EXAMPLE__",
   "keys": [
     {
       "id": "tok_01",
@@ -5355,6 +5355,7 @@ GET /tasks/{id}/images 响应。
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -5365,7 +5366,6 @@ GET /tasks/{id}/images 响应。
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"
@@ -5479,6 +5479,7 @@ GET /tasks/{id}/images 响应。
     "stage": "image_generation",
     "stages_completed": [
       "auth",
+      "check_quota",
       "ingest",
       "category_match",
       "pricing",
@@ -5489,7 +5490,6 @@ GET /tasks/{id}/images 响应。
       "image_generation",
       "prepare_ozon_upload",
       "ozon_validate",
-      "check_quota",
       "ozon_upload",
       "ozon_status",
       "learning_record"

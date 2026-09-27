@@ -32,9 +32,6 @@ import time
 from pathlib import Path
 
 import requests
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ⚠️ 历史版本曾硬编码真实凭证入 git——该 key 必须轮换，历史清除方案见
 # docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。现改为 --client-id/--api-key
@@ -49,12 +46,14 @@ def _hdr() -> dict:
 
 
 def _post(ep: str, body: dict) -> dict:
-    # verify=False：本机 python 证书链不完整（curl 正常），内部运维脚本可接受
+    # TLS 证书校验保持 requests 默认 verify=True（certifi 根证书，标准环境无
+    # 证书链问题；历史注释称「本机证书链不完整」实为网络问题——偶发 SSL EOF
+    # 由下方 3 次重试覆盖，绝不应以关闭证书校验为代价）。（v0.81 安全批）
     # 网络偶发 SSL EOF → 重试 3 次
     last = None
     for _ in range(3):
         try:
-            r = requests.post(BASE + ep, headers=_hdr(), json=body, timeout=40, verify=False)
+            r = requests.post(BASE + ep, headers=_hdr(), json=body, timeout=40)
             r.raise_for_status()
             return r.json()
         except Exception as e:

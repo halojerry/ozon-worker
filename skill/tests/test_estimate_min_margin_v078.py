@@ -33,6 +33,8 @@ _DRAFT = {
     "item_id": "123", "title": "x",
     "purchase_cost": 10.0, "weight": 1000,
     "dimensions": {"length": 100, "width": 100, "height": 50},
+    "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+    "attributes": {"品牌": "x"},
 }
 
 

@@ -28,7 +28,10 @@ CDP_RESULTS = [{
 BEST = {"id": "980815374096", "badge_score": 3, "title": "宠物饮水器"}
 ENVELOPE = {
     "token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
-    "envelope": {"draft": {"item_id": "980815374096"}, "extensions": {}},
+    "envelope": {"draft": {"item_id": "980815374096",
+                           "images": ["https://cbu01.alicdn.com/img/ibank/x.jpg"],
+                           "attributes": {"品牌": "x"}, "purchase_cost": 5.5},
+                 "extensions": {}},
 }
 
 

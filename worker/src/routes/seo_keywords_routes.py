@@ -43,6 +43,10 @@ async def http_seo_keywords(request: Request):
     token = auth[7:].strip() if auth.startswith("Bearer ") else ""
     if not token:
         raise HTTPException(status_code=401, detail="Token is required")
+    # v0.81 安全收尾留痕（Mimosa medium「未观察到权限检查」= 扫描器误报）：
+    # Bearer 必填（上行 401）+ _verify_analytics_token 有效性校验 + 按 token
+    # 限流；读全局共享表 blue_ocean_queries 无租户隔离是 W11 设计（平台级
+    # 知识，对齐 mappings/lookup、analytics 读端点），非缺鉴权。
     clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
     _verify_analytics_token(clean_token)
 

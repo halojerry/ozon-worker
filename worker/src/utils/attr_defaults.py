@@ -590,6 +590,11 @@ def resolve_missing_mandatory_dict_attr(
         if is_interfering_type_attr(attr_id, name):
             _kw_res = _match_dict_by_source_keywords(title_cn, product_name_ru, values)
             if _kw_res:
+                # ⚠️ v0.81 止血批: 干扰类型属性关键词命中后同样过判别词交叉验证
+                # （与下方 8229 主分支 ~:614 同款接法）——标题明确说「桌面/настольн」
+                # 时不得返回「Напольный」等互斥形态字典值（风扇类型错配实锤）。
+                if _discriminant_conflict(f"{title_cn} {product_name_ru}", _kw_res[1]):
+                    return None
                 return _kw_res
             if len(values) == 1 and isinstance(values[0], dict):
                 _vid1 = values[0].get("id") or values[0].get("dictionary_value_id") or 0

@@ -120,7 +120,7 @@ def _create_cred(client) -> dict:
     # 多测试累积同租户凭证偶发撞车（CI 2026-08-31 实测 409）。改 8 位 hex，碰撞可忽略。
     resp = client.post("/api/v1/credentials", json={
         "ozon_client_id": f"7777{uuid.uuid4().hex[:8]}",
-        "api_key": "k-job-001", "shop_name": "任务店",
+        "api_key": os.getenv("TEST_MOCK_JOB_KEY", "k-job-001"), "shop_name": "任务店",
     }, headers=_auth_headers())
     assert resp.status_code == 201, resp.text
     return resp.json()

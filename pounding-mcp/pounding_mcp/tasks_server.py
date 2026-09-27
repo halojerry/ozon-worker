@@ -44,10 +44,18 @@ PORT = 8902
 # 请求体上限（字节）：任务创建/对话入口都是小 JSON，1MB 已远超合理 payload
 _BODY_MAX_BYTES = 1_000_000
 
-# 直接可执行短命令（同步 subprocess）；其余长时命令走后台任务
-_DIRECT_COMMANDS = ("check", "category", "search")
+# 直接可执行短命令（同步 subprocess）；其余长时命令走后台任务。
+# v2 起 "query"（router 查进度意图）也同步执行——不带 --watch 的单次状态查询是
+# 只读秒级操作，与 check 同类（--watch 轮询最长 900s，属交互层纪律，router 不带）。
+_DIRECT_COMMANDS = ("check", "category", "search", "query")
 # 长时命令（分钟级）→ 后台 get_manager().create() 执行，前端轮询任务
 _LONG_COMMANDS = ("graph", "follow", "discover", "discover_multi", "discover_task")
+
+# /ask 裸位置参数的 CLI 参数名修正：_args_to_params 把一切裸位置参数统一记到
+# params["query"] 键下，而 query 命令的 CLI 位置参数名是 task_id（tasks._POSITIONAL
+# 只登记了 search/category 的 "query" 键）——按命令就地改名透传，防落成 --query
+# 伪 flag 打不中 CLI。
+_ASK_BARE_PARAM_TO_POSITIONAL: dict[str, str] = {"query": "task_id"}
 
 
 def _load_tasks_token() -> str:
@@ -152,6 +160,9 @@ class TaskHandler(BaseHTTPRequestHandler):
         cmd = route["command"]
         params = self._args_to_params(route["args"])
         positional = [params.pop(n) for n in _POSITIONAL.get(cmd, []) if n in params]
+        cli_name = _ASK_BARE_PARAM_TO_POSITIONAL.get(cmd)
+        if cli_name and "query" in params:
+            positional.append(params.pop("query"))
         return run_skill_command(cmd, *positional, **params)
 
     def _handle_ask(self) -> None:

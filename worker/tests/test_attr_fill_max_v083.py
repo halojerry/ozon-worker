@@ -158,14 +158,26 @@ def test_gender_default_and_title_signal(monkeypatch):
 
 
 def test_volume_and_count_and_dims_fill(monkeypatch):
+    # A8b⑤ 语义更新：6788 在 fixture 里是字典属性（dictionary_id=1838）——
+    # 字典无命中时跳过（gate 实证：字典属性塞 dictionary_value_id=0 文本被
+    # validate 拦，tp=93720 类目实录）；自由文本属性照填。
+    _patch_dict_search(monkeypatch, {"1500": [{"id": 777, "value": "1500"}]})
+    items = [{"attributes": [], "depth": 140, "width": 140, "height": 140}]
+    out = apply_class_defaults_and_numerics(
+        items, _SCHEMA, {"title": "透明塑料保鲜盒 大容量1.5L 2个装"}, _state())
+    got = {a["id"]: a["values"][0] for a in out[0]["attributes"]}
+    assert got[6788] == {"dictionary_value_id": 777, "value": "1500"}  # 字典命中带 id
+    assert got[8513]["value"] == "2"         # 每包数量（自由文本）
+    assert got[4382]["value"] == "140x140x140"  # 尺寸，毫米
+
+
+def test_volume_skipped_when_dict_attr_no_hit(monkeypatch):
     _patch_dict_search(monkeypatch, {})
     items = [{"attributes": [], "depth": 140, "width": 140, "height": 140}]
     out = apply_class_defaults_and_numerics(
         items, _SCHEMA, {"title": "透明塑料保鲜盒 大容量1.5L 2个装"}, _state())
-    got = {a["id"]: a["values"][0].get("value") for a in out[0]["attributes"]}
-    assert got[6788] == "1500"      # 体积/容量，毫升
-    assert got[8513] == "2"         # 每包数量
-    assert got[4382] == "140x140x140"  # 尺寸，毫米
+    got = {a["id"] for a in out[0]["attributes"]}
+    assert 6788 not in got  # 字典属性无命中 → 宁缺（不再塞裸文本）
 
 
 def test_no_double_fill_when_present(monkeypatch):

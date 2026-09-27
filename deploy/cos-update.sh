@@ -44,6 +44,10 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
   [ -n "$_env_region" ] && COS_REGION="$_env_region"
 fi
 MANIFEST_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/manifest.json"
+# ⚠️ 签名对象恒为 manifest.sig（CI 签名/上传口径 + COS 公读白名单既有 key）——
+# 不是 ${MANIFEST_URL}.sig（= manifest.json.sig，COS 无此对象；2026-09-25 v0.80.0
+# 实机升级 exit 3 实锤）。改命名须三处同步：本常量 / cd.yml prev 继承下载 / 白名单。
+MANIFEST_SIG_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker/manifest.sig"
 PACKAGE_BASE_URL="https://${COS_BUCKET}.cos.${COS_REGION}.myqcloud.com/ozon-worker"
 
 log()  { echo -e "\033[1;32m[cos-update]\033[0m $*"; }
@@ -88,7 +92,7 @@ MANIFEST_SIG_FILE="$TMP_DIR/manifest.sig"
 log "读取 COS manifest: $MANIFEST_URL"
 curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -o "$MANIFEST_FILE" "$MANIFEST_URL" \
   || fail "无法读取 manifest(检查网络/COS 配置): $MANIFEST_URL"
-curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -o "$MANIFEST_SIG_FILE" "${MANIFEST_URL}.sig" \
+curl -fsSL --retry 3 --retry-delay 2 --max-time 30 -o "$MANIFEST_SIG_FILE" "$MANIFEST_SIG_URL" \
   || rm -f "$MANIFEST_SIG_FILE"
 
 # manifest 字段提取(沿用本脚本既有 grep -oE 解析口径; 输入=文件)

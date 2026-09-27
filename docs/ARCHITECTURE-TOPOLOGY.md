@@ -13,6 +13,7 @@ status: active
 > 与 `worker/src/graphs/graph.py` 当前代码逐节点核对（v0.27.0）。看完这张图就能理解整个业务模型。
 > 旧版 `docs/WORKER-TOPOLOGY.md` 的拓扑段落已过时（v0.11），以本文为准。
 > ⚠️ **诚实标注**：正文为 v0.27 口径（基线 v0.74.0，未逐节点重核）；v0.28 以来的拓扑增量以 `docs/WORKER-TOPOLOGY.md` 头部增量摘要与 AGENTS「最近更新」块为准。
+> ⚠️ v0.80 函数级细节与问题清单见 `docs/ARCHITECTURE/`（本文件保留 v0.27 组件拓扑视角）。
 
 ---
 

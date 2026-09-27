@@ -27,9 +27,11 @@ def test_pick_price_band_boundaries():
     assert pick_price_band(1501) == "leq_5000"
     assert pick_price_band(5000) == "leq_5000"
     assert pick_price_band(5001) == "gt_5000"
-    assert pick_price_band(0) == "leq_1500"
-    assert pick_price_band(None) == "leq_1500"
-    assert pick_price_band(-5) == "leq_1500"
+    # ✅ v0.80 中性档统一（09-findings §定价 #6）：无价 → leq_5000（原 leq_1500，
+    # 与 pricing_node/learning_record 手工兜底分叉；leq_1500 低佣段会低估佣金）。
+    assert pick_price_band(0) == "leq_5000"
+    assert pick_price_band(None) == "leq_5000"
+    assert pick_price_band(-5) == "leq_5000"
 
 
 def test_parse_prices_commissions_rfbs_path():

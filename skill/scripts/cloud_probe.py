@@ -697,19 +697,83 @@ def _is_single_unit(variant: dict) -> bool:
     return bool(_SINGLE_UNIT_RE.search(name))
 
 
+# fix/listing-quality-v081 修复2: 变体名数量解析（「10只装」→10；无命中 → 1）。
+_QTY_IN_NAME_RE = re.compile(
+    r"(\d+)\s*(只|个|件|片|包|瓶|袋|盒|罐|卷|根|PIC|pcs|pack|piece|pc|шт)",
+    re.IGNORECASE,
+)
+
+
+def _qty_in_name(name: str) -> int:
+    """变体名称里的数量档（「1只装」→1、「10只装」→10、「2 pack」→2）。
+
+    无命中/解析异常 → 1（视同单件，纯颜色/尺寸变体语义）。"""
+    try:
+        m = _QTY_IN_NAME_RE.search(str(name or ""))
+        if not m:
+            return 1
+        n = int(m.group(1))
+        return n if n > 0 else 1
+    except Exception:
+        return 1
+
+
+def _pick_representative_qty_tier(
+    variants: list[dict], target_qty: int | None,
+) -> dict | None:
+    """数量变体「代表档」挑选（fix/listing-quality-v081 修复2）。
+
+    旧行为「1只装特判」把散件价（¥0.13~¥1.0）当采购成本 → 定价全错（实锤
+    5 单）。新语义：取 target_qty 档；target 缺省取各变体数量的中位数档；
+    并列取数量最接近者的整档价（档内并列取价格中位变体）。
+
+    Returns:
+        代表变体（未加运费的原价 dict）；None = 无法判定（调用方回落旧逻辑）：
+        纯颜色/尺寸变体（数量解析全为 1）、无有效价格、档内无正价变体。
+    """
+    qtys: list[int] = []
+    for v in variants:
+        q = _qty_in_name(v.get("name", ""))
+        qtys.append(q)
+    # 纯颜色/尺寸变体（数量解析全为 1）→ 不归本函数管（调用方走旧中位数策略）
+    if all(q == 1 for q in qtys):
+        return None
+    priceable = [v for v in variants if float(v.get("price", 0) or 0) > 0]
+    if not priceable:
+        return None
+    sorted_q = sorted(qtys)
+    median_qty = sorted_q[len(sorted_q) // 2]
+    want = target_qty if (target_qty and target_qty > 0) else median_qty
+    # 数量最接近 target 的档（同距取大档——档价信息量更高）
+    tier = min(sorted(set(qtys)), key=lambda q: (abs(q - want), -q))
+    cands = [v for v in priceable if _qty_in_name(v.get("name", "")) == tier]
+    if not cands:
+        return None
+    prices = sorted(float(v.get("price", 0) or 0) for v in cands)
+    median_price = prices[len(prices) // 2]
+    return min(cands, key=lambda v: abs(float(v.get("price", 0) or 0) - median_price))
+
+
 def _collapse_variants_to_single(
     variants: list[dict],
     cost_cny: float,
     shipping: dict,
+    target_qty: int | None = None,
 ) -> tuple[list[dict], float]:
     """
     将多变体折叠为单产品。
 
-    策略:
-    - 纯数量变体 → 筛选"1只装"变体
+    策略（fix/listing-quality-v081 修复2 起）:
+    - 数量变体（含混合「颜色×数量」）→ 「代表档」：target_qty 档，缺省取
+      各变体数量的中位数档（旧「1只装特判」废弃——散件价当采购成本，
+      ¥0.13/¥0.2/¥0.43/¥0.75/¥1.0 实锤定价全错）；代表档非最小档时给
+      representative dict 打 ``purchase_cost_representative_sku=True`` 标记
+      （调用方透传 draft，对齐 marks 纪律）；无法判定回落旧逻辑
     - 纯颜色/尺寸变体 → 取中位数价格
-    - 混合变体（颜色×数量）→ 先筛"1只装"，再取中位数
     - 采购成本 = 代表变体价格 + 1688国内运费(freightCny)
+
+    Args:
+        target_qty: 竞品卡件数（调用方今后可传；本批调用方恒缺省 None=中位数档）。
 
     Returns:
         (折叠后的variants列表(1个元素), 修正后的采购成本)
@@ -732,6 +796,29 @@ def _collapse_variants_to_single(
     _QTY_KW_RE = re.compile(r"\d+\s*(只|个|件|片|包|瓶|袋|盒|罐|卷|根|PIC|pcs|pack|piece|pc)")
     one_piece = [v for v in variants if _is_single_unit(v)]
     has_qty_keywords = any(_QTY_KW_RE.search(str(v.get("name", ""))) for v in variants)
+
+    # ✅ fix/listing-quality-v081 修复2: 数量变体先走「代表档」；返回 None
+    # （纯颜色全为 1 / 无正价 / 解析异常）→ 回落旧逻辑，旧行为逐字保留。
+    if one_piece or has_qty_keywords:
+        rep = _pick_representative_qty_tier(variants, target_qty)
+        if rep is not None:
+            total_cost = float(rep.get("price", 0) or cost_cny) + freight
+            representative = dict(rep)
+            representative["price"] = total_cost
+            representative["original_price"] = total_cost
+            # 代表档非最小档 → 打标（采购成本口径变化留痕，调用方透传 draft）
+            _tier_qty = _qty_in_name(rep.get("name", ""))
+            _min_tier = min(_qty_in_name(v.get("name", "")) for v in variants)
+            if _tier_qty > _min_tier:
+                representative["purchase_cost_representative_sku"] = True
+                logger.info(
+                    "数量变体代表档: qty=%d（非最小档 %d, target=%s）→ 采购成本 ¥%.2f"
+                    "（purchase_cost_representative_sku）: %s",
+                    _tier_qty, _min_tier, target_qty, total_cost,
+                    str(rep.get("name", ""))[:40],
+                )
+            return [representative], total_cost
+        # fall-through: 回落旧逻辑（解析异常/单价为 0）
 
     if one_piece:
         # 有1只装变体 → 在1只装中取中位数
@@ -1312,6 +1399,13 @@ def _category_search_variants(source_category_path: str) -> list[str]:
 _CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]+")
 _WORD_RE = re.compile(r"[0-9a-zа-яё]+")
 
+# fix/category-root-cause-v1（实机 gate 取证 2026-09）：类目泛尾字写死小集合。
+# 「器/机/盒…」是中文类目词的构词尾不是语义中心，同形异义毒猜（«去核器»商品
+# 猜«切面器»=压面机、«多功能切菜器»猜«多功能造型器»=美发造型器）全靠共享
+# 泛尾字骗过 R1 单字回退与 R2 尾字核对。只收高频构词尾、勿扩成大词表——被拒
+# 只是不写猜类目（worker 全链匹配兜底），方向宁缺毋滥，但扩大误杀面无收益。
+_GENERIC_TAIL_CHARS = frozenset("器机盒架袋包桶盘")
+
 
 def _text_grams(text) -> set[str]:
     """文本 gram 集：CJK 连续段按字符 bigram（单字成段取单字），其余按词（小写）。
@@ -1351,10 +1445,15 @@ def _category_guess_consistent(
     draft.ozon_category，留空让 worker 全链匹配）：
 
     R1 gram 覆盖率：猜中类目的 gram（CJK bigram/西里尔拉丁词）被
-       「商品标题 ∪ source_category 末段」覆盖的比例 < min_overlap。
+       「商品标题 ∪ source_category 末段」覆盖的比例 < min_overlap → 单字
+       回退（F-B04 救保温杯类音近词）还须共享字含非泛尾字且 guess 尾字非
+       泛尾字（fix/category-root-cause-v1：堵 «去核器»×«切面器» 共享「器」
+       毒猜通道）。
     R2 尾字（语义中心）核对：金属管 vs 金属桶一字之差共享 bigram「金属」
-       会过 R1——中文类目名的尾字是语义中心（管/桶/刷），尾字不在
-       标题 ∪ source_category 任何位置出现 → 不一致。
+       会过 R1——中文类目名的尾字是语义中心（管/桶/刷）。加严
+       （fix/category-root-cause-v1）：尾字须末两字 bigram 在证据中出现、
+       或与证据尾字同字且非泛尾字（堵 «切面器»×«切果器» 尾字同为泛尾字
+       「器」恒过）。
     R3 零交集：猜中类目对 source_category 每一段、对标题均零字符交集
        （跨语言毒猜，如俄语类目名对纯中文证据）→ 不一致。
 
@@ -1379,23 +1478,46 @@ def _category_guess_consistent(
     # ✅ F-B04（2026-09-09）：bigram 覆盖不足时回退**单字集合**覆盖——官方译名与
     # 卖家词一字之差（保温杯→保暖杯/热水瓶）bigram 全不同但单字高度重叠，
     # 首版把 graph 猜对的 dc=17027928 错杀（信封名'保暖杯' vs 来源'保温杯'）。
-    # 毒猜防线不放松：金属管 vs 金属桶 依赖 R2 尾字（管/桶）拦截；跨语言依赖 R3。
+    # ⚠️ 收紧（fix/category-root-cause-v1，实机 gate 取证）：回退命中还须
+    # ①共享字含非泛尾字 ②guess 尾字非泛尾字——«去核器»×«切面器» 靠共享泛尾字
+    # 「器」「切/器」共字放行是同形异义毒猜通道；«保温杯»×«保暖杯»（共享 保
+    # 非泛、尾字 杯 非泛）仍放行，F-B04 原意图保留。金属管 vs 金属桶 依赖 R2
+    # 尾字拦截；跨语言依赖 R3（毒猜防线不放松）。
     target_grams = _text_grams(title) | _text_grams(leaf)
     if target_grams and len(guess_grams & target_grams) / len(guess_grams) < min_overlap:
         guess_chars = {c for c in guess.lower() if "\u4e00" <= c <= "\u9fff"}
         target_chars = {c for c in (title + leaf).lower() if "\u4e00" <= c <= "\u9fff"}
-        # 单字回退：CJK 单字覆盖率 ≥ 0.34（2 字中 1 / 3 字中 1+）→ 视为近义一致
+        # 单字回退：CJK 单字覆盖率 ≥ 0.34（2 字中 1 / 3 字中 1+）→ 近义候选，
+        # 再过泛尾字两道条件（见上注释）才算近义一致
+        _runs = _CJK_RUN_RE.findall(guess.lower())
+        guess_tail = _runs[-1][-1] if _runs else ""
+        shared_chars = guess_chars & target_chars
         if not (guess_chars and target_chars
-                and len(guess_chars & target_chars) / len(guess_chars) >= 0.34):
+                and len(shared_chars) / len(guess_chars) >= 0.34
+                and any(c not in _GENERIC_TAIL_CHARS for c in shared_chars)
+                and guess_tail not in _GENERIC_TAIL_CHARS):
             return False
 
-    # R2: CJK 尾字（语义中心）必须在证据里出现
+    # R2: CJK 尾字（语义中心）核对——加严（fix/category-root-cause-v1）：
+    # 旧口径「尾字出现在证据任意位置」被同形异义击穿——«切面器» 尾字 器 vs 源
+    # «切果器» 尾字 器 同为泛尾字恒过。强一致须满足其一：
+    #   A) guess 末两字 bigram 在标题或 source_category 中出现（尾字+邻字共现）；
+    #   B) 尾字与 source 末段/标题某 CJK 段的尾字同字，且该字非泛尾字
+    #     （泛尾字同字不构成品类证据；«保暖杯»×«保温杯» 走 B 放行）。
     cjk_runs = _CJK_RUN_RE.findall(guess.lower())
     if cjk_runs:
-        head_char = cjk_runs[-1][-1]
-        evidence_chars = {c for c in (title + src) if c.isalnum()}
-        if evidence_chars and head_char not in evidence_chars:
-            return False
+        tail_run = cjk_runs[-1]
+        head_char = tail_run[-1]
+        strong = False
+        if len(tail_run) >= 2:
+            tail_bigram = tail_run[-2:]
+            strong = any(tail_bigram in e for e in (title, src) if e)
+        if not strong:
+            evidence_tails = {r[-1]
+                              for e in (title, src) if e
+                              for r in _CJK_RUN_RE.findall(e.lower())}
+            if head_char not in evidence_tails or head_char in _GENERIC_TAIL_CHARS:
+                return False
 
     # R3: 零交集（跨语言毒猜）
     if segs or title:
@@ -1488,16 +1610,27 @@ _NONZERO_EXT_KEYS = ("margin_rate", "commission_rate", "fx_buffer",
 
 
 def _merge_config_tiers(ext: dict[str, Any], *, template_profile: dict[str, Any] | None,
-                        store_profile: dict[str, Any] | None) -> dict[str, Any]:
+                        store_profile: dict[str, Any] | None,
+                        exclude_keys: tuple[str, ...] = ()) -> dict[str, Any]:
     """D11: 三段降级合并——显式 extensions 恒优先 > worker 默认模板 > 本地 stores.json。
 
     仅补缺省：ext 已有非空值不被覆盖（R5 已定稿）。margin/commission/fx 与三档定价/
     变动成本率沿用旧行为只注入非零值（Worker 默认兜底）；traffic_keywords 是 list
     型，只在非空列表时注入。
+
+    ⚠️ arch-findings #5（信封三腿统一）：本函数是 extensions 配置注入唯一入口——
+    graph/跨平台/follow/discover 降级四条装配链都必须走它，禁止再手写逐键注入
+    循环（双源漂移事故面）。exclude_keys 供 follow/discover 降级腿排除
+    offer_id_prefix/traffic_keywords：9048 货号前缀只属 graph 主链新建卡（worker
+    prepare 对 is_follow_sell 恒忽略前缀——跟卖 offer upsert/并卡语义不带前缀），
+    SEO 流量词同理只做主链标题增强；follow_type 由调用方先 setdefault（合并不
+    覆盖已有值，模板下发的 follow_type 不会翻掉 hand/discover 标记）。
     """
     template_profile = template_profile or {}
     store_profile = store_profile or {}
     for _key in _INJECTABLE_EXT_KEYS:
+        if _key in exclude_keys:
+            continue
         if _key == "traffic_keywords":
             if ext.get(_key):
                 continue
@@ -1527,6 +1660,92 @@ def _sanitize_weight_g(weight_g) -> int:
     except (TypeError, ValueError):
         return 0
     return 0 if 0 < w < 10 else w
+
+
+# ── 取重优先级链（fix/listing-quality-v081 修复1）──
+# 1688 packaging_rows[0].weightGrams 是「箱级毛重」（整箱 N 件合计）而非单件
+# 重量——盲取流入物流定价（实锤：30支香 962g vs 卡属性 50g、吸顶灯 9150g）。
+# 单件真值信任序：contextPath unitWeight > 页面属性重量键 > 毛重兜底（旧行为）。
+_WEIGHT_ATTR_KEYS = ("商品重量", "含包装重量", "净重", "单件重量", "重量")
+# 数值+可选单位（「50克」「0.05kg」「500g」「净重：53g」）；区间「40-50g」取首段。
+_WEIGHT_TEXT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(kg|千克|公斤|克|g)?", re.IGNORECASE)
+
+
+def _parse_attr_weight_g(val) -> int:
+    """属性重量文本 → 克（整数）。「50克」→50、「0.05kg」→50、裸数字按克。
+    无有效数值 → 0。"""
+    try:
+        s = str(val or "").strip()
+    except Exception:
+        return 0
+    if not s:
+        return 0
+    m = _WEIGHT_TEXT_RE.search(s)
+    if not m:
+        return 0
+    try:
+        num = float(m.group(1))
+    except (TypeError, ValueError):
+        return 0
+    unit = (m.group(2) or "").strip().lower()
+    if unit in ("kg", "千克", "公斤"):
+        num *= 1000
+    try:
+        g = int(round(num))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    return g if g > 0 else 0
+
+
+def _select_unit_weight_g(pkg_first: dict, attrs: dict, data: dict) -> tuple[int, str]:
+    """单件重量优先级链 → (克, 来源标记)（fix/listing-quality-v081 修复1）。
+
+    优先级：
+      1. ``data["unit_weight"]``（contextPath unitWeight，单件真值——本函数调用前
+         解析块必须已执行）→ 来源 "contextPath"
+      2. attrs 重量键（商品重量/含包装重量/净重/单件重量/重量）→ 来源 "page_attr"
+      3. ``pkg_first.weightGrams``（毛重兜底）→ 来源 "packaging_gross"（旧行为，
+         逐字节兼容）；毛重缺失回落 ``data["weight_grams"]``（AK offer_detail）
+
+    sanity：选中值 > 箱级毛重 → 属性是脏数据（把整箱当单件），回落毛重。
+    (0,10)g 按 _sanitize_weight_g 归零（Ozon 硬下限，缺失语义），继续沿链下探。
+    """
+    gross_raw = pkg_first.get("weightGrams", 0) if pkg_first else 0
+    if not gross_raw:
+        gross_raw = data.get("weight_grams") or 0
+    gross_g = _sanitize_weight_g(gross_raw)
+
+    def _gross_dirty(val_g: float) -> bool:
+        return gross_g > 0 and val_g > gross_g
+
+    # 1. contextPath unitWeight（克，解析层已 kg→g）
+    try:
+        unit_g = float(data.get("unit_weight") or 0)
+    except (TypeError, ValueError):
+        unit_g = 0.0
+    if unit_g > 0:
+        if _gross_dirty(unit_g):
+            logger.warning(
+                "取重: contextPath unitWeight %.0fg > 箱级毛重 %dg（脏数据）→ 回落",
+                unit_g, gross_g)
+        else:
+            cand = _sanitize_weight_g(int(round(unit_g)))
+            if cand > 0:
+                return cand, "contextPath"
+
+    # 2. 属性重量键（顺序即信任序）
+    for key in _WEIGHT_ATTR_KEYS:
+        cand = _sanitize_weight_g(_parse_attr_weight_g((attrs or {}).get(key)))
+        if cand > 0:
+            if _gross_dirty(cand):
+                logger.warning(
+                    "取重: 属性 %s=%dg > 箱级毛重 %dg（脏数据）→ 回落毛重",
+                    key, cand, gross_g)
+                break
+            return cand, "page_attr"
+
+    # 3. 箱级毛重兜底（旧行为）
+    return gross_g, "packaging_gross"
 
 
 def _build_graph_envelope_cross_platform(
@@ -1632,6 +1851,9 @@ def _build_graph_envelope_cross_platform(
     # ── 2.1 单产品折叠（1688 同一唯一入口；采购成本=代表变体价+freightCny）──
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
+    _rep_sku_flag = bool(
+        variants and variants[0].pop("purchase_cost_representative_sku", False))
     logger.info(
         "跨平台(%s) 单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
         platform, original_count, cost_cny,
@@ -1712,6 +1934,10 @@ def _build_graph_envelope_cross_platform(
         draft["dimensions_estimated"] = True
     if weight_estimated:
         draft["weight_estimated"] = True
+    if _rep_sku_flag:
+        # fix/listing-quality-v081 修复2: 采购成本取「代表档」整档价（非最小档/散件档），
+        # 对齐 marks 纪律——worker/审计可识别成本口径。
+        draft["purchase_cost_representative_sku"] = True
     if ozon_category:
         draft["ozon_category"] = ozon_category
     if platform_category_path:
@@ -2048,16 +2274,76 @@ def build_graph_envelope(
             except Exception:
                 pass
 
+    # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
+    # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
+    # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
+    # ⚠️ fix/listing-quality-v081 修复1: 本块整体前移到取重之前——unitWeight
+    # （单件真值）旧序在取重后才解析进 data["unit_weight"]，全仓零消费（箱级
+    # 毛重当单件重量的源头根因之一）。前移后 attrs 完整在场，取重优先级链
+    # （_select_unit_weight_g）可消费属性重量键。块内顺序与键覆盖语义不变。
+    attrs: dict[str, str] = {}
+    # v0.40: AK 必填 CPV 属性（最大承重/功率/品牌）——API 直取，无需 CDP
+    for _cpv_map in (api_data.get("cpv_attributes") or {}).items():
+        _k, _v_list = _cpv_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
+    # v0.40: AK SKU 属性（颜色/规格等）——多值取首个
+    for _sk_map in (api_data.get("sku_attributes") or {}).items():
+        _k, _v_list = _sk_map
+        _k = str(_k or "").strip()
+        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
+        if _k and _v and _k not in attrs and len(_k) < 30 and len(_v) < 80:
+            attrs[_k] = _v
+    ctx_path = None
+    for _sd in data.get("pageStructuredData") or []:
+        if isinstance(_sd, dict) and _sd.get("name") == "contextPath":
+            ctx_path = _sd
+            break
+    if ctx_path:
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            for a in _cp.get("featureAttributes") or []:
+                name = str(a.get("name", "")).strip()
+                val = str(a.get("value", "") or "").strip()
+                if name and val and len(name) < 30 and len(val) < 80:
+                    attrs[name] = val
+        except Exception:
+            pass
+    # DOM 属性表补充（contextPath 缺失的属性名，如"颜色分类"等页面特有字段）
+    for a in data.get("attributes", []):
+        name = str(a.get("name", "")).strip()
+        val = str(a.get("value", "")).strip()
+        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
+            attrs[name] = val
+        if len(attrs) >= 40:  # 上限 40（信封体积控制）
+            break
+    # 单件重量（contextPath unitWeight，克）——取重优先级链第 1 源（fix v081 前移）
+    if ctx_path and not (data.get("weight") or data.get("unit_weight")):
+        try:
+            import json as _json
+            _sample = ctx_path.get("sample")
+            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
+            _uw = _cp.get("unitWeight")
+            if _uw:
+                data["unit_weight"] = float(_uw) * 1000  # 0.1kg → 100g
+        except Exception:
+            pass
+
     # ── 4. 提取数据（必须来自 CDP，不使用硬编码默认值）──
     item_title = title or data.get("title", "")
     cost_cny = _parse_price(data.get("price", ""))
 
-    # 重量：取 packaging_rows 第一个 SKU 的重量
+    # 重量（fix/listing-quality-v081 修复1 优先级链）：
+    #   contextPath unitWeight（单件真值）> 页面属性重量键 > packaging_rows[0]
+    #   箱级毛重（旧行为兜底）。旧行为盲取毛重：1688 包装表第一行=整箱毛重
+    #   （实锤 30支香 962g vs 卡属性 50g、吸顶灯 9150g），流入物流定价全错。
     pkg_rows = data.get("packaging_rows") or []
     pkg_first = pkg_rows[0] if pkg_rows else {}
-    # ✅ v0.68.1: (0,10)g 低于 Ozon 硬下限 → 归零（缺失语义，下游 50g 兜底）
-    weight_g = _sanitize_weight_g(
-        int(pkg_first.get("weightGrams", 0) or data.get("weight_grams") or 0))
+    weight_g, weight_source = _select_unit_weight_g(pkg_first, attrs, data)
     if not weight_g:
         weight_g = 0  # 管线定价需要真实重量，0 会让运费计算降到最低
 
@@ -2129,60 +2415,10 @@ def build_graph_envelope(
     # AI 图，线上「产品A卡片出现产品B图」根因之一）。1688 图空即图空，
     # 「产品图片为空」校验门拦截，宁阻断不上错图。
 
-    # 属性（v0.40: AK CPV/SKU 属性优先 + contextPath featureAttributes 全量 + DOM 补充）
-    # 上品帮采集方案借鉴——1688 页面 context(...) 内嵌 JSON 的 featureAttributes
-    # 是结构化全量属性（含产地/材质/型号等），比 DOM 属性表更全更稳。
-    attrs: dict[str, str] = {}
-    # v0.40: AK 必填 CPV 属性（最大承重/功率/品牌）——API 直取，无需 CDP
-    for _cpv_map in (api_data.get("cpv_attributes") or {}).items():
-        _k, _v_list = _cpv_map
-        _k = str(_k or "").strip()
-        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
-        if _k and _v and len(_k) < 30 and len(_v) < 80:
-            attrs[_k] = _v
-    # v0.40: AK SKU 属性（颜色/规格等）——多值取首个
-    for _sk_map in (api_data.get("sku_attributes") or {}).items():
-        _k, _v_list = _sk_map
-        _k = str(_k or "").strip()
-        _v = str(_v_list[0] if isinstance(_v_list, list) and _v_list else _v_list or "").strip()
-        if _k and _v and _k not in attrs and len(_k) < 30 and len(_v) < 80:
-            attrs[_k] = _v
-    ctx_path = None
-    for _sd in data.get("pageStructuredData") or []:
-        if isinstance(_sd, dict) and _sd.get("name") == "contextPath":
-            ctx_path = _sd
-            break
-    if ctx_path:
-        try:
-            import json as _json
-            _sample = ctx_path.get("sample")
-            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
-            for a in _cp.get("featureAttributes") or []:
-                name = str(a.get("name", "")).strip()
-                val = str(a.get("value", "") or "").strip()
-                if name and val and len(name) < 30 and len(val) < 80:
-                    attrs[name] = val
-        except Exception:
-            pass
-    # DOM 属性表补充（contextPath 缺失的属性名，如"颜色分类"等页面特有字段）
-    for a in data.get("attributes", []):
-        name = str(a.get("name", "")).strip()
-        val = str(a.get("value", "")).strip()
-        if name and val and name not in attrs and len(name) < 30 and len(val) < 80:
-            attrs[name] = val
-        if len(attrs) >= 40:  # 上限 40（信封体积控制）
-            break
-    # 单件重量（contextPath unitWeight，克）——缺重量时的可靠来源
-    if ctx_path and not (data.get("weight") or data.get("unit_weight")):
-        try:
-            import json as _json
-            _sample = ctx_path.get("sample")
-            _cp = _json.loads(_sample) if isinstance(_sample, str) else (_sample or {})
-            _uw = _cp.get("unitWeight")
-            if _uw:
-                data["unit_weight"] = float(_uw) * 1000  # 0.1kg → 100g
-        except Exception:
-            pass
+    # fix/listing-quality-v081: 属性/contextPath 解析块整体前移至「4. 提取数据」
+    # 之前（原在取重之后——unitWeight 解析进 data["unit_weight"] 后全仓零消费，
+    # 是箱级毛重当单件重量的源头根因之一）。块内顺序（CPV→SKU→contextPath→DOM）
+    # 与键覆盖语义逐字保留，仅位置前移。
 
     # 卖家
     seller_raw = data.get("seller", "") or ""
@@ -2414,6 +2650,9 @@ def build_graph_envelope(
     # 采购成本偏低 → 定价利润失真（每单必现）。
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
+    # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
+    _rep_sku_flag = bool(
+        variants and variants[0].pop("purchase_cost_representative_sku", False))
     logger.info(
         "单产品折叠: %d个变体 → 1个 (采购成本=%.2f CNY, 含运费)",
         original_count, cost_cny,
@@ -2463,6 +2702,15 @@ def build_graph_envelope(
         draft["dimensions_estimated"] = True  # ✅ v0.21: 尺寸为估算值，供 worker 决策
     if weight_estimated:
         draft["weight_estimated"] = True  # ✅ v0.37 A3: 重量被兜底/保留（非原始抓取值），供 worker/审计识别
+    # fix/listing-quality-v081 修复1: 单件真值来源标记（对齐 weight_estimated 布尔纪律）——
+    # weight 取自 contextPath unitWeight / 页面属性重量键（非箱级毛重兜底）时打标，
+    # worker/审计可区分「单件真值」与「整箱毛重」。packaging_gross 兜底不打（byte-identical 旧行为）。
+    if weight_source in ("contextPath", "page_attr"):
+        draft["weight_source_page_attr"] = True
+    if _rep_sku_flag:
+        # fix/listing-quality-v081 修复2: 采购成本取「代表档」整档价（非最小档/散件档），
+        # 对齐 marks 纪律——worker/审计可识别成本口径。
+        draft["purchase_cost_representative_sku"] = True
     if ozon_category:
         draft["ozon_category"] = ozon_category
     # ✅ v0.21: 传完整 1688 类目路径（旧版只传末两级，丢失顶级信号如"成人用品"导致类目错配）
@@ -2666,6 +2914,14 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
         if val is None or val == "":
             continue
         meta[key] = val
+    # fix/category-root-cause-v1：类目语义复核分歧标记透传（divergent 信号此前
+    # 死在候选对象上，worker 侧永远看不到）。ozon_discovery._category_semantic_review
+    # 命中分歧时置 True 并把 match_confidence 封顶 0.5——封顶语义已随上列
+    # match_confidence 键走（match_evidence.confidence 同源同值），此处只补
+    # 布尔标记、不重复透传置信度。非 True 不写（默认 False 键省略，对齐本快照
+    # 省略纪律；worker 可作降权/人工复核线索，零消费透传不破坏兼容）。
+    if getattr(candidate, "match_category_divergent", False):
+        meta["match_category_divergent"] = True
     dims = getattr(candidate, "dimensions_mm", None)
     if dims:
         meta["dimensions_mm"] = dims
@@ -3093,10 +3349,20 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         extensions.setdefault("follow_type", "discover")
     # v0.65: 不再兜底注入 margin_rate 0.25 / commission_rate 0.10——未配置时留空让 worker
     # 走三档默认(1.5/2.0/0.6) + 佣金解析链(explicit>缓存表>segments>0.10)；显式 0.10 曾短路真实佣金
-    for _pk in ("margin_rate", "commission_rate", "fx_buffer"):
-        _pv = float(store_profile.get(_pk, 0) or 0)
-        if _pv > 0:
-            extensions[_pk] = _pv
+    # ⚠️ arch-findings #5 三腿统一：3 键手写循环 → _merge_config_tiers 三段降级
+    # （显式 > worker 模板 get_template_profile > stores.json；数值键非零纪律同源）。
+    # 排除 offer_id_prefix/traffic_keywords——9048 前缀/SEO 流量词只属 graph 主链；
+    # follow_type 已上方 setdefault "discover"，不会被模板覆盖。
+    _tpl_profile_fb: dict[str, Any] = {}
+    try:
+        from scripts.lib.config_store import get_template_profile as _gtp_fb
+        _tpl_profile_fb = _gtp_fb(
+            token, credential_id=store_config.get("client_id") or None) or {}
+    except Exception:
+        _tpl_profile_fb = {}
+    _merge_config_tiers(extensions, template_profile=_tpl_profile_fb,
+                        store_profile=store_profile,
+                        exclude_keys=("offer_id_prefix", "traffic_keywords"))
 
     # 降级信封同样带页面真值 + ozon_url/ozon_title（成功/降级两路径注入语义一致）
     _apply_discover_page_truth(draft, extensions, candidate, page_truth)
@@ -3978,6 +4244,44 @@ def _search_1688_with_fallback(search_kw: str) -> list[dict[str, Any]]:
     return []
 
 
+def _normalize_search_match(p: dict) -> dict | None:
+    """follow Step 4 单候选整形（模块级便于测试）：id 归一 + badge 评分 +
+    类目键透传。
+
+    ✅ fix/listing-quality-v081 修复3a: 透传 aibuy 候选 1688 类目键
+    （category_name/cate_level1_id/cate_level2_id）——follow 类目一致性闸的
+    判定语料 + _attach_match_meta 补 category_id/name（此前 follow 信封 match
+    类目恒空的存量缺陷根因：本整形层把键剥掉了）。
+
+    Returns:
+        整形后的候选 dict；None = 无有效 id（调用方跳过）。
+    """
+    pid = p.get("product_id") or p.get("itemId") or str(p.get("id", ""))
+    if not pid:
+        return None
+    from scripts.lib.ozon_image_search import _get_badge_score
+
+    badge_text = p.get("badge", "")
+    badge_score = _get_badge_score(badge_text) if badge_text else 0
+    _m = {
+        "id": pid,
+        "title": p.get("title", "")[:80],
+        "price": p.get("price", ""),
+        "image": p.get("image", ""),
+        "badge": badge_text,
+        "badge_score": badge_score,
+    }
+    # v0.39 aibuy 通道: 透传 normalization_score（trusted_source 放行信号辅助）
+    if "normalization_score" in p:
+        _m["normalization_score"] = p.get("normalization_score")
+    # ✅ fix/listing-quality-v081 修复3a: 类目键透传（truthy 才带，CDP/AK 候选
+    # 无此字段不写空壳）
+    for _cat_key in ("category_name", "cate_level1_id", "cate_level2_id"):
+        if p.get(_cat_key):
+            _m[_cat_key] = p.get(_cat_key)
+    return _m
+
+
 def _cached_ozon_scrape(
     url: str,
     *,
@@ -4337,28 +4641,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     # Step 4: 整理搜索结果
     matches = []
     if matches_raw:
-        # ✅ 保留 badge 评分（1688 图搜匹配质量）
-        from scripts.lib.ozon_image_search import _get_badge_score
-
+        # ✅ 保留 badge 评分（1688 图搜匹配质量）——整形逻辑在
+        # _normalize_search_match（fix v081 3a 起模块级，含类目键透传，可测）
         matches = []
         for p in matches_raw:
-            pid = p.get("product_id") or p.get("itemId") or str(p.get("id", ""))
-            if not pid:
-                continue
-            badge_text = p.get("badge", "")
-            badge_score = _get_badge_score(badge_text) if badge_text else 0
-            _m = {
-                "id": pid,
-                "title": p.get("title", "")[:80],
-                "price": p.get("price", ""),
-                "image": p.get("image", ""),
-                "badge": badge_text,
-                "badge_score": badge_score,
-            }
-            # v0.39 aibuy 通道: 透传 normalization_score（trusted_source 放行信号辅助）
-            if "normalization_score" in p:
-                _m["normalization_score"] = p.get("normalization_score")
-            matches.append(_m)
+            _m = _normalize_search_match(p)
+            if _m is not None:
+                matches.append(_m)
 
         # 按 badge_score 降序排列（最高分在前）
         matches.sort(key=lambda m: m["badge_score"], reverse=True)
@@ -4375,7 +4664,17 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # ✅ v0.39: aibuy 来源 trusted_source=True（信任官方排序前 2 位放行），
             # CDP/AK 来源保持 False 维持原护栏
             _trusted = search_method == "aibuy"
-            best = _pick_best_match(matches, ozon_title, token=mxou_token, trusted_source=_trusted) if ozon_title else matches[0]
+            # ✅ fix/listing-quality-v081 修复3b: follow 开类目一致性闸——竞品页
+            # 面包屑（3a 通道已抓 result["ozon_category"]["category_path"]）vs 候选
+            # 1688 类目语义一致才可作跟卖货源（实锤错配：家用橡胶手套→月季修剪
+            # 园艺手套、钓鱼腰包→宽檐渔夫帽）。discover 链不传（默认 False 零变化）。
+            _ozon_cat_path = str(
+                (result.get("ozon_category") or {}).get("category_path", "") or "")
+            best = _pick_best_match(
+                matches, ozon_title, token=mxou_token, trusted_source=_trusted,
+                ozon_category_path=_ozon_cat_path,
+                require_category_consistency=True,
+            ) if ozon_title else matches[0]
             if best:
                 result["best_match"] = best
                 # ── D3 L3: 人工评审暂停（--review）──
@@ -4473,15 +4772,32 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
                     # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
                     extensions["follow_type"] = extensions.get("follow_type") or "hand"
-                    # 注入定价参数（v0.60: 含三档定价/变动成本率，与 _merge_config_tiers 数值键一致）
-                    from scripts.lib.config_store import get_store_profile as _gsp
-                    _sp = _gsp(store_id)
-                    for _pk in ("margin_rate", "commission_rate", "fx_buffer",
-                                "margin_floor", "margin_anchor",
-                                "variable_cost_rate", "promo_variable_cost_rate"):
-                        _pv = float(_sp.get(_pk, 0) or 0)
-                        if _pv > 0:
-                            extensions[_pk] = _pv
+                    # ⚠️ arch-findings #5 信封三腿统一：定价参数注入改走与 graph 主链
+                    # 同一 _merge_config_tiers 三段降级（显式 > worker 模板
+                    # get_template_profile > stores.json；数值键非零纪律同源）——
+                    # 原手写 7 数值键循环只读 stores.json，模板层三档键在此缺位。
+                    # 排除 offer_id_prefix/traffic_keywords：9048 货号前缀只属
+                    # graph 主链新建卡（跟卖 offer upsert/并卡语义不带前缀，worker
+                    # prepare 对 is_follow_sell 亦恒忽略前缀；builder 模板层若已
+                    # 注入在此剥离，使「follow 不带前缀」在 skill 边界为真）；
+                    # follow_type 已上方 setdefault "hand"，不会被模板覆盖。
+                    extensions.pop("offer_id_prefix", None)
+                    extensions.pop("traffic_keywords", None)
+                    from scripts.lib.config_store import (
+                        get_store_profile as _gsp_follow,
+                        get_template_profile as _gtp_follow,
+                    )
+                    _tpl_profile_follow: dict[str, Any] = {}
+                    try:
+                        _tpl_profile_follow = _gtp_follow(
+                            mxou_token, credential_id=client_id or None) or {}
+                    except Exception:
+                        _tpl_profile_follow = {}
+                    _merge_config_tiers(
+                        extensions,
+                        template_profile=_tpl_profile_follow,
+                        store_profile=_gsp_follow(store_id),
+                        exclude_keys=("offer_id_prefix", "traffic_keywords"))
                     # ✅ v0.66.1: 图搜匹配证据透传 extensions.match_evidence（worker L0
                     # 学习置信门槛）。best 带 _pick_best_match/_attach_match_meta 的
                     # confidence/badge_eff；method 取本函数 search_method（aibuy/cdp/
@@ -4626,7 +4942,24 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         logger.debug("follow 预估打印跳过(不阻断): %s", _ee)
                     # ⚠️ P4: success 必须在提交之后才置位——图搜命中 ≠ 上架成功
                     with log_stage("follow · 提交 Worker"):
-                        if auto_submit and not _low_margin_block:
+                        # ✅ v0.80 handover: follow 腿补 _source_preflight（此前仅 graph 腿接线，
+                        # 反爬页抓到 46 图 0 属性仍可能直提——09-findings #5 收尾）。
+                        # --to-box 入箱只 warning 放行（与 graph 腿同口径）；展示态只警示。
+                        _ok_src, _why_src = _source_preflight(draft)
+                        _src_hard_block = False
+                        if not _ok_src:
+                            if to_box:
+                                logger.warning("⚠️ 源数据质量警示（--to-box 入箱放行）: %s", _why_src)
+                            elif auto_submit:
+                                _src_hard_block = True
+                                result["blocked_reason"] = "source_preflight"
+                                result["success"] = False
+                                result["submit_result"] = None
+                                print(f"❌ 提交被前置拦截: {_why_src}", flush=True)
+                                logger.warning("⛔ follow 源前置拦截（提交前）: %s", _why_src)
+                            else:
+                                logger.warning("⚠️ 展示态源数据质量警示: %s", _why_src)
+                        if auto_submit and not _low_margin_block and not _src_hard_block:
                             if notify:
                                 envelope["notify"] = True
                             submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
@@ -4640,8 +4973,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             else:
                                 result["task_id"] = submit_res.get("task_id", "")
                                 result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
-                        elif auto_submit and _low_margin_block:
-                            pass  # low_margin 拦截：不提交（success 已置 False）
+                        elif auto_submit and (_low_margin_block or _src_hard_block):
+                            pass  # min-margin / 源前置拦截：不提交（success 已置 False）
                         else:
                             # dry-run：仅组装信封，构建成功即算成功
                             result["success"] = True

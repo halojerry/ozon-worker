@@ -27,6 +27,8 @@ import os
 import sys
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from graphs.validation_retry_loop import (
@@ -111,6 +113,17 @@ def test_selector_default_routes_unchanged():
 
 
 # ── ③ final_result 拦截入箱 ──────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _no_box_search(monkeypatch):
+    """fix/category-root-cause-v1 起 _final_result_blocked_to_box 会用 draft.title
+    跑入箱推荐搜索（ZH 树查询）——本文件锁定的是拦截/入箱机制本身，推荐搜索
+    一律打桩，保证纯 mock 无 PG 也确定性（有 PG 环境也不打真树）。top-3 组装
+    契约见 test_category_root_cause_v081.py。"""
+    import graphs.validation_retry_loop as _vrl
+    monkeypatch.setattr(_vrl, "_search_box_recommendations", lambda state: [],
+                        raising=True)
+
 
 def test_final_result_blocked_to_box():
     """遇 LOCAL_TITLE_CATEGORY_MISMATCH：blocked + 已拦截文案 + 入箱被调。"""

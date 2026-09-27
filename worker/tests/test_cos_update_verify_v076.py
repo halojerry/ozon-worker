@@ -77,7 +77,10 @@ def test_cos_update_wires_manifest_verification():
     assert "verify_manifest.sh" in text, "必须调用 verify_manifest.sh"
     assert "cos-update.pub" in text, "信任根必须是脚本同目录公钥"
     assert "COS_UPDATE_SKIP_VERIFY" in text, "逃生门必须显式命名并留痕"
-    assert "manifest.sig" in text or 'MANIFEST_URL}.sig' in text, "签名文件必须与 manifest 成对拉取"
+    assert "manifest.sig" in text, "签名文件必须与 manifest 成对拉取"
+    assert "MANIFEST_SIG_URL" in text, "签名 URL 必须是显式常量（manifest.sig）"
+    assert '"${MANIFEST_URL}.sig"' not in text, \
+        "禁止 ${MANIFEST_URL}.sig 推导——manifest.json.sig 在 COS 无此对象（v0.80.0 实机 exit 3）"
     assert 'fail "manifest 无 sha256 字段' in text, "最新路径空 sha256 必须 fail（封死无校验下载）"
     assert "_mversion_entry" in text, "指定版本必须从签名 manifest 版本表取 sha256"
     assert "_mcache_sha" in text, "缓存 JSON 必须核对 manifest 登记的 cache_sha256"
@@ -121,9 +124,29 @@ def test_cd_yml_has_signing_and_pin_gate():
     assert "MINISIGN_SHA256" in text, "minisign 二进制必须 sha256 pin（形态同 T30 coscli）"
     assert "Sign manifest (minisign" in text, "必须有签名步骤"
     assert "manifest.sig" in text, "签名必须与 manifest 同传 COS"
+    assert "MANIFEST_SIG_URL:" in text, "签名 URL 必须显式常量（manifest.sig）"
+    assert '"${MANIFEST_URL}.sig"' not in text, "禁止 .sig 推导命名——prev 继承下载 404 静默断的根因"
     # secret 名拼接断言（避免本文件出现完整 secret 字面量）
     assert "COS_UPDATE" + "_SIGN_KEY" in text
     assert "verify_manifest.sh deploy/cos-update.pub" in text, "CI 侧必须用仓库公钥自检回验"
+
+
+def test_cd_yml_has_refill_cache_hashes_job():
+    """v0.80.0 实机反馈②：cache_sha256 空表破局工具必须接线完整。
+
+    cd.yml 只从上一份 manifest 继承 cache_sha256（首发恒空 → 空表永续继承），
+    本 job 是 CI 侧生产 hash 源：验当前 manifest → 下载 cache/ → sign_cache_hashes
+    重签 → 成对上传。锁五要素防静默退化。
+    """
+    text = CD_YML.read_text(encoding="utf-8")
+    assert "workflow_dispatch:" in text, "refill job 依赖手动触发入口"
+    assert "refill-cache-hashes:" in text, "破局 job 必须存在"
+    assert "if: github.event_name == 'push'" in text, \
+        "发布链 job 必须有 event 门（防 dispatch 误跑 tag 断言/Docker 构建）"
+    assert 'sign_cache_hashes.sh "$CACHE_DIR"' in text, "必须复用唯一 hash 生产者脚本"
+    assert "verify_manifest.sh deploy/cos-update.pub pkg/manifest.json" in text, \
+        "改写前必须验当前 manifest（防借重签洗白）"
+    assert "cos://${COS_BUCKET}/ozon-worker/manifest.sig" in text, "必须成对覆盖上传 manifest.sig"
 
 
 def test_sign_cache_hashes_tool_wiring():
@@ -264,9 +287,10 @@ done
 url="${args[${#args[@]} - 1]}"
 echo "curl $url" >> "${STUB_LOG:?}"
 case "$url" in
-  */manifest.json) cp "${STUB_FIXTURE_DIR}/manifest.json" "$out"; exit 0 ;;
-  *.sig)           cp "${STUB_FIXTURE_DIR}/manifest.sig" "$out"; exit 0 ;;
-  *)               echo "stub: 拒绝下载 $url（测试断点）" >> "${STUB_LOG:?}"; exit 22 ;;
+  */manifest.json)     cp "${STUB_FIXTURE_DIR}/manifest.json" "$out"; exit 0 ;;
+  */manifest.sig)      cp "${STUB_FIXTURE_DIR}/manifest.sig" "$out"; exit 0 ;;
+  *.sig)               echo "stub: 错误签名命名 $url（应为 manifest.sig）" >> "${STUB_LOG:?}"; exit 22 ;;
+  *)                   echo "stub: 拒绝下载 $url（测试断点）" >> "${STUB_LOG:?}"; exit 22 ;;
 esac
 """
 
@@ -372,7 +396,7 @@ class TestCosUpdateWiring:
         out = proc.stdout + proc.stderr
         assert proc.returncode == 3, f"验签失败必须 exit 3: {out}"
         assert "manifest 签名校验未通过" in out
-        assert "ozon-worker-deploy" not in self._log().split("manifest.json.sig")[-1], \
+        assert "ozon-worker-deploy" not in self._log().split("manifest.sig")[-1], \
             "验签失败后不得发起包下载"
 
     def test_missing_pub_exit_3_before_any_download(self):
