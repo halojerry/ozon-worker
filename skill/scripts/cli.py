@@ -2178,9 +2178,26 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         print("⚠️ --to-box 需与 --auto-submit 同用才会入采集箱（--to-box 单独使用不提交）")
     if args.auto_submit:
         # D3 L3: 人工评审拒绝的候选（review_decision=agent_reject）绝不提交
+        # ✅ fix/semantic-gate-coverage v082: 语义分歧（LLM 实锤 1688 类目与竞品
+        # 面包屑不一致）/ 语义未复核（复核前提数据缺失）候选不自动提交——
+        # unknown 按不可信处理（选品工具保留候选可见，只挡自动出口）。
+        _sem_blocked = [
+            c for c in selected
+            if c.status == "profitable" and c.match_1688_url
+            and c.review_decision != "agent_reject"
+            and (getattr(c, "match_category_divergent", False)
+                 or getattr(c, "match_semantic_unknown", False))
+        ]
+        for _sb in _sem_blocked:
+            _why = ("语义分歧" if getattr(_sb, "match_category_divergent", False)
+                    else "语义未复核")
+            print(f"  ⛔ 自动提交排除（{_why}，需人工确认）: "
+                  f"{_sb.ozon_title[:40]}", flush=True)
         to_submit = [c for c in selected
                      if c.status == "profitable" and c.match_1688_url
-                     and c.review_decision != "agent_reject"]
+                     and c.review_decision != "agent_reject"
+                     and not getattr(c, "match_category_divergent", False)
+                     and not getattr(c, "match_semantic_unknown", False)]
         # v0.70 目标驱动提示：discover 是一次性采集+人工挑，达标数不可控——
         # profitable 少时明示缺口与 discover-task 自动续采路径
         if 0 < len(to_submit) < 10:
