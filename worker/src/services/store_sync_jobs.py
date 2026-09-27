@@ -240,11 +240,20 @@ def due_credentials(now: Optional[datetime.datetime] = None) -> list[dict]:
         incomplete = bool(r.orders_sync_incomplete)
         domains_due: list[str] = []
         ds = _domain_state_row(str(r.tenant_id), cid)
-        for domain, interval in (
+        # ✅ v0.81 card_audit 域（PLAN-card-audit-sweep-v1）：日级巡检域入注册表——
+        # 总闸 CARD_AUDIT_ENABLED=0 时整个域不产 due（水位照旧停在原处）。
+        domain_specs = [
             ("returns", _RETURNS_INTERVAL_MIN), ("actions", _ACTIONS_INTERVAL_MIN),
             ("warehouse", _WAREHOUSE_INTERVAL_MIN), ("analytics", _ANALYTICS_INTERVAL_MIN),
             ("rating", _RATING_INTERVAL_MIN),
-        ):
+        ]
+        try:
+            from services.card_audit_service import CARD_AUDIT_INTERVAL_MIN, card_audit_enabled
+            if card_audit_enabled():
+                domain_specs.append(("card_audit", CARD_AUDIT_INTERVAL_MIN))
+        except Exception as exc:  # import 失败不拖垮其余域调度
+            logger.warning("card_audit 域注册失败（本轮跳过该域）: %s", str(exc)[:120])
+        for domain, interval in domain_specs:
             last = (ds.get(domain) or {}).get("last_synced_at")
             if not last:
                 domains_due.append(domain)
