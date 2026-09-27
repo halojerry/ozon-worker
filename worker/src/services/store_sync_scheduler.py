@@ -46,7 +46,7 @@ def _classify_error(exc: Exception) -> str:
 
 
 def _run_job(job: dict) -> None:
-    """执行一个同步 job:sync_store(订单+商品,逐域容错)→ 水位/失败统计 → finish。"""
+    """执行一个同步 job:sync_store(订单+商品,逐域容错)→ card_audit 巡检 → 水位/失败统计 → finish。"""
     tenant, cid, jid = job["tenant_id"], job["credential_id"], job["id"]
     try:
         # initial/manual 强制全域;定时增量各域按自身水位节流
@@ -60,6 +60,19 @@ def _run_job(job: dict) -> None:
             products_synced=int(products.get("synced") or 0),
             progress=100,
         )
+        # ✅ v0.81 card_audit 日级域（PLAN-card-audit-sweep-v1 §5）：商品域刚同步完
+        # （moderate_status 已落缓存）→ 按水位跑巡检。失败语义与 returns/rating 等
+        # 域一致——只落 domain_state.card_audit.error + 本处 warning，不置 job failed
+        # （巡检失败不影响订单/商品同步的成功语义，也不形成死循环）。
+        try:
+            from services.card_audit_service import run_card_audit_if_due
+            audit = run_card_audit_if_due(
+                tenant, cid, force=job["kind"] in ("initial", "manual"))
+            if audit is not None:
+                result["card_audit"] = audit
+        except Exception as exc:
+            logger.warning("card_audit 巡检异常(不阻断同步) tenant=%s store=%s: %s",
+                           tenant, cid, str(exc)[:200])
         errs = [str(e) for e in (orders.get("error"), products.get("error")) if e]
         if errs:
             # ✅ v0.77.2（死列复活）：域级错误已由 `_set_orders_error_no_watermark` /

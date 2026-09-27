@@ -45,6 +45,23 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:ozon123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 
+## 最近更新（v0.82.0 — 店铺卡不变量巡检域 card_audit：坏卡自愈层落地）
+
+> 2026-09-27 发版（tag v0.82.0）。dev 自 v0.81.0 共 1 个 PR（#89），方案
+> `docs/PLAN-card-audit-sweep-v1.md`。**改巡检/商店同步/加新卡写路径前先读
+> CHANGELOG 0.82.0 与该 PLAN**。
+
+- **card_audit 日级域**：挂 `store_sync_jobs` 域水位（零新调度器）；四不变量
+  分级动作——rating_gap/price_sanity 白名单内**自动修**（只走 content_enrich
+  家族构造器，全量回显），declined/source_mismatch **只报告**。新表
+  `card_audit_finding`（部分唯一索引 open 去重，状态机抄 error_reports）+
+  `ozon_products_cache.moderate_status` 落库（**declined 卡首次可发现**）。
+- **改前必读**：①finding 幂等是两步流转——PG 部分索引冲突仲裁只对满足谓词的
+  新行生效，别改回单语句 upsert；②自动修出口只许在 content_enrich 家族内新增；
+  ③C 不变量 LLM 比对需 `CARD_AUDIT_LLM_TOKEN`，日封顶
+  `CARD_AUDIT_LLM_CAP_DAILY`（进程内计数，单容器语义）。
+- **升级**：需跑 `init_data`（新表+加列幂等迁移；cos-update 自带）。
+
 ## 最近更新（v0.81.0 — 上架质量战役 + 内容评分闭环 + Mimosa 安全批 + 审计收口批，13 PR 同车）
 
 > 2026-09-27 发版（tag v0.81.0）。dev 自 v0.80.0 共 13 个 PR（#73-#82 + 收口批

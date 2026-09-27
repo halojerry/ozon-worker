@@ -437,6 +437,9 @@ def create_tables(engine):
     # ✅ 批D v0.78（取证 I5）: mxou_call_ledger 补 outcome/duration_ms 列（成败观测）。
     # 新建库 create_all 已带列；此处兜底存量库（outcome 存量行回填 'ok'）。
     migrate_ledger_outcome_v078(engine)
+    # ✅ v0.81 card_audit 域（PLAN-card-audit-sweep-v1）: card_audit_finding 部分唯一
+    # 索引兜底 + ozon_products_cache.moderate_status 加列（幂等）。
+    migrate_card_audit_v081(engine)
     logger.info("✅ 表结构已就绪")
 
 
@@ -771,6 +774,39 @@ def import_attribute_cache(engine, force=False):
             raise
         finally:
             conn.close()
+
+
+def migrate_card_audit_v081(engine):
+    """v0.81 card_audit 域（PLAN-card-audit-sweep-v1）: card_audit_finding 部分唯一
+    索引兜底 + ozon_products_cache 补 moderate_status 列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带表/索引/列（model.py CardAuditFinding / OzonProductCache.
+    moderate_status）；此处兜底存量库：
+    - uq_card_audit_finding_open：同卡同不变量仅一行 status='open'（与
+      card_audit_service._record_finding 的 ON CONFLICT 冲突目标逐字对应，
+      谓词不一致会让幂等 upsert 静默退化成重复开单）；
+    - ozon_products_cache.moderate_status：/v3/product/info/list 的
+      statuses.moderate_status 落库（declined 可发现的底座）。旧行 NULL 不回填，
+      下一轮商品域同步自然写入。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用，见 AGENTS 记忆
+    sqlalchemy-jsonb-cast-trap）。结构性 DDL **响失败**（对齐 migrate_ledger_model_v0772）。
+    """
+    from sqlalchemy import text as sql_text
+
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_card_audit_finding_open "
+            "ON card_audit_finding (ozon_product_id, invariant) WHERE status = 'open'"
+        ))
+        conn.execute(sql_text(
+            "ALTER TABLE ozon_products_cache "
+            "ADD COLUMN IF NOT EXISTS moderate_status VARCHAR(30)"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "v081_card_audit",
+        "v0.81 card_audit_finding open 部分唯一索引 + ozon_products_cache.moderate_status 加列",
+    )
 
 
 def main():
