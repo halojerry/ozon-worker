@@ -2535,10 +2535,21 @@ def prepare_ozon_upload_node(
                         logger.warning(f"⚠️ 字典属性{attr_id_int}无法匹配任何字典值，跳过: value={val_text}")
     
     # ✅ 关键修复：先翻译标题，再处理描述（描述兜底需要title_ru）
-    
+
+    # ✅ v0.70 采集箱即权威（v0.81 retry-quality 扩面到 prepare 标题链）：
+    # extensions.box_reviewed=True 的草稿是人工审核过的成品卡——标题链只保留
+    # **翻译**（采集箱存中文标题，俄语翻译是必要转换不是重写）与 sanitize 合规
+    # 归一；**自主重写**类步骤（结构闸兜底/公式重生成/类目兜底标题/强制标题生成）
+    # 全部跳过，坏标题如实交 validate 名称闸/必填闸拦截（所见即所得契约，对齐
+    # validation_retry_loop R4/标题重写同款禁用）。langgraph channel 纪律：
+    # extensions 已声明进 PrepareOzonUploadInput（auth_node 起在 GlobalState）。
+    _box_reviewed_draft: bool = False
+    if isinstance(state.extensions, dict):
+        _box_reviewed_draft = bool(state.extensions.get("box_reviewed"))
+
     # Step 5: 标题翻译成俄语（如果标题是中文或拉丁字母）
     title_ru: str = title_cn  # 默认使用原始标题
-    
+
     # v0.59: 标题公式流量词（envelope extensions 携带，纯西里尔 ≤3 ≤20 字符，只做提示词增强）
     _traffic_keywords: list = _extract_traffic_keywords(state.extensions or {})
     _traffic_kwargs: dict = {"traffic_keywords": _traffic_keywords} if _traffic_keywords else {}
@@ -2555,22 +2566,29 @@ def prepare_ozon_upload_node(
     
     # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
     title_ru = sanitize_title(title_ru, token=mxou_token, use_llm=True)
-    # ✅ v0.81 上架质量止血：标题结构闸（唯一入口 utils/title_sanitizer.
-    # sanitize_title_structure）——剔单位残壳段 + 判结构不合格（无≥4字符西里尔词/
-    # 总长<10/纯数字标点/俄语小数逗号单位模式如「120,3 мл」）。不合格并入下方
-    # 兜底触发条件，让坏标题（「Портативный вентилятор, Вт, скоростей」类实锤）
-    # 自然流入既有公式重生成/类目兜底链。
+    # ✅ v0.81 retry-quality: box_reviewed 草稿跳过结构闸与下方重生成链整段
+    # （结构闸在 prepare 的唯一产出就是路由到重生成，跳过重生成则跳过闸；
+    # 坏标题如实交 validate 名称闸/必填闸拦截）。
     from utils.title_sanitizer import sanitize_title_structure
-    title_ru, _title_struct_bad = sanitize_title_structure(title_ru)
-    if _title_struct_bad:
-        logger.warning("⚠️ 标题结构闸判定不合格（残壳段/空槽/小数逗号），转入公式重生成: %r", title_ru[:60])
+    if _box_reviewed_draft:
+        _title_struct_bad = False
+        if not title_ru:
+            logger.warning("⚠️ box_reviewed 草稿标题为空（翻译失败/原样为空），跳过重生成，如实交下游拦截")
+    else:
+        title_ru, _title_struct_bad = sanitize_title_structure(title_ru)
+        if _title_struct_bad:
+            logger.warning("⚠️ 标题结构闸判定不合格（残壳段/空槽/小数逗号），转入公式重生成: %r", title_ru[:60])
 
     # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
+    # ⚠️ v0.81 retry-quality: box_reviewed 草稿整段跳过（采集箱即权威，标题不重写）
     _latin_re_title = re.compile(r'[a-zA-Z]')
     if (
-        not title_ru
-        or _title_struct_bad
-        or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru))
+        not _box_reviewed_draft
+        and (
+            not title_ru
+            or _title_struct_bad
+            or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru))
+        )
     ):
         logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
         try:
@@ -3331,16 +3349,15 @@ def prepare_ozon_upload_node(
 
     # ✅ 补充常见必填自由文本属性的默认值（Ozon 审核拒绝原因：error_attribute_values_empty）
     # ⚠️ v0.13: 9782（Класс опасности товара/危险品等级）是字典属性，已移出本表——文本兜底会被 Ozon 拒绝
-    _FALLBACK_FREE_TEXT_ATTRS: dict[int, str] = {
-        7578: "365",              # 保质期（天）— 食品/玩具类默认1年
-        10350: "40",              # 最高温度 °C
-        10351: "0",               # 最低温度 °C
-        8787: "сухое место",      # 储存条件
-        # ⚠️ v0.81 止血批：8050（成分/Состав）硬编码默认「полимерные материалы」
-        # 已删除——所有商品被塞同一成分属虚假描述（Ozon 审核风险 + 卡面失真实锤）。
-        # 缺失交由 attr_defaults 语义链/宁缺毋滥跳过，不再文本兜底。
-    }
+    # ⚠️ v0.81 retry-quality: 本表收敛到 utils/attr_defaults.
+    # FACT_NEUTRAL_FREE_TEXT_DEFAULTS（唯一出口纪律，prepare/retry 共同引用）——
+    # 原表 7578(保质期天数)/10350/10351(储存温度上下限)/8787(储存条件) 属编造事实
+    # （任意商品被塞同一保质期/储存条件，与 8050 成分默认同构），已清退；缺失交
+    # validate 必填闸诚实失败，绝不编。空串默认值（9048 型号）跳过不填。
+    from utils.attr_defaults import FACT_NEUTRAL_FREE_TEXT_DEFAULTS as _FALLBACK_FREE_TEXT_ATTRS
     for attr_id, default_val in _FALLBACK_FREE_TEXT_ATTRS.items():
+        if not default_val:
+            continue  # 空串默认值（9048 型号）= 不设默认，绝不写空属性值
         if attr_id in seen_attr_ids:
             continue
         found = False

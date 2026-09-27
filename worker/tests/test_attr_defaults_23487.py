@@ -111,12 +111,20 @@ def test_assemble_23487_supplier_missing_safe_fallback():
 # ═══ retry：_KNOWN_DEFAULTS_RETRY 23487 ═══
 
 def test_retry_known_defaults_23487_safe_fallback():
-    """retry 默认值表 23487 → Нет бренда（非空默认值，缺失时能补）。"""
-    import graphs.validation_retry_loop as vrl
+    """retry 默认值表 23487 → Нет бренда（非空默认值，缺失时能补）。
 
-    # 直接读模块内默认值表（re-exec 避免 import 副作用）
+    v0.81 retry-quality：表已收敛到 utils.attr_defaults.
+    FACT_NEUTRAL_FREE_TEXT_DEFAULTS（prepare/retry 唯一出口），retry 侧引用共享
+    常量、23487 supplier 优先逻辑保留在本模块。"""
+    import graphs.validation_retry_loop as vrl
+    from utils.attr_defaults import FACT_NEUTRAL_FREE_TEXT_DEFAULTS
+
+    # 共享白名单含 23487 → Нет бренда
+    assert FACT_NEUTRAL_FREE_TEXT_DEFAULTS.get(23487) == "Нет бренда"
+    # retry 源码引用共享常量（表本体不再内联）
     src = open(vrl.__file__, encoding="utf-8").read()
-    assert "23487: \"Нет бренда\"" in src, "retry 默认值表应含 23487 → Нет бренда"
+    assert "FACT_NEUTRAL_FREE_TEXT_DEFAULTS" in src, "retry 应引用 attr_defaults 共享事实中性白名单"
+    assert '23487: "Нет бренда"' not in src, "retry 不再内联默认值表（唯一出口纪律）"
 
 
 def test_retry_23487_supplier_preferred_over_default():
