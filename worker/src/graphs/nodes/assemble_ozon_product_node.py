@@ -44,6 +44,7 @@ from utils.ozon_category_query import (
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
+from utils.attr_defaults import _discriminant_conflict  # v0.81 收口批（#85 defer 闭合）：唯一事实源判别词交叉验证
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
 from utils.cos_uploader import is_cos_url  # fix/image-ref-cos-whitelist-v1 批2: 无图补位只吃本方 COS 托管图（唯一实现在 image_url_guard，经 cos_uploader re-export 防漂移）
@@ -3802,9 +3803,13 @@ def _validate_and_enrich_items(
         # 绝不能设文本默认值——Ozon 只接受列表中的 dictionary_value_id，文本→"请从列表中选择一个属性值"。
         # 它们由上方字典匹配路径处理（标题/属性名搜索 → 取第一个有效 dict_id），这里不设 default。
         KNOWN_DEFAULTS: dict[int, str] = {
-            8205: "730",              # Срок годности в днях（保质期天数）— 2年
-            8962: "1",                # Количество предметов（件数）
-            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
+            # v0.81 收口批（#85 defer 闭合）：8205「Срок годности 730 天」编造事实
+            # 清退（8050 同构，与 prepare/retry 同口径）——保质期必填缺失交 validate
+            # 诚实拦截，绝不编造。语义中性兜底唯一出口见
+            # utils.attr_defaults.FACT_NEUTRAL_FREE_TEXT_DEFAULTS（8962 与其对齐）。
+            8962: "1",                # Количество предметов（件数）— 单件事实，共享白名单同款
+            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并，
+                                      # 平台选项非商品事实，assemble 专属（prepare/retry 不填）
             # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
             # 23487: 自由文本属性，用 draft.supplier 填充，不设默认值
             # 4958: 字典属性（Назначение），不设 default — 走字典匹配路径
@@ -3958,6 +3963,18 @@ def _validate_and_enrich_items(
                     # 不再"取第一个字典值"——9782 曾因此被填成"爆炸物 Category 1"（BR_hazard_class1）
                     if not matched:
                         fallback = pick_dict_fallback_value(missing_id, attr_name, dict_vals)
+                        # ✅ v0.81 收口批（#85 defer 闭合）：«Тип» 类判别属性唯一值
+                        # 兜底前跑判别词交叉验证（「桌面扇」×«Напольный» 根因）——
+                        # 源标题出现某形态判别词而唯一值不含该形态 → 高置信错配，
+                        # 跳过不盲填（诚实留缺交 validate/retry）。仅对 Тип 系属性
+                        # 设闸：判别词表只含互斥形态词，非类型属性（如颜色）不误伤。
+                        if fallback and (
+                            "тип" in attr_name.lower() or "类型" in attr_name
+                        ) and _discriminant_conflict(draft_title, fallback[1]):
+                            logger.info(
+                                f"   ⏭️ 必填判别属性{missing_id}({attr_name}) 唯一值 "
+                                f"'{fallback[1]}' 与源标题判别词冲突，跳过不盲填")
+                            fallback = None
                         if fallback:
                             new_attr["values"] = [{
                                 "dictionary_value_id": fallback[0],
