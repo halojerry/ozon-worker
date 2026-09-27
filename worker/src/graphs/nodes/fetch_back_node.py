@@ -161,6 +161,26 @@ def _content_rating_enhance(
         draft_attrs = state.draft["attributes"]
     pricing = state.pricing_info if isinstance(state.pricing_info, dict) else {}
 
+    # ②' vat/images360 回显（v0.81.1 防洗卡）：/v4 不回这两键，唯一读回通道是
+    # /v3/product/info/list（MCP 实证）——失败省略键不阻断（非致命红线）。
+    vat: Any = None
+    images360: Any = None
+    try:
+        info = ozon_post(
+            state.ozon_client_id, state.ozon_api_key,
+            "/v3/product/info/list",
+            {"product_id": [str(product_id)]},
+            timeout=15,
+        )
+        info_items = info.get("items") or []
+        if info_items and isinstance(info_items[0], dict):
+            vat = info_items[0].get("vat")
+            im360 = info_items[0].get("images360")
+            if isinstance(im360, list) and im360:
+                images360 = [u for u in im360 if str(u or "").strip()]
+    except Exception as e:
+        logger.warning("内容评级增强 info/list 回读失败（vat/360 图省略键）: %s", e)
+
     body, audit_partial = build_enrich_update_body(
         product_id,
         stored_item,
@@ -170,6 +190,8 @@ def _content_rating_enhance(
         price=pricing.get("price"),
         old_price=pricing.get("old_price"),
         currency_code=str(pricing.get("currency_code") or "CNY"),
+        vat=vat,
+        images360=images360,
     )
     audit.update(audit_partial)
     if not body:

@@ -1,9 +1,10 @@
 """共享定价公式（M1.2 + v0.60 双价格）— 唯一定义处，pricing_node 与 estimate 端点同源。
 
-单档（旧行为，缺省新参时保持）：
+单档（旧行为，缺省新参时保持；⚠️ v0.81.1 起 old_price 规则收敛
+enforce_old_price_rule，低价档差额 5→20，见下）：
 - 售价 = 总成本 × (1 + margin) / (1 - commission)     [CNY 店铺，无汇率风险，不用 fx_buffer]
 - RUB 店铺再 × (1 + fx_buffer) × exchange_rate
-- old_price：Ozon 折扣规则 ≥20%（price≤25 时至少加 5）
+- old_price：enforce_old_price_rule 唯一规则（≥ price×1.2，且差价 <400 时必须 ≥20）
 - profit_cny：CNY = price - total_cost；RUB = price/exchange_rate - total_cost
 - profit_rate = profit_cny / total_cost
 
@@ -29,6 +30,51 @@ from typing import Any
 # 促销 24.5% = 推广12 + 退货8 + 提现1.5 + 汇损2 + 附加1（%）
 DEFAULT_VARIABLE_COST_RATE = 0.155
 DEFAULT_PROMO_VARIABLE_COST_RATE = 0.245
+
+# ── old_price 唯一规则常量（v0.81.1 收敛，content_enrich 转发引用）────────
+# Ozon old_price 契约取证（mcp ozon_describe_method ProductAPI_ImportProductsV3）：
+# swagger 文本只说 «Если вы раньше передавали old_price, то при обновлении price
+# также обновите old_price»（未量化差价下限）——「差价 <400 时必须 ≥20」的量化
+# 规则来自实机拒单（utils/content_enrich.py 2026-09-26 实机踩坑留证）。两常量
+# 唯一事实源在此，禁止再各写一份。
+MIN_OLD_PRICE_GAP = 20
+LARGE_OLD_PRICE_GAP = 400
+
+
+def enforce_old_price_rule(price: Any, old_price: Any = None) -> str | None:
+    """Ozon old_price 唯一规则出口（compute_price / derive_list_prices /
+    content_enrich.clamp_old_price 三处同源，v0.81.1 收敛）。
+
+    规则：old_price 必须 ≥ price×1.2（折扣 ≥20%），且差价 <400 时必须 ≥20
+    —— 即 old_min = max(ceil(price×1.2), price+20 if price<400 else 0)。
+    传入候选 old_price 低于下限时抬到下限（宁高勿拒：低价差价不足会被 Ozon
+    拒单，此前 price∈(25,100) 产出差价 5.2~19.8 违反自家契约即此病灶）。
+
+    Args:
+        price: 现价（int/float/str；/v5 价格串如 "254.0000" 也可解析）。
+        old_price: 候选划线价（None/畸形 → 直接取下限）。
+
+    Returns:
+        合规 old_price 字符串（Ozon 价格是字符串）；price 无效（解析失败/≤0）
+        → None，调用方自行决定省略或拒绝。
+
+    舍入口径：ceil（与主链 F-F02 一致——int 截断曾致 99→118 vs 119 漂移）。
+    """
+    try:
+        p = int(float(price))
+    except (TypeError, ValueError):
+        return None
+    if p <= 0:
+        return None
+    minimum = max(
+        math.ceil(p * 1.2),
+        p + MIN_OLD_PRICE_GAP if p < LARGE_OLD_PRICE_GAP else 0,
+    )
+    try:
+        o = int(float(old_price)) if old_price is not None else 0
+    except (TypeError, ValueError):
+        o = 0
+    return str(max(o, minimum))
 
 
 def is_dual_margin(
@@ -69,15 +115,14 @@ def derive_list_prices(price: int) -> tuple[int, int]:
     售价，修复改价可能触发 Ozon 拒单）——唯一入口收敛于此。调用方：
     validation_retry_loop.repair_pricing_node / _fix_via_prices_update。
 
-    - old_price：Ozon 折扣 ≥20% 规则（price≤25 时差额至少 5），ceil 与主链一致；
+    - old_price：enforce_old_price_rule 唯一规则（v0.81.1 收敛——此前 price≤25
+      只加 5、price∈(25,100) 差价 5.2~19.8 均违反「差价 <400 必须 ≥20」实机
+      契约，低价卡被 Ozon 拒且 retry 用同一弱规则自旋）；
     - min_price：update_min_price_floor 同款 max(ceil(price*0.5), 1)
       （Ozon min_auto_price_too_small：最低价不得低于售价 50%）。
     """
     price = max(int(price), 1)
-    if price <= 25:
-        old_price = max(price + 5, math.ceil(price * 1.2))
-    else:
-        old_price = math.ceil(price * 1.2)
+    old_price = int(enforce_old_price_rule(price) or price + MIN_OLD_PRICE_GAP)
     min_price = max(math.ceil(price * 0.5), 1)
     return old_price, min_price
 
@@ -114,7 +159,8 @@ def compute_price(
     Returns:
         {"price": int, "old_price": int, "promo_price": int|None,
          "profit_cny": float, "profit_rate": float, "base_price": float}
-        - 单档（margin_anchor/margin_floor 均 None）：与旧行为完全一致，无 promo_price。
+        - 单档（margin_anchor/margin_floor 均 None）：无 promo_price；old_price 走
+          enforce_old_price_rule 唯一规则（v0.81.1 起低价档差额 20，非旧「+5」）。
         - 三档：price=日常价、old_price=划线原价、promo_price=促销底线；
           profit_rate = 销售净利率（净利/售价）。
 
@@ -156,12 +202,8 @@ def compute_price(
         price = math.ceil(base_price)
 
     if legacy:
-        # ── 单档（旧行为，逐字保持）──
-        # Ozon 规则：折扣至少 20%（price≤25 时 old_price-price≥5；否则 20% 加价）
-        if price <= 25:
-            old_price: int = max(price + 5, math.ceil(price * 1.2))
-        else:
-            old_price = math.ceil(price * 1.2)
+        # ── 单档（旧行为，逐字保持；⚠️ old_price 规则 v0.81.1 收敛唯一出口）──
+        old_price: int = int(enforce_old_price_rule(price) or price + MIN_OLD_PRICE_GAP)
 
         # pricing_node Step 6：利润（RUB 店铺换算回 CNY 计算）
         if currency_code == "CNY":
@@ -200,8 +242,9 @@ def compute_price(
             * exchange_rate
         )
         old_price = math.ceil(old_base)
-    # Ozon 规则：划线价 ≥ 日常价×1.2（anchor 偏低时强制）
-    old_price = max(old_price, price + 5 if price <= 25 else math.ceil(price * 1.2))
+    # Ozon 规则：划线价 ≥ 日常价×1.2（anchor 偏低时强制）——v0.81.1 收敛唯一出口
+    # （同带「差价 <400 必须 ≥20」下限，低价三档 anchor 价被抬到合规线）
+    old_price = max(old_price, int(enforce_old_price_rule(price) or 0))
 
     # 促销底线价：用促销变动成本率（大促推广/退货更高）
     promo_divisor: float = 1.0 - commission_rate - pvcr

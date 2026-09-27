@@ -13,9 +13,13 @@ import 补 4191+11254 后卡分实测 42-57 → 90+。
 契约坑（2026-09-26 实机踩过，改 UPDATE 构造前必读）：
 - /v3/product/import 的 dimensions 是**扁平字段**（depth/width/height + dimension_unit、
   weight + weight_unit），不得嵌套、不得为 0；
-- price/old_price 是**字符串**；old_price - price 差价 < 400 时必须 ≥ 20；
+- price/old_price 是**字符串**；old_price 规则唯一出口
+  utils/pricing_estimate.enforce_old_price_rule（≥ price×1.2，且差价 <400 时 ≥20）；
 - attributes 是**全量替换语义**——UPDATE 必须先拉现卡 /v4/product/info/attributes
   全量回显再叠加新值，否则把卡片其余特征洗掉（同 A6 防洗卡纪律）；
+- complex_attributes/images360/pdf_list/vat 同属全量替换域：v0.81.1 前写死
+  空数组/vat="0" 会洗掉现卡视频/PDF/360 图/税率——现口径「能回读带回真实值，
+  回读不到省略键」（回读通道见 _card_echo_base 留证）；
 - 被 Ozon 擦掉的值（erased_attribute_value）是警告不是失败。
 
 设计口径：**保守不确定就不填**。视频/图片类属性（21841/21845/4195）我们产不了恒排除；
@@ -29,6 +33,14 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+# old_price 唯一规则（v0.81.1 收敛）：常量与实现在 utils/pricing_estimate，
+# 此处 re-export 既有名字保持兼容（clamp_old_price 薄转发同一出口）。
+from utils.pricing_estimate import (
+    LARGE_OLD_PRICE_GAP,
+    MIN_OLD_PRICE_GAP,
+    enforce_old_price_rule,
+)
+
 # 评级阈值：>= 90 视为优秀，复检闭环不再动作
 RATING_THRESHOLD = 90.0
 # Аннотация（简介，HTML 富文本）
@@ -39,9 +51,6 @@ RICH_CONTENT_ATTR_ID = 11254
 MEDIA_ATTR_IDS = frozenset({21841, 21845, 4195})
 # Rich content 取前 4 张图（实机验证口径）
 RICH_CONTENT_MAX_IMAGES = 4
-# old_price 与 price 最小差价 / 大差价界（Ozon 契约：差价 < 400 时至少 20）
-MIN_OLD_PRICE_GAP = 20
-LARGE_OLD_PRICE_GAP = 400
 
 _CJK_RE = re.compile(r"[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -388,14 +397,222 @@ def _match_draft_value(aid_name: str, draft_attrs: Dict[str, Any]) -> str:
 
 
 def clamp_old_price(price: float, old_price: float) -> int:
-    """Ozon 契约：price/old_price 整数化；差价 < 400 时必须 ≥ 20；old ≥ price。"""
-    p = int(price or 0)
-    o = int(old_price or 0)
-    if o <= p:
-        return p + MIN_OLD_PRICE_GAP
-    if o - p < LARGE_OLD_PRICE_GAP and o - p < MIN_OLD_PRICE_GAP:
-        return p + MIN_OLD_PRICE_GAP
-    return o
+    """Ozon old_price 规则薄转发（v0.81.1 收敛：唯一实现在
+    utils/pricing_estimate.enforce_old_price_rule——「≥ price×1.2 且差价 <400
+    必须 ≥20」。保留名字做兼容，消费方零改动）。"""
+    enforced = enforce_old_price_rule(price, old_price)
+    if enforced is None:
+        # price 无效（≤0/畸形）→ 纯防御兜底（上游 no_price 闸已挡该路径）
+        return int(price or 0) + MIN_OLD_PRICE_GAP
+    return int(enforced)
+
+
+def _norm_vat(vat: Any) -> str:
+    """vat 规整：非空字符串才回显（绝不写死 "0"——v0.81.1 前写死会把非零税率卡洗成 0）。"""
+    v = str(vat if vat is not None else "").strip()
+    if not v or v.lower() == "none":
+        return ""
+    return v
+
+
+def _card_echo_base(
+    product_id: Any,
+    stored_item: Dict[str, Any],
+    *,
+    price: Any,
+    old_price: Any = None,
+    currency_code: str = "CNY",
+    images_override: Optional[List[str]] = None,
+    vat: Any = None,
+    images360: Optional[List[Any]] = None,
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """构造 /v3/product/import UPDATE item 的全量回显骨架（不含 attributes）。
+
+    ⚠️ 防洗卡契约取证（v0.81.1，改回显逻辑前先读；mcp ozon_describe_method）：
+    - import 是全量替换语义（ProductAPI_ImportProductsV3：«При обновлении товара
+      передайте в запросе всю информацию о нём»），媒体改动词更明示 «Скопируйте
+      данные полей images, images360, color_image»（/v3/product/info/list 取）；
+    - v0.81.1 前写死 `complex_attributes: [] / images360: [] / pdf_list: [] /
+      vat: "0"`，全量替换下会洗掉现卡视频/PDF/360 图/税率——修复口径：
+      **Ozon 能回读的字段带回真实值，回读不到的省略键，绝不发空数组/写死值**；
+    - 回读通道实证：/v4/product/info/attributes（ProductAPI_GetProductAttributesV4）
+      响应含 complex_attributes/pdf_list/color_image，**不含 vat/images360**；
+      vat/images360 只在 /v3/product/info/list（ProductAPI_GetProductInfoList）
+      响应里 → 由调用方取到后传入，传不到就省略键；
+    - 形状留证：v4 的 complex_attributes[].values 用 camelCase dictionaryValueId
+      （import 请求是 snake_case dictionary_value_id）——原样透传 Ozon 自家回显，
+      不做键名改写（Ozon 两侧各自认自家的形状）。
+
+    Args:
+        product_id: Ozon product_id。
+        stored_item: /v4/product/info/attributes 回显的单卡 item。
+        price/old_price/currency_code: 现价三元组（/v5/product/info/prices）。
+        images_override: 改图场景的新图 URL 列表；None = 回显现卡图（评分增强/清扫）。
+        vat: /v3/product/info/list 回显的税率（None/空 → 省略键）。
+        images360: /v3/product/info/list 回显的 360 图（None/空 → 省略键）。
+
+    Returns:
+        (parts, reason)。parts=None 表示不该动作（reason ∈ no_card_echo /
+        bad_product_id / no_price / zero_dims / no_images，保守放弃语义）。
+        parts: {"item": 骨架 dict（无 attributes 键）, "card_attrs": {aid: attr},
+                "img_urls": 图列表, "primary_image": 主图}。
+    """
+    if not isinstance(stored_item, dict) or not stored_item:
+        return None, "no_card_echo"
+
+    try:
+        pid = int(product_id)
+    except (ValueError, TypeError):
+        return None, "bad_product_id"
+
+    _p_num = _first_int(price)
+    if not _p_num or _p_num <= 0:
+        return None, "no_price"
+    _o_num = _first_int(old_price) or _p_num
+
+    weight = _first_int(stored_item.get("weight"))
+    depth = _first_int(stored_item.get("depth"))
+    width = _first_int(stored_item.get("width"))
+    height = _first_int(stored_item.get("height"))
+    if not weight or not depth or not width or not height:
+        # 扁平 dimensions 不得为 0——现卡缺失维度时保守放弃（不编造）
+        return None, "zero_dims"
+
+    primary_image = ""
+    if images_override is not None:
+        # 改图场景：调用方给定的存活 URL 列表（顺序即卡上顺序）
+        img_urls: List[str] = []
+        for u in images_override:
+            s = str(u or "").strip()
+            if s and s not in img_urls:
+                img_urls.append(s)
+        if not img_urls:
+            return None, "no_images"
+        # 现卡主图仍在新图集 → 保持；不在 → 省略键（import 契约：缺省取 images[0]）
+        card_primary = stored_item.get("primary_image") or ""
+        if isinstance(card_primary, list):
+            card_primary = card_primary[0] if card_primary else ""
+        card_primary = str(card_primary or "").strip()
+        if card_primary and card_primary in img_urls:
+            primary_image = card_primary
+    else:
+        images_in = stored_item.get("images") or []
+        img_urls = []
+        if isinstance(images_in, list):
+            def _img_key(im: Dict[str, Any]) -> int:
+                try:
+                    return int(im.get("index") or 0)
+                except (ValueError, TypeError):
+                    return 0
+
+            # ⚠️ /v4 回显双形状（2026-09-27 实测）：新卡为 dict[{file_name,index,default}]，
+            # 旧 workbuddy 卡为**纯字符串 URL 数组**——字符串直接采纳，dict 走原逻辑。
+            _str_urls = [str(x).strip() for x in images_in if isinstance(x, str) and str(x).strip()]
+            _dict_imgs = sorted([x for x in images_in if isinstance(x, dict)], key=_img_key)
+            for url in _str_urls:
+                if url not in img_urls:
+                    img_urls.append(url)
+            for im in _dict_imgs:
+                url = str(im.get("file_name") or "").strip()
+                if url and url not in img_urls:
+                    img_urls.append(url)
+                if im.get("default") and url:
+                    primary_image = url
+        if not img_urls:
+            # 空图回显会把卡上图片洗没（全量替换语义）——保守放弃
+            return None, "no_images"
+
+    item: Dict[str, Any] = {
+        "product_id": pid,
+        "offer_id": str(stored_item.get("offer_id") or ""),
+        "name": str(stored_item.get("name") or ""),
+        "description_category_id": _first_int(stored_item.get("description_category_id")) or 0,
+        "type_id": _first_int(stored_item.get("type_id")) or 0,
+        # 扁平 dimensions（契约坑：不得嵌套、不得为 0）
+        "weight": weight,
+        "weight_unit": str(stored_item.get("weight_unit") or "g"),
+        "depth": depth,
+        "width": width,
+        "height": height,
+        "dimension_unit": str(stored_item.get("dimension_unit") or "mm"),
+        "currency_code": str(currency_code or "CNY"),
+        "price": str(_p_num),
+        "old_price": str(clamp_old_price(_p_num, _o_num)),
+        "images": img_urls[:30],
+    }
+    if primary_image:
+        item["primary_image"] = primary_image
+
+    # vat：/v3/product/info/list 回显真实值；取不到省略键（v0.81.1 前写死 "0"
+    # 会把非零税率卡洗成 0——vat 不在 /v4 attributes 响应里，MCP 实证）。
+    _vat = _norm_vat(vat)
+    if _vat:
+        item["vat"] = _vat
+    # images360：info/list 可读回 → 调用方传了才带回；省略键不发空数组（全量替换
+    # 域，[] 会洗掉现卡 360 图——import 契约明示改图时 «Скопируйте ... images360»）。
+    if images360:
+        im360 = [str(u).strip() for u in images360 if str(u or "").strip()]
+        if im360:
+            item["images360"] = im360[:70]  # 契约上限 70
+    # complex_attributes（视频 21841/21845 等）/pdf_list/color_image：v4 回显可读回
+    # → 有则原样带回，无则省略键（此前写死 [] 会洗掉现卡视频/PDF/营销色）。
+    complex_echo = stored_item.get("complex_attributes")
+    if isinstance(complex_echo, list) and complex_echo:
+        item["complex_attributes"] = complex_echo
+    pdf_echo = stored_item.get("pdf_list")
+    if isinstance(pdf_echo, list) and pdf_echo:
+        item["pdf_list"] = pdf_echo
+    color_echo = stored_item.get("color_image")
+    if isinstance(color_echo, str) and color_echo.strip():
+        item["color_image"] = color_echo.strip()
+    elif isinstance(color_echo, list) and color_echo:
+        # info/list 形状是数组 → 取首个（import 契约 color_image 是单字符串）
+        first = str(color_echo[0] or "").strip()
+        if first:
+            item["color_image"] = first
+
+    card_attrs: Dict[int, Dict[str, Any]] = {}
+    for a in stored_item.get("attributes") or []:
+        if isinstance(a, dict):
+            try:
+                aid = int(a.get("id") or 0)
+            except (ValueError, TypeError):
+                continue
+            if aid > 0:
+                card_attrs[aid] = a
+
+    return {
+        "item": item,
+        "card_attrs": card_attrs,
+        "img_urls": img_urls,
+        "primary_image": primary_image,
+    }, ""
+
+
+def _echo_attributes(
+    card_attrs: Dict[int, Dict[str, Any]],
+    skip_ids: Any = frozenset(),
+) -> List[Dict[str, Any]]:
+    """现卡特征全量回显（防洗卡核心）：跳过 Ozon 自动设置的 23536/海关码与 skip_ids。"""
+    from utils.attribute_utils import is_customs_attr
+
+    echoed: List[Dict[str, Any]] = []
+    for aid, a in card_attrs.items():
+        if aid in skip_ids:
+            continue
+        if aid == 23536 or is_customs_attr(aid):
+            continue
+        values = [
+            {
+                "dictionary_value_id": int(v.get("dictionary_value_id") or 0) if isinstance(v, dict) else 0,
+                "value": str(v.get("value") or "") if isinstance(v, dict) else str(v or ""),
+            }
+            for v in (a.get("values") or []) if isinstance(v, dict)
+        ]
+        if not values:
+            continue
+        echoed.append({"complex_id": 0, "id": aid, "values": values})
+    return echoed
 
 
 def build_enrich_update_body(
@@ -407,6 +624,8 @@ def build_enrich_update_body(
     price: Any = None,
     old_price: Any = None,
     currency_code: str = "CNY",
+    vat: Any = None,
+    images360: Optional[List[Any]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """构造评分驱动的 /v3/product/import UPDATE body（全量回显 + 新填属性）。
 
@@ -419,75 +638,26 @@ def build_enrich_update_body(
         schema_by_id: {attr_id: schema}（无 schema 传 {}——可填裁决保守跳过）。
         price/old_price: 现价（回显用；缺价 → 不动作）。清扫脚本从
             /v4/product/info/prices 取。
+        vat/images360: /v3/product/info/list 回显（v0.81.1 新参；可得则带回真实
+            值，缺省省略键——绝不写死 vat="0"/空数组，见 _card_echo_base 留证）。
 
     Returns:
         (body, audit_partial)。body=None 表示不该动作（audit_partial.reason 说明）。
         audit_partial: {filled, skipped, media_gap, reason?}——filled 含 4191/11254。
     """
     audit: Dict[str, Any] = {"filled": [], "skipped": [], "media_gap": []}
-    if not isinstance(stored_item, dict) or not stored_item:
-        audit["reason"] = "no_card_echo"
+    parts, reason = _card_echo_base(
+        product_id, stored_item,
+        price=price, old_price=old_price, currency_code=currency_code,
+        vat=vat, images360=images360,
+    )
+    if parts is None:
+        audit["reason"] = reason
         return None, audit
 
-    try:
-        pid = int(product_id)
-    except (ValueError, TypeError):
-        audit["reason"] = "bad_product_id"
-        return None, audit
-
-    _p_num = _first_int(price)
-    if not _p_num or _p_num <= 0:
-        audit["reason"] = "no_price"
-        return None, audit
-    _o_num = _first_int(old_price) or _p_num
-
-    weight = _first_int(stored_item.get("weight"))
-    depth = _first_int(stored_item.get("depth"))
-    width = _first_int(stored_item.get("width"))
-    height = _first_int(stored_item.get("height"))
-    if not weight or not depth or not width or not height:
-        # 扁平 dimensions 不得为 0——现卡缺失维度时保守放弃（不编造）
-        audit["reason"] = "zero_dims"
-        return None, audit
-
-    images_in = stored_item.get("images") or []
-    img_urls: List[str] = []
-    primary_image = ""
-    if isinstance(images_in, list):
-        def _img_key(im: Dict[str, Any]) -> int:
-            try:
-                return int(im.get("index") or 0)
-            except (ValueError, TypeError):
-                return 0
-
-        # ⚠️ /v4 回显双形状（2026-09-27 实测）：新卡为 dict[{file_name,index,default}]，
-        # 旧 workbuddy 卡为**纯字符串 URL 数组**——字符串直接采纳，dict 走原逻辑。
-        _str_urls = [str(x).strip() for x in images_in if isinstance(x, str) and str(x).strip()]
-        _dict_imgs = sorted([x for x in images_in if isinstance(x, dict)], key=_img_key)
-        for url in _str_urls:
-            if url not in img_urls:
-                img_urls.append(url)
-        for im in _dict_imgs:
-            url = str(im.get("file_name") or "").strip()
-            if url and url not in img_urls:
-                img_urls.append(url)
-            if im.get("default") and url:
-                primary_image = url
-    if not img_urls:
-        # 空图回显会把卡上图片洗没（全量替换语义）——保守放弃
-        audit["reason"] = "no_images"
-        return None, audit
-
+    card_attrs = parts["card_attrs"]
+    img_urls = parts["img_urls"]
     improves_by_id = {int(i["id"]): i for i in (improve_attrs or []) if isinstance(i, dict) and i.get("id")}
-    card_attrs: Dict[int, Dict[str, Any]] = {}
-    for a in stored_item.get("attributes") or []:
-        if isinstance(a, dict):
-            try:
-                aid = int(a.get("id") or 0)
-            except (ValueError, TypeError):
-                continue
-            if aid > 0:
-                card_attrs[aid] = a
 
     def _card_value(aid: int) -> str:
         vals = (card_attrs.get(aid) or {}).get("values") or []
@@ -533,53 +703,53 @@ def build_enrich_update_body(
         return None, audit
 
     # 全量回显（import 是全量替换语义——现卡特征原样带回，防洗卡）：
-    # 跳过 Ozon 自动设置的 23536/海关编码与新旧 4191/11254（后者由新值顶替）。
-    from utils.attribute_utils import is_customs_attr
-
-    echoed: List[Dict[str, Any]] = []
-    for aid, a in card_attrs.items():
-        if aid in (ANNOTATION_ATTR_ID, RICH_CONTENT_ATTR_ID) and any(n["id"] == aid for n in new_attrs):
-            continue
-        if aid == 23536 or is_customs_attr(aid):
-            continue
-        values = [
-            {
-                "dictionary_value_id": int(v.get("dictionary_value_id") or 0) if isinstance(v, dict) else 0,
-                "value": str(v.get("value") or "") if isinstance(v, dict) else str(v or ""),
-            }
-            for v in (a.get("values") or []) if isinstance(v, dict)
-        ]
-        if not values:
-            continue
-        echoed.append({"complex_id": 0, "id": aid, "values": values})
-
-    item: Dict[str, Any] = {
-        "product_id": pid,
-        "offer_id": str(stored_item.get("offer_id") or ""),
-        "name": str(stored_item.get("name") or ""),
-        "description_category_id": _first_int(stored_item.get("description_category_id")) or 0,
-        "type_id": _first_int(stored_item.get("type_id")) or 0,
-        "vat": "0",
-        # 扁平 dimensions（契约坑：不得嵌套、不得为 0）
-        "weight": weight,
-        "weight_unit": str(stored_item.get("weight_unit") or "g"),
-        "depth": depth,
-        "width": width,
-        "height": height,
-        "dimension_unit": str(stored_item.get("dimension_unit") or "mm"),
-        "currency_code": str(currency_code or "CNY"),
-        "price": str(_p_num),
-        "old_price": str(clamp_old_price(_p_num, _o_num)),
-        "attributes": echoed + new_attrs,
-        "images": img_urls[:30],
-        "complex_attributes": [],
-        "images360": [],
-        "pdf_list": [],
-    }
-    if primary_image:
-        item["primary_image"] = primary_image
+    # 新旧 4191/11254 由新值顶替的跳过；23536/海关码 Ozon 自动设置不回发。
+    replaced = {aid for aid in (ANNOTATION_ATTR_ID, RICH_CONTENT_ATTR_ID)
+                if any(n["id"] == aid for n in new_attrs)}
+    item = parts["item"]
+    item["attributes"] = _echo_attributes(card_attrs, replaced) + new_attrs
 
     return {"items": [item]}, audit
+
+
+def build_image_update_body(
+    product_id: Any,
+    stored_item: Dict[str, Any],
+    images: List[str],
+    *,
+    price: Any,
+    old_price: Any = None,
+    currency_code: str = "CNY",
+    vat: Any = None,
+    images360: Optional[List[Any]] = None,
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """在线改图场景的 /v3/product/import 全量回显 UPDATE（防洗卡第四出口）。
+
+    历史事故口径（A6）：import 是全量替换语义，只发 product_id/offer_id/images
+    三键会把整卡特征/价格/尺寸洗空——本构造器与 build_enrich_update_body 同源
+    _card_echo_base（三消费方同源纪律：复检闭环/清扫脚本/在线改图）。
+
+    Args:
+        images: 已过滤的存活新图 URL 列表（顺序即卡上顺序）。
+        其余参数语义见 _card_echo_base。
+
+    Returns:
+        (body, reason)。body=None 表示保守放弃（reason ∈ no_card_echo /
+        bad_product_id / no_price / zero_dims / no_images），调用方应拒绝改图
+        （fail-closed），绝不裸发。
+    """
+    parts, reason = _card_echo_base(
+        product_id, stored_item,
+        price=price, old_price=old_price, currency_code=currency_code,
+        images_override=list(images or []),
+        vat=vat, images360=images360,
+    )
+    if parts is None:
+        return None, reason
+    item = parts["item"]
+    # 现卡特征原样带回（含 4191/11254——改图不动卡上内容，全量回显保全）
+    item["attributes"] = _echo_attributes(parts["card_attrs"])
+    return {"items": [item]}, ""
 
 
 def _free_text_attr(attr_id: int, value: str) -> Dict[str, Any]:
