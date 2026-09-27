@@ -633,6 +633,10 @@ class OzonValidateInput(BaseModel):
     # 预检对权威来源降级 warning 不拦截（前门豁免后门杀根治）。不声明则被 channel
     # 过滤恒空 → 权威豁免永不生效（AGENTS「input schema 纪律」）。
     category_source: str = Field(default="", description='payload 类目定稿来源（"authoritative"=权威，空=非权威/未知）')
+    # ✅ v0.81 retry-quality: 信封 extensions（box_reviewed）透传——validate 级类目
+    # 重配（_try_validate_recategorize 改写 (dc,tp)）对采集箱审核草稿禁用（采集箱即
+    # 权威，类目错如实 mismatch 拦截）。不声明则被 channel 过滤恒空 → 闸永不生效。
+    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions（box_reviewed 等）")
 
 
 class OzonValidateOutput(BaseModel):

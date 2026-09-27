@@ -238,8 +238,8 @@ def test_enrich_body_full_construction():
     # 扁平 dimensions（契约坑：不得嵌套、不得为 0）
     assert (item["weight"], item["weight_unit"]) == (500, "g")
     assert (item["depth"], item["width"], item["height"], item["dimension_unit"]) == (200, 150, 100, "mm")
-    # 字符串价格 + currency
-    assert item["price"] == "254" and item["old_price"] == "300" and item["currency_code"] == "CNY"
+    # 字符串价格 + currency；254 差价 300-254=46 <20% 线（254×1.2=304.8）→ 抬到 305
+    assert item["price"] == "254" and item["old_price"] == "305" and item["currency_code"] == "CNY"
     # images 回显按 index 排序，default 为 primary
     assert item["images"][0] == "https://cos/1.jpg"
     assert item["primary_image"] == "https://cos/1.jpg"
@@ -559,6 +559,9 @@ def test_sweep_dry_run_plans_but_never_imports():
             return {"items": [{"product_id": 6443821910,
                                "price": {"price": "254", "old_price": "305",
                                          "currency_code": "CNY"}}]}
+        if ep == "/v3/product/info/list":
+            # fetch_info_map：vat/images360 回显源（v4 不回，MCP 实证）
+            return {"items": [{"id": 6443821910, "vat": "0.1", "images360": ["https://360/1.jpg"]}]}
         raise AssertionError(f"unexpected {ep}")
 
     with mock.patch.object(mod, "ozon_post", side_effect=_post), \
@@ -586,6 +589,8 @@ def test_sweep_real_run_submits_import():
             return {"items": [{"product_id": 6443821910,
                                "price": {"price": "254", "old_price": "305",
                                          "currency_code": "CNY"}}]}
+        if ep == "/v3/product/info/list":
+            return {"items": [{"id": 6443821910, "vat": "0.1", "images360": []}]}
         if ep == "/v3/product/import":
             return {"result": {"task_id": 42}}
         raise AssertionError(f"unexpected {ep}")

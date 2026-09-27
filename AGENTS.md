@@ -45,11 +45,14 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:ozon123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 
-## 最近更新（v0.81.0 — 上架质量战役 + 内容评分闭环 + Mimosa 安全批，10 PR 同车）
+## 最近更新（v0.81.0 — 上架质量战役 + 内容评分闭环 + Mimosa 安全批 + 审计收口批，13 PR 同车）
 
-> 2026-09-27 发版（tag v0.81.0）。dev 自 v0.80.0 共 10 个 PR（#73-#82）。
-> **改类目匹配/重量/采购价/标题/图搜匹配/CDP 抓取/评分复检/鉴权前先读
-> CHANGELOG 0.81.0 对应节**；架构细节 `docs/ARCHITECTURE/`（#73 落地的 10 文档）。
+> 2026-09-27 发版（tag v0.81.0）。dev 自 v0.80.0 共 13 个 PR（#73-#82 + 收口批
+> #84-#86）。**改类目匹配/重量/采购价/标题/图搜匹配/CDP 抓取/评分复检/鉴权/
+> 改图/属性兜底前先读 CHANGELOG 0.81.0 对应节**；架构细节 `docs/ARCHITECTURE/`
+> （#73 落地的 10 文档）。**发版前追加 4 路根因审计**（错货语义链/属性链/价格
+> 重量链/终态守卫只读对账），12 个残余复现口子由 #84/#85/#86 收口；事后自愈层
+> 立项 `docs/PLAN-card-audit-sweep-v1.md`（card_audit 域，未实施）。
 
 - **上架质量四病根全堵（#75/#77/#78，4718259 实机取证驱动）**：重量箱级毛重
   reconcile 唯一入口（`reconcile_weight_with_attrs`，3× 比值闸，pricing+prepare
@@ -74,7 +77,18 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 - **⚠️ 行为变更（写客户端/信封前必读）**：purchase_cost 取数量代表档（非散件
   价）；weight 单件真值优先；新信封键 `weight_source_page_attr` /
   `purchase_cost_representative_sku`（审计用零强制消费）；follow 语义闸拒配走
-  no_relevant_match。全文见 CHANGELOG 0.81.0「行为变更」七条。
+  no_relevant_match。全文见 CHANGELOG 0.81.0「行为变更」十二条。
+- **审计收口批（#84/#85/#86，改 import 出口/属性兜底/图搜匹配前必读）**：
+  ①改图端点 fail-closed（`build_image_update_body` 全量回显，现卡拉不到 502 拒）；
+  ②old_price 唯一规则 `enforce_old_price_rule`（<400 差价≥20，双规则冲突根治）；
+  ③enrich 回显「回读不到就省略键」口径（vat/images360/complex_attributes/pdf_list
+  绝不发空数组）；④假事实兜底清退——`FACT_NEUTRAL_FREE_TEXT_DEFAULTS` 唯一出口
+  （保质期/储存条件不再编造）；⑤box_reviewed 闸扩面（validate 重配/prepare
+  标题重写跳过采集箱草稿）；⑥语义闸全链覆盖——信封 `match_evidence.divergent/
+  semantic_unknown`（CONTRACT-v4 已同步），follow 面包屑缺席降级 LLM 确认，
+  discover/batch_test/--auto-submit 消费分歧，worker assemble 对 divergent+
+  非权威来源入采集箱（`_divergent_match_block_reason` 纯函数）。defer：assemble
+  KNOWN_DEFAULTS 同构残留、validate 词表救场 box_reviewed 独立闸。
 
 ## 最近更新（v0.80.0 — 特征属性填满战役 A1-A7 七期 + n8n 清理/extensions.stock 退役两 chore 同车）
 

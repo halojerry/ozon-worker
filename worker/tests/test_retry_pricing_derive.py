@@ -9,7 +9,8 @@ update_min_price_floor 的 Ozon 底线是 50%（min_auto_price_too_small），
 
 修复契约（本文件锁定）：
   1. `pricing_estimate.derive_list_prices(price) -> (old_price, min_price)`：
-     划线价与主链 compute_price 同款 ceil+≤25 加 5 规则；min_price 同款
+     划线价与主链 compute_price 同源 enforce_old_price_rule 唯一规则
+     （v0.81.1 收敛：≥ price×1.2 且差价 <400 时 ≥20）；min_price 同款
      update_min_price_floor 的 50% 底线；
   2. validation_retry_loop 全文无 `int(suggested_price * 1.2)` / `* 0.9`
      手写残余（源码绊线）。
@@ -36,9 +37,11 @@ def test_derive_old_price_uses_ceil_not_truncate():
 
 
 def test_derive_old_price_low_price_rule():
-    """price≤25：Ozon 要求折扣差额至少 5（max(price+5, ceil×1.2)）。"""
-    assert derive_list_prices(20)[0] == 25   # 旧手写 int(24)=24 违反 ≥20% 差额规则
-    assert derive_list_prices(1)[0] == 6
+    """低价档：v0.81.1 起唯一规则 enforce_old_price_rule——差价 <400 必须 ≥20
+    （旧「price≤25 加 5」产出差价 5 违反实机契约，已收敛）。"""
+    assert derive_list_prices(20)[0] == 40   # max(ceil(24), 20+20) = 40
+    assert derive_list_prices(1)[0] == 21    # max(ceil(1.2), 1+20) = 21
+    assert derive_list_prices(90)[0] == 110  # max(ceil(108), 90+20) = 110（旧规则 108 差 18 违规）
 
 
 def test_derive_min_price_is_50pct_floor_not_90pct():
@@ -50,7 +53,7 @@ def test_derive_min_price_is_50pct_floor_not_90pct():
 
 
 def test_derive_consistent_with_compute_price_old_price():
-    """与主链 compute_price 的 old_price 逐字一致（单档路径 ceil×1.2）。"""
+    """与主链 compute_price 的 old_price 逐字一致（单档路径同走唯一规则出口）。"""
     ref = compute_price(
         total_cost_cny=10.0, margin_rate=1.5, commission_rate=0.10,
         fx_buffer=0.0, currency_code="CNY",

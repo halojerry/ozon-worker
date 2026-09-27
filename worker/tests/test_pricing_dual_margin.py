@@ -69,14 +69,16 @@ def test_rub_dual_margin_three_tiers():
     assert abs(r["profit_cny"] - 162.51) < 0.01, f"RUB 净利应=162.51，实际 {r['profit_cny']}"
 
 
-# ── 3. 向后兼容：不传新参 → 旧行为不变（单档 margin + 无变动成本）──
+# ── 3. 向后兼容：不传新参 → 与显式 None 完全一致（单档 margin + 无变动成本）──
 def test_legacy_behavior_when_no_new_params():
     r_old = compute_price(17.5, 0.25, 0.10, 0.05, "RUB", None)
     r_new = compute_price(17.5, 0.25, 0.10, 0.05, "RUB", None,
                           margin_anchor=None, margin_floor=None,
                           variable_cost_rate=0.0, promo_variable_cost_rate=0.0)
-    assert r_old == r_new, "缺省新参必须与旧行为完全一致"
-    assert r_old["price"] == 25 and r_old["old_price"] == 30
+    assert r_old == r_new, "缺省新参必须与显式 None 完全一致"
+    # old_price=45：v0.81.1 唯一规则 enforce_old_price_rule（25<400 → 差价下限 45，
+    # 旧「+5」=30 违反「差价 <400 必须 ≥20」实机契约）
+    assert r_old["price"] == 25 and r_old["old_price"] == 45
     assert "promo_price" not in r_old, "旧路径不产生 promo_price"
 
 

@@ -166,23 +166,47 @@ class TestCategoryKeyPassthrough:
         assert best["category_name"] == "家务清洁"
 
 
-# ── 数据不全 no-op（fail-open，不回归）──
+# ── 数据不全语义（v081 fail-open → fix/semantic-gate-coverage v082 收口）──
 
 
 class TestDataIncompleteNoOp:
-    def test_no_breadcrumb_gate_skipped(self, monkeypatch):
-        """面包屑缺失 → 闸整体跳过，行为与现状一致（trusted 直通 idx0）。"""
+    def test_no_breadcrumb_falls_back_to_llm_then_confirms(self, monkeypatch):
+        """面包屑缺失（v082 语义翻转：不再静默直通）→ 降级 LLM 语义确认
+        （ozon_title 为 Ozon 侧语料代理，mode="category"）；确认同品类 → 放行
+        且带 match_semantic_unknown=True（信封留证，worker 不拦）。"""
 
-        def _no_llm(*a, **k):
-            raise AssertionError("面包屑缺失不得触发 LLM 闸")
-
-        monkeypatch.setattr(od, "_llm_semantic_match", _no_llm)
         cand0 = _cand(0, "月季修剪牛皮园艺手套", cat="园艺用品")
+        calls: list[tuple] = []
+
+        def _fake_llm(ru, cn, token="", mode="product"):
+            calls.append((ru, cn, mode))
+            return True  # 降级确认同大品类
+
+        monkeypatch.setattr(od, "_llm_semantic_match", _fake_llm)
         best = od._pick_best_match(
             [cand0], _GLOVE_RU, token="tok", trusted_source=True,
             require_category_consistency=True)
         assert best is not None
         assert best["title"].startswith("月季修剪")
+        assert best.get("match_semantic_unknown") is True
+        assert calls and calls[0][2] == "category"
+
+    def test_no_breadcrumb_llm_cannot_conclude_rejected(self, monkeypatch):
+        """面包屑缺失 + LLM 拿不出结论（NO/失败/无 token 均返回 False）→
+        按 no_relevant_match 语义拦截（fail-closed，宁缺毋滥）。"""
+
+        def _fake_llm(*a, **k):
+            return False
+
+        monkeypatch.setattr(od, "_llm_semantic_match", _fake_llm)
+        blocked: list[dict] = []
+        monkeypatch.setattr(od, "_log_review_record", lambda rec: blocked.append(rec))
+        cand0 = _cand(0, "月季修剪牛皮园艺手套", cat="园艺用品")
+        best = od._pick_best_match(
+            [cand0], _GLOVE_RU, token="tok", trusted_source=True,
+            require_category_consistency=True)
+        assert best is None
+        assert blocked and blocked[0]["reject_reason"] == "category_semantic_unknown"
 
     def test_no_token_wordpair_fallback_hits_candidate(self, monkeypatch):
         """无 token → 词对快筛：перчатк→手套 映射词在候选命中则放行（沿排序首个）。"""
@@ -198,22 +222,26 @@ class TestDataIncompleteNoOp:
             ozon_category_path=_GLOVE_BREADCRUMB, require_category_consistency=True)
         assert best is not None
         assert best["title"].startswith("月季修剪")  # 含「手套」→ 快筛放行 idx0
+        assert "match_semantic_unknown" not in best  # 真实判定通过不带 unknown 键
 
-    def test_no_token_unmappable_breadcrumb_fail_open(self, monkeypatch):
-        """无 token 且词典无法映射面包屑 → fail-open no-op（旧行为直通）。"""
+    def test_no_token_unmappable_breadcrumb_rejected(self, monkeypatch):
+        """无 token 且词典无法映射面包屑（v082 语义翻转：v081 是 fail-open no-op
+        直通）→ semantic_unknown 且 LLM 无 token 拿不出结论 → 拦截（fail-closed）。"""
         breadcrumb = "Тестовый раздел каталога"
         assert od._breadcrumb_zh_words(breadcrumb) is None  # 夹具自证不可映射
 
         def _no_llm(*a, **k):
-            raise AssertionError("无 token 不得调 LLM")
+            raise AssertionError("无 token 不得调 LLM（短路拦截）")
 
         monkeypatch.setattr(od, "_llm_semantic_match", _no_llm)
+        blocked: list[dict] = []
+        monkeypatch.setattr(od, "_log_review_record", lambda rec: blocked.append(rec))
         cand0 = _cand(0, "宽檐渔夫帽遮阳", cat="帽子")
         best = od._pick_best_match(
             [cand0], "Детский дождевик", token="", trusted_source=True,
             ozon_category_path=breadcrumb, require_category_consistency=True)
-        assert best is not None
-        assert best["title"].startswith("宽檐渔夫帽")
+        assert best is None
+        assert blocked and blocked[0]["reject_reason"] == "category_semantic_unknown"
 
 
 # ── 降级快筛语料 ──

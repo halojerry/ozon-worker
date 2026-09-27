@@ -120,6 +120,29 @@ def fetch_card_echoes(client_id: str, api_key: str, product_ids: list[str]) -> d
     return echoes
 
 
+def fetch_info_map(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
+    """批量拉 /v3/product/info/list，{product_id: item}（只取 vat/images360）。
+
+    ⚠️ MCP 契约实证：vat 与 images360 **不在 /v4/product/info/attributes 响应里**，
+    唯一读回通道是本端点（同一请求只传一组标识符）。实测响应无 price 键——价格
+    走 fetch_price_map（/v5），此处不取价格。v0.81.1 防洗卡：UPDATE 回显真实
+    vat/360 图，取不到由构造器省略键（绝不发空数组/写死 vat）。
+    """
+    out: dict[str, dict] = {}
+    for i in range(0, len(product_ids), _BATCH):
+        int_ids = [int(p) for p in product_ids[i:i + _BATCH] if str(p).isdigit()]
+        if not int_ids:
+            continue
+        resp = ozon_post(
+            client_id, api_key, "/v3/product/info/list",
+            {"product_id": [str(x) for x in int_ids]}, timeout=60,
+        )
+        for it in (resp or {}).get("items") or []:
+            if isinstance(it, dict) and it.get("id"):
+                out[str(it["id"])] = it
+    return out
+
+
 def fetch_price_map(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
     """批量拉现价（price/old_price/currency_code）。
 
@@ -196,11 +219,12 @@ def main() -> int:
         print("全部达标，结束")
         return 0
 
-    # ③ 回显 + 现价
+    # ③ 回显 + 现价 + vat/360 图
     below_ids = [str(r.get("sku")) for r in below]
-    print(f"拉取 {len(below_ids)} 张低分卡的 /v4 回显 + 现价...")
+    print(f"拉取 {len(below_ids)} 张低分卡的 /v4 回显 + 现价 + vat/360 图...")
     echoes = fetch_card_echoes(args.client_id, args.api_key, below_ids)
     price_map = fetch_price_map(args.client_id, args.api_key, below_ids)
+    info_map = fetch_info_map(args.client_id, args.api_key, below_ids)
 
     # ④ 逐卡构造并（非 dry-run 时）提交
     plans: list[dict] = []
@@ -212,11 +236,14 @@ def main() -> int:
             failures.append({"product_id": pid, "stage": "echo", "error": "no_v4_echo"})
             continue
         px = price_map.get(pid) or {}
+        info = info_map.get(pid) or {}
         body, audit = build_enrich_update_body(
             pid, stored, extract_improve_attrs(r), {}, {},
             price=px.get("price"),
             old_price=px.get("old_price"),
             currency_code=px.get("currency_code") or "CNY",
+            vat=info.get("vat"),
+            images360=info.get("images360"),
         )
         plan = {
             "product_id": pid,

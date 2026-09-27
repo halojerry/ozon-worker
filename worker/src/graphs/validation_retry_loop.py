@@ -31,7 +31,7 @@ import logging
 # + 类型化错误）——retry 重传/价格修复/状态轮询此前裸 session.post，限流即整任务失败重跑
 from utils.ozon_client import ozon_post
 from utils.ozon_errors import OzonError
-from utils.title_sanitizer import sanitize_title
+from utils.title_sanitizer import sanitize_title, sanitize_title_structure
 from utils.safe_template import render_safe_mapping
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
@@ -1852,22 +1852,12 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
     # ⚠️ v0.13: 字典属性（9163 Пол / 4958 Назначение / 9782 Класс опасности）不在本表！
     # 它们绝不能塞文本默认值（dictionary_value_id=0）——Ozon 只接受列表中的 dictionary_value_id。
     # ⚠️ PR-1: 8292 已从本表移除 → 走 attr_defaults.resolve_merge_card_default 统一字典解析路径
-    _KNOWN_DEFAULTS_RETRY: dict[int, str] = {
-        # 必填属性默认值 — 自由文本类
-        8205: "730",               # Срок годности в днях — 2年
-        8962: "1",                 # Количество предметов
-        # 非必填但常报错的默认值 — 自由文本类
-        7578: "365",               # Срок годности (дни)
-        10350: "40",               # Макс. температура хранения
-        10351: "0",                # Мин. температура хранения
-        8787: "сухое место",       # Условия хранения
-        # ⚠️ v0.81 止血批：8050（Материал/Состав）硬编码默认「полимерные материалы」
-        # 已删除——所有商品被塞同一成分属虚假描述（Ozon 审核风险 + 卡面失真实锤）。
-        # 缺失交由 attr_defaults 语义链/宁缺毋滥跳过，不再文本兜底。
-        9048: "",                  # Название модели — 不设默认值，由 revalidate 用 offer_id 补
-        23487: "Нет бренда",        # Производитель — v0.62 R3: supplier 缺失时安全兜底（同品牌纪律）
-    }
-
+    # ⚠️ v0.81 retry-quality: 本表收敛到 utils/attr_defaults.
+    # FACT_NEUTRAL_FREE_TEXT_DEFAULTS（唯一出口纪律，prepare/retry 共同引用）——
+    # 原表 8205(保质期天数 730)/7578(保质期天数 365)/10350/10351(储存温度上下限)/
+    # 8787(储存条件) 属编造事实（任意商品被塞同一保质期/储存条件，与 8050 成分默认
+    # 同构），已清退；此类缺失走 Step 3 LLM（按产品证据填）或诚实失败，绝不编。
+    from utils.attr_defaults import FACT_NEUTRAL_FREE_TEXT_DEFAULTS as _KNOWN_DEFAULTS_RETRY
     # ========== Step 2.5: 字典属性未命中 → 直接跳过（绝不取第一个字典值） ==========
     # ⚠️ v0.29.x PR-1: 删除「取第一个有效字典值」盲补（曾与 assemble 旧版"回退2"对齐，
     # 但 assemble 已删该模式）。取首值 = 语义随机：8229(类型)首值可能是同大类下其他小类
@@ -2057,6 +2047,28 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         except Exception as _trans_e:
                             logger.warning(f"⚠️ 强制俄语翻译失败: {_trans_e}")
                             repaired_title = ""
+
+                    # ✅ v0.81 retry-quality: 标题结构闸（登记 defer 闭合，唯一入口
+                    # utils/title_sanitizer.sanitize_title_structure，与 prepare:~2564
+                    # 同款接线=采纳清洗产物 + 不合格丢弃）——LLM 标题修复/强制翻译产物
+                    # 此前只过 sanitize_title（语言闸），「有西里尔词但结构残壳」的坏标题
+                    # （实锤「Портативный вентилятор, Вт, скоростей」/「, 1」）可经
+                    # revalidate 上卡。清洗合格 → 采纳剔残壳后的标题（与 prepare 同语义）；
+                    # 结构不合格 → 丢弃重生成结果（items[0].name 不动=保留原标题），置空
+                    # 后自然流入下方强制生成路径（同样过闸）；仍不合格则由 max_retries
+                    # 收敛/入箱，绝不把残壳写回卡。box_reviewed 草稿在上方 ：2020 已清空
+                    # repaired_title，不会进入本闸（该草稿压根不做标题重写，契约不变）。
+                    if repaired_title:
+                        _t_clean, _t_bad = sanitize_title_structure(repaired_title)
+                        if _t_bad:
+                            logger.warning(
+                                "⚠️ LLM 重生成标题结构闸不合格（空槽/残壳/小数逗号），"
+                                "丢弃重生成结果保留原标题: %r", repaired_title[:60],
+                            )
+                            repaired_title = ""
+                        elif _t_clean and _t_clean != repaired_title:
+                            repaired_title = _t_clean
+                            logger.info("✂️ LLM 重生成标题结构闸剔残壳段: %r", repaired_title[:60])
                     
                     # ✅ fix/arch-findings-v1 (Top10 #3): items_title 赋值移出 if——
                     # 强制翻译失败/box_reviewed 清空 repaired_title 时，兄弟行引用
@@ -2129,8 +2141,21 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         _cyrillic_re2 = re.compile(r'[а-яА-ЯёЁ]')
                         if _rus_title_force and _cyrillic_re2.search(_rus_title_force) and not _latin_re2.search(_rus_title_force):
                             repaired_title = sanitize_title(_rus_title_force) or _rus_title_force
-                            repair_type = "title"
-                            logger.info(f"✅ 强制俄语标题生成成功: {repaired_title[:80]}")
+                            # ✅ v0.81 retry-quality: 强制生成标题同过结构闸（与上方
+                            # LLM 修复路径同款=采纳清洗产物 + 不合格丢弃）——残壳产物
+                            # 不写回卡，保留原标题交 max_retries 收敛。
+                            _fg_clean, _fg_bad = sanitize_title_structure(repaired_title)
+                            if _fg_bad:
+                                logger.warning(
+                                    "⚠️ 强制生成标题结构闸不合格，丢弃保留原标题: %r",
+                                    repaired_title[:60],
+                                )
+                                repaired_title = ""
+                            else:
+                                if _fg_clean and _fg_clean != repaired_title:
+                                    repaired_title = _fg_clean
+                                repair_type = "title"
+                                logger.info(f"✅ 强制俄语标题生成成功: {repaired_title[:80]}")
                         else:
                             logger.warning(f"⚠️ 强制俄语标题不合格: '{_rus_title_force[:60]}'")
                     except MxouOutOfQuotaError:

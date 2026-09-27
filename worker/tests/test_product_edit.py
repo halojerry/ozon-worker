@@ -91,13 +91,39 @@ def _make_engine(monkeypatch, pending_rows=None):
     return engine
 
 
+def _echo_card_v4(pid: int) -> dict:
+    """改图回显用现卡 v4 形状（attributes/dims/图，v0.81.1 全量回显前置数据）。"""
+    return {
+        "id": pid,
+        "name": "Деревянные ложки",
+        "offer_id": "sku-123",
+        "description_category_id": 17027907,
+        "type_id": 92359,
+        "weight": 500, "weight_unit": "g",
+        "depth": 200, "width": 150, "height": 100, "dimension_unit": "mm",
+        "images": [{"file_name": "https://cos/old.jpg", "index": 0, "default": True}],
+        "attributes": [
+            {"id": 85, "values": [{"dictionary_value_id": 126745801, "value": "Нет бренда"}]},
+            {"id": 4191, "values": [{"dictionary_value_id": 0, "value": "<p>Описание товара.</p>"}]},
+        ],
+    }
+
+
 def _approved_ozon_post(client_id, api_key, endpoint, body, **kwargs):
     if endpoint == "/v3/product/import":
         return {"result": {"task_id": "import-task-42"}}
+    if endpoint == "/v4/product/info/attributes":
+        return {"result": [_echo_card_v4(int(body["filter"]["product_id"][0]))]}
+    if endpoint == "/v5/product/info/prices":
+        return {"items": [{"product_id": int(body["filter"]["product_id"][0]),
+                           "price": {"price": "254", "old_price": "305", "currency_code": "CNY"}}]}
     if endpoint == "/v3/product/info/list":
-        return {"result": {"items": [
-            {"id": int(body["product_id"][0]), "statuses": {"moderate_status": "approved"}},
-        ]}}
+        if "product_id" in body:  # 审核状态查询（_query_ozon_status）
+            return {"result": {"items": [
+                {"id": int(body["product_id"][0]), "statuses": {"moderate_status": "approved"}},
+            ]}}
+        # 改图回显（_fetch_card_echo，offer_id 过滤）：vat/images360 回显源
+        return {"items": [{"id": 1234567890, "vat": "0", "images360": ["https://360/1.jpg"]}]}
     raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 

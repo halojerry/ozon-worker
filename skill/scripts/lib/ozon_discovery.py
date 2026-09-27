@@ -162,6 +162,12 @@ class ProductCandidate:
     match_badge_eff: float = 0.0    # badge 匹配有效性 0-1
     match_reject_reason: str = ""   # 拒绝原因（auto_reject / block 原因）
     match_category_divergent: bool = False  # 类目复核：1688 类目与 Ozon 面包屑语义不一致（conf 已封顶 0.5）
+    # fix/semantic-gate-coverage v082: 语义复核该跑但前提数据缺失（1688 类目名 /
+    # 竞品面包屑 / mxou token 缺一）→ 闸没跑成。诚实标记「未复核」——batch_test
+    # 复用闸 / discover --auto-submit 按不可信处理（不复用不自动提交）；信封侧
+    # 进 extensions.match_evidence.semantic_unknown 留证（worker 不拦，防 CDP
+    # 降级时生产停摆）。
+    match_semantic_unknown: bool = False
     review_decision: str = ""       # 人工评审决策: ""=自动 / approved / agent_reject
 
     # Profit estimates
@@ -2824,6 +2830,8 @@ def _attach_match_meta(
     badge_eff: float,
     score: float,
     reason: str = "",
+    divergent: bool = False,
+    semantic_unknown: bool = False,
 ) -> dict[str, Any]:
     """返回携带决策元数据的匹配 dict 副本（D3 L1）。
 
@@ -2833,6 +2841,10 @@ def _attach_match_meta(
     AK 原键 category_id（单层 cateId）；CDP 无 → ""。原 dict 键随副本保留。
     _pick_best_match 所有 PASS 出口统一调用——_search_1688_source 与
     _process_match 据此透传，关键判定不再静默消失。
+    fix/semantic-gate-coverage v082: `divergent` / `semantic_unknown` 布尔键
+    （语义分歧 / 语义闸前提缺失未跑成）——True 才写键（默认 False 键省略，
+    对齐信封 match_evidence 省略纪律）；follow 消费方 `_assemble_match_evidence`
+    据此透传 extensions.match_evidence.divergent / .semantic_unknown。
     """
     meta = dict(m)
     meta["confidence"] = round(float(conf), 3)
@@ -2843,6 +2855,12 @@ def _attach_match_meta(
     meta["category_id"] = str(
         m.get("cate_level2_id") or m.get("cate_level1_id") or m.get("category_id") or "")
     meta["category_name"] = str(m.get("category_name") or "")
+    # fix/semantic-gate-coverage v082: 布尔标记 True 才写键（非 True 键省略，
+    # 不给既有消费方添 False 噪音键）
+    if divergent:
+        meta["match_category_divergent"] = True
+    if semantic_unknown:
+        meta["match_semantic_unknown"] = True
     return meta
 
 
@@ -2902,6 +2920,10 @@ def _pick_best_match(
         require_category_consistency: fix/listing-quality-v081 修复3c——follow
             专用类目一致性闸（竞品面包屑 vs 候选 1688 类目语义一致才放行，
             插在 badge/trusted 直通之前）。**默认 False，discover 链行为零变化**。
+            fix/semantic-gate-coverage v082: True 时前提数据缺失（面包屑缺席 /
+            无 token 且词典无法映射面包屑）不再 fail-open 直通——降级 LLM 语义
+            确认，拿不出结论按 no_relevant_match 拦截；确认放行带
+            match_semantic_unknown=True 出闸（真实判定通过的候选不带该键）。
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
@@ -3052,51 +3074,96 @@ def _pick_best_match(
     # 必须插在 badge「全部符合」直通与 aibuy trusted 直通之前：trusted 原始排名
     # 前 2 无条件放行会绕过一切标题/LLM 护栏（实锤错配：家用橡胶手套→月季修剪
     # 牛皮园艺手套、钓鱼腰包→宽檐渔夫帽——图搜视觉相近但品类不同）。
-    if require_category_consistency and ozon_category_path:
+    # ✅ fix/semantic-gate-coverage v082: 闸前提数据缺失（面包屑缺席 / 无 token 且
+    # 词典无法映射面包屑）不再 fail-open 静默直通——标记 semantic_unknown 并降级
+    # 走 LLM 语义确认（mode="category"）；LLM 也拿不出结论 → 按 no_relevant_match
+    # 语义拦截（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。确认放行的候选
+    # 带 match_semantic_unknown=True 出闸（消费方 `_assemble_match_evidence` 写进
+    # extensions.match_evidence 留证；worker 对该标志不拦）。
+    _sem_unknown = False
+    if require_category_consistency:
         _GATE_CAP = 6  # LLM 费用封顶：沿排序列表最多判 6 个候选
-        _breadcrumb_last = ozon_category_path.split(">")[-1].strip()
-        _judge_query = _breadcrumb_last or ozon_category_path
         _picked: tuple[float, int, dict[str, Any]] | None = None
-        if token:
-            # 主判定：LLM 语义（mode="category"，进程内缓存）。category_name
-            # 缺失回落 title（3a 断链修复后 aibuy 候选恒带 category_name）。
-            for _sc, _idx, _r in scored[:_GATE_CAP]:
-                _cand_text = str(_r.get("category_name") or "") or str(_r.get("title", "") or "")
-                if not _cand_text:
-                    continue
-                if _llm_semantic_match(_judge_query, _cand_text, token, mode="category"):
-                    _picked = (_sc, _idx, _r)
-                    break
-            if _picked is None:
-                # 全部候选不一致 → 拒绝（follow 通道 no_relevant_match，不组装信封）。
-                # ⚠️ token 在场时 LLM 调用失败与真 NO 不可区分（均返回 False）→
-                # fail-closed（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。
-                logger.warning(
-                    "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，拒绝（不组装信封）",
-                    min(len(scored), _GATE_CAP), ozon_category_path[:60])
-                _log_review_record(_block_record("category_divergent", best, _conf_of_best))
-                return None
-        else:
-            # 无 token → 降级词对快筛（fail-open）：面包屑经词典映射的中文词在
-            # 候选 category_name/title 命中则放行该候选；词典完全无法映射面包屑
-            # （数据不全）→ no-op 放行 best（行为与现状一致，不回归）。
-            _zh_words = _breadcrumb_zh_words(_judge_query)
-            if _zh_words is None:
-                logger.info(
-                    "类目一致性闸: 无 token 且词典无法映射面包屑「%s」，fail-open no-op",
-                    _judge_query[:40])
-            else:
+        if ozon_category_path:
+            _breadcrumb_last = ozon_category_path.split(">")[-1].strip()
+            _judge_query = _breadcrumb_last or ozon_category_path
+            if token:
+                # 主判定：LLM 语义（mode="category"，进程内缓存）。category_name
+                # 缺失回落 title（3a 断链修复后 aibuy 候选恒带 category_name）。
                 for _sc, _idx, _r in scored[:_GATE_CAP]:
-                    _cand_text = f"{_r.get('category_name') or ''}{_r.get('title') or ''}"
-                    if any(zw in _cand_text for zw in _zh_words):
+                    _cand_text = str(_r.get("category_name") or "") or str(_r.get("title", "") or "")
+                    if not _cand_text:
+                        continue
+                    if _llm_semantic_match(_judge_query, _cand_text, token, mode="category"):
                         _picked = (_sc, _idx, _r)
                         break
                 if _picked is None:
+                    # 全部候选不一致 → 拒绝（follow 通道 no_relevant_match，不组装信封）。
+                    # ⚠️ token 在场时 LLM 调用失败与真 NO 不可区分（均返回 False）→
+                    # fail-closed（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。
                     logger.warning(
-                        "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，拒绝",
-                        _zh_words[:4])
+                        "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，拒绝（不组装信封）",
+                        min(len(scored), _GATE_CAP), ozon_category_path[:60])
                     _log_review_record(_block_record("category_divergent", best, _conf_of_best))
                     return None
+            else:
+                # 无 token → 降级词对快筛：面包屑经词典映射的中文词在候选
+                # category_name/title 命中则放行该候选；词典完全无法映射面包屑
+                # （数据不全）→ v082 起 semantic_unknown（此前 fail-open no-op 直通），
+                # 落到下方 LLM 确认（无 token 恒拿不出结论 → 拦截）。
+                _zh_words = _breadcrumb_zh_words(_judge_query)
+                if _zh_words is None:
+                    _sem_unknown = True
+                    logger.info(
+                        "类目一致性闸: 无 token 且词典无法映射面包屑「%s」，语义前提缺失（semantic_unknown）",
+                        _judge_query[:40])
+                else:
+                    for _sc, _idx, _r in scored[:_GATE_CAP]:
+                        _cand_text = f"{_r.get('category_name') or ''}{_r.get('title') or ''}"
+                        if any(zw in _cand_text for zw in _zh_words):
+                            _picked = (_sc, _idx, _r)
+                            break
+                    if _picked is None:
+                        logger.warning(
+                            "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，拒绝",
+                            _zh_words[:4])
+                        _log_review_record(_block_record("category_divergent", best, _conf_of_best))
+                        return None
+        else:
+            # v082: 面包屑缺席（CDP 抓取失败/缓存空壳）→ 闸没跑成，不再静默 no-op。
+            _sem_unknown = True
+            logger.info("类目一致性闸: 竞品面包屑缺席，语义前提缺失（semantic_unknown）")
+        if _sem_unknown:
+            # 降级确认：LLM 语义（面包屑缺席时以竞品标题为 Ozon 侧语料代理，
+            # mode="category" 判大品类一致性；无 token → _llm_semantic_match 恒
+            # False = 拿不出结论 → fail-closed 拦截）。
+            if token:
+                for _sc, _idx, _r in scored[:_GATE_CAP]:
+                    _cand_text = str(_r.get("category_name") or "") or str(_r.get("title", "") or "")
+                    if not _cand_text:
+                        continue
+                    if _llm_semantic_match(ozon_title, _cand_text, token, mode="category"):
+                        _picked = (_sc, _idx, _r)
+                        break
+            if _picked is not None:
+                _sc, _idx, _r = _picked
+                _conf_r = _title_conf(ozon_title, _r, is_ru_title)
+                if trusted_source:
+                    # 对齐 trusted 放行基准（aibuy 候选 conf 恒 0，原样透传会被
+                    # _MIN_SOURCE_CONFIDENCE 下游硬门误杀语义——见 trusted 直通注释）
+                    _conf_r = max(_conf_r, 0.5)
+                logger.info(
+                    "类目一致性闸(降级 LLM 确认, semantic_unknown=True)放行（rank=%d, conf=%.2f）: %s",
+                    _idx + 1, _conf_r, str(_r.get("title", ""))[:40])
+                return _attach_match_meta(
+                    _r, _conf_r, _badge_effectiveness(_r.get("badge", "") or ""), _sc,
+                    semantic_unknown=True)
+            logger.warning(
+                "类目一致性闸: 语义前提缺失（面包屑在场=%s, token 在场=%s）且 LLM 拿不出结论，"
+                "拦截（no_relevant_match，不组装信封）",
+                bool(ozon_category_path), bool(token))
+            _log_review_record(_block_record("category_semantic_unknown", best, _conf_of_best))
+            return None
         if _picked is not None:
             _sc, _idx, _r = _picked
             _conf_r = _title_conf(ozon_title, _r, is_ru_title)
@@ -3391,16 +3458,28 @@ def _category_semantic_review(candidate: "ProductCandidate", token: str) -> None
 
     封顶 0.5：仍在 matched 带（≥0.3 不丢单），但跌出高置信带——auto-submit
     与 worker 弱档语义自然接管，是「降权」不是「拦截」。
+
+    fix/semantic-gate-coverage v082: 前提数据缺失（1688 类目名 / 竞品面包屑 /
+    token 缺一）→ 候选打 match_semantic_unknown=True（此前静默 return，下游把
+    「未复核」当「已复核通过」）。该标记随 REPORT_FIELDS 上报与信封
+    match_evidence.semantic_unknown 留证；batch_test 复用闸 / --auto-submit 按
+    不可信处理。LLM 调用失败不在此列（维持「失败不罚」语义不变）。
     """
     zh_path = str(candidate.match_1688_category_name or "").strip()
     ru_path = str(candidate.page_category_path or "").strip()
     if not zh_path or not ru_path or not token:
+        candidate.match_semantic_unknown = True
+        logger.debug(
+            "类目一致性复核跳过（语义前提缺失，semantic_unknown=True）: "
+            "zh=%s ru=%s token=%s: %s",
+            bool(zh_path), bool(ru_path), bool(token), candidate.ozon_title[:40])
         return
     if candidate.match_confidence < 0.3:
         return  # 已在拒带，无需复核
     zh_leaf = zh_path.split(">")[-1].strip()
     ru_leaf = ru_path.split(">")[-1].strip()
     if not zh_leaf or not ru_leaf:
+        candidate.match_semantic_unknown = True
         return
     # F-B02 修正：用「全路径」对比（叶词孤立的类目名在 product 语境下易误判
     # NO——保温杯批 Термосы↔保温杯 被误伤实证），mode=category 品类一致性 prompt

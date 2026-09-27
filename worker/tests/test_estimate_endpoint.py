@@ -43,11 +43,12 @@ VALID_ENVELOPE = {
 # 独立期望值（从 pricing_node 公式独立推导，测试侧锁定数值，不依赖被测实现）：
 # total_cost = 5.5(采购) + 10.0(mock物流) + 2.0(包装) = 17.5 CNY
 # CNY:  price = ceil(17.5 × 1.25 / 0.9) = ceil(24.31) = 25
-#       old_price (price≤25) = max(25+5, ceil(25×1.2)) = 30
+#       old_price = enforce_old_price_rule(25) = max(ceil(30), 25+20) = 45
+#       （v0.81.1 唯一规则：差价 <400 必须 ≥20；旧「+5」=30 违反实机契约）
 #       profit_cny = 25 - 17.5 = 7.5 ; profit_rate = 7.5/17.5 = 0.4286
 EXPECTED_CNY = {
     "price": 25,
-    "old_price": 30,
+    "old_price": 45,
     "profit_cny": 7.5,
     "profit_rate": 0.4286,
     "logistics_cost_cny": 10.0,
@@ -263,13 +264,14 @@ def test_estimate_returns_commission_source(monkeypatch):
 # ══════════════════════════════════════════════════════════════════
 # 三档手算（total_cost=5.5+10.0+2.0=17.5，佣金 0.10 显式）：
 #   日常 price = ceil(17.5×2.5/(1-0.10-0.155)) = ceil(43.75/0.745) = ceil(58.72) = 59
-#   划线 old   = ceil(17.5×3.0/0.745) = ceil(70.47) = 71
+#   划线 old   = max(ceil(17.5×3.0/0.745), enforce(59)) = max(71, max(71, 59+20)) = 79
+#              （v0.81.1 唯一规则：59<400 → 差价下限 79，anchor 价 71 被抬）
 #   促销 promo = ceil(17.5×1.6/(1-0.10-0.245)) = ceil(28.0/0.655) = ceil(42.75) = 43
 # 净利（销售净利率口径）= price×(1-0.10-0.155)-17.5 = 59×0.745-17.5 = 26.455
 #   → compute_price 实际返回 round(26.4549…,2)=26.45 / round(26.455/59,4)=0.4484
 EXPECTED_THREE_TIER = {
     "price": 59,
-    "old_price": 71,
+    "old_price": 79,
     "promo_price": 43,
     "profit_cny": 26.45,
     "profit_rate": 0.4484,
@@ -318,7 +320,7 @@ def test_legacy_single_tier_when_no_margin_floor(monkeypatch):
     assert "promo_price" not in result, "无 margin_floor 时不得出现 promo_price 键"
     assert "margin_anchor" not in result, "旧行为不返回三档配置键"
     assert result["price"] == EXPECTED_CNY["price"] == 25
-    assert result["old_price"] == EXPECTED_CNY["old_price"] == 30
+    assert result["old_price"] == EXPECTED_CNY["old_price"] == 45
 
 
 # ── 11. extensions 里带三档参数（不传请求覆盖）→ 同样生效 ──

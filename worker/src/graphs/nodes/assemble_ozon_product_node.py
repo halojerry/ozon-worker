@@ -44,6 +44,7 @@ from utils.ozon_category_query import (
 from utils.http_session import session
 from utils.attribute_utils import HAZARD_DICT_ATTR_IDS, is_customs_attr, pick_dict_fallback_value  # ⚠️ v0.16 海关不填 / v0.21 兜底规则
 from utils.attr_synonyms import load_attr_synonyms  # v0.32 共享同义词加载器（单一事实源）
+from utils.attr_defaults import _discriminant_conflict  # v0.81 收口批（#85 defer 闭合）：唯一事实源判别词交叉验证
 from utils.title_formula import parse_title_formula_keywords  # T1: 流量词纯西里尔过滤（hashtag 23171 消费）
 from utils.size_mapper import filter_brand_from_hashtags  # hashtag 品牌过滤（与 prepare 侧同源）
 from utils.cos_uploader import is_cos_url  # fix/image-ref-cos-whitelist-v1 批2: 无图补位只吃本方 COS 托管图（唯一实现在 image_url_guard，经 cos_uploader re-export 防漂移）
@@ -595,6 +596,41 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     if _namespace == "widget" and not (skill_l0_hit or {}).get("_resolved_by_path"):
         _authoritative = False
     return _authoritative
+
+
+def _divergent_match_block_reason(extensions: dict | None, draft_ozon_cat: dict | None) -> str:
+    """fix/semantic-gate-coverage v082: 图搜语义分歧硬闸判定（纯函数，可单测）。
+
+    背景：v0.81 follow 语义闸（skill `_pick_best_match(require_category_consistency
+    =True)`）只覆盖 follow 一条腿；discover/batch_test 复用链上错货信封（Ozon 竞品卡
+    是 A、1688 匹配到语义不符的 B）此前直进类目链。skill 现把 LLM 实锤分歧写进
+    extensions.match_evidence.divergent（_category_semantic_review / follow 降级确认
+    出闸），本节点作为**最后一道网**消费。
+
+    拦截条件：divergent=True **且** 采纳来源非权威——权威白名单对齐
+    `_is_skill_authoritative`（page/mapping/what_to_sell/manual；widget 命名空间未
+    path 精配视为非权威：面包屑 hint 只是类目线索，不是真实 Ozon 卡的类目采纳，
+    而 divergent 恰恰是拿这条面包屑与 1688 类目比对得出的）。权威来源有真实
+    Ozon 卡背书，不拦。
+
+    Returns:
+        拦截原因文案（空串=放行）。semantic_unknown（语义闸前提缺失）**不拦**——
+        只在信封留证，避免 CDP 降级（面包屑抓不到）时生产停摆。
+    """
+    try:
+        mev = extensions.get("match_evidence") if isinstance(extensions, dict) else None
+        if not (isinstance(mev, dict) and mev.get("divergent")):
+            return ""
+        cat = draft_ozon_cat if isinstance(draft_ozon_cat, dict) else {}
+        _src = str(cat.get("source", "") or "").strip()
+        _ns = str(cat.get("namespace", "") or "").strip()
+        if _is_skill_authoritative(_src, _ns, None):
+            return ""
+        return ("图搜匹配与竞品类目语义分歧（match_evidence.divergent，LLM 判定 1688 "
+                f"类目与竞品面包屑不一致；采纳来源 source={_src or 'n/a'}），"
+                "已入采集箱待人工确认")
+    except Exception:  # 信封形状异常不拦正常管线（防御， mev 非 dict 已在上方处理）
+        return ""
 
 
 def resolve_1688_source_category_id(draft, source) -> str:
@@ -1440,6 +1476,21 @@ def assemble_ozon_product_node(
     traffic_kws: list[str] = extensions.get("traffic_keywords") or []
     # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
     draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
+    # ✅ fix/semantic-gate-coverage v082: 图搜语义分歧硬闸（最后一道网）——
+    # divergent=True 且采纳来源非权威 → 不进类目链，走 v0.69 blocked_draft_box
+    # 入采集箱（tenant+item_id 幂等）等人工确认；权威来源（真实 Ozon 卡背书）
+    # 与 semantic_unknown（前提缺失未复核）不拦。判定细节见
+    # `_divergent_match_block_reason`（纯函数）。Input 透传：GlobalState.envelope
+    # 已声明（langgraph channel 纪律），extensions 内嵌无需新声明。
+    _divergent_reason = _divergent_match_block_reason(extensions, draft_ozon_cat)
+    if _divergent_reason:
+        logger.error(f"   🛑 语义分歧硬闸: {_divergent_reason}")
+        _log_match_attempt(state, title,
+                           str((draft_ozon_cat or {}).get("category_path") or ""),
+                           title, {}, match_layer="blocked", confidence=0.0,
+                           candidates=[], config=config)
+        return _blocked_exit(state, draft, [], _divergent_reason,
+                             match_confidence=0.0)
     if extensions.get("follow_sell"):
         # ── ✅ fix/category-root-cause-v1 (catfix): 轻量出口三闸（语义见模块级注释块）──
         # 生产实锤：本分支此前 dc 存在性直采（«切面器» 毒中 «去核器»），零审计零 meta。
@@ -3752,9 +3803,13 @@ def _validate_and_enrich_items(
         # 绝不能设文本默认值——Ozon 只接受列表中的 dictionary_value_id，文本→"请从列表中选择一个属性值"。
         # 它们由上方字典匹配路径处理（标题/属性名搜索 → 取第一个有效 dict_id），这里不设 default。
         KNOWN_DEFAULTS: dict[int, str] = {
-            8205: "730",              # Срок годности в днях（保质期天数）— 2年
-            8962: "1",                # Количество предметов（件数）
-            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并
+            # v0.81 收口批（#85 defer 闭合）：8205「Срок годности 730 天」编造事实
+            # 清退（8050 同构，与 prepare/retry 同口径）——保质期必填缺失交 validate
+            # 诚实拦截，绝不编造。语义中性兜底唯一出口见
+            # utils.attr_defaults.FACT_NEUTRAL_FREE_TEXT_DEFAULTS（8962 与其对齐）。
+            8962: "1",                # Количество предметов（件数）— 单件事实，共享白名单同款
+            8292: "0",                # Объединить на одной карточке（合并卡牌）— 0=不合并，
+                                      # 平台选项非商品事实，assemble 专属（prepare/retry 不填）
             # 9782: 字典属性（Класс опасности товара），值从 Ozon API 字典获取，不设 default
             # 23487: 自由文本属性，用 draft.supplier 填充，不设默认值
             # 4958: 字典属性（Назначение），不设 default — 走字典匹配路径
@@ -3908,6 +3963,18 @@ def _validate_and_enrich_items(
                     # 不再"取第一个字典值"——9782 曾因此被填成"爆炸物 Category 1"（BR_hazard_class1）
                     if not matched:
                         fallback = pick_dict_fallback_value(missing_id, attr_name, dict_vals)
+                        # ✅ v0.81 收口批（#85 defer 闭合）：«Тип» 类判别属性唯一值
+                        # 兜底前跑判别词交叉验证（「桌面扇」×«Напольный» 根因）——
+                        # 源标题出现某形态判别词而唯一值不含该形态 → 高置信错配，
+                        # 跳过不盲填（诚实留缺交 validate/retry）。仅对 Тип 系属性
+                        # 设闸：判别词表只含互斥形态词，非类型属性（如颜色）不误伤。
+                        if fallback and (
+                            "тип" in attr_name.lower() or "类型" in attr_name
+                        ) and _discriminant_conflict(draft_title, fallback[1]):
+                            logger.info(
+                                f"   ⏭️ 必填判别属性{missing_id}({attr_name}) 唯一值 "
+                                f"'{fallback[1]}' 与源标题判别词冲突，跳过不盲填")
+                            fallback = None
                         if fallback:
                             new_attr["values"] = [{
                                 "dictionary_value_id": fallback[0],

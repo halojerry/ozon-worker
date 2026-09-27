@@ -94,9 +94,25 @@ def _get_current(offer_id: str) -> dict:
     return {"info": it, "attrs": attrs}
 
 
-def _build_item(cur: dict, dc: int, tp: int) -> dict:
+def _build_item(cur: dict, dc: int, tp: int) -> tuple[dict | None, str]:
+    """构造重建 item。返回 (item, "")；现卡维度/重量缺失或为 0 → (None, 原因)。
+
+    ⚠️ Ozon 契约（MCP ProductAPI_ImportProductsV3）：«Реальные объёмно-весовые
+    характеристики ... Не пропускайте эти параметры в запросе и не указывайте 0»
+    ——/v4 回显缺任一维度/重量时发 0 必被 Ozon missing_dimension 拒。v0.81.1 起
+    保守跳过该卡并记原因，绝不发 0。
+    """
     info = cur["info"]
     attrs = cur["attrs"]
+    dims: dict[str, int] = {}
+    for key in ("depth", "width", "height", "weight"):
+        try:
+            val = int(float(attrs.get(key) or 0))
+        except (TypeError, ValueError):
+            val = 0
+        if val <= 0:
+            return None, f"现卡 {key} 缺失或为 0，拒绝重建（防 missing_dimension 拒单）"
+        dims[key] = val
     images = info.get("images") or []
     primary = info.get("primary_image") or ""
     if isinstance(primary, list):
@@ -109,7 +125,7 @@ def _build_item(cur: dict, dc: int, tp: int) -> dict:
         if aid in (85, 4389, 9048, 9024, 23171, 4180):
             vals = a.get("values") or []
             keep_attrs.append({"complex_id": 0, "id": aid, "values": vals})
-    return {
+    item = {
         "description_category_id": dc,
         "type_id": tp,
         "offer_id": info["offer_id"],
@@ -118,17 +134,22 @@ def _build_item(cur: dict, dc: int, tp: int) -> dict:
         "price": info.get("price", ""),
         "old_price": info.get("old_price", ""),
         "currency_code": info.get("currency_code", "RUB"),
-        "vat": info.get("vat", "0"),
         "dimension_unit": attrs.get("dimension_unit") or "mm",
         "weight_unit": attrs.get("weight_unit") or "g",
-        "depth": attrs.get("depth", 0),
-        "width": attrs.get("width", 0),
-        "height": attrs.get("height", 0),
-        "weight": attrs.get("weight", 0),
+        "depth": dims["depth"],
+        "width": dims["width"],
+        "height": dims["height"],
+        "weight": dims["weight"],
         "images": images,
         "primary_image": primary,
         "attributes": keep_attrs,
     }
+    # vat：info/list 回显真实值；取不到省略键（绝不写死 "0"——全量替换语义下
+    # 会把非零税率卡洗成 0，v0.81.1 与 content_enrich 同口径）
+    vat_val = str(info.get("vat") or "").strip()
+    if vat_val:
+        item["vat"] = vat_val
+    return item, ""
 
 
 def _fill_required_attrs(dc: int, tp: int, base_attrs: list) -> list:
@@ -172,7 +193,12 @@ def _recreate(cur: dict, dc: int, tp: int, dry: bool) -> dict:
     """归档 → 删除 → 重建。返回结果。"""
     info = cur["info"]
     pid = info.get("id")
-    item = _build_item(cur, dc, tp)
+    item, skip_reason = _build_item(cur, dc, tp)
+    if item is None:
+        # 维度/重量缺失守卫：跳过该卡记原因，绝不发 0（v0.81.1）
+        print(f"  ⏭️ 跳过：{skip_reason}")
+        return {"offer": info["offer_id"], "old_product_id": pid,
+                "new_dc_tp": [dc, tp], "skipped": skip_reason}
     item["attributes"] = _fill_required_attrs(dc, tp, item["attributes"])
     steps = {"offer": info["offer_id"], "old_product_id": pid,
              "new_dc_tp": [dc, tp], "images": len(item["images"]),
@@ -284,7 +310,7 @@ def main() -> int:
     Path("/tmp/repair_results.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\n结果已存 /tmp/repair_results.json")
+    print("\n结果已存 /tmp/repair_results.json")
     return 0
 
 
