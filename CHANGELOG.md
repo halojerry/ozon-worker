@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.82.0] — 2026-09-27（店铺卡不变量巡检域 card_audit：坏卡自愈层落地）
+
+> dev 自 v0.81.0 共 1 个 PR（#89）。方案 `docs/PLAN-card-audit-sweep-v1.md`
+> （4 路根因审计的架构结论：全部 8 项终态守卫钉死在提交时点，Ozon 真实损害
+> 发生在终态之后——本版把「坏卡靠肉眼发现→人工跑脚本」变成「系统日巡检 +
+> 白名单内自动修 + 其余报告待人」。
+
+### card_audit 日级巡检域（#89）
+
+- **挂载**：`store_sync_jobs` 域注册表加 `card_audit`（日级 1440min，零新调度器），
+  `due_credentials` 天然产出租户×凭证×水位；`CARD_AUDIT_ENABLED=0` 一键关。
+- **四不变量（动作分级）**：①`rating_gap`——rating<90 且缺口⊆保守白名单 →
+  走 `content_enrich` 家族构造器自动修（全量回显防洗卡），成功 auto_fixed、
+  保守放弃 open 带 reason；②`declined`——moderate_status==declined 只报告
+  （severity=high，零写操作）；③`source_mismatch`——product_task_index→
+  listing_result_log 源侧事实 vs 现卡名称 LLM 比对只报告（`CARD_AUDIT_LLM_TOKEN`
+  显式配置才启用 + 日封顶 50）；④`price_sanity`——缺 old_price/差价不足走
+  `build_price_update_body`（家族第五消费方，`enforce_old_price_rule` 唯一规则）
+  单字段自动修，min_price 异常只报告。
+- **数据层**：新表 `card_audit_finding`（部分唯一索引 `(ozon_product_id,
+  invariant) WHERE status='open'`，状态机范式抄 error_reports；finding 幂等两步
+  流转——实测踩平 PG 部分索引冲突仲裁只对满足谓词新行生效的语义坑）；
+  `ozon_products_cache` 补 `moderate_status` 列——**declined 卡首次在数据模型
+  里可发现**（存量 41 张 workbuddy 时代 declined 卡一网打尽的前提）。
+- **纪律**：自动修只走 content_enrich 家族（绝无裸拼 import POST）；B/C 绝不
+  写卡；单卡异常隔离；巡检异常不置 job failed（与 returns/rating 域同口径）。
+- **env**：`CARD_AUDIT_ENABLED`(1) / `CARD_AUDIT_AUTOFIX`(1) /
+  `CARD_AUDIT_LLM_CAP_DAILY`(50) / `CARD_AUDIT_LLM_TOKEN` /
+  `CARD_AUDIT_INTERVAL_MIN`(1440)。
+- 测试 +28（finding 模型 8 + 服务 20）；全量 3591 passed。
+
+### 升级注意
+
+- 需跑 `init_data`（新表 + moderate_status 列幂等迁移；cos-update 自带，
+  Docker 镜像重建不自动跑）。
+- C 不变量（内容-源一致性）需配 `CARD_AUDIT_LLM_TOKEN` 才生效，未配则该
+  不变量整体跳过并在 summary 如实标记，其余三不变量不受影响。
+- 首轮巡检会对存量卡集中开单（尤其 B 不变量 declined），通知通道有发现才发。
+
+
+
 ## [0.81.0] — 2026-09-27（上架质量战役 + 内容评分闭环 + Mimosa 安全批）
 
 > dev 自 v0.80.0 共 13 个 PR（#73-#82 + 收口批 #84-#86）。三大战役：①类目/上架
