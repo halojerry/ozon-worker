@@ -2827,6 +2827,8 @@ def _assemble_match_evidence(
     method: str = "",
     confidence=None,
     badge_eff=None,
+    divergent: bool = False,
+    semantic_unknown: bool = False,
 ) -> dict[str, Any]:
     """组装图搜匹配证据 dict（透传为 extensions.match_evidence，worker L0 学习置信门槛用）。
 
@@ -2838,9 +2840,16 @@ def _assemble_match_evidence(
         近似，略偏宽容，见 AGENTS.md v0.39 trusted_source 分通道护栏）；
       - 其余（cdp/image/text 无全符合徽标，或仅 conf 放行）→ trusted=False。
 
+    fix/semantic-gate-coverage v082: `divergent`（skill _category_semantic_review /
+    follow 语义闸实锤 LLM 判定两侧类目语义不一致）与 `semantic_unknown`（语义闸
+    前提数据缺失未跑成——诚实标记「未复核」）两布尔键；True 才写键（缺失省略），
+    worker assemble 对 divergent+非权威采纳来源硬闸入采集箱、对 semantic_unknown
+    不拦只留证。
+
     字段缺失即省略对应键（不做 None/空壳）；confidence/badge_eff 非正数视为缺失。
-    无任何正数数值信号（confidence/badge_eff 均 ≤0）时返回 {}（method 无承载——
-    调用方不注入 match_evidence 键，防空壳）。
+    无任何正数数值信号（confidence/badge_eff 均 ≤0）且无布尔标记时返回 {}（method
+    无承载——调用方不注入 match_evidence 键，防空壳）；仅布尔标记在场时照常返回
+    （携带真实信号的 dict 不是空壳）。
     """
     mev: dict[str, Any] = {}
     try:
@@ -2855,6 +2864,10 @@ def _assemble_match_evidence(
         mev["confidence"] = conf
     if badge > 0:
         mev["badge_eff"] = badge
+    if divergent:
+        mev["divergent"] = True
+    if semantic_unknown:
+        mev["semantic_unknown"] = True
     if not mev:
         return {}
     if method:
@@ -2922,6 +2935,11 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     # 省略纪律；worker 可作降权/人工复核线索，零消费透传不破坏兼容）。
     if getattr(candidate, "match_category_divergent", False):
         meta["match_category_divergent"] = True
+    # fix/semantic-gate-coverage v082: 语义复核前提缺失标记（未复核≠已复核通过）。
+    # 只进 discovery_meta 快照（采集箱可见），不加导出列（避免 webui 三出口联动
+    # 扩大面）；batch_test 复用闸 / --auto-submit 直接读候选属性同源判定。
+    if getattr(candidate, "match_semantic_unknown", False):
+        meta["match_semantic_unknown"] = True
     dims = getattr(candidate, "dimensions_mm", None)
     if dims:
         meta["dimensions_mm"] = dims
@@ -3244,9 +3262,13 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         # _process_match:783-786 落盘）——search_method/trusted/idx 未下传到候选，故 method
         # 键省略（字段缺失省略）；trusted 取 badge_eff>=1.0（matchBadgeFull 直通放行语义，
         # 见 _pick_best_match:1999）。无任何正数元数据 → 不注入（裸信封/弱匹配不做空壳）。
+        # ✅ fix/semantic-gate-coverage v082: divergent/semantic_unknown 布尔随行
+        # （_category_semantic_review 候选级标记；True 才写键，缺失省略）。
         _mev = _assemble_match_evidence(
             confidence=getattr(candidate, "match_confidence", 0.0),
             badge_eff=getattr(candidate, "match_badge_eff", 0.0),
+            divergent=bool(getattr(candidate, "match_category_divergent", False)),
+            semantic_unknown=bool(getattr(candidate, "match_semantic_unknown", False)),
         )
         if _mev:
             extensions["match_evidence"] = _mev
@@ -4803,10 +4825,14 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                     # confidence/badge_eff；method 取本函数 search_method（aibuy/cdp/
                     # image/text）；trusted 语义对齐 _pick_best_match 放行——best 未下传
                     # 原图搜位置 idx，按 method=="aibuy" 近似（见 _assemble_match_evidence）。
+                    # ✅ fix/semantic-gate-coverage v082: best 上的 match_semantic_unknown
+                    # （降级 LLM 确认放行标记）/match_category_divergent 布尔随行出闸。
                     _mev = _assemble_match_evidence(
                         method=search_method,
                         confidence=best.get("confidence"),
                         badge_eff=best.get("badge_eff"),
+                        divergent=bool(best.get("match_category_divergent")),
+                        semantic_unknown=bool(best.get("match_semantic_unknown")),
                     )
                     if _mev:
                         extensions["match_evidence"] = _mev
