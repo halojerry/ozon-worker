@@ -983,6 +983,11 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
         archived = bool(info.get("is_archived") or info.get("is_autoarchived"))
         errors = info.get("errors") or []
         status = "archived" if archived else ("error" if errors else "visible")
+        # ✅ v0.81 card_audit 域（PLAN-card-audit-sweep-v1 §1 缺口 3）：
+        # statuses.moderate_status 此前整段丢弃——declined 卡在缓存里不可查询。
+        # mcp 契约（ProductAPI_GetProductInfoList）：statuses.moderate_status 是字符串。
+        _statuses = info.get("statuses") if isinstance(info.get("statuses"), dict) else {}
+        moderate_status = str(_statuses.get("moderate_status") or "").strip() or None
         rows.append({
             "tenant_id": tenant_id,
             "credential_id": credential_id,
@@ -996,6 +1001,7 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
             "stock": extract_available_stock(info),
             "currency": "",
             "status": status,
+            "moderate_status": moderate_status,
             "error": json.dumps(errors, ensure_ascii=False) if errors else None,
             "archived": archived,
             "archived_at": datetime.datetime.now(datetime.timezone.utc).isoformat() if archived else None,
@@ -1007,12 +1013,12 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
             """
             INSERT INTO ozon_products_cache
                 (tenant_id, credential_id, product_id, offer_id, name, image,
-                 price, old_price, min_price, stock, currency, status, error,
-                 archived, archived_at, synced_at)
+                 price, old_price, min_price, stock, currency, status,
+                 moderate_status, error, archived, archived_at, synced_at)
             VALUES
                 (:tenant_id, :credential_id, :product_id, :offer_id, :name, :image,
                  :price, :old_price, :min_price, :stock, :currency, :status,
-                 CAST(:error AS jsonb), :archived, :archived_at, NOW())
+                 :moderate_status, CAST(:error AS jsonb), :archived, :archived_at, NOW())
             ON CONFLICT (tenant_id, credential_id, product_id) DO UPDATE SET
                 offer_id = EXCLUDED.offer_id,
                 name = EXCLUDED.name,
@@ -1023,6 +1029,7 @@ def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: 
                 stock = EXCLUDED.stock,
                 currency = EXCLUDED.currency,
                 status = EXCLUDED.status,
+                moderate_status = EXCLUDED.moderate_status,
                 error = EXCLUDED.error,
                 archived = EXCLUDED.archived,
                 archived_at = EXCLUDED.archived_at,

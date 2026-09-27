@@ -991,6 +991,12 @@ class OzonProductCache(Base):
     old_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     stock: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="")
+    # ✅ v0.81 card_audit 域（PLAN-card-audit-sweep-v1 §1 缺口 3）：/v3/product/info/list
+    # 的 statuses.moderate_status 此前被 _upsert_products 整段丢弃——declined 卡在
+    # 缓存里不可查询，是「存量 declined 卡数据模型里不存在」的直接原因。
+    # 旧行 NULL 不回填，下一轮商品同步自然写入（migrate_card_audit_v081 兜底加列）。
+    moderate_status: Mapped[Optional[str]] = mapped_column(
+        String(30), nullable=True, comment="Ozon 审核状态（statuses.moderate_status：approved/declined/…）")
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="本次同步未出现（已下架）")
     synced_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -1268,6 +1274,53 @@ class ErrorReport(Base):
         Index("idx_error_reports_tenant", "tenant_id"),
         Index("idx_error_reports_status", "status"),
         Index("idx_error_reports_created", "created_at"),
+    )
+
+
+class CardAuditFinding(Base):
+    """v0.81: 店铺卡不变量巡检发现表（card_audit 日级域，PLAN-card-audit-sweep-v1 §4）。
+
+    把「人工发现 + 脚本救」变成「系统持续发现 + 白名单内自动修 + 其余报告待人」的
+    落库面。四不变量 invariant ∈ {rating_gap, declined, source_mismatch, price_sanity}；
+    status 范式抄 error_reports（new/triaging/fixed/wontfix）改为巡检语义：
+    open / auto_fixed / triaging / fixed / wontfix。
+
+    唯一性：**部分唯一索引** (ozon_product_id, invariant) WHERE status='open'——
+    同一张卡同一不变量只允许一行 open（重复轮次原位更新 severity/detail 不重复开单）；
+    状态流转出 open（auto_fixed/triaging/fixed/wontfix）后问题复现可再开新行。
+    append-only 语义：除状态流转 UPDATE 外无删除/改写出入口。
+    """
+    __tablename__ = "card_audit_finding"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    tenant_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="租户（user_id）")
+    credential_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, comment="店铺凭证 ID")
+    ozon_product_id: Mapped[str] = mapped_column(String(50), nullable=False, comment="Ozon product_id")
+    invariant: Mapped[str] = mapped_column(
+        String(30), nullable=False,
+        comment="不变量：rating_gap/declined/source_mismatch/price_sanity")
+    severity: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="medium", server_default=text("'medium'"),
+        comment="high/medium/low")
+    detail: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True,
+        comment="现场证据（rating/improve 缺口/源侧事实/价格三元组/动作原因等）")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="open", server_default=text("'open'"),
+        comment="open/auto_fixed/triaging/fixed/wontfix")
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        # 同卡同不变量仅一行 open（card_audit_service._record_finding 的
+        # ON CONFLICT 冲突目标就是这个部分唯一索引，谓词必须逐字一致）
+        Index("uq_card_audit_finding_open", "ozon_product_id", "invariant",
+              unique=True, postgresql_where=text("status = 'open'")),
+        Index("idx_card_audit_finding_tenant_cred", "tenant_id", "credential_id"),
+        Index("idx_card_audit_finding_status", "status"),
     )
 
 
