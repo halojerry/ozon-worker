@@ -30,6 +30,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFY_SCRIPT = REPO_ROOT / "deploy" / "verify_manifest.sh"
 
 MANIFEST_URL = "https://unit.test.invalid/ozon-skill/manifest.json"
+# v0.81 缺陷①修复回归：签名对象 = 同目录常量兄弟名（COS 实际上传键），
+# 不是 MANIFEST_URL + ".sig"（= manifest.json.sig，COS 无此对象 → 404 拦死更新）
+SIG_URL = MANIFEST_URL.rsplit("/", 1)[0] + "/manifest.sig"
 
 # 测试 manifest（64 hex 占位运行时拼接——避免本文件被全树 gitleaks 自命中）
 _HEX_A = "a" * 32
@@ -86,7 +89,7 @@ def _install_fetch_mock(monkeypatch, manifest_text: str, sig_text: str,
         calls.append(url)
         if url == MANIFEST_URL:
             return _Resp(manifest_text)
-        if url == MANIFEST_URL + ".sig":
+        if url == SIG_URL:
             return _Resp(sig_text, status_code=sig_status)
         return _Resp("", status_code=404)
 
@@ -162,7 +165,7 @@ def test_authenticity_message_mismatch_blocked(monkeypatch):
     calls = _install_fetch_mock(monkeypatch, MANIFEST_TEXT, _sig_text(_RFC8032_V1_SIG))
     data, ok = updater._fetch_manifest(MANIFEST_URL)
     assert (data, ok) == (None, False), "签名消息与 manifest 不一致必须拦截"
-    assert calls == [MANIFEST_URL, MANIFEST_URL + ".sig"]
+    assert calls == [MANIFEST_URL, SIG_URL]
 
 
 def test_authenticity_sig_http_error_blocked(monkeypatch):
@@ -183,6 +186,27 @@ def test_authenticity_network_exception_blocked(monkeypatch):
         updater.requests, "get",
         mock.Mock(side_effect=ConnectionError("boom")))
     assert updater._fetch_manifest(MANIFEST_URL) == (None, False)
+
+
+# ═══ 缺陷①回归锁：签名对象名 = 同目录常量兄弟 manifest.sig ═══
+
+def test_sig_url_is_sibling_constant_name():
+    """签名 URL 必须是同目录 manifest.sig，绝非 ${manifest_url}.sig 推导。"""
+    sig_url = updater._sig_url_for(MANIFEST_URL)
+    assert sig_url == SIG_URL
+    assert sig_url.endswith("/manifest.sig")
+    assert not sig_url.endswith(".json.sig")
+    # 嵌套路径 & 裸文件名边界
+    assert updater._sig_url_for("https://x.invalid/a/b/manifest.json") == "https://x.invalid/a/b/manifest.sig"
+    assert updater._sig_url_for("manifest.json") == "manifest.sig"
+
+
+def test_no_postfix_sig_derivation_in_source():
+    """源码锁：updater.py 禁止 `.sig` 后缀拼接推导回潮
+    （对齐 worker/tests/test_cos_update_verify_v076.py 同款口径）。"""
+    src = Path(updater.__file__).read_text(encoding="utf-8")
+    assert '+ ".sig"' not in src, "禁止 ${url}.sig 后缀推导（manifest.json.sig 在 COS 无此对象）"
+    assert "_sig_url_for" in src, "签名 URL 必须经 _sig_url_for 唯一出口"
 
 
 # ═══ 第 2.5 层：与 OpenSSL 独立实现交叉验证（skipif 无 ed25519 能力）═══
