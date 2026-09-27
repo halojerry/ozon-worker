@@ -45,6 +45,37 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:ozon123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
 
+## 最近更新（v0.81.0 — 上架质量战役 + 内容评分闭环 + Mimosa 安全批，10 PR 同车）
+
+> 2026-09-27 发版（tag v0.81.0）。dev 自 v0.80.0 共 10 个 PR（#73-#82）。
+> **改类目匹配/重量/采购价/标题/图搜匹配/CDP 抓取/评分复检/鉴权前先读
+> CHANGELOG 0.81.0 对应节**；架构细节 `docs/ARCHITECTURE/`（#73 落地的 10 文档）。
+
+- **上架质量四病根全堵（#75/#77/#78，4718259 实机取证驱动）**：重量箱级毛重
+  reconcile 唯一入口（`reconcile_weight_with_attrs`，3× 比值闸，pricing+prepare
+  双接线）；采购价代表档（1只装散件价特判废除，改中位档/target_qty）；图搜语义
+  闸（follow 直通口前置 LLM 类目一致性，不一致拒配 no_relevant_match）；标题
+  结构闸（空槽/残壳/俄语小数逗号 → 兜底重生成链）+ 8050 成分硬编码默认删除 ×2
+  + 判别词交叉验证接线。实机：上架测试 10/10 一次过审、错配 6 拦截。
+- **静默 CDP（#76，改抓取链前必读）**：`new_tab` 默认 `background=True`——
+  前台只允许显式传 `background=False`（滑块人工重试/登录引导/_open_tab）；
+  后台 tab 懒加载渲染靠 `CdpTab.force_active()`（visibilityState→visible 实机
+  实证），v0.78 的「前台白名单」教义已翻转。
+- **内容评分闭环（#79，改 prepare 出口/fetch_back 前必读）**：4191 Аннотация +
+  11254 Rich 出口恒填（跟卖跳过）；过审后 rating<90 自动按 improve_attributes
+  补填（`CONTENT_RATING_ENHANCE=0` 关）。**v0.40 死代码根因**：Rich append 用
+  `{"id"}`（应 attribute_id）从未上卡。存量清扫
+  `worker/scripts/content_rating_sweep.py`（已实机跑：100 张补齐）；坑：rating
+  批量上限 100、价格走 /v5 嵌套 price 对象、/v4 老卡回显 images 是字符串数组。
+- **Mimosa 安全批（#80/#81/#82）**：SSTI ×7 全量 SandboxedEnvironment（唯一入口
+  `utils/safe_template.py`，src 内禁 jinja2 直引有守卫用例）；SSRF/证书/假凭据
+  ×5（webhook URL 校验+`TASK_NOTIFY_ALLOW_PRIVATE` 逃生门）；**真漏洞 2 处**：
+  `/async_run`、`/graph_parameter` 匿名 200→401（矩阵漏挂，grep 零现网调用方）。
+- **⚠️ 行为变更（写客户端/信封前必读）**：purchase_cost 取数量代表档（非散件
+  价）；weight 单件真值优先；新信封键 `weight_source_page_attr` /
+  `purchase_cost_representative_sku`（审计用零强制消费）；follow 语义闸拒配走
+  no_relevant_match。全文见 CHANGELOG 0.81.0「行为变更」七条。
+
 ## 最近更新（v0.80.0 — 特征属性填满战役 A1-A7 七期 + n8n 清理/extensions.stock 退役两 chore 同车）
 
 > 2026-09-25 发版（tag v0.80.0）。dev 自 v0.79.0 共 30 commits。**改属性填充/图片链/
