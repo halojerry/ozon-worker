@@ -2,9 +2,12 @@
 
 ## [0.81.0] — 2026-09-27（上架质量战役 + 内容评分闭环 + Mimosa 安全批）
 
-> dev 自 v0.80.0 共 10 个 PR（#73-#82）。三大战役：①类目/上架质量根因修复
-> （架构梳理 10 文档驱动 + 4718259 店实机取证）；②Ozon 内容评分闭环进管线；
-> ③Mimosa L3 全量分诊修复（真漏洞 2 处实锤）。实机 gate：主店 4718259 两轮
+> dev 自 v0.80.0 共 13 个 PR（#73-#82 + 收口批 #84-#86）。三大战役：①类目/上架
+> 质量根因修复（架构梳理 10 文档驱动 + 4718259 店实机取证）；②Ozon 内容评分闭环
+> 进管线；③Mimosa L3 全量分诊修复（真漏洞 2 处实锤）。**0.80 实机 gate 后追加
+> 4 路根因审计**（错货语义链/属性链/价格重量链/终态守卫，只读 subagent 对账），
+> 实锤 12 个残余复现口子，收口批 #84-#86 修复（见「残余口子收口批」节）；
+> 事后自愈层立项 `docs/PLAN-card-audit-sweep-v1.md`。实机 gate：主店 4718259 两轮
 > 批量上架 + discover 新防线全链（语义闸/重量/价格/标题四验证，10/10 一次过审）。
 
 ### 上架质量根因（#73 架构梳理 / #74 handover / #75 类目 / #77+78 质量）
@@ -54,6 +57,36 @@
   `/graph_parameter` 无鉴权——v0.76 矩阵漏挂，现无 token 一律 401。
 - 测试 +103 安全用例（恶意模板矩阵/webhook 校验矩阵/权限行为/gitleaks 夹具对齐）。
 
+### 残余口子收口批（#84/#85/#86 — 4 路审计驱动）
+
+> 审计结论：主链根因（错货 follow 链/整箱毛重/整箱价/8050）在 #73-#82 已真实
+> 关闭，但 12 个残余口子会让同类事故零星复发。本批三 PR 按文件域并行收口。
+
+- **#84 import 出口闸**：①`image_service.update_product_images` 裸 import POST
+  （A6 第四出口）收口——改图前三源回显（/v4 attributes + /v3 info/list +
+  /v5 prices）走 `content_enrich.build_image_update_body` 新公共构造器，
+  **fail-closed**（现卡拉不到拒改图 502/422）；②old_price 双规则收敛
+  `pricing_estimate.enforce_old_price_rule` 唯一入口（≥×1.2 且 price<400 差价
+  ≥20 实机口径）——compute_price/derive_list_prices/clamp_old_price 全委托，
+  低价卡（25<price<100）旧规则差价违规拒单自旋根治；③content_enrich 洗三字段
+  修复（complex_attributes/pdf_list 从 /v4 回读、vat/images360 从 info/list
+  回读，回读不到**省略键**绝不发空数组/写死 "0"）；④repair_cards 维度 0 值守卫。
+- **#85 质量闸批**：①假事实兜底表清退——prepare/retry 两张表的编造条目
+  （保质期 365/730 天、储存温度、干燥处）全删，语义中性条目收敛
+  `attr_defaults.FACT_NEUTRAL_FREE_TEXT_DEFAULTS` 唯一出口；②retry 标题结构闸
+  （登记 defer 闭合）；③box_reviewed 闸扩面——validate 级类目重配跳过采集箱
+  草稿（诚实 mismatch）、prepare 标题链跳过自主重写保留翻译；④A5 LLM 提案
+  判别词交叉验证（«Тип» 类属性唯一命中前跑 `_discriminant_conflict`，
+  「桌面扇→落地扇」在 A5 路径闭合）。
+- **#86 语义闸覆盖**：①分歧信号出闸——`match_evidence.divergent` /
+  `semantic_unknown` 进信封（CONTRACT-v4 已同步）；②follow 面包屑缺席
+  fail-open 收口——降级 LLM 语义确认，拿不出结论按 no_relevant_match 拦；
+  ③discover/batch_test 复用/--auto-submit 消费分歧（不复用不自动提交）；
+  ④worker assemble 分歧硬闸（最后一道网）——divergent+非权威采纳来源 →
+  blocked_draft_box 入采集箱；semantic_unknown 不拦（防 CDP 降级停摆）。
+- 审计认账的 defer：assemble 唯一命中兜底 KNOWN_DEFAULTS 同构残留（主线收口）、
+  validate 词表救场 box_reviewed 独立闸、CNY 计价 old_price 阈值语义。
+
 ### 行为变更（发版说明必读）
 
 1. **purchase_cost 口径**：数量变体取代表档（整档价），不再取 1只装散件价——
@@ -67,6 +100,16 @@
 5. **CDP**：`new_tab` 默认后台 tab；需要用户看见的页面必须显式 `background=False`。
 6. **/async_run、/graph_parameter**：匿名 200→401（grep 全仓零现网调用方）。
 7. **Ozon 卡内容**：新卡恒带 Аннотация + Rich-контент；过审后评分 <90 自动补填。
+8. **改图 fail-closed**：`/products/{id}/update_images` 现卡拉不到 → 502 拒改、
+   构造器保守放弃 → 422（此前裸 import POST 会洗空整卡）。
+9. **old_price 收紧**：price<400 差价 <20 的划线价不再产出（低价卡划线价抬高，
+   此前该形态会被 Ozon 拒单且 retry 自旋）。
+10. **假事实不再上卡**：保质期/储存条件/储存温度等编造兜底全撤——必填缺失走
+    诚实失败，属性覆盖率数字可能微降但零编造。
+11. **错货信封双闸**：follow 面包屑缺席多一次 LLM 语义确认；discover/batch_test
+    链 divergent 信封 worker 侧入采集箱（不再直上）。
+12. **采集箱权威扩面**：box_reviewed 草稿 validate 不重配类目、prepare 不重写
+    标题（翻译保留）——所见即所得契约补全。
 
 ### 升级注意
 
