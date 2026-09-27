@@ -288,11 +288,24 @@ def verify_minisign_signature(pubkey_text: str, sig_text: str, message: bytes) -
     return _ed25519_verify(sig_val, message, pub_key, prehashed=prehashed)
 
 
+def _sig_url_for(manifest_url: str) -> str:
+    """manifest 的签名对象 URL = **同目录常量兄弟名 manifest.sig**。
+
+    ⚠️ 禁止 `${manifest_url}.sig` 后缀推导（= manifest.json.sig，COS 无此对象，
+    fail-closed 404 拦死自动更新——实机缺陷①）。命名口径与 deploy/cos-update.sh
+    `MANIFEST_SIG_URL`、cd.yml / build-skill.yml 上传键三处同源，改名须四处同步
+    （COS 公读白名单 key 亦是 manifest.sig）。
+    """
+    base = manifest_url.rsplit("/", 1)[0] if "/" in manifest_url else ""
+    return f"{base}/manifest.sig" if base else "manifest.sig"
+
+
 def verify_manifest_authenticity(manifest_url: str, manifest_text: str) -> bool:
     """manifest 验签入口（语义与 deploy/cos-update.sh 一致）。
 
     - PROD_PUBKEY 为空 → warn 跳过并放行（逃生门口径；填入公钥后自动收紧）
-    - 非空 → 拉取 `<manifest_url>.sig`，下载失败/格式错/验签不过一律 False
+    - 非空 → 拉取同目录 `manifest.sig`（`_sig_url_for`，勿推导 .json.sig），
+      下载失败/格式错/验签不过一律 False
       （fail-closed：调用方按「检查失败」处理，更新被拦截）
     """
     if not PROD_PUBKEY.strip():
@@ -301,7 +314,7 @@ def verify_manifest_authenticity(manifest_url: str, manifest_text: str) -> bool:
             "（应急逃生门口径, 同 deploy/cos-update.sh COS_UPDATE_SKIP_VERIFY）"
         )
         return True
-    sig_url = manifest_url + ".sig"
+    sig_url = _sig_url_for(manifest_url)
     try:
         resp = requests.get(sig_url, timeout=CHECK_TIMEOUT)
         if resp.status_code != 200:
