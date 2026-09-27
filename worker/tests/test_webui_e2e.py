@@ -416,11 +416,33 @@ def test_step7_update_online_product(client, monkeypatch):
         if endpoint == "/v3/product/import":
             captured["import_body"] = body
             return {"result": {"task_id": "import-task-77"}}
+        if endpoint == "/v4/product/info/attributes":
+            # v0.81.1 改图全量回显前置数据（v4 特征表）
+            return {"result": [{
+                "id": int(body["filter"]["product_id"][0]),
+                "name": "Товар", "offer_id": ITEM_ID,
+                "description_category_id": 17027907, "type_id": 92359,
+                "weight": 500, "weight_unit": "g",
+                "depth": 200, "width": 150, "height": 100, "dimension_unit": "mm",
+                "primary_image": "https://img1.example.com/ok.jpg",
+                "images": [{"file_name": "https://img1.example.com/ok.jpg",
+                            "index": 0, "default": True}],
+                "attributes": [
+                    {"id": 85, "values": [{"dictionary_value_id": 1, "value": "Нет бренда"}]},
+                ],
+            }]}
+        if endpoint == "/v5/product/info/prices":
+            return {"items": [{"product_id": int(body["filter"]["product_id"][0]),
+                               "price": {"price": "254", "old_price": "305",
+                                         "currency_code": "CNY"}}]}
         if endpoint == "/v3/product/info/list":
-            return {"result": {"items": [
-                {"id": int(body["product_id"][0]),
-                 "statuses": {"moderate_status": "pending"}},
-            ]}}
+            if "product_id" in body:  # 审核状态查询
+                return {"result": {"items": [
+                    {"id": int(body["product_id"][0]),
+                     "statuses": {"moderate_status": "pending"}},
+                ]}}
+            # 改图回显（offer_id 过滤）：vat/images360
+            return {"items": [{"id": int(PRODUCT_ID), "vat": "0", "images360": []}]}
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
     def checker(url: str) -> bool:

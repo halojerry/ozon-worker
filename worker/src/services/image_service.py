@@ -18,6 +18,7 @@ from services import credential_service, draft_service  # T14 凭证解密 / T6 
 from services.product_index_service import lookup_index, upsert_index  # T6 抽取的共享索引访问
 from storage.database.db import get_engine
 from utils import image_quality_evaluator, task_image_cache as tic
+from utils.content_enrich import build_image_update_body  # A6 防洗卡：改图全量回显唯一构造器（v0.81.1）
 from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,95 @@ def _query_ozon_status(client_id: str, api_key: str, product_id: str, post: Call
         return "pending"
 
 
+def _fetch_card_echo(
+    client_id: str,
+    api_key: str,
+    product_id: str,
+    offer_id: str,
+    post: Callable[..., Any],
+) -> tuple[dict, Any, Any, str, Any, Any]:
+    """改图前拉现卡全量状态（v4 特征表 + info/list vat/360 图 + /v5 现价）。
+
+    ⚠️ A6 防洗卡纪律（AGENTS.md v0.80）：/v3/product/import 是**全量替换语义**
+    （MCP ProductAPI_ImportProductsV3：«При обновлении товара передайте в
+    запросе всю информацию о нём»）——只发 product_id/offer_id/images 三键会把
+    整卡特征/价格/尺寸/税率洗空。回读通道（MCP describe 实证）：
+    - /v4/product/info/attributes：attributes 全表 + 扁平 dims + name/dc/tp +
+      complex_attributes/pdf_list/color_image（不含 vat/images360）；
+    - /v3/product/info/list：vat + images360；price 字段 swagger 有但实测常缺
+      （content_rating_sweep.fetch_price_map 留证）→ 仅作价格兜底；
+    - /v5/product/info/prices：价格权威源（items[].price 嵌套对象）。
+
+    Returns:
+        (stored_item, price, old_price, currency_code, vat, images360)
+
+    Raises:
+        HTTPException 502：v4 回显为空或现价不可得（fail-closed，拒绝改图）。
+    """
+    pid = int(product_id)
+    # ① v4 特征表（改图回显的骨架来源；读不到就拒绝，绝不裸发全量替换）
+    try:
+        v4 = post(
+            client_id, api_key, "/v4/product/info/attributes",
+            {"filter": {"product_id": [pid], "visibility": "ALL"}, "limit": 10},
+            timeout=20,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"读取现卡特征失败（{e}），拒绝改图防洗卡")
+    v4_items = v4.get("result") or []
+    if isinstance(v4_items, dict):
+        v4_items = v4_items.get("items") or []
+    stored = None
+    for it in v4_items or []:
+        if isinstance(it, dict) and str(it.get("id") or "") == str(pid):
+            stored = it
+            break
+    if stored is None and v4_items and isinstance(v4_items[0], dict):
+        stored = v4_items[0]  # product_id 形态漂移兜底（offer 已由索引保证归属）
+    if not stored:
+        raise HTTPException(status_code=502, detail="Ozon 未返回现卡特征（/v4 回显为空），拒绝改图防洗卡")
+
+    price = old_price = None
+    currency = ""
+    vat: Any = None
+    images360: Any = None
+    # ② info/list：vat/images360（v4 不回）+ 价格兜底（省略键优于写死值）
+    try:
+        info = post(client_id, api_key, "/v3/product/info/list",
+                    {"offer_id": [offer_id]}, timeout=15)
+        info_items = info.get("items") or []
+        if info_items and isinstance(info_items[0], dict):
+            it0 = info_items[0]
+            vat = it0.get("vat")
+            im360 = it0.get("images360")
+            if isinstance(im360, list) and im360:
+                images360 = [u for u in im360 if str(u or "").strip()]
+            price = it0.get("price")
+            old_price = it0.get("old_price")
+            currency = str(it0.get("currency_code") or "")
+    except Exception as e:
+        logger.warning("改图回显 info/list 失败（vat/360 图省略键）product_id=%s: %s", product_id, e)
+    # ③ /v5 权威价源（覆盖 info/list 兜底；两者都拿不到 → 调用方 fail-closed）
+    try:
+        pr = post(
+            client_id, api_key, "/v5/product/info/prices",
+            {"filter": {"product_id": [pid]}, "limit": 10}, timeout=15,
+        )
+        for it in pr.get("items") or []:
+            if not isinstance(it, dict) or str(it.get("product_id")) != str(pid):
+                continue
+            p = it.get("price") or {}
+            price = p.get("price") or price
+            old_price = p.get("old_price") or p.get("marketing_price") or p.get("price") or old_price
+            currency = str(p.get("currency_code") or currency or "CNY")
+            break
+    except Exception as e:
+        logger.warning("改图回显现价失败 product_id=%s: %s", product_id, e)
+    if not price:
+        raise HTTPException(status_code=502, detail="无法读取现卡价格（/v5 与 info/list 均空），拒绝改图防洗卡")
+    return stored, price, old_price, (currency or "CNY"), vat, images360
+
+
 def update_product_images(
     tenant_id: str,
     product_id: str,
@@ -190,8 +280,12 @@ def update_product_images(
 
     ① product_task_index 定位（task_id + credential_id）；无索引 → 404「商品未找到，可能已归档」
     ② URL 存活检查（GET+Range，复用 image_quality_evaluator）→ 死 URL 过滤
-    ③ /v3/product/import 全量重传（product_id + offer_id + 新 images）
-    ④ ozon_status approved → 索引行回填；否则任务 status → pending_moderation + 「重新审核中」
+    ③ 拉现卡全量状态（_fetch_card_echo：v4 特征表 + vat/360 图 + 现价）→
+       build_image_update_body 构造**全量回显** item（A6 防洗卡纪律——import 是
+       全量替换语义，历史版本裸发三键会洗空整卡，v0.81.1 修复）；回显数据不可得
+       → fail-closed 拒绝改图（绝不裸发）
+    ④ /v3/product/import 全量重传
+    ⑤ ozon_status approved → 索引行回填；否则任务 status → pending_moderation + 「重新审核中」
     """
     index = lookup_index(tenant_id, product_id)
     if index is None:
@@ -212,7 +306,21 @@ def update_product_images(
         raise HTTPException(status_code=422, detail="全部图片不可达，无存活图片可重传")
 
     post = ozon_post_fn or ozon_post
-    body = {"items": [{"product_id": int(product_id), "offer_id": index["offer_id"], "images": alive}]}
+    # A6 防洗卡第四出口：改图前必须先拿到现卡全量状态并构造全量回显 item
+    stored, price, old_price, currency, vat, images360 = _fetch_card_echo(
+        client_id, api_key, product_id, index["offer_id"], post,
+    )
+    body, reason = build_image_update_body(
+        int(product_id), stored, alive,
+        price=price, old_price=old_price, currency_code=currency,
+        vat=vat, images360=images360,
+    )
+    if body is None:
+        # 保守放弃语义（content_enrich 同口径）：现卡缺维度/无价/无图 → 拒绝改图
+        raise HTTPException(
+            status_code=422,
+            detail=f"现卡状态不完整（{reason}），为防洗卡拒绝改图；请先在 Ozon 卖家后台补全该卡",
+        )
     try:
         result = post(client_id, api_key, "/v3/product/import", body, timeout=30)
     except requests.HTTPError as exc:
