@@ -73,11 +73,16 @@ TYPE_FILTER_CHOICES = ("1688", "ozon", "taobao", "tmall", "pdd", "all")
 def _submit_gate_rejection(candidate: Any, envelope: dict[str, Any] | None) -> str:
     """v0.73 提交闸：检查信封是否应被拦截。返回拦截原因（空串=放行）。
 
-    两道检查（复用 GraphInput 结构，只读不改信封）：
+    三道检查（复用 GraphInput 结构，只读不改信封）：
     1. draft.title 空/空白/短于 MIN_SUBMIT_TITLE_LEN → 空标题信封（worker
        9048 会退化成裸 item_id 卡）——硬闸；
     2. candidate.match_confidence ∈ (0, MIN_SUBMIT_MATCH_CONFIDENCE) →
        弱匹配候选。0.0 豁免（=旧缓存无字段/可信通道 0 分，见常量注释）。
+    3. ✅ fix/semantic-gate-coverage v082: match_category_divergent（LLM 实锤
+       语义分歧）或 match_semantic_unknown（复核前提缺失=未复核）→ 拒绝。
+       0.5 封顶/官方排序放行的 conf 能穿过检查 2，但分歧候选不该进管线——
+       错货信封 worker 侧还有最后一道网（assemble 语义分歧硬闸入采集箱），
+       此处拦截省一整条管线算力。
 
     supplier 空不拦（合法——CDP 拿不到 seller 时为空，worker 9048 用
     title hash 兜底）；只有 title 才是硬闸。
@@ -87,6 +92,12 @@ def _submit_gate_rejection(candidate: Any, envelope: dict[str, Any] | None) -> s
     if len(title) < MIN_SUBMIT_TITLE_LEN:
         return (f"空标题信封（draft.title={title!r}，"
                 f"少于 {MIN_SUBMIT_TITLE_LEN} 字符，9048 将退化裸 item_id 卡）")
+    if getattr(candidate, "match_category_divergent", False):
+        return ("语义分歧候选（match_category_divergent：1688 类目与竞品面包屑"
+                "LLM 判定不一致），需人工确认后重提")
+    if getattr(candidate, "match_semantic_unknown", False):
+        return ("语义未复核候选（match_semantic_unknown：类目一致性复核前提数据"
+                "缺失），按不可信处理，需人工确认后重提")
     try:
         conf = float(getattr(candidate, "match_confidence", 0.0) or 0.0)
     except (TypeError, ValueError):
@@ -340,6 +351,12 @@ def _find_discover_source(product_id: str) -> dict[str, Any] | None:
     ⚠️ v0.58: batch_test 处理 Ozon URL 时先复用 discover 已匹配好的 1688
     货源走直上管线，避免重复 CDP 抓 Ozon + 图搜（图搜质量差时护栏还会
     拦截多个，既慢又容易漏）。返回候选 dict 或 None。
+
+    ✅ fix/semantic-gate-coverage v082: 语义分歧（match_category_divergent，
+    LLM 实锤 1688 类目与竞品面包屑不一致）或语义前提缺失（match_semantic_
+    unknown，复核没跑成=未复核）的源**不复用**——build_envelope_from_discovery
+    逐字复用 match_1688_url 零语义复核，复用即错货直上。打印原因行跳过，
+    降级走 follow 图搜链（其自带类目一致性闸）。
     """
     try:
         from scripts.lib.ozon_discovery import load_latest_discovery
@@ -349,6 +366,15 @@ def _find_discover_source(product_id: str) -> dict[str, Any] | None:
             if not c.get("match_1688_url"):
                 continue
             if c.get("status") not in ("profitable", "matched"):
+                continue
+            if c.get("match_category_divergent"):
+                print(f"  ⛔ [{product_id}] discover 货源语义分歧"
+                      f"（match_category_divergent），不复用，降级 follow 图搜", flush=True)
+                continue
+            if c.get("match_semantic_unknown"):
+                print(f"  ⛔ [{product_id}] discover 货源语义未复核"
+                      f"（match_semantic_unknown，前提数据缺失），不复用，降级 follow 图搜",
+                      flush=True)
                 continue
             return c
     except Exception:
