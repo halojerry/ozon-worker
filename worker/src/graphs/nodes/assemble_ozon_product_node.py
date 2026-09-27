@@ -597,6 +597,41 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     return _authoritative
 
 
+def _divergent_match_block_reason(extensions: dict | None, draft_ozon_cat: dict | None) -> str:
+    """fix/semantic-gate-coverage v082: 图搜语义分歧硬闸判定（纯函数，可单测）。
+
+    背景：v0.81 follow 语义闸（skill `_pick_best_match(require_category_consistency
+    =True)`）只覆盖 follow 一条腿；discover/batch_test 复用链上错货信封（Ozon 竞品卡
+    是 A、1688 匹配到语义不符的 B）此前直进类目链。skill 现把 LLM 实锤分歧写进
+    extensions.match_evidence.divergent（_category_semantic_review / follow 降级确认
+    出闸），本节点作为**最后一道网**消费。
+
+    拦截条件：divergent=True **且** 采纳来源非权威——权威白名单对齐
+    `_is_skill_authoritative`（page/mapping/what_to_sell/manual；widget 命名空间未
+    path 精配视为非权威：面包屑 hint 只是类目线索，不是真实 Ozon 卡的类目采纳，
+    而 divergent 恰恰是拿这条面包屑与 1688 类目比对得出的）。权威来源有真实
+    Ozon 卡背书，不拦。
+
+    Returns:
+        拦截原因文案（空串=放行）。semantic_unknown（语义闸前提缺失）**不拦**——
+        只在信封留证，避免 CDP 降级（面包屑抓不到）时生产停摆。
+    """
+    try:
+        mev = extensions.get("match_evidence") if isinstance(extensions, dict) else None
+        if not (isinstance(mev, dict) and mev.get("divergent")):
+            return ""
+        cat = draft_ozon_cat if isinstance(draft_ozon_cat, dict) else {}
+        _src = str(cat.get("source", "") or "").strip()
+        _ns = str(cat.get("namespace", "") or "").strip()
+        if _is_skill_authoritative(_src, _ns, None):
+            return ""
+        return ("图搜匹配与竞品类目语义分歧（match_evidence.divergent，LLM 判定 1688 "
+                f"类目与竞品面包屑不一致；采纳来源 source={_src or 'n/a'}），"
+                "已入采集箱待人工确认")
+    except Exception:  # 信封形状异常不拦正常管线（防御， mev 非 dict 已在上方处理）
+        return ""
+
+
 def resolve_1688_source_category_id(draft, source) -> str:
     """兼容导出：实现在 utils/category_mapping_learn（v0.71 三源版，含
     source.match_category_id 图搜兜底）。保留模块级名字供既有单测引用。"""
@@ -1440,6 +1475,21 @@ def assemble_ozon_product_node(
     traffic_kws: list[str] = extensions.get("traffic_keywords") or []
     # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
     draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
+    # ✅ fix/semantic-gate-coverage v082: 图搜语义分歧硬闸（最后一道网）——
+    # divergent=True 且采纳来源非权威 → 不进类目链，走 v0.69 blocked_draft_box
+    # 入采集箱（tenant+item_id 幂等）等人工确认；权威来源（真实 Ozon 卡背书）
+    # 与 semantic_unknown（前提缺失未复核）不拦。判定细节见
+    # `_divergent_match_block_reason`（纯函数）。Input 透传：GlobalState.envelope
+    # 已声明（langgraph channel 纪律），extensions 内嵌无需新声明。
+    _divergent_reason = _divergent_match_block_reason(extensions, draft_ozon_cat)
+    if _divergent_reason:
+        logger.error(f"   🛑 语义分歧硬闸: {_divergent_reason}")
+        _log_match_attempt(state, title,
+                           str((draft_ozon_cat or {}).get("category_path") or ""),
+                           title, {}, match_layer="blocked", confidence=0.0,
+                           candidates=[], config=config)
+        return _blocked_exit(state, draft, [], _divergent_reason,
+                             match_confidence=0.0)
     if extensions.get("follow_sell"):
         # ── ✅ fix/category-root-cause-v1 (catfix): 轻量出口三闸（语义见模块级注释块）──
         # 生产实锤：本分支此前 dc 存在性直采（«切面器» 毒中 «去核器»），零审计零 meta。
