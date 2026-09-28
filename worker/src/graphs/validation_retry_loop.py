@@ -1190,6 +1190,55 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
         new_type = int(best.get("type_id") or 0)
         new_path = str(best.get("full_path") or best.get("node_name") or "")
 
+        # ✅ fix/category-authority-v1 v083 堵后门①: 换类目候选采纳前过源词 overlap
+        # 守卫——源词（signal）与候选路径零非泛词 overlap 时不再静默换（此前 R4 自选
+        # 候选直接采纳 + 伪造成 R2b 标记，连带豁免 Step 6.5、以 0.7 档写学习表，绕过
+        # R2b/Step 6.5 全部域守卫）。零 overlap → 走 `_gated_category_arbitration`
+        # （follow_sell_import_node 先例：R2b LLM 仲裁 + R1 veto + 敏感候选过滤），
+        # 仲裁不过 → 保留 needs_recategorization 收敛（不静默换类目）。
+        _r4_layer = "L1"  # 直过 overlap 守卫的自选候选 = 普通文本档（非 R2b）
+        try:
+            from graphs.nodes.assemble_ozon_product_node import (
+                _leaf_substring_overlap,
+                _non_generic_overlap_words,
+            )
+            _r4_ov = (_non_generic_overlap_words(new_path, [signal])
+                      or _leaf_substring_overlap(str(best.get("node_name") or ""), [signal]))
+            _r4_guard_ran = True
+        except Exception as _r4_g_e:
+            logger.warning(f"R4 重配: overlap 守卫异常({_r4_g_e})，按既有路径采纳")
+            _r4_ov = set()
+            _r4_guard_ran = False
+        if _r4_guard_ran and not _r4_ov:
+            try:
+                from graphs.nodes.follow_sell_import_node import (
+                    _gate_search_terms,
+                    _gated_category_arbitration,
+                )
+                _r4_terms = _gate_search_terms(
+                    {}, {"source_category": source_cat}, extra=[title_cn])
+                _g_dc, _g_tp = _gated_category_arbitration(
+                    _r4_terms, signal, draft, state, query=query)
+            except Exception as _g_e:
+                logger.warning(f"R4 重配: 门控仲裁异常({_g_e})，保留 needs_recategorization")
+                _g_dc, _g_tp = "", ""
+            if not (_g_dc and _g_tp):
+                logger.warning(
+                    "R4 重配: 候选与源词零 overlap 且门控仲裁未通过 → 保留 "
+                    "needs_recategorization（不静默换类目）")
+                return False
+            new_dc = int(_g_dc)
+            new_type = int(_g_tp)
+            try:
+                _r4_node = query.get_node(new_dc, new_type)
+            except Exception:
+                _r4_node = None
+            new_path = str((_r4_node or {}).get("full_path")
+                           or (_r4_node or {}).get("node_name") or new_path)
+            _r4_layer = "R2b"  # 真过 _r2b_confirm_adoption（经门控仲裁）方可置 R2b
+            logger.info(
+                f"R4 重配: 零 overlap → 门控仲裁通过 → [{new_dc}/{new_type}] {new_path[:60]}")
+
         # 从 payload/draft 提取重建所需上下文（对齐 assemble _rebuild_for_new_category 入参）
         item0: Dict[str, Any] = {}
         _items = state.ozon_payload.get("items") or []
@@ -1224,9 +1273,12 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
 
         state.description_category_id = str(new_dc)
         state.type_id = str(new_type)
-        # ✅ v0.66.1 断点2b: R4 整卡重配成功换新 dc/type → match_layer 置 R2b（重配结果
-        # 等同 LLM 确认档，写 mapping 分 0.7 档；L0 自证防护不误伤新证据）。
-        state.category_match_meta = {"match_layer": "R2b", "confidence": 0.7}
+        # ✅ v0.66.1 断点2b: R4 整卡重配成功换新 dc/type → 写 mapping 分 0.7 档。
+        # ✅ v083 堵后门①: match_layer **不再伪造 R2b**——只有真过
+        # `_r2b_confirm_adoption`（经 `_gated_category_arbitration` 门控仲裁）才置
+        # R2b；直过 overlap 守卫的自选候选置 L1（同为 0.7 档写学习表，但不带 R2b
+        # 语义、不连带豁免 Step 6.5 域守卫）。
+        state.category_match_meta = {"match_layer": _r4_layer, "confidence": 0.7}
         state.ozon_payload["items"] = rebuild.get("items") or state.ozon_payload.get("items") or []
         state.final_attributes = rebuild.get("final_attributes") or []
         state.attributes_schema = rebuild.get("attr_list") or []

@@ -418,6 +418,21 @@ def _leaf_substring_overlap(node_name: str, texts) -> set:
     return hits
 
 
+def _step65_adoption_overlap(path: str, node_name: str, source_texts) -> set:
+    """Step 6.5 采纳点的源词 overlap 守卫（纯函数，可单测）。
+
+    v083 堵后门②：Step 6.5 用 RU 标题重搜/LLM fallback 换类目时，仅「RU 标题与
+    候选 RU 路径词面一致」不够（RU 营销标题会把类目换到无关子树——A4 型错配：
+    除草关键词牵引）；采纳前必须与 1688 源词有非泛词重叠，否则类目可能在无关
+    域落定。判据同 R2b：full_path 字面 overlap 或叶子名子串 overlap。
+    返回非空命中集 = 放行采纳；空集 = 守卫失败（调用方继续试下一候选，最终入箱）。
+    """
+    ov = _non_generic_overlap_words(path, source_texts)
+    if ov:
+        return ov
+    return _leaf_substring_overlap(node_name, source_texts)
+
+
 def _ru_tree_full_path(query, cand: dict) -> str:
     """候选 dc+tp 的 RU 树路径（category_tree_nodes language=RU 行；失败返回空串）。"""
     try:
@@ -598,39 +613,75 @@ def _is_skill_authoritative(_source: str, _namespace: str, skill_l0_hit: dict | 
     return _authoritative
 
 
-def _divergent_match_block_reason(extensions: dict | None, draft_ozon_cat: dict | None) -> str:
-    """fix/semantic-gate-coverage v082: 图搜语义分歧硬闸判定（纯函数，可单测）。
+def _divergent_match_verdict(extensions: dict | None, draft_ozon_cat: dict | None,
+                             source: dict | None = None) -> tuple[str, bool]:
+    """fix/category-authority-v1 v083: 图搜语义分歧降级阶梯（纯函数，可单测）。
 
-    背景：v0.81 follow 语义闸（skill `_pick_best_match(require_category_consistency
-    =True)`）只覆盖 follow 一条腿；discover/batch_test 复用链上错货信封（Ozon 竞品卡
-    是 A、1688 匹配到语义不符的 B）此前直进类目链。skill 现把 LLM 实锤分歧写进
-    extensions.match_evidence.divergent（_category_semantic_review / follow 降级确认
-    出闸），本节点作为**最后一道网**消费。
+    背景：#86 语义闸（v082 `_divergent_match_block_reason`）的**权威二值豁免**——
+    权威来源一律放行——让「1688 类目名 vs 竞品面包屑」两侧语料都齐备的分歧在主场景
+    空转。v083 改为**降级阶梯**（worker 消费 skill 出证，不新增 pairwise LLM）：
 
-    拦截条件：divergent=True **且** 采纳来源非权威——权威白名单对齐
-    `_is_skill_authoritative`（page/mapping/what_to_sell/manual；widget 命名空间未
-    path 精配视为非权威：面包屑 hint 只是类目线索，不是真实 Ozon 卡的类目采纳，
-    而 divergent 恰恰是拿这条面包屑与 1688 类目比对得出的）。权威来源有真实
-    Ozon 卡背书，不拦。
+      - divergent + 权威 source + **两侧语料齐备**（信封 `source.match_category_name`/
+        `source_category_path` 有 1688 类目名，且 `draft.ozon_category.category_path`
+        有竞品面包屑）→ 返回 (\"\", True)：**降级为非权威**走既有全闸链（R2b/
+        Step 6.5 域守卫），过闸放行、不过 `_blocked_exit` 入箱。权威不再无条件直通，
+        但也不 fail-closed 硬拒（what_to_sell 在 seller 登录时覆盖大多数候选，
+        硬拒=停摆）。
+      - divergent + 权威 + 语料缺失 → (\"\", False)：留证不拦（unknown 语义，缺
+        1688 类目名/CDP 面包屑是常态，拦会让生产停摆）。
+      - divergent + 非权威（对齐 `_is_skill_authoritative` 白名单；widget 命名空间未
+        path 精配视为非权威——面包屑 hint 只是类目线索，不是真实 Ozon 卡的类目采纳，
+        而 divergent 恰恰是拿这条面包屑与 1688 类目比对得出的）→ 现状硬拦入采集箱。
+
+    manual 豁免（**不按 source 字面，防绕树校验**）：`source==\"manual\"` 且 dc/tp
+    均为数字 → 恒 (\"\", False)。用户明确指定的类目不被 LLM 分歧覆盖；树上是否存在
+    由 Step 0.5 `_resolve_skill_category` 复核（不在树 → 已有 manual 显式阻断），
+    R1 敏感 veto 对 manual 仍硬（`_r1_veto` 不按 match_layer 豁免）。
+
+    ⚠️ graph 直传链**无类目语义闸**（设计内，见 CONTRACT-v4 类目语义闸覆盖矩阵）：
+    graph 以 1688 链接直传、无 Ozon 竞品语料，信封无 `match_evidence.divergent` 键
+    → 本函数不介入；`--ozon-ref-url` 场景 skill 抓竞品面包屑出证后本闸同样生效。
 
     Returns:
-        拦截原因文案（空串=放行）。semantic_unknown（语义闸前提缺失）**不拦**——
-        只在信封留证，避免 CDP 降级（面包屑抓不到）时生产停摆。
+        (拦截原因文案, 是否降级权威)。原因空串=放行；降级 True 时调用方须把该采纳
+        来源当非权威处理（R2b/Step 6.5 全闸复核）。
     """
     try:
         mev = extensions.get("match_evidence") if isinstance(extensions, dict) else None
         if not (isinstance(mev, dict) and mev.get("divergent")):
-            return ""
+            return "", False
         cat = draft_ozon_cat if isinstance(draft_ozon_cat, dict) else {}
         _src = str(cat.get("source", "") or "").strip()
         _ns = str(cat.get("namespace", "") or "").strip()
-        if _is_skill_authoritative(_src, _ns, None):
-            return ""
-        return ("图搜匹配与竞品类目语义分歧（match_evidence.divergent，LLM 判定 1688 "
-                f"类目与竞品面包屑不一致；采纳来源 source={_src or 'n/a'}），"
-                "已入采集箱待人工确认")
+        _dc = str(cat.get("description_category_id", "") or "").strip()
+        _tp = str(cat.get("type_id", "") or "").strip()
+        _block_reason = ("图搜匹配与竞品类目语义分歧（match_evidence.divergent，LLM 判定 1688 "
+                         f"类目与竞品面包屑不一致；采纳来源 source={_src or 'n/a'}），"
+                         "已入采集箱待人工确认")
+        # manual 豁免：用户明确指定 dc/tp（数字）——不按 source 字面（防绕树校验）。
+        # 裸 manual（无 dc/tp 数字）**不豁免** → 按非权威硬拦（下游 Step0.5 亦会因
+        # 不在树而阻断，此处提前止损）。
+        if _src == "manual":
+            if _dc.isdigit() and _tp.isdigit():
+                return "", False
+            return _block_reason, False
+        if not _is_skill_authoritative(_src, _ns, None):
+            return _block_reason, False
+        _src_d = source if isinstance(source, dict) else {}
+        _has_1688 = bool(str(_src_d.get("match_category_name") or "").strip()
+                         or str(_src_d.get("source_category_path") or "").strip())
+        _has_breadcrumb = bool(str(cat.get("category_path") or "").strip())
+        if _has_1688 and _has_breadcrumb:
+            return "", True
+        return "", False
     except Exception:  # 信封形状异常不拦正常管线（防御， mev 非 dict 已在上方处理）
-        return ""
+        return "", False
+
+
+def _divergent_match_block_reason(extensions: dict | None, draft_ozon_cat: dict | None,
+                                  source: dict | None = None) -> str:
+    """兼容包装：只返回拦截原因文案（v083 阶梯见 `_divergent_match_verdict`）。"""
+    return _divergent_match_verdict(extensions, draft_ozon_cat, source)[0]
 
 
 def resolve_1688_source_category_id(draft, source) -> str:
@@ -1476,13 +1527,16 @@ def assemble_ozon_product_node(
     traffic_kws: list[str] = extensions.get("traffic_keywords") or []
     # ✅ 优先用 draft.ozon_category（Skill 端从 Ozon 竞品页面提取的类目名/ID）
     draft_ozon_cat = draft.get("ozon_category", {}) if draft else {}
-    # ✅ fix/semantic-gate-coverage v082: 图搜语义分歧硬闸（最后一道网）——
-    # divergent=True 且采纳来源非权威 → 不进类目链，走 v0.69 blocked_draft_box
-    # 入采集箱（tenant+item_id 幂等）等人工确认；权威来源（真实 Ozon 卡背书）
-    # 与 semantic_unknown（前提缺失未复核）不拦。判定细节见
-    # `_divergent_match_block_reason`（纯函数）。Input 透传：GlobalState.envelope
+    # ✅ fix/category-authority-v1 v083: 图搜语义分歧**降级阶梯**（最后一道网）——
+    # divergent=True：非权威 → 不进类目链，走 v0.69 blocked_draft_box 入采集箱
+    # （tenant+item_id 幂等）等人工确认；权威 + 两侧语料齐备 → 降级为非权威走既有
+    # 全闸链（R2b/Step 6.5），过闸放行、不过入箱；权威 + 语料缺失 → 留证不拦；
+    # manual（dc/tp 数字）恒豁免。semantic_unknown（前提缺失未复核）不拦。判定细节见
+    # `_divergent_match_verdict`（纯函数）。Input 透传：GlobalState.envelope
     # 已声明（langgraph channel 纪律），extensions 内嵌无需新声明。
-    _divergent_reason = _divergent_match_block_reason(extensions, draft_ozon_cat)
+    _divergent_source = getattr(state, "source", None) or {}
+    _divergent_reason, _divergent_downgrade = _divergent_match_verdict(
+        extensions, draft_ozon_cat, _divergent_source)
     if _divergent_reason:
         logger.error(f"   🛑 语义分歧硬闸: {_divergent_reason}")
         _log_match_attempt(state, title,
@@ -1491,6 +1545,10 @@ def assemble_ozon_product_node(
                            candidates=[], config=config)
         return _blocked_exit(state, draft, [], _divergent_reason,
                              match_confidence=0.0)
+    if _divergent_downgrade:
+        logger.warning(
+            "   ⚠️ 语义分歧降级：权威来源 + 两侧语料齐备 → 降为非权威走全闸链"
+            f"（source={str((draft_ozon_cat or {}).get('source') or 'n/a')}）")
     if extensions.get("follow_sell"):
         # ── ✅ fix/category-root-cause-v1 (catfix): 轻量出口三闸（语义见模块级注释块）──
         # 生产实锤：本分支此前 dc 存在性直采（«切面器» 毒中 «去核器»），零审计零 meta。
@@ -1502,7 +1560,10 @@ def assemble_ozon_product_node(
         _f_src_tag = str(draft_ozon_cat.get("source", "") or "").strip()
         # 权威 source（对齐 _is_skill_authoritative 白名单）信任，免闸②词面交叉；
         # 闸①配对校验 / 闸③面包屑交叉 / 西里尔预检对权威仍生效（R1 纪律同款：信任有边界）。
-        _f_trusted = _f_src_tag in ("page", "mapping", "what_to_sell", "manual")
+        # ✅ v083: 语义分歧降级（divergent+权威+两侧语料齐备）→ 权威信任撤回，
+        # 闸②词面交叉对 follow 同款生效（信任有边界）。
+        _f_trusted = (_f_src_tag in ("page", "mapping", "what_to_sell", "manual")
+                      and not _divergent_downgrade)
         q = get_category_query()
         _f_has_pid = bool(getattr(state, "product_id", None))
 
@@ -1717,8 +1778,12 @@ def assemble_ozon_product_node(
             _skill_l0_hit = _resolve_skill_category(draft_ozon_cat)
         # ✅ v0.67 wave 修复：权威判定提前到入池前——非权威候选必须以队尾方式
         # 入池（_place_skill_candidate），不能再走「先插首后降级」的矛盾路径。
-        _skill_authoritative = _is_skill_authoritative(
-            _skill_source, _skill_namespace, _skill_l0_hit,
+        # ✅ v083: 语义分歧降级（divergent+权威+两侧语料齐备）→ 权威撤回，skill 候选
+        # 以普通 L1 身份入池过 R2b/Step 6.5 全闸链（manual dc/tp 数字场景已被
+        # _divergent_match_verdict 豁免，此处降级仅命中 page/mapping/what_to_sell）。
+        _skill_authoritative = (
+            _is_skill_authoritative(_skill_source, _skill_namespace, _skill_l0_hit)
+            and not _divergent_downgrade
         )
         # ✅ v0.70 P1: manual 类目树校验失败 → 显式阻断，不再静默退回自动匹配。
         # 用户明确指定的 dc/tp 校验不过就被无感知丢弃 = 按 worker 猜的类目上架，
@@ -2649,6 +2714,9 @@ def assemble_ozon_product_node(
         and int(description_category_id or 0) == int(l0_hit.get("description_category_id") or 0)
         and int(type_id or 0) == int(l0_hit.get("type_id") or 0)
     )
+    # ✅ v083: Step 6.5 采纳点源词守卫用的 1688 侧语料（词组，空格分隔）——
+    # 1688 面包屑展开词 source_keywords + 标题关键词 keywords + 末级类目词 leaf_name。
+    _s65_src_texts = [t for t in (source_keywords, keywords, leaf_name) if t]
     if not category_consistent and not _step65_consistency_exempt(
             match_layer, _r2b_confirmed, _l0_exempt_consistency,
             box_reviewed=bool((extensions or {}).get("box_reviewed"))):
@@ -2685,7 +2753,12 @@ def assemble_ozon_product_node(
                             pass
                         # 用俄语路径验证一致性
                         re_consistent = _check_category_consistency(llm_name, re_ru_path or re_path, re_cat_id, re_type_id)
-                        if re_consistent:
+                        # ✅ v083 堵后门②: 采纳前加源词 overlap 守卫——仅 RU 标题词面
+                        # 一致不够（RU 营销标题会把类目换到无关子树），必须与 1688 源词
+                        # 有非泛词重叠；零 overlap 跳过该候选（继续试/落 LLM fallback）。
+                        if re_consistent and _step65_adoption_overlap(
+                                re_path, str(candidate.get("node_name") or ""),
+                                _s65_src_texts):
                             logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {re_cat_id}/{re_type_id} ({re_path})")
                             # ✅ v0.9.0: 类目变更后完整重建属性 schema + items + final_attributes
                             rebuild_result = _rebuild_for_new_category(
@@ -2776,7 +2849,15 @@ def assemble_ozon_product_node(
             if best_by_llm:
                 llm_cid = best_by_llm.get("description_category_id", 0)
                 llm_tid = best_by_llm.get("type_id", 0)
-                if llm_cid and llm_tid and (llm_cid != description_category_id or llm_tid != type_id):
+                # ✅ v083 堵后门②: LLM fallback 采纳前同款源词 overlap 守卫
+                # （full_path 字面或叶子名子串）；不过 → 不采纳（下方统一 _blocked_exit）。
+                _s65_llm_ok = bool(_step65_adoption_overlap(
+                    str(best_by_llm.get("full_path") or ""),
+                    str(best_by_llm.get("node_name") or ""),
+                    _s65_src_texts))
+                if (llm_cid and llm_tid
+                        and (llm_cid != description_category_id or llm_tid != type_id)
+                        and _s65_llm_ok):
                     logger.info(f"✅ LLM fallback 重新分类: {description_category_id}/{type_id} → {llm_cid}/{llm_tid} ({best_by_llm.get('full_path', '')})")
                     # ✅ v0.9.0: 类目变更后完整重建属性 schema + items + final_attributes
                     rebuild_result = _rebuild_for_new_category(
@@ -2812,6 +2893,7 @@ def assemble_ozon_product_node(
                         except Exception:
                             pass
                         logger.info(f"   ✅ 类目变更+属性重建完成: {len(final_attributes)} 个属性")
+                        recategorize_failed = False  # v083: LLM 采纳成功 = 重配已完成
                     else:
                         # 降级: 至少更新 attr_list
                         new_attr_schema = query.get_attribute_schema(llm_cid, llm_tid)
@@ -2835,14 +2917,25 @@ def assemble_ozon_product_node(
                         except Exception:
                             pass
                         logger.warning(f"   ⚠️ 仅更新 schema（重建失败）: {len(attr_list)} 个属性")
+                        recategorize_failed = False  # v083: 采纳落地（schema 降级）已完成
                 else:
                     logger.warning(f"   ⚠️ LLM fallback 选中相同类目或无变化")
             else:
-                # LLM fallback 也失败 → 保留原类目 ID（降级到 pg_trgm 最高 sim）
+                # ✅ v083: LLM fallback 无返回 → 不再静默保留原类目（下方统一入箱）。
                 logger.error(
-                    f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」无共同关键词，"
-                    f"且 pg_trgm 和 LLM 重新匹配均失败。保留原类目 [{description_category_id}/{type_id}]，由 Ozon 验证。"
+                    f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」"
+                    f"无共同关键词，且 pg_trgm 和 LLM 重新匹配均无解。"
                 )
+        # ✅ v083 堵后门②: 重配最终无解（pg_trgm 零 overlap / LLM fallback 未采纳或
+        # 零 overlap）→ 不静默保留旧类目（错配可再生），诚实入采集箱待人工确认。
+        if recategorize_failed:
+            _s65_reason = (
+                f"类目一致性校验失败且重新匹配未找到与货源类目重叠的候选"
+                f"（当前类目 [{description_category_id}/{type_id}] "
+                f"{str(category_path)[:50]}），已入采集箱待人工确认")
+            logger.error(f"   🛑 Step6.5 类目重配无解: {_s65_reason}")
+            return _blocked_exit(state, draft, candidates, _s65_reason,
+                                 match_confidence=0.0)
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）

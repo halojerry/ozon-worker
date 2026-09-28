@@ -170,6 +170,39 @@ def _run_follow() -> dict:
         return cloud_probe.follow_sell_cloud(URL, auto_submit=False, store_id="s1")
 
 
+def _run_follow_empty_title() -> dict:
+    """v083 空竞品标题路径：不桩 _pick_best_match（走 matches[0] + semantic_unknown 出证）。"""
+    _cdp = {"success": True, "images": ["http://img/ozon/1.jpg"], "title": ""}
+    with mock.patch("scripts.lib.cache.cache_get", return_value=None), \
+         mock.patch("scripts.lib.cache.cache_set"), \
+         mock.patch("scripts.lib.config_store._require_auth"), \
+         mock.patch.object(cloud_probe, "_get_ozon_credentials",
+                           return_value={"client_id": "1", "api_key": "k"}), \
+         mock.patch("scripts.lib.config_store.get_mxou_token", return_value="sk"), \
+         mock.patch.object(cloud_probe, "_cached_ozon_scrape", return_value=_cdp), \
+         mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp", return_value=(True, "ok")), \
+         mock.patch("scripts.cli._chrome_profile_dir", return_value="/tmp/profile"), \
+         mock.patch("scripts.lib.cdp_client.CdpConnection"), \
+         mock.patch("scripts.lib.ozon_seller_analytics.fetch_sales_analytics", return_value={}), \
+         mock.patch("scripts.lib.ozon_image_search.search_by_image_aibuy", return_value=AIBUY_RESULTS), \
+         mock.patch("scripts.lib.ozon_image_search.search_by_image_cdp", return_value=[]), \
+         mock.patch("scripts.lib.source_candidates.spawn_source_report"), \
+         mock.patch.object(cloud_probe, "build_graph_envelope_with_retry",
+                           return_value={
+                               "token": "sk", "ozon_client_id": "1", "ozon_api_key": "k",
+                               "envelope": {
+                                   "draft": {"item_id": "980815374096", "title": "x",
+                                             "images": [], "weight": 0,
+                                             "dimensions": {"length": 0, "width": 0,
+                                                            "height": 0}},
+                                   "source": {"purchase_url": "u", "purchase_cost": 1.0},
+                                   "extensions": {},
+                               },
+                           }), \
+         mock.patch("scripts.lib.config_store.get_store_profile", return_value={}):
+        return cloud_probe.follow_sell_cloud(URL, auto_submit=False, store_id="s1")
+
+
 def test_follow_envelope_carries_match_evidence():
     """follow best 带 confidence/badge_eff（method=aibuy）→ match_evidence 注入。"""
     r = _run_follow()
@@ -190,6 +223,17 @@ def test_assemble_match_evidence_empty_when_no_signals():
     assert cloud_probe._assemble_match_evidence() == {}
     assert cloud_probe._assemble_match_evidence(method="aibuy") == {}
     assert cloud_probe._assemble_match_evidence(confidence=0, badge_eff=0) == {}
+
+
+def test_follow_empty_title_marks_semantic_unknown():
+    """v083 堵后门③：竞品标题为空 → 不再 matches[0] 直通，改标 semantic_unknown
+    出证（信封 match_evidence.semantic_unknown=True 交 worker 阶梯）。"""
+    r = _run_follow_empty_title()
+    assert r.get("success") is True, r
+    assert r.get("envelope_built") is True
+    mev = r["envelope"]["envelope"]["extensions"]["match_evidence"]
+    assert mev.get("semantic_unknown") is True
+    assert "divergent" not in mev
 
 
 if __name__ == "__main__":

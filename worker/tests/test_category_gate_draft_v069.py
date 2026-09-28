@@ -337,10 +337,12 @@ def test_19_r1_veto_and_title_empty_exits_do_not_box():
     # fix/category-root-cause-v1 新增 follow 类目闸 CREATE 拦截出口——UPDATE 走
     # 省略类目语义不建箱，仅 CREATE（无 product_id）拦截时阻断入箱转人工；
     # fix/semantic-gate-coverage v082 新增图搜语义分歧硬闸出口——match_evidence
-    # .divergent 且采纳来源非权威 → 入采集箱待人工确认，类目查询前止损）
+    # .divergent 且采纳来源非权威 → 入采集箱待人工确认，类目查询前止损；
+    # fix/category-authority-v1 v083 新增 Step6.5 类目重配无解出口——RU 标题重搜/
+    # LLM fallback 均未找到与货源重叠的候选 → 入采集箱，不再静默保留旧类目）
     assert src.count("asm._blocked_exit(") == 0  # 模块内不带前缀调用
-    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 10, \
-        "阻断出口入箱接线数应为 10（v082 语义分歧硬闸出口 +1）"
+    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 11, \
+        "阻断出口入箱接线数应为 11（v082 语义分歧硬闸 + v083 Step6.5 无解出口）"
 
 
 def test_20_follow_layer_never_creates_draft():
