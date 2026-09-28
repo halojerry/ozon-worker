@@ -144,13 +144,17 @@ def _call_pricing(monkeypatch, state, logistics_cost=10.0, rate=12.0):
 
 
 class TestPricingWiring:
+    # ⚠️ v0.83.2：本组只验证 reconcile 接线（不验证体积重兜底）。dims 取 50×60×40mm
+    # （50g 密度 0.417 ≥ 0.40）令体积密度兜底不触发，断言只覆盖 reconcile——与下方
+    # TestPrepareWiring 同款口径（否则 50g/120g 会被 0.40 g/cm³ 兜底抬重，混入另一机制）。
+
     def test_pricing_uses_reconciled_weight_for_logistics(self, monkeypatch):
         """信封 962g + 商品重量 50克 → 物流查询收到 50g，wd_audit 留 reconcile mark。"""
         state = _make_pricing_state(
             draft={
                 "cost_cny": 5.5,
                 "weight": 962,
-                "dimensions": {"length": 120, "width": 80, "height": 60},
+                "dimensions": {"length": 50, "width": 60, "height": 40},
                 "attributes": {"商品重量": "50克"},
             }
         )
@@ -166,7 +170,7 @@ class TestPricingWiring:
             draft={
                 "cost_cny": 5.5,
                 "weight": 120,
-                "dimensions": {"length": 120, "width": 80, "height": 60},
+                "dimensions": {"length": 50, "width": 60, "height": 40},
                 "attributes": {"商品重量": "50克"},
             }
         )

@@ -70,8 +70,10 @@ def compute_pricing_core(
         tpl_provider / service_level: 店铺 3PL 与服务等级（调用方探测后传入）。
         logistics_source: 物流配置来源标记（store/default_rets），进 audit_out。
         apply_volume_floor: 是否做体积重兜底（ensure_volume_weight_floor）。
-            ⚠️ pricing_node 传 False（行为逐字不变）；estimate/batch 传 True（与
-            prepare 上架链同序）。
+            **v0.83.2 起三处（pricing_node / estimate / batch）统一传 True**——与
+            prepare 上架链同序（normalize→reconcile→floor），卡面声明重量、物流计费
+            重量与定价重量同口径（低密度件不再「卡 121g 计费 / 定价 100g」少收运费差）。
+            守卫条件：prepare 上传链始终兜底，故定价链必须一致，否则系统性少收运费。
         margin_rate/commission_rate/fx_buffer/margin_anchor/margin_floor/
         variable_cost_rate/promo_variable_cost_rate: **请求级覆盖**（estimate 端点）。
             None → 回落 extensions / 默认（pricing_node 全不传，语义与改动前一致）。
@@ -125,12 +127,26 @@ def compute_pricing_core(
     )
     if _reconcile_marks:
         _wd_marks["reasons"].extend(_reconcile_marks)
-    # v0.83：estimate/batch 补体积重兜底（与 prepare 同序 normalize→reconcile→floor）
+    # v0.83.2：定价链体积重兜底（与 prepare 同序 normalize→reconcile→floor）——
+    # pricing_node / estimate / batch 三处统一开启（见 compute_pricing_core 参数注释），
+    # 低密度件按真实计费重量计价：卡面声明/物流计费/定价三者同口径（此前 pricing_node
+    # 不兜底 → 卡与物流按 121g 计费、定价却按 100g 算，低密度单系统性少收运费差）。
+    _volume_floor_mark: Optional[Dict[str, Any]] = None
     if apply_volume_floor:
-        from utils.volume_weight_guard import ensure_volume_weight_floor
+        from utils.volume_weight_guard import (
+            compute_density_g_cc,
+            ensure_volume_weight_floor,
+        )
 
+        _w_before_floor = weight
         weight, _raised = ensure_volume_weight_floor(weight, dims_mm)
         if _raised:
+            # 结构化审计键（风格对齐 prepare：from/to/density_before）
+            _volume_floor_mark = {
+                "from": int(_w_before_floor),
+                "to": int(weight),
+                "density_before": compute_density_g_cc(_w_before_floor, dims_mm),
+            }
             _wd_marks["reasons"].append("weight_adjusted_for_volume")
 
     # mm → cm（物流费率表按 cm 匹配）
@@ -335,6 +351,8 @@ def compute_pricing_core(
             "weight_estimated": _wd_marks.get("weight_estimated", False),
             "dimensions_suspected": _wd_marks.get("dimensions_suspected", False),
             "reasons": _wd_marks.get("reasons", []),
+            # v0.83.2：体积重兜底触发留痕（{from,to,density_before}；未触发省略键）
+            **({"volume_floor_applied": _volume_floor_mark} if _volume_floor_mark else {}),
         },
         "price_formula": "total_cost × (1 + margin) / (1 - commission) [× (1 + fx_buffer) × exchange_rate if RUB]",
         "profit_estimation": {
@@ -379,6 +397,7 @@ def compute_pricing_core(
                 "dims_mm": dict(dims_mm),
                 "weight_suspect": weight_suspect_reason,
                 "wd_audit": dict(pricing_info["wd_audit"]),
+                "volume_floor_applied": _volume_floor_mark,
                 "weight_source": _wd_marks.get("weight_source", "draft"),
                 "dual_margin": dual_margin,
                 "margin_rate": eff_margin,

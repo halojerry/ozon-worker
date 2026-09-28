@@ -163,8 +163,10 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             description_category_id=getattr(state, "description_category_id", "") or "",
             tpl_provider=tpl_provider,
             service_level=service_level,
-            # pricing_node 不在定价链做体积重兜底（该兜底在 prepare 上架链，行为逐字不变）
-            apply_volume_floor=False,
+            # v0.83.2：定价链与 prepare 上架链同序启用体积重兜底（normalize→reconcile→
+            # floor）——prepare 对卡面/物流按兜底后重量（如 100g→121g）计费，定价若仍按
+            # 兜底前重量算则系统性少收运费差；三处同口径后卡面声明/物流计费/定价一致。
+            apply_volume_floor=True,
             query_logistics_cost_fn=query_logistics_cost,
             get_category_commission_fn=_commission_fn(),
             audit_out=_audit,
