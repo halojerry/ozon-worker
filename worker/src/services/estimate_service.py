@@ -7,10 +7,12 @@
 「取数 + 解析货币/汇率/3PL + 调共享核 + 投影响应」，不写定价公式。
 
 与 pricing_node 的差异（有意，均为「补全」方向）：
-- 重量链补 ``reconcile_weight_with_attrs`` + 体积重兜底 ``ensure_volume_weight_floor``
-  （与 prepare 上架链同序 normalize→reconcile→floor）；
+- 重量链做 ``reconcile_weight_with_attrs``（与定价节点同源）；**不做**体积重兜底
+  ``ensure_volume_weight_floor``——卡价由 pricing_node 设定且其 ``apply_volume_floor=False``，
+  预估单方兜底会抬重 → 预估↔卡价漂移（v0.83 gate 批① 第二轮修正，见下方注释）；
 - 无传入汇率且币种为 RUB 时走 fx 三级链 ``resolve_cny_rub_rate``（pg_cache→live→兜底）；
-- 请求带 credential_id 时经 credential_service 解密取店铺 3PL（否则 default_rets）。
+- 请求带 credential_id / ``extensions.credential_id`` / ``extensions.ozon_client_id`` 时
+  经 credential_service 解密取店铺 3PL（否则 default_rets）。
 
 ⚠️ 铁律：前端/skill 一律不写定价公式；本服务也只做「取数 + 调共享核」。
 """
@@ -42,6 +44,39 @@ def _extract_dc_id(draft: dict) -> Optional[int]:
         return None
     s = str(raw)
     return int(s) if s.isdigit() else None
+
+
+def _resolve_credential_id_from_extensions(
+    extensions: dict, tenant_id: Optional[str]
+) -> Optional[str]:
+    """envelope.extensions 的凭证线索 → worker credential_id（v0.83 gate 批① 价格同源）。
+
+    gate 三轮实锤：skill 提交前预估走本服务（envelope 形态），此前**不支持凭证** →
+    物流费恒走默认 RETS（钥匙盒例 ¥7.52），而 pricing_node 用店铺真实 3PL（¥6.76）
+    → 预估↔卡价 +5.9%（验收线 ±3%）。本函数补上 envelope 形态的凭证入口：
+
+    - 优先 ``extensions.credential_id``（worker 内部 UUID，与 batch 请求体同名字段对齐）；
+    - 否则按 ``extensions.ozon_client_id`` + 租户反查 credential 行——skill 侧只持
+      店铺 ``client_id``（stores.json），拿不到 worker 内部 UUID，走反查免去其多打
+      一次 API 换取 credential_id（改动面最小的方案）。
+    - 任何异常 → None（回落 default_rets，绝不 raise：预估是只读派生数据）。
+    """
+    if not isinstance(extensions, dict):
+        return None
+    cid = extensions.get("credential_id")
+    if cid:
+        return str(cid)
+    client_id = extensions.get("ozon_client_id")
+    if client_id and tenant_id:
+        try:
+            from services import credential_service
+
+            return credential_service.find_credential_id_by_client(
+                str(tenant_id), str(client_id)
+            )
+        except Exception as exc:
+            logger.warning("estimate 按 ozon_client_id 反查凭证失败（回落 default_rets）: %s", str(exc)[:160])
+    return None
 
 
 def _resolve_logistics_config(
@@ -90,7 +125,8 @@ def estimate_from_envelope(
         * 币种解析为 RUB → 走 fx 三级链 resolve_cny_rub_rate（v0.83）。
     - currency_code 解析顺序：请求覆盖 → extensions.currency_code → exchange_rate
       有值则 RUB → 否则 CNY。
-    - 物流费：credential_id 在场 → 解密探测店铺 3PL；否则默认 RETS/Standard
+    - 物流费：credential_id 入参 / ``extensions.credential_id`` / ``extensions.ozon_client_id``
+      任一在场 → 解密探测店铺 3PL（logistics_source=store）；否则默认 RETS/Standard
       （logistics_source=default_rets）。
     - v0.60 三档：margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate
       可选（请求覆盖优先，其次 extensions，最后默认 2.0/0.6/0.155/0.245）。
@@ -113,6 +149,10 @@ def estimate_from_envelope(
         _fx_rate, _fx_source = resolve_cny_rub_rate()
 
     # 店铺 3PL 探测（credential_id 在场才探测；否则 default_rets）
+    # v0.83 gate 批①：显式入参缺省时，从 extensions 的凭证线索补齐（credential_id /
+    # ozon_client_id），令 envelope 形态的物流费与 pricing_node 同源。
+    if not credential_id:
+        credential_id = _resolve_credential_id_from_extensions(extensions, tenant_id)
     tpl, svc, logistics_source = _resolve_logistics_config(credential_id, tenant_id)
 
     # ── 共享定价核（与 pricing_node / batch 同源）──
@@ -129,8 +169,13 @@ def estimate_from_envelope(
         tpl_provider=tpl,
         service_level=svc,
         logistics_source=logistics_source,
-        # v0.83: 与 prepare 上架链同序（normalize→reconcile→体积重兜底）
-        apply_volume_floor=True,
+        # v0.83 gate 批① 第二轮：**与 pricing_node 逐字对齐 apply_volume_floor=False**。
+        # 卡价由 pricing_node 设定且其不做体积重兜底（pricing_node 的 compute_pricing_core
+        # 调用传 apply_volume_floor=False）；预估若在此额外兜底，低密度件会被抬重
+        # （钥匙盒 100g→121g）→ 物流 ¥6.76→¥7.52 → 预估↔卡价 +5.9%（gate 第三轮实锤，
+        # 验收线 ±3%）。预估的职责是预测上架价，故必须复用定价节点的同一重量链，不得
+        # 单方面「补全」。
+        apply_volume_floor=False,
         margin_rate=margin_rate,
         commission_rate=commission_rate,
         fx_buffer=fx_buffer,
