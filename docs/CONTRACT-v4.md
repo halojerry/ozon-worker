@@ -28,6 +28,7 @@ status: active
   - [1.5 POST /api/v1/auth/verify](#15-post-apiv1authverify)
   - [1.6 GET /api/v1/health](#16-get-apiv1health)
   - [1.7 自测用例（API 合约）](#17-自测用例api-合约)
+  - [1.9 POST /api/v1/estimate/batch（批量预估，v0.83 批①）](#19-post-apiv1estimatebatch批量预估v083-批)
 - [Part 1b: WebUI v1 API 契约](#part-1b-webui-v1-api-契约)（v0.41.0 新增）
   - [1b.1 WebUI v1 新端点清单](#1b1-webui-v1-新端点清单)
   - [1b.2 新数据表（C1/C1b/C2）](#1b2-新数据表c1c1bc2)
@@ -795,6 +796,57 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
   -H "Content-Type: application/json" \
   -d '{"token": "sk-test-valid-token", "client_id": "123456", "api_key": "test-key"}' | python3 -m json.tool
 ```
+
+---
+
+### 1.9 POST /api/v1/estimate/batch（批量预估，v0.83 批①）
+
+> v0.83.0（2026-09-28，预估统一批）新增。全系统唯一算价出口 = worker
+> `utils/pricing_core.compute_pricing_core`（pricing_node / `POST /api/v1/estimate` /
+> 本端点三处同源）；skill 侧内联定价公式已全部退役为消费方。
+
+- **鉴权**：`Authorization: Bearer <mxou key>`（`main._require_bearer` 唯一入口）；
+  无 Bearer → **401**。独立限流桶 `estimate_batch:{token}`，超限 **429**。
+- **租户**：恒自身租户（`resolve_tenant`）；`credential_id` 在场经
+  `credential_service.get_decrypted` 解密探测店铺 3PL（跨租户 → 404 由其内部保证）。
+- **上限**：`items` ≤ 50（超限 **422**，空 items 422）。
+- **不支持 variants**：schema `extra="forbid"` 定死——请求含 `variants`（或任何未知键）→ **422**
+  （多 SKU 交回终价链）。
+
+请求体：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `items[]` | object[] | ✅ | ≤50/批 |
+| `items[].purchase_cost` | number | ✅ | 采购成本 CNY（**已含国内运费**；discover 匹配期无运费则不加，`freight_unknown` 如实留痕） |
+| `items[].weight_g` | number | ❌ | 单件重量（克）；缺省走归一化兜底 |
+| `items[].dims_mm` | object | ❌ | `{length,width,height}`（或 `{d,w,h}`），毫米 |
+| `items[].attributes` | object | ❌ | 1688 属性（箱级毛重 `reconcile_weight_with_attrs`） |
+| `items[].currency_code` | string | ❌ | `RUB`/`CNY`；缺省按 CNY（RUB 且无汇率 → worker fx 三级链 `resolve_cny_rub_rate`） |
+| `items[].commission_segments` | object | ❌ | `{fbs:{leq_*},fbo:{leq_*}}`（百分比；fbs 缺失回退 fbo） |
+| `items[].dc` | string | ❌ | Ozon `description_category_id`（佣金缓存表键） |
+| `credential_id` | string | ❌ | 店铺凭证（在场探测 3PL，否则 `logistics_source="default_rets"`） |
+
+响应 200（**部分失败不整体 4xx**，逐项 ok/failed；先例 drafts_routes）：
+
+```json
+{"items": [{"index": 0, "ok": true, "price": 215, "old_price": 258, "promo_price": 129,
+            "profit_cny": 32.6, "profit_rate": 0.152,
+            "logistics_cost_cny": 8.0,
+            "commission_rate": 0.15, "commission_source": "segments:leq_5000",
+            "logistics_source": "default_rets", "estimate_source": "worker",
+            "marks": {"weight_suspect": "", "exchange_rate_source": "",
+                      "commission_source": "segments:leq_5000"}}],
+ "failed": [{"index": 1, "reason": "ValueError: ..."}]}
+```
+
+- `estimate_source` 恒 `"worker"`（本端点唯一算价出口）。
+- `commission_source` ∈ `explicit` / `cache:{band}[:fbo]` / `segments:{band}[:fbo]` /
+  `fallback` / `fallback:stale`；**`fallback*` 的候选 discovery 不标 profitable（宁缺毋滥）**。
+- `dc=None` 且 `commission_segments` 命中 → `commission_source` 以 `segments` 开头。
+
+**降级纪律（skill 侧消费）**：worker 不可达/404 → skill 无预估（字段省略 +
+`estimate_source="unavailable"`），**绝不回落 legacy 公式**；`--min-margin` 对无预估不拦。
 
 ---
 

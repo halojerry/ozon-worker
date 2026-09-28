@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.82.0 · 143 个 path / 179 个操作（154 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.82.0 · 144 个 path / 180 个操作（155 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -21,7 +21,7 @@
 - [discovery](#discovery) （2）
 - [drafts](#drafts) （14）
 - [error_reports](#error-reports) （2）
-- [estimate](#estimate) （1）
+- [estimate](#estimate) （2）
 - [forensics](#forensics) （1）
 - [graph_parameter](#graph-parameter) （1）
 - [health](#health) （1）
@@ -1972,6 +1972,47 @@ V1 Create Error Report — 用户问题反馈错误报告（v0.69）：agent 按
 
 ### `POST /api/v1/estimate`
 Estimate Envelope Standalone — P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | — |
+
+### `POST /api/v1/estimate/batch`
+Estimate Batch — POST /api/v1/estimate/batch —— 批量预估（≤50/批，唯一算价出口批量形态）。
+
+**请求体**（application/json，必填）：object
+
+```json
+{
+  "items": [
+    {
+      "attributes": {
+        "商品重量": "120克",
+        "材质": "硅胶"
+      },
+      "commission_segments": {
+        "fbs": {
+          "gt_5000": 18.0,
+          "leq_1500": 12.0,
+          "leq_5000": 15.0
+        }
+      },
+      "currency_code": "CNY",
+      "dc": "17028929",
+      "dims_mm": {
+        "height": 60,
+        "length": 150,
+        "width": 90
+      },
+      "purchase_cost": 8.5,
+      "weight_g": 120
+    }
+  ],
+  "credential_id": "3c9d2f4e-1111-4222-8333-444455556666"
+}
+```
 
 **响应**
 
