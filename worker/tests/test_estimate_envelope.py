@@ -81,3 +81,33 @@ def test_estimate_no_token_401():
     with patch.object(main_mod, "_authenticate_token", side_effect=__import__("fastapi").HTTPException(401, "Token is required")):
         resp = TestClient(app).post("/api/v1/estimate", json={"envelope": {"draft": {"purchase_cost": 10}}})
     assert resp.status_code == 401
+
+
+def test_estimate_envelope_ozon_client_id_uses_store_logistics(monkeypatch):
+    """v0.83 gate 批①：envelope.extensions.ozon_client_id → 路由传 tenant → store 3PL。
+
+    回归锁：路由必须把 ``_authenticate_token`` 的 tenant 透传给 estimate_from_envelope，
+    否则 worker 无法按 (tenant, ozon_client_id) 反查凭证 → 恒 default_rets（+5.9% 根因）。
+    """
+    from services import estimate_service, credential_service
+
+    monkeypatch.setattr(
+        credential_service, "find_credential_id_by_client", lambda tenant, client: "cred-1"
+    )
+    monkeypatch.setattr(credential_service, "get_decrypted", lambda tenant, cid: ("4718259", "k"))
+    monkeypatch.setattr(
+        estimate_service, "get_store_logistics_config", lambda *a, **k: ("Yandex", "Express")
+    )
+
+    def _cost(weight, depth, width, height, tpl="RETS", svc="Standard"):
+        return (6.76 if tpl == "Yandex" else 7.52, "mock_channel", {})
+
+    monkeypatch.setattr(estimate_service, "query_logistics_cost", _cost)
+
+    body = _env()
+    body["envelope"]["extensions"] = {"ozon_client_id": "4718259"}
+    resp = TestClient(app).post("/api/v1/estimate", json=body)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["logistics_source"] == "store", data
+    assert data["logistics_cost_cny"] == 6.76

@@ -267,3 +267,180 @@ def test_batch_partial_failure(monkeypatch):
         res = _run_batch([bad, _batch_item(currency="CNY", cost=12.0)])
     assert res["failed"] and res["failed"][0]["index"] == 0
     assert res["items"] and res["items"][0]["index"] == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. v0.83 gate 批①：envelope 形态凭证 → 物流与 pricing_node 同源
+#    （预估↔卡价 +5.9% 遗留：envelope 此前不支持 credential → 恒走默认 RETS ¥7.52，
+#     节点走店铺 3PL ¥6.76）。本组覆盖：
+#     - envelope 带 ozon_client_id（skill 侧 client_id）→ worker 反查凭证 → store 3PL；
+#     - envelope 带 credential_id（worker 内部 UUID，batch 同名字段）→ store 3PL；
+#     - envelope 无凭证 / 有 client_id 但无 tenant → default_rets 且标注不变。
+# ═══════════════════════════════════════════════════════════════════════════
+
+_STORE_TPL = ("Yandex", "Express")
+_STORE_COST = 6.76
+_DEFAULT_COST = 7.52
+
+
+def _mock_store_logistics(monkeypatch, store_tpl=_STORE_TPL):
+    """pricing_node 与 estimate 双路物流同源 mock：店铺 3PL 命中 → ¥6.76，缺省 → ¥7.52。
+
+    覆盖 ``_mock_heavy`` 的常量物流 mock（后者把三处压成同值，测不出 store/default 分叉）。
+    """
+    from services import credential_service
+    from utils import logistics_quote
+
+    def _cost(weight, depth, width, height, tpl="RETS", svc="Standard"):
+        return (_STORE_COST if tpl == store_tpl[0] else _DEFAULT_COST, "mock_channel", {"tpl": tpl})
+
+    monkeypatch.setattr(logistics_quote, "get_store_logistics_config", lambda *a, **k: store_tpl)
+    monkeypatch.setattr(estimate_service, "get_store_logistics_config", lambda *a, **k: store_tpl)
+    monkeypatch.setattr(logistics_quote, "query_logistics_cost", _cost)
+    monkeypatch.setattr(estimate_service, "query_logistics_cost", _cost)
+    # 凭证反查/解密：ozon_client_id="4718259" 命中（其余 miss → None）
+    monkeypatch.setattr(
+        credential_service, "find_credential_id_by_client",
+        lambda tenant, client: "cred-1" if client == "4718259" else None,
+    )
+    monkeypatch.setattr(
+        credential_service, "get_decrypted", lambda tenant, cid: ("4718259", "k")
+    )
+
+
+def test_envelope_with_ozon_client_id_parity_with_pricing_node(monkeypatch):
+    """envelope.extensions.ozon_client_id → worker 反查凭证 → 物流/价格与 pricing_node 逐字段相等。"""
+    _mock_heavy(monkeypatch)
+    _mock_store_logistics(monkeypatch)
+
+    out = pn.pricing_node(_make_state(extensions={}), None, _DummyRuntime())
+    assert out.error_message == "", out.error_message
+    pi = out.pricing_info
+
+    est = estimate_service.estimate_from_envelope(
+        _envelope(extensions={"ozon_client_id": "4718259"}),
+        currency_code="RUB", tenant_id="tenant-A",
+    )
+    assert est["logistics_source"] == "store"
+    assert est["logistics_cost_cny"] == _STORE_COST
+    # 物流项 + 价格逐字段与 pricing_node 相等（本批验收：预估↔卡价 ±3%）
+    assert est["logistics_cost_cny"] == pi["logistics_cost_cny"]
+    assert est["price"] == pi["price"], f"estimate({est['price']}) vs graph({pi['price']})"
+    assert est["old_price"] == pi["old_price"]
+    assert est["promo_price"] == pi["promo_price"]
+    assert est["profit_cny"] == pi["profit_estimation"]["profit_cny"]
+    assert est["profit_rate"] == pi["profit_estimation"]["profit_rate"]
+
+
+def test_envelope_with_credential_id_direct_uses_store(monkeypatch):
+    """envelope.extensions.credential_id（worker 内部 UUID，batch 同名字段）直接生效。"""
+    _mock_heavy(monkeypatch)
+    _mock_store_logistics(monkeypatch)
+
+    est = estimate_service.estimate_from_envelope(
+        _envelope(extensions={"credential_id": "cred-1"}),
+        currency_code="RUB", tenant_id="tenant-A",
+    )
+    assert est["logistics_source"] == "store"
+    assert est["logistics_cost_cny"] == _STORE_COST
+
+
+def test_envelope_without_credential_default_rets_unchanged(monkeypatch):
+    """无凭证 / 有 client_id 但无 tenant → default_rets 回落，标注不变（回归锁）。"""
+    _mock_heavy(monkeypatch)
+    _mock_store_logistics(monkeypatch)
+
+    # 无任何凭证线索
+    est = estimate_service.estimate_from_envelope(_envelope(extensions={}), currency_code="RUB")
+    assert est["logistics_source"] == "default_rets"
+    assert est["logistics_cost_cny"] == _DEFAULT_COST
+
+    # 带 ozon_client_id 但无 tenant → 不反查（避免越租户），仍 default_rets
+    est2 = estimate_service.estimate_from_envelope(
+        _envelope(extensions={"ozon_client_id": "4718259"}), currency_code="RUB",
+    )
+    assert est2["logistics_source"] == "default_rets"
+    assert est2["logistics_cost_cny"] == _DEFAULT_COST
+
+
+def test_envelope_unknown_client_id_falls_back_default(monkeypatch):
+    """ozon_client_id 无对应凭证行 → 反查 None → default_rets（未知店铺不误探）。"""
+    _mock_heavy(monkeypatch)
+    _mock_store_logistics(monkeypatch)
+
+    est = estimate_service.estimate_from_envelope(
+        _envelope(extensions={"ozon_client_id": "no-such-client"}),
+        currency_code="RUB", tenant_id="tenant-A",
+    )
+    assert est["logistics_source"] == "default_rets"
+    assert est["logistics_cost_cny"] == _DEFAULT_COST
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 6. v0.83 gate 批① 第二轮：重量链逐字对齐 → 实测物流项相等（+5.9% 真根因）
+#    gate 第三轮 key-box（743614284287：100g / 96×70×45mm / 店铺 4718259 / margin 0.25
+#    / commission 0.10）卡价 17、预估 18（+5.9%）。真根因不在 3PL 来源（该店 3PL==RETS，
+#    store 与 default 同价），而在 estimate 单方做体积重兜底 100g→121g（¥6.76→¥7.52）。
+#    本组用**重量相关**物流 mock 锁死：预估与 pricing_node 同用「未抬重」链，物流项逐字相等。
+# ═══════════════════════════════════════════════════════════════════════════
+
+_GATE_DRAFT = {
+    "cost_cny": 3.37, "weight": 100,
+    "dimensions": {"length": 96, "width": 70, "height": 45},
+}
+
+
+def _mock_weight_rate_logistics(monkeypatch):
+    """重量相关物流 mock：cost = 3.12 + 0.0364×billable_weight（对齐 PG 费率行 RETS/Standard）。"""
+    from services import credential_service
+    from utils import logistics_quote
+
+    def _cost(weight, depth_cm, width_cm, height_cm, tpl="RETS", svc="Standard"):
+        return (3.12 + 0.0364 * float(weight), "mock_channel", {"weight": weight})
+
+    monkeypatch.setattr(estimate_service, "query_logistics_cost", _cost)
+    monkeypatch.setattr(estimate_service, "get_store_logistics_config", lambda *a, **k: ("RETS", "Standard"))
+    monkeypatch.setattr(logistics_quote, "query_logistics_cost", _cost)
+    monkeypatch.setattr(logistics_quote, "get_store_logistics_config", lambda *a, **k: ("RETS", "Standard"))
+    monkeypatch.setattr(credential_service, "find_credential_id_by_client", lambda t, c: "cred-1")
+    monkeypatch.setattr(credential_service, "get_decrypted", lambda t, c: ("4718259", "k"))
+
+
+def test_envelope_weight_chain_matches_pricing_node(monkeypatch):
+    """预估 == pricing_node：同一未抬重重量链，物流项与价格逐字段相等（gate key-box）。"""
+    _mock_heavy(monkeypatch)
+    _mock_weight_rate_logistics(monkeypatch)
+
+    state = _make_state(draft=dict(_GATE_DRAFT), extensions={"margin_rate": 0.25, "commission_rate": 0.10}, currency="CNY")
+    out = pn.pricing_node(state, None, _DummyRuntime())
+    assert out.error_message == "", out.error_message
+    pi = out.pricing_info
+
+    est = estimate_service.estimate_from_envelope(
+        {"draft": dict(_GATE_DRAFT),
+         "extensions": {"margin_rate": 0.25, "commission_rate": 0.10, "ozon_client_id": "4718259"}},
+        currency_code="CNY", tenant_id="tenant-A",
+    )
+
+    # 100g（非兜底 121g）→ 6.76；两处逐字相等（修复前 estimate 会 7.52）
+    assert pi["logistics_cost_cny"] == pytest.approx(6.76), pi["logistics_cost_cny"]
+    assert est["logistics_cost_cny"] == pi["logistics_cost_cny"], (
+        f"estimate({est['logistics_cost_cny']}) vs graph({pi['logistics_cost_cny']})"
+    )
+    assert est["price"] == pi["price"] == 17, (est["price"], pi["price"])
+    assert est["old_price"] == pi["old_price"]
+    assert est["profit_cny"] == pi["profit_estimation"]["profit_cny"]
+
+
+def test_envelope_no_volume_floor_marker(monkeypatch):
+    """回归锁：预估响应不再出现 weight_adjusted_for_volume 标疑（不做体积重兜底）。"""
+    _mock_heavy(monkeypatch)
+    _mock_weight_rate_logistics(monkeypatch)
+
+    est = estimate_service.estimate_from_envelope(
+        {"draft": dict(_GATE_DRAFT), "extensions": {"ozon_client_id": "4718259"}},
+        currency_code="CNY", tenant_id="tenant-A",
+    )
+    assert est["logistics_cost_cny"] == pytest.approx(6.76)
+    assert est.get("weight_suspect", "") != "weight_adjusted_for_volume"
+

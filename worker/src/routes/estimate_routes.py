@@ -115,7 +115,7 @@ async def estimate_draft(draft_id: str, request: Request):
     if payload is None:
         raise HTTPException(status_code=404, detail="草稿不存在或无权访问")
 
-    return estimate_service.estimate_from_envelope(payload, **_parse_overrides(raw_body))
+    return estimate_service.estimate_from_envelope(payload, tenant_id=tenant_id, **_parse_overrides(raw_body))
 
 
 # ── P2a 独立定价器（无 draft_id）：单独 router，路径 /api/v1/estimate ──
@@ -126,11 +126,17 @@ router_estimate = APIRouter(prefix="/api/v1/estimate", tags=["estimate"])
 async def estimate_envelope_standalone(request: Request):
     """P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
 
-    body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
+    body: {envelope: {draft:{purchase_cost, weight, dimensions},
+           extensions:{credential_id?, ozon_client_id?, ...}},
            margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,
            variable_cost_rate?, promo_variable_cost_rate?}
     与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
     前端/skill 不写公式铁律不变。
+
+    v0.83 gate 批①：``envelope.extensions`` 可带 ``credential_id``（worker 内部 UUID）
+    或 ``ozon_client_id``（skill 侧店铺 client_id，worker 按 (tenant, client) 反查凭证）
+    → 物流费走店铺真实 3PL（``logistics_source=store``），与 pricing_node 同源；缺省
+    回落 default_rets。
     """
     from main import _extract_token_from_body  # 局部 import 防循环
 
@@ -142,7 +148,7 @@ async def estimate_envelope_standalone(request: Request):
     if not isinstance(envelope, dict) or not envelope.get("draft"):
         raise HTTPException(status_code=422, detail="缺少 envelope.draft（定价输入）")
 
-    return estimate_service.estimate_from_envelope(envelope, **_parse_overrides(raw_body))
+    return estimate_service.estimate_from_envelope(envelope, tenant_id=tenant_id, **_parse_overrides(raw_body))
 
 
 # ── v0.83 批①：批量预估 · POST /api/v1/estimate/batch ──

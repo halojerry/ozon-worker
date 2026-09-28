@@ -76,12 +76,20 @@ _STORE_PRICING_EXT_KEYS = (
 
 
 def _store_pricing_extensions(store: str = "") -> dict:
-    """店铺定价配置 → extensions（与信封注入同源键；空值/零值省略，worker 走默认）。"""
+    """店铺定价配置 → extensions（与信封注入同源键；空值/零值省略，worker 走默认）。
+
+    v0.83 gate 批①：额外带 ``ozon_client_id``（店铺 client_id）——worker 预估端点
+    据此反查凭证解密探测店铺真实 3PL（否则恒走默认 RETS，预估↔卡价物流漂移 +5.9%）。
+    """
+    prof: dict = {}
+    client_id = ""
     try:
-        from scripts.lib.config_store import get_store_profile
+        from scripts.lib.config_store import get_store, get_store_profile
         prof = get_store_profile(store or "") or {}
+        client_id = str((get_store(store or "") or {}).get("client_id") or "")
     except Exception:
         prof = {}
+        client_id = ""
     ext: dict = {}
     for k in _STORE_PRICING_EXT_KEYS:
         v = prof.get(k)
@@ -93,6 +101,8 @@ def _store_pricing_extensions(store: str = "") -> dict:
         except (TypeError, ValueError):
             continue
         ext[k] = v
+    if client_id:
+        ext["ozon_client_id"] = client_id
     return ext
 
 

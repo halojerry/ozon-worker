@@ -8449,7 +8449,7 @@
     },
     "/api/v1/estimate": {
       "post": {
-        "description": "P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。\n\nbody: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},\n       margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,\n       variable_cost_rate?, promo_variable_cost_rate?}\n与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；\n前端/skill 不写公式铁律不变。",
+        "description": "P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。\n\nbody: {envelope: {draft:{purchase_cost, weight, dimensions},\n       extensions:{credential_id?, ozon_client_id?, ...}},\n       margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,\n       variable_cost_rate?, promo_variable_cost_rate?}\n与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；\n前端/skill 不写公式铁律不变。\n\nv0.83 gate 批①：``envelope.extensions`` 可带 ``credential_id``（worker 内部 UUID）\n或 ``ozon_client_id``（skill 侧店铺 client_id，worker 按 (tenant, client) 反查凭证）\n→ 物流费走店铺真实 3PL（``logistics_source=store``），与 pricing_node 同源；缺省\n回落 default_rets。",
         "operationId": "estimate_envelope_standalone_api_v1_estimate_post",
         "responses": {
           "200": {
