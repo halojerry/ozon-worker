@@ -15,6 +15,10 @@ cleanup 硬编码 --all --dry-run 与 discover_task dry_run 默认 True 见核�
 
 全链走真实 server 工具函数 → TaskManager.run_and_record / run_skill_command_capture，
 仅 subprocess 边界 mock 捕获 argv；任务注册表落盘用 tmp_path 隔离。
+
+v0.83 批④：七重命令 background 缺省翻 True（后台路径经 skill --detach）——本文件
+queries 参数映射用例显式 `background=False` 保持「同步路径 argv 映射」原意；后台路径
+（--detach）行为由 test_background_default_v083.py 覆盖。
 运行：cd pounding-mcp && .venv/bin/python -m pytest tests/test_param_parity_c10.py -q
 """
 
@@ -98,7 +102,8 @@ def test_image_search_ozon_product_id_default_omitted(capture_argv):
 
 def test_queries_export_output_map_to_cli(capture_argv):
     """export/output → --export/--output（export="json" 不落盘=结构化 JSON）。"""
-    server.queries(type="all-queries", export="json", output=f"{_FAKE_PATH}.json")
+    server.queries(type="all-queries", export="json", output=f"{_FAKE_PATH}.json",
+                   background=False)
     argv = capture_argv["argv"]
     assert "queries" in argv
     assert _flag_value(argv, "--export") == "json"
@@ -107,7 +112,7 @@ def test_queries_export_output_map_to_cli(capture_argv):
 
 def test_queries_new_params_default_omitted(capture_argv):
     """缺省（""/""）→ 两 flag 不进 argv（CLI 默认 csv 打 stdout，行为不变）。"""
-    server.queries(type="ozon-bestsellers")
+    server.queries(type="ozon-bestsellers", background=False)
     argv = capture_argv["argv"]
     assert "--export" not in argv
     assert "--output" not in argv
