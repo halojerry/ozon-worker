@@ -9,7 +9,7 @@ from runtime.context import Context
 from graphs.state import OzonValidateInput, OzonValidateOutput
 # ✅ v0.69 Wave3: 数值属性清洗唯一入口 + 尺寸契约硬边界（唯一事实源，与 normalizer 同源）
 from utils.attr_numeric_sanitize import is_numeric_attr_type, sanitize_numeric_attr_value
-from utils.category_consistency_lexicon import sets_overlap
+from utils.category_consistency_lexicon import is_generic_word, sets_overlap
 from utils.cos_uploader import is_cos_url
 from utils.secure_fetch import safe_fetch
 from utils.title_sanitizer import has_cyrillic_word  # v0.81 名称结构闸（与标题结构闸同源判定）
@@ -129,13 +129,54 @@ def _box_reviewed(state: "OzonValidateInput") -> bool:
         return False
 
 
-def _try_validate_recategorize(item: dict, index: int) -> bool:
+def _top_category_segment(path: str) -> str:
+    """full_path → 顶层大类段（小写）。分隔符为 Ozon 树的 ' > '（见 model.py 注释）。
+
+    无路径/无法解析 → ""（调用方按「不同大类」保守处理，不借同大类放行）。
+    """
+    for seg in str(path or "").replace(">", " ").split():
+        if seg.strip():
+            return seg.strip().lower()
+    return ""
+
+
+def _strong_category_match(title: str, node: dict, current_ru_path: str) -> bool:
+    """validate 级重配的「强匹配」判据（v0.83.1 N2 收紧，纯函数，可单测）。
+
+    旧判据只要求标题 × 候选类目有**任一个** ≥4 字符公共西里尔词——单个泛形容词
+    即触发（实机 gate：«портативный вентилятор» × «Коагулометр портативный» 被换到
+    凝血仪；«декоративный камень» × «Декоративный камень для отделки» 被换到建筑
+    石材）。新判据（剔泛词后）：
+
+      ① 共享**非泛**西里尔词 ≥2 个 → 强匹配（如 держатель + душа）；
+      ② 共享非泛词恰 1 个 → 还需候选与当前类目**同顶层大类**（同大类内的横向
+         改配风险低；跨大类跳转（风扇→凝血仪）恒拒）。
+
+    一个非泛词都没有（只剩 портативный/декоративный 这类泛词）→ 恒 False。
+    """
+    node_text = f"{node.get('node_name') or ''} {node.get('full_path') or ''}"
+    common = common_cyr_words(title, node_text)
+    if not common:
+        return False
+    strong = {w for w in common if not is_generic_word(w)}
+    if len(strong) >= 2:
+        return True
+    if len(strong) == 1:
+        return _top_category_segment(node.get("full_path") or "") == _top_category_segment(
+            current_ru_path
+        )
+    return False
+
+
+def _try_validate_recategorize(item: dict, index: int, current_ru_path: str = "") -> bool:
     """validate 级类目重配（杀之前先试救）：RU 标题搜树找强匹配叶，命中改写 (dc,tp)。
 
     保守边界（改前必读）：
-    - 只信强匹配：候选 node_name+full_path 与标题须有公共西里尔词（相等或前缀
-      ≥4，复用 common_cyr_words 判据）——pg_trgm 相似度本身不作数（0.3 门槛太松，
-      «Полка»×«Держатель» 也能凑出分数）；
+    - 只信强匹配：候选与标题须有公共西里尔词（相等或前缀 ≥4，复用
+      common_cyr_words 判据），且**剔除泛词后**仍满足 _strong_category_match
+      （≥2 非泛词，或 1 非泛词 + 同顶层大类）——pg_trgm 相似度本身不作数
+      （0.3 门槛太松，«Полка»×«Держатель» 也能凑出分数）。v0.83.1 N2：旧判据
+      允许单个泛形容词共享即触发，实机把风扇改写成凝血仪，已收紧（见上）。
     - 新 (dc,tp) 必须在树中有效（_fetch_ru_category_path 非空=行存在）且 ≠ 当前值；
     - 每 item 只重配一次（本函数每 item 至多被调一次，命中即返回）、不做 LLM、
       不写学习表（validate 无终态语义，approve/declined 才是学习信号）；
@@ -143,6 +184,8 @@ def _try_validate_recategorize(item: dict, index: int) -> bool:
     - ⚠️ v0.81 retry-quality: box_reviewed 草稿（采集箱审核态）不做本重配——
       调用方先过 _box_reviewed 闸，命中即跳过走既有 mismatch 拦截（类目错如实
       failed，「所见即所得」契约，对齐 validation_retry_loop R4 同款禁用）。
+    - current_ru_path：当前 (dc,tp) 的 RU 路径（调用方已为一致性闸查过，传入避免
+      二次查 PG）。缺省 "" 时本函数自取；取不到 → 同大类判据不成立（保守不重配）。
     命中返回 True：调用方跳过 mismatch 报错（该 item 类目相关错误清除=不再报
     critical，其他校验照跑）；False = 找不到强匹配，走原拦截。
     """
@@ -161,6 +204,11 @@ def _try_validate_recategorize(item: dict, index: int) -> bool:
                     int(item.get("type_id") or 0))
     except (TypeError, ValueError):
         _old_key = (0, 0)
+    if not current_ru_path:
+        try:
+            current_ru_path = _fetch_ru_category_path(_old_key[0], _old_key[1])
+        except Exception:
+            current_ru_path = ""
     for _node in _candidates or []:
         if not isinstance(_node, dict):
             continue
@@ -171,9 +219,8 @@ def _try_validate_recategorize(item: dict, index: int) -> bool:
             continue
         if _new_dc <= 0 or _new_tp <= 0 or (_new_dc, _new_tp) == _old_key:
             continue
-        # 强匹配判据：标题 × 候选 node_name+full_path 有公共西里尔词（相等/前缀≥4）
-        if not common_cyr_words(
-                _title, f"{_node.get('node_name') or ''} {_node.get('full_path') or ''}"):
+        # 强匹配判据（v0.83.1 N2）：剔泛词后 ≥2 非泛词共享，或 1 非泛词 + 同顶层大类
+        if not _strong_category_match(_title, _node, current_ru_path):
             continue
         # 树中有效性：(dc,tp) 有 RU 行（无效类目会撞 description_category_invalid 400）
         if not _fetch_ru_category_path(_new_dc, _new_tp):
@@ -534,7 +581,8 @@ def ozon_validate_node(
                                 f"标题「{str(_consistency_name)[:40]}」× "
                                 f"类目「{_ru_path[:80]}」"
                             )
-                        elif not _box_reviewed(state) and _try_validate_recategorize(item, i):
+                        elif not _box_reviewed(state) and _try_validate_recategorize(
+                                item, i, _ru_path):
                             # 重配命中：该 item 类目相关错误已随 (dc,tp) 改写解除——
                             # 不再因 mismatch 报 critical（下方其余校验照跑）。
                             # ✅ v0.81 retry-quality: box_reviewed 草稿跳过 validate 级

@@ -557,6 +557,8 @@ def _author_rich_description(
     packaging_table_text: str = "",
     sku_details: list | None = None,
     gross_weight_g: Any = 0,
+    final_weight_g: Any = 0,
+    final_dims_mm: dict | None = None,
 ) -> tuple:
     """4191 撰写链编排（v0.83 批②，唯一来源）。
 
@@ -594,6 +596,8 @@ def _author_rich_description(
         packaging_table_text=packaging_table_text,
         sku_details=sku_details,
         gross_weight_g=gross_weight_g,
+        final_weight_g=final_weight_g,
+        final_dims_mm=final_dims_mm,
         llm=_llm,
         translate=_translate,
         sanitize=_sanitize_rich_description,
@@ -2794,6 +2798,13 @@ def prepare_ozon_upload_node(
                 or (draft or {}).get("sku_details"),
                 gross_weight_g=(draft or {}).get("gross_weight_g")
                 or (draft or {}).get("weight_gross_g"),
+                # ✅ v0.83.1 gate B4-evidence: prepare 后的最终真值（reconcile 箱级毛重
+                # + 体积密度兜底之后）显式进 4191 证据集——实机 4191 的 «Вес: 121 г»
+                # 是 100g→121g 体积兜底结果，必须可溯不剥（比 1688 毛重更接近卡面声明）。
+                final_weight_g=weight_g,
+                final_dims_mm={
+                    "length": depth_mm, "width": width_mm, "height": height_mm
+                },
             )
             logger.info(
                 "✅ 4191 撰写: source=%s fallback=%s vision=%s stripped=%s len=%d",

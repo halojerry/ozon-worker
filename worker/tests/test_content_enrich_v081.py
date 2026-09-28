@@ -76,35 +76,43 @@ def test_annotation_unmapped_material_not_fabricated():
 
 
 def test_rich_json_structure_field_validated():
-    """真实卡验证结构：raShowcase/chess/img 块（src/srcMobile/alt/position）。"""
+    """Ozon 实收 schema（v0.83.1 N1）：根 version + raShowcase/roll/width_full +
+    block 含 imgLink + img 七键齐全。"""
     imgs = ["https://cos/1.jpg", "https://cos/2.jpg", "https://cos/3.jpg"]
     out = build_rich_json(imgs, "Деревянные ложки")
     assert out is not None
     assert "Деревянные" in out  # ensure_ascii=False：西里尔原文不入转义
     d = json.loads(out)
-    assert set(d.keys()) == {"content"}
+    assert set(d.keys()) == {"content", "version"}
+    assert d["version"] == 0.3  # 缺 version = Ozon invalid_rich_content_json（P0）
+    assert len(d["content"]) == 3  # 每图一个 widget
     widget = d["content"][0]
     assert widget["widgetName"] == "raShowcase"
-    assert widget["type"] == "chess"
+    assert widget["type"] == "roll"
     blocks = widget["blocks"]
-    assert len(blocks) == 3
+    assert len(blocks) == 1
     b0 = blocks[0]
+    assert b0["imgLink"] == ""
+    assert set(b0["img"].keys()) == {
+        "src", "srcMobile", "alt", "position", "positionMobile",
+        "widthMobile", "heightMobile",
+    }
     assert b0["img"]["src"] == imgs[0]
     assert b0["img"]["srcMobile"] == imgs[0]
-    assert b0["img"]["position"] == "to_the_edge"
-    assert b0["img"]["positionMobile"] == "to_the_edge"
-    assert "alt" in b0["img"]
+    assert b0["img"]["position"] == "width_full"
+    assert b0["img"]["positionMobile"] == "width_full"
+    assert b0["img"]["widthMobile"] > 0 and b0["img"]["heightMobile"] > 0
 
 
 def test_rich_json_caps_at_four_images():
     """只取前 4 张图。"""
     imgs = [f"https://cos/{i}.jpg" for i in range(10)]
     d = json.loads(build_rich_json(imgs, "Товар"))
-    assert len(d["content"][0]["blocks"]) == 4
+    assert len(d["content"]) == 4
 
 
 def test_rich_json_empty_or_sparse_images_none():
-    """空图列表 / 单图（chess 最低 2 blocks）/ 畸形条目 → None（不强造）。"""
+    """空图列表 / 单图 / 畸形条目 → None（不强造）。"""
     assert build_rich_json([], "Товар") is None
     assert build_rich_json(["https://only1.jpg"], "Товар") is None
     assert build_rich_json([None, "", 123, "  "], "Товар") is None
@@ -113,7 +121,7 @@ def test_rich_json_empty_or_sparse_images_none():
 def test_rich_json_dedupes_urls():
     """重复 URL 去重。"""
     d = json.loads(build_rich_json(["https://a/1.jpg", "https://a/1.jpg", "https://a/2.jpg"], "Т"))
-    assert len(d["content"][0]["blocks"]) == 2
+    assert len(d["content"]) == 2
 
 
 # ── fillable_improves ────────────────────────────────────────
@@ -250,7 +258,7 @@ def test_enrich_body_full_construction():
     assert 21841 not in ids   # 媒体缺口不构造
     assert 8962 in ids        # 可填 Integer
     rich_val = next(a for a in item["attributes"] if a["id"] == 11254)["values"][0]["value"]
-    assert json.loads(rich_val)["content"][0]["blocks"][0]["img"]["position"] == "to_the_edge"
+    assert json.loads(rich_val)["content"][0]["blocks"][0]["img"]["position"] == "width_full"
     assert audit["filled"] and 4191 in audit["filled"] and 11254 in audit["filled"]
     assert audit["media_gap"] == [21841]
     assert 85 in audit["skipped"]  # 卡上已有值不覆盖
@@ -354,7 +362,8 @@ def test_prepare_gate_fills_both_attrs_after_policy():
     assert "<p>" not in attrs[ANNOTATION_ATTR_ID]["values"][0]["value"]  # 纯文本版
     assert RICH_CONTENT_ATTR_ID in attrs
     rich = json.loads(attrs[RICH_CONTENT_ATTR_ID]["values"][0]["value"])
-    srcs = [b["img"]["src"] for b in rich["content"][0]["blocks"]]
+    # v0.83.1 N1: 每图一个 roll widget（不再单 widget 多 block）
+    srcs = [w["blocks"][0]["img"]["src"] for w in rich["content"]]
     assert srcs[0] == "https://cos/main.jpg"  # primary 在前
     assert len(srcs) == 4  # 3 张 gallery + primary
 

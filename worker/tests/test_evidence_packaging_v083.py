@@ -116,3 +116,58 @@ class TestAnchoringEndToEnd:
         assert marks["description_source"] == "llm_authored"
         assert "500" in html, "规格表数字应锚定保留"
         assert "121" not in html and "121" in marks["numbers_stripped"], "无证据数字应剥"
+
+
+# ═══════════════════════════════════════════════════════════════
+# 4. v0.83.1 B4-evidence：管线内最终真值（reconcile + 体积兜底后）可溯不剥
+# ═══════════════════════════════════════════════════════════════
+
+class TestFinalWeightEvidence:
+    """gate v083 重跑实况（REPORT-v083-rerun.md B4-evidence）：4191 的
+    «Вес: 121 г» 是 100g→121g 体积密度兜底（ensure_volume_weight_floor）后的
+    final weight（1688 无重量，毛重 160g 未被采用）——prepare 侧须把该管线内
+    真值显式纳入证据集，使锚定闸可溯不剥（比 1688 毛重更接近卡面声明）。"""
+
+    def test_final_weight_collected(self):
+        assert "121" in ce.collect_evidence_keys(final_weight_g=121)
+
+    def test_final_dims_collected(self):
+        keys = ce.collect_evidence_keys(
+            final_dims_mm={"length": 96, "width": 70, "height": 45})
+        assert {"96", "70", "45"} <= keys
+
+    def test_guard_adjusted_weight_kept(self):
+        """体积兜底后的 121g + 最终尺寸 96×70×45 可溯不剥。"""
+        evidence = ce.collect_evidence_keys(
+            draft_attrs={}, gross_weight_g=160, final_weight_g=121,
+            final_dims_mm={"length": 96, "width": 70, "height": 45},
+        )
+        html = "<ul><li>Вес: 121 г</li></ul><p>Размеры 96×70×45 мм</p>"
+        out, stripped = ce.enforce_number_anchoring(html, evidence)
+        assert out == html, f"guard 后真值被剥: {stripped}"
+        assert stripped == []
+
+    def test_without_final_truth_guard_number_stripped(self):
+        """负向锁：不传管线最终真值（只有 1688 毛重 160）→ 121 仍被剥。
+
+        证明 final_weight_g/final_dims_mm 是会让 guard 调整值可溯的来源，
+        而非「恰好已在证据集里」。
+        """
+        evidence = ce.collect_evidence_keys(draft_attrs={}, gross_weight_g=160)
+        out, stripped = ce.enforce_number_anchoring(
+            "<ul><li>Вес: 121 г</li></ul>", evidence)
+        assert "121" not in out and "121" in stripped
+
+    def test_author_annotation_accepts_final_truth(self):
+        """作者链：final_weight_g 透传后 LLM 写的 121 不被剥。"""
+        def _llm(system, user, imgs):
+            return "<ul><li>Вес: 121 г</li></ul>" + "а" * 600
+
+        html, marks = ce.author_annotation(
+            title_ru="Ключница", draft_attrs={}, weight_g=100,
+            token="t", llm=_llm, gross_weight_g=160, final_weight_g=121,
+            final_dims_mm={"length": 96, "width": 70, "height": 45},
+        )
+        assert marks["description_source"] == "llm_authored"
+        assert "121" in html, "管线最终真值应锚定保留"
+        assert "121" not in marks["numbers_stripped"]
