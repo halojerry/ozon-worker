@@ -22,6 +22,8 @@
 | **改 API 后必跑** | `python worker/scripts/gen_api_docs.py`（重生成 `docs/API-REFERENCE.md` + openapi 快照；`--check` 即 CI 门禁） |
 | 本地 worker | `cd deploy && docker compose up -d --build` → `http://localhost:8080`（Swagger `/docs`） |
 
+**测试基线（v0.83.0 终验）**：worker **3764 passed / 2 skipped** · skill **1828 passed** · pounding-mcp **144 passed**。
+
 **边界（改代码前的硬规则）**
 - skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`，改字段三处同步（skill/worker `state.py`/契约文档）。
 - 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（14 个）。
@@ -44,6 +46,47 @@ MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬
 架构全景/函数级细节 → `docs/ARCHITECTURE/`（v0.80 口径，含问题清单 09-findings）。
 
 **高频坑**：编译 skill 必须 Python 3.12（ABI）；worker 测试全家桶在 `skill/.venv314`（系统 python 无 pytest）；本地 PG 类目树为空会让类目类测试失败（先 `init_data` 导入）；MXOU 字面 `balance:0` 是哨兵不是欠费；产品图托管在 COS bucket，生命周期规则一删 Ozon 卡片全变无图；`test_webui_e2e` 提交用例在无 boto3 环境被图片镜像闸 422（已知隔离问题）；worker 全量测试须显式 `PGDATABASE_URL=postgresql://postgres:ozon123@localhost:5433/ozon`（漏掉会落 `postgres:5432` 容器主机名→30 分钟假阴性；且 5433 可能被非 compose 的临时 PG 占位——连错库测试照样绿，跑前 `lsof -iTCP:5433 -sTCP:LISTEN` 核实）；PG 集成测试的 skip 守卫勿读 env 判存（`import main` 会向 environ 注入容器风格 URL），用直连探测。⚠️ conftest 的生产库写闸（PR#20 prod_db_guard）只对 pytest 生效——直接 `python tests/xxx.py` 跑集成脚本不经过闸，涉库操作仍靠人工纪律。⚠️ **2026-09-16 安全批两坑**：①`SKIP_FAILED_REVIVE` 语义已翻转——部署重启默认**不**复活 failed 任务（重试走采集箱 resubmit；恢复旧行为显式 `SKIP_FAILED_REVIVE=0`），测试夹具里写 `=1` 的语义没变但别再当「默认开」引用；②鉴权矩阵已收口——cancel_task/task_statistics/progress/store/health/logistics-quote 无 Bearer 一律 401（statistics 非 admin 恒自身租户、store/health 上游失败 502、logistics/quote 有限流），写集成测试/客户端联调时别按「匿名可读」旧口径来。
+
+## 最近更新（v0.83.0 — 上架质量战役：预估统一 + 4191 撰写链 + 类目权威边界 + agent 后台化 + discover session + 回执真值化，七批 + 四修复批）
+
+> 2026-09-28 发版（tag 待打）。dev 自 v0.82.0 共 10 个 PR（#91-#100），方案
+> `docs/PLAN-v083-quality-campaign-v1.md`。**改定价/预估、描述链、类目闸、MCP 采集、
+> discover session、利润回执前先读 CHANGELOG 0.83.0 对应批次节与下方改前必读指针。**
+
+- **预估统一（#92）**：`utils/pricing_core.py`（`compute_pricing_core`）是
+  `pricing_node` / `estimate_service` / 新 `POST /api/v1/estimate/batch`（≤50/批）的
+  **唯一同源算价核**；带副作用（Sentry/价差守卫/Ozon 汇率兜底/余额/多 SKU 循环）刻意留
+  pricing_node。skill 五处内联公式全退役（`_calculate_profit` / `_estimate_and_print` /
+  `cmd_search` / `cloud_probe` 1.44375 / `estimate_shipping_cny`）。
+  **改定价/预估先读 pricing_core。**
+- **4191 撰写链（#91，改描述前必读）**：顶层 `description`/`description_json` 是契约外
+  死字段（实锤 PLAN-v083 §实锤A），卡面唯一载体=属性 **4191**；撰写替换翻译链 + 真
+  vision + 数字事实锚定硬闸 + `box_reviewed` 闸补 4191 + retry `DESCRIPTION_DECLINE`
+  靶位迁 4191 + 跟卖卡 `fetch_back`/`card_audit` 豁免 + `description_json` 停发。
+  **改撰写/锚定闸先读 `utils/content_enrich.py`。**
+- **类目权威边界（#93，改类目闸前必读）**：`_divergent_match_verdict`（assemble 纯函数）
+  按来源权威度分级降级；R4 不再伪造 R2b 标记；Step 6.5/R4 源词守卫；follow 三值判定统一
+  + 空标题洞修补；L0 清洗脚本 `worker/scripts/audit_category_mapping.py`。
+  **改 divergent 阶梯先读该纯函数注释。**
+- **11254 富文本格式（#98，改富文本前必读）**：`RICH_CONTENT_FORMAT` 默认 `v2`（Ozon 实收
+  schema `version 0.3`，ground truth = 本店 15 张已过审卡，小抄在 `content_enrich.py`
+  模块注释）；`RICH_CONTENT_DISABLE=1` 整体跳过（宁缺毋滥）。
+- **agent 后台化（#97）**：MCP 七采集工具 `background` **缺省 True**（同步显式 `false`）；
+  skill 新增 `--detach`/`jobs`/`job-status`/`job-result`（`--detach` 与 `--wait` 互斥）；
+  注册表单一事实源 `skill/data/jobs/`。
+- **discover session（#95）**：自包含文档 `discover.session.v1` 落
+  `data/discovery/sessions/` + `index.jsonl`；上报幂等 upsert + 4MB 闸；worker 补
+  `get_discovery_run`（MCP 23 工具）。**锚价恒 materialize 红线**
+  （`utils/price_sanity_guard.py` 模块注释）——绝不可引用化/延迟解析。
+- **回执真值化（#94）**：`utils/profit_reality.py` 唯一入口（`compute_profit_reality`），
+  `learning_record` 复用 `/v5` 响应零新增 API；card_audit 第 5 不变量；`listing_result_log`
+  新增 `real_profit_cny`/`gap_pct`/`profit_reality`。
+- **⚠️ 行为变更**：MCP 采集默认后台 / `graph --no-submit` 经 job_result / `--detach` /
+  低密度件上架价上浮至真实计费重量（#100 预估↔卡价一致）/ 4191 事实锚定撰写 /
+  跟卖卡零写入 / 非 RUB 契约店 `CURRENCY_UNRESOLVED` fail-closed / validate 换类目需双非泛词 /
+  富文本 version 0.3。全文见 CHANGELOG 0.83.0「行为变更」十条。
+- **升级**：需跑 `init_data`（`listing_result_log` 三列 + `discovery_runs` session 列/部分唯一
+  索引，幂等）；skill 包需更新（后台化/预估/语义闸出证）；worker 需重建镜像。
 
 ## 最近更新（v0.82.0 — 店铺卡不变量巡检域 card_audit：坏卡自愈层落地）
 

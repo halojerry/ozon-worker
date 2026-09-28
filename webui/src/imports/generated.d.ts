@@ -1071,6 +1071,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discovery/runs/{session_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Discovery Get Run
+         * @description 读取 canonical discover session（v0.83 批⑤）：session_json 全文 + meta。
+         *
+         *     鉴权 Bearer（``resolve_tenant_from_request``：Bearer→verify→限流→租户）+
+         *     跨租户 404（run_id 带 disc_ 前缀 + 随机段不可枚举，见 skill
+         *     discovery_session.new_run_id）。归属判定用写侧同源指纹（token_fp）——
+         *     discovery_runs.tenant_id 存的是 clean token 明文，与 resolve_tenant 的
+         *     user_id 不同域，故用 ``token_fingerprint`` 等值比较（写入侧唯一算法入口）。
+         *     老行（无 session_json）→ ``legacy: true``，``session_json`` null，
+         *     ``candidates`` 回退 candidates_json。
+         */
+        get: operations["v1_discovery_get_run_api_v1_discovery_runs__session_run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drafts": {
         parameters: {
             query?: never;
@@ -1355,11 +1383,17 @@ export interface paths {
          * Estimate Envelope Standalone
          * @description P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
          *
-         *     body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
+         *     body: {envelope: {draft:{purchase_cost, weight, dimensions},
+         *            extensions:{credential_id?, ozon_client_id?, ...}},
          *            margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,
          *            variable_cost_rate?, promo_variable_cost_rate?}
          *     与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
          *     前端/skill 不写公式铁律不变。
+         *
+         *     v0.83 gate 批①：``envelope.extensions`` 可带 ``credential_id``（worker 内部 UUID）
+         *     或 ``ozon_client_id``（skill 侧店铺 client_id，worker 按 (tenant, client) 反查凭证）
+         *     → 物流费走店铺真实 3PL（``logistics_source=store``），与 pricing_node 同源；缺省
+         *     回落 default_rets。
          */
         post: operations["estimate_envelope_standalone_api_v1_estimate_post"];
         delete?: never;
@@ -3721,6 +3755,69 @@ export interface components {
              * @description 更新时间
              */
             updated_at?: string | null;
+        };
+        /**
+         * DiscoveryRunDetail
+         * @description GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。
+         * @example {
+         *       "created_at": "2026-09-28T10:15:30",
+         *       "keyword": "宠物饮水机",
+         *       "legacy": false,
+         *       "schema_version": "discover.session.v1",
+         *       "session_json": {
+         *         "candidates": [],
+         *         "schema_version": "discover.session.v1",
+         *         "session_run_id": "disc_260928_101530_a1b2c3",
+         *         "summary": {
+         *           "profitable": 5,
+         *           "total": 23
+         *         }
+         *       },
+         *       "session_run_id": "disc_260928_101530_a1b2c3"
+         *     }
+         */
+        DiscoveryRunDetail: {
+            /**
+             * Candidates
+             * @description 投影候选（legacy 行回退 candidates_json）
+             */
+            candidates?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Created At
+             * @description 落库时间（ISO8601）
+             */
+            created_at?: string | null;
+            /**
+             * Keyword
+             * @description 选品关键词
+             * @default
+             */
+            keyword: string;
+            /**
+             * Legacy
+             * @description 老行（无 session_json）为 true
+             * @default false
+             */
+            legacy: boolean;
+            /**
+             * Schema Version
+             * @description session 文档 schema 版本
+             */
+            schema_version?: string | null;
+            /**
+             * Session Json
+             * @description 自包含 canonical session 文档（legacy 行 null）
+             */
+            session_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Session Run Id
+             * @description discover session id（disc_*）
+             */
+            session_run_id: string;
         };
         /**
          * DraftAiResponse
@@ -8656,6 +8753,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalyticsReportResponse"];
+                };
+            };
+        };
+    };
+    v1_discovery_get_run_api_v1_discovery_runs__session_run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-28T10:15:30",
+                     *       "keyword": "宠物饮水机",
+                     *       "legacy": false,
+                     *       "schema_version": "discover.session.v1",
+                     *       "session_json": {
+                     *         "candidates": [],
+                     *         "schema_version": "discover.session.v1",
+                     *         "session_run_id": "disc_260928_101530_a1b2c3",
+                     *         "summary": {
+                     *           "profitable": 5,
+                     *           "total": 23
+                     *         }
+                     *       },
+                     *       "session_run_id": "disc_260928_101530_a1b2c3"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DiscoveryRunDetail"];
+                };
+            };
+            /** @description session 不存在或非本租户（跨租户 404，不泄漏存在性） */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
