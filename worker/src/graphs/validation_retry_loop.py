@@ -2181,12 +2181,10 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
                 # 根据修复类型应用修复
                 if repair_type == "description" and repaired_desc:
-                    # 修复描述
-                    ozon_payload: Dict[str, Any] = state.ozon_payload
-                    items: list = ozon_payload.get("items", [])
-                    if items and len(items) > 0:
-                        items[0]["description"] = repaired_desc
-                        logger.info(f"✅ 描述已修复（长度: {len(repaired_desc)}）")
+                    # ✅ v0.83 批②：DESCRIPTION_DECLINE 修复靶位 = 属性 4191（Аннотация）
+                    # ——顶层 description 是 /v3/product/import 契约外死字段（Ozon 静默
+                    # 忽略），旧实现只写死字段 → 修复对卡面无效果（实锤 A）。
+                    _apply_description_repair(state, repaired_desc)
 
                 elif repair_type == "tags" and repaired_tags:
                     # 修复标签
@@ -2238,6 +2236,82 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     logger.info(f"✅ error_repair_llm修复完成，retry_count={state.retry_count}")
     return state
+
+
+def _apply_description_repair(state: "ValidationRetryLoopState", repaired_desc: str) -> None:
+    """DESCRIPTION_DECLINE 修复靶位：属性 4191（Аннотация），非死字段 description。
+
+    v0.83 批②：/v3/product/import 契约无顶层 description（Ozon 静默忽略），卡面描述
+    唯一载体是属性 4191。同时写三处保持闭合：
+      - payload items[*].attributes 的 4191（ozon 格式，重传直接生效）；
+      - state.final_attributes 的 4191（内部格式，attributes/update 增量路径读它）；
+      - 兼容：顶层 description 同步（死字段，无害，留旧消费者）。
+    box_reviewed 草稿在本调用点上游已清空 repaired_desc（采集箱即权威），此处再加
+    一道防御闸：命中直接不写。
+    """
+    if not repaired_desc:
+        return
+    try:
+        from utils.content_enrich import ANNOTATION_ATTR_ID
+    except Exception:
+        ANNOTATION_ATTR_ID = 4191
+    if _box_reviewed(state):
+        logger.info("✂️ box_reviewed 草稿跳过 4191 描述修复写入（采集箱即权威）")
+        return
+
+    items = (state.ozon_payload or {}).get("items") or []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        attrs = item.get("attributes")
+        if not isinstance(attrs, list):
+            attrs = []
+            item["attributes"] = attrs
+        found = False
+        for attr in attrs:
+            if not isinstance(attr, dict):
+                continue
+            try:
+                aid = int(attr.get("id") or 0)
+            except (ValueError, TypeError):
+                continue
+            if aid == ANNOTATION_ATTR_ID:
+                attr["values"] = [{"dictionary_value_id": 0, "value": repaired_desc}]
+                found = True
+                break
+        if not found:
+            attrs.append({
+                "complex_id": 0,
+                "id": ANNOTATION_ATTR_ID,
+                "values": [{"dictionary_value_id": 0, "value": repaired_desc}],
+            })
+        item["description"] = repaired_desc  # 兼容死字段
+
+    updated: list = []
+    found_fa = False
+    for attr in (state.final_attributes or []):
+        if not isinstance(attr, dict):
+            updated.append(attr)
+            continue
+        try:
+            aid = int(attr.get("id") or attr.get("attribute_id") or 0)
+        except (ValueError, TypeError):
+            aid = 0
+        if aid == ANNOTATION_ATTR_ID:
+            attr["value"] = repaired_desc
+            attr["dictionary_value_id"] = 0
+            attr.pop("values", None)  # 内部格式用 value，清残留 Ozon 格式
+            found_fa = True
+        updated.append(attr)
+    if not found_fa:
+        updated.append({
+            "attribute_id": ANNOTATION_ATTR_ID,
+            "value": repaired_desc,
+            "dictionary_value_id": 0,
+            "source": "repair",
+        })
+    state.final_attributes = updated
+    logger.info(f"✅ 描述已修复 → 属性 4191（长度: {len(repaired_desc)}）")
 
 
 def repair_prepare_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:

@@ -431,12 +431,16 @@ def test_reactive_rating_above_threshold_no_action():
 
 
 def test_reactive_no_fillable_gap_no_action():
-    """rating <90 且无缺口（4191/11254 已在卡上、无 improve）→ 不动作。"""
+    """rating <90 且无缺口（4191 已 ≥500 字符 / 11254 在卡上、无 improve）→ 不动作。
+
+    v0.83 批②：4191 文案 <500 字符现在视为「可重生成缺口」（allow_annotation_replace），
+    故本用例改用满文本分的 4191（≥500 正文）证明「真无缺口」时零动作。"""
     from graphs.nodes.fetch_back_node import _content_rating_enhance
 
+    long_annotation = "<p>" + ("Полное описание товара на русском языке. " * 15) + "</p>"
     stored_complete = dict(_STORED)
     stored_complete["attributes"] = [
-        {"id": 4191, "values": [{"dictionary_value_id": 0, "value": "<p>Полное описание товара на русском языке.</p>"}]},
+        {"id": 4191, "values": [{"dictionary_value_id": 0, "value": long_annotation}]},
         {"id": 11254, "values": [{"dictionary_value_id": 0, "value": json.dumps({"content": []})}]},
     ]
     calls = []

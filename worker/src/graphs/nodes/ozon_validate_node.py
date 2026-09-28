@@ -29,6 +29,12 @@ _CYR_TOKEN_RE = re.compile(r"[а-яё]+")
 _MIN_COMMON_WORD_LEN = 4  # ≥4 字符的西里尔词才计入公共词（短词多是 для/и 噪音）
 _MIN_COMMON_PREFIX = 4    # 共同前缀 ≥4 视为同词根（кружка↔кружки 词形变化）
 
+# ✅ v0.83 批②：4191（Аннотация）等价检查阈值——与 utils/content_enrich 同源口径
+# （硬下限 100 / 满分线 500；HTML 结构标签）。顶层 description 是契约外死字段。
+_ANNOTATION_HARD_MIN = 100
+_ANNOTATION_TARGET_MIN = 500
+_ANNOTATION_HTML_RE = re.compile(r"<(p|ul|ol|li|b|strong|br)\b", re.IGNORECASE)
+
 
 def _cyr_words(text: str) -> set:
     """文本中的小写西里尔词集合（按非西里尔字符切分，≥2 字符）。"""
@@ -617,6 +623,26 @@ def ozon_validate_node(
                                 f"item[{i}].attributes: 属性{attr_id_int_check}值为纯拉丁字母: {str(av_val)[:60]}"
                             )
                             logger.error(f"❌ 属性{attr_id_int_check}纯拉丁字母: {str(av_val)[:80]}")
+
+                    # ✅ v0.83 批②：4191（Аннотация）等价检查——顶层 description 是
+                    # /v3/product/import 契约外死字段（Ozon 静默忽略，实锤 A），卡面
+                    # 描述唯一载体是属性 4191；内容评级 >100 字符 +25、>500 +25。此处
+                    # 按 4191 补长度/结构闸（拉丁残留上方已覆盖）。
+                    if attr_id_int_check == 4191 and isinstance(av_val, str) and av_val.strip():
+                        _a_plain = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', av_val)).strip()
+                        _a_len = len(_a_plain)
+                        if _a_len < _ANNOTATION_HARD_MIN:
+                            item_errors.append(
+                                f"item[{i}].attributes: 属性4191（Аннотация）过短"
+                                f"（{_a_len} < {_ANNOTATION_HARD_MIN} 字符，内容评级不加分）"
+                            )
+                            logger.error(f"❌ 属性4191过短: {_a_len} 字符")
+                        elif not _ANNOTATION_HTML_RE.search(av_val) and _a_len < _ANNOTATION_TARGET_MIN:
+                            item_errors.append(
+                                f"item[{i}].attributes: 属性4191（Аннотация）建议用 HTML 结构"
+                                f"（<p>/<ul>/<li>，当前 {_a_len} 字符无结构）"
+                            )
+                            logger.error("❌ 属性4191 无 HTML 结构且未满 500 字符")
 
                     # 中文字符检测：所有属性值（Ozon禁止中文/日文字符）
                     # ✅ v0.69 Wave4: 数值型属性的可解析值豁免——Wave3 契约明文

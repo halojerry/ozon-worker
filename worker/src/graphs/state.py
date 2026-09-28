@@ -978,6 +978,11 @@ class FetchBackInput(BaseModel):
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品草稿（draft.attributes 中文证据，可填属性裁决）")
     pricing_info: Dict[str, Any] = Field(default_factory=dict, description="价格计算结果（UPDATE 回显 price/old_price/currency_code）")
     content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（非空=本任务已复检，防抖）")
+    # ✅ v0.83 批②（feat/desc-4191-authoring-v1）：跟卖/采集箱闸证据面——跟卖卡
+    # （UPDATE 竞品卡）绝不写 4191/11254；box_reviewed 草稿禁用 4191 重生成（采集箱即权威）。
+    # channel 纪律：不声明即静默拿不到（GlobalState 已有 is_follow_sell/extensions）。
+    is_follow_sell: bool = Field(default=False, description="跟卖标记（prepare 透传；跟卖卡跳过内容增强）")
+    extensions: Dict[str, Any] = Field(default_factory=dict, description="信封 extensions（box_reviewed 闸等）")
 
 
 class FetchBackOutput(BaseModel):
