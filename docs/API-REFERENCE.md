@@ -2045,6 +2045,7 @@ Estimate Batch — POST /api/v1/estimate/batch —— 批量预估（≤50/批�
         "width": 90
       },
       "purchase_cost": 8.5,
+      "scid": "201303723",
       "weight_g": 120
     }
   ],

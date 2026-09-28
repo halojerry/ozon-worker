@@ -289,6 +289,10 @@ def process_1688_url(
             print(f"  ❌ [{offer_id}] 信封为空", flush=True)
             return result
 
+        # ✅ v0.83.1: 信封 1688 cid 兜底注入（AK 详情 categories 无数字 id 时
+        # 从 discover 缓存按 offer URL 反查 aibuy cid；已有值零改动、失败零阻断）
+        _inject_discover_cid(envelope, url, offer_id)
+
         draft = envelope.get("envelope", {}).get("draft", {})
         result["title"] = draft.get("title", "")[:80]
         result["price"] = draft.get("price", "")
@@ -340,6 +344,53 @@ def process_1688_url(
         print(f"  ❌ [{offer_id}] 异常: {e}", flush=True)
 
     return result
+
+
+def _discover_cid_for_offer(offer_url: str) -> str:
+    """按 1688 offer URL 查 discover 缓存的 aibuy 类目 cid（v0.83.1 信封 cid 兜底）。
+
+    病根（17 单节日批实锤 748320109280）：原链 AK 详情 categories 无数字 id →
+    信封 source.category_id=null 而 path 在场 → worker L0 lookup/学习回填双断。
+    discover 缓存里的 match_1688_category_id 是 aibuy/AK 真数字 cid（同 1688
+    数字空间非伪造），URL 尾部比对（rstripped）幂等可重放。未命中返回空串。
+    """
+    try:
+        from scripts.lib.ozon_discovery import load_latest_discovery
+        _norm = str(offer_url or "").rstrip("/")
+        for c in load_latest_discovery():
+            if str(c.get("match_1688_url", "") or "").rstrip("/") != _norm:
+                continue
+            cid = str(c.get("match_1688_category_id", "") or "").strip()
+            if cid:
+                return cid
+    except Exception:
+        pass
+    return ""
+
+
+def _inject_discover_cid(envelope: dict, offer_url: str, offer_id: str) -> None:
+    """信封 1688 cid 兜底注入（v0.83.1，原位修改；已有值零改动）。
+
+    source.category_id（契约主键位）+ source.match_category_id（图搜通道位）
+    + draft.source_category_id（worker resolve 第①源）三键齐写——worker
+    三源版 resolve 与 estimate scid 反查无论读哪个都命中。
+    """
+    try:
+        _env = envelope.get("envelope") or {}
+        _src = _env.get("source") or {}
+        if _src.get("category_id"):
+            return
+        cid = _discover_cid_for_offer(offer_url)
+        if not cid:
+            return
+        _src["category_id"] = int(cid)
+        _src.setdefault("match_category_id", cid)
+        _env["source"] = _src
+        _draft = _env.get("draft") or {}
+        _draft["source_category_id"] = cid
+        print(f"  ✅ [{offer_id}] 信封 cid 兜底注入: {cid} (discover 缓存)", flush=True)
+    except Exception:
+        pass  # 兜底注入绝不阻断主流程（缺 cid 语义 = 修复前行为）
 
 
 def _find_discover_source(product_id: str) -> dict[str, Any] | None:

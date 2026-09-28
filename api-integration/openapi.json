@@ -8513,6 +8513,7 @@
                           "width": 90
                         },
                         "purchase_cost": 8.5,
+                        "scid": "201303723",
                         "weight_g": 120
                       }
                     ]
@@ -8555,6 +8556,7 @@
                             "width": 90
                           },
                           "purchase_cost": 8.5,
+                          "scid": "201303723",
                           "weight_g": 120
                         }
                       ],
@@ -8628,6 +8630,18 @@
                           "description": "采购成本 CNY（已含国内运费）",
                           "title": "Purchase Cost",
                           "type": "number"
+                        },
+                        "scid": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "1688 source_category_id；dc 缺席时经学习映射表反查（category_mapping，命中才用）——estimate 佣金冷启动解锁（v0.83.1）",
+                          "title": "Scid"
                         },
                         "weight_g": {
                           "anyOf": [

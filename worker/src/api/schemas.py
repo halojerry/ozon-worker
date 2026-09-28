@@ -1386,6 +1386,7 @@ class EstimateBatchItem(BaseModel):
             "currency_code": "CNY",
             "commission_segments": {"fbs": {"leq_1500": 12.0, "leq_5000": 15.0, "gt_5000": 18.0}},
             "dc": "17028929",
+            "scid": "201303723",
         }]},
     )
     purchase_cost: float = Field(..., description="采购成本 CNY（已含国内运费）")
@@ -1400,6 +1401,11 @@ class EstimateBatchItem(BaseModel):
         None, description="佣金分段（百分比）{'fbs':{leq_*},'fbo':{leq_*}}"
     )
     dc: Optional[str] = Field(None, description="Ozon description_category_id（佣金缓存表键）")
+    scid: Optional[str] = Field(
+        None,
+        description="1688 source_category_id；dc 缺席时经学习映射表反查（category_mapping，"
+        "命中才用）——estimate 佣金冷启动解锁（v0.83.1）",
+    )
 
 
 class EstimateBatchIn(BaseModel):
