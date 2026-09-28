@@ -260,19 +260,94 @@ def _first_int(value: Any) -> Optional[int]:
     return int(m.group()) if m else None
 
 
-def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
-    """确定性生成 Rich-контент JSON（属性 11254）。
+# ── v0.83.1 N1（fix/rich-content-format-v083）: 11254 Ozon 实收 schema 小抄 ──
+#
+# 2026-09-28 实机 gate 重跑（REPORT-v083-rerun.md N1）实锤：旧构造器产
+# {"content":[{"widgetName":"raShowcase","type":"chess","blocks":[{"img":{...}}]}]}
+# 被 Ozon 全量拒 `invalid_rich_content_json`（Rich-контент JSON не соответствует
+# шаблону），导致**所有保留 11254 的 CREATE 卡无法过审**（0 completed 的 P0 根因）。
+#
+# schema 来源于两个已验证来源（逐块提取，非猜测）：
+#   ① 本店真实 approved 卡 11254 值 ×15（skill/data/audit_4718259_20260926.json）；
+#   ② 官方发货模板 worker/assets/offer_description*.json（4 份）。
+# 逐块字段清单（每个字段名均在真卡/模板中出现过）：
+#
+#   根对象：{"content": [<widget>, ...], "version": 0.3}
+#     - `version` 是**强制根键**（15/15 真卡 + 4/4 官方模板均为 0.3）；
+#       缺它 = Ozon 全量拒（本轮 P0 直接根因）。
+#
+#   widget：{"widgetName": "raShowcase", "type": <块型>, "blocks": [<block>, ...]}
+#     - 块型枚举（真卡实测均在售过审）：
+#         · `roll`      —— 单图/多图横滑，position=width_full（真卡 5830685285 6 widgets
+#                          各 1 block；5874824242 1 widget 2 blocks）；
+#         · `chess`     —— 图文交错，position=to_the_edge（真卡 5837014560）；
+#         · `billboard` —— 大图横幅（真卡 5874832646）；
+#         · `tileXL`    —— 官方模板块型（position=to_the_edge）。
+#       ⚠️ 旧构造器把块型/位置写成 chess+to_the_edge 本身**不是**拒绝根因（chess 在
+#       真卡过审过）——拒绝根因是缺根 `version` 与缺 img 必需字段（下）。
+#
+#   block（每块字段）：
+#     - 图片轮播（roll）：{"imgLink": "", "img": {<img>}}（必有 imgLink，真卡恒空串）；
+#     - 图文（chess/billboard）：{"imgLink", "img", "title", "text"[, "reverse"]}；
+#       title/text 结构见 offer_description.json（items[{type,content}] + size/align/color）。
+#
+#   img（每张图的必需子对象——真卡恒含这 7 键，缺字段即不符合模板）：
+#     {"src", "srcMobile", "alt", "position", "positionMobile",
+#      "widthMobile", "heightMobile"}
+#     - src/srcMobile：同 URL（PC 与手机展示，真卡两键相同）；
+#     - alt：字符串（真卡可为 ""）；
+#     - position/positionMobile：roll/billboard → "width_full"；chess/tileXL → "to_the_edge"；
+#     - widthMobile/heightMobile：手机渲染框像素（正整数）。真卡实例：1594×986、
+#       1672×941、900×1200、官方模板 3232×3232——**任一正整数均可**，故给安全默认
+#       1594×986（逐字抄自我们自己过审的 roll 卡），env 可覆盖。
+#
+# 本管线出口策略：**每张图一个 roll widget**（真卡 5830685285 同型，最保守），
+# position=width_full；imgLink 空串；前 RICH_CONTENT_MAX_IMAGES 张。
+_RICH_CONTENT_FORMAT_ENV = "RICH_CONTENT_FORMAT"
+_RICH_CONTENT_DISABLE_ENV = "RICH_CONTENT_DISABLE"
+_LEGACY_RICH_FORMAT = "v1"
+_RICH_CONTENT_VERSION = 0.3
+_RICH_MOBILE_W_DEFAULT = 1594
+_RICH_MOBILE_H_DEFAULT = 986
 
-    结构为 2026-09-26 真实卡验证有效口径（raShowcase / chess / img 块、
-    position=to_the_edge），前 4 张图；json.dumps ensure_ascii=False。
-    有效图 < 2 张返回 None（chess 最低 2 blocks，不强造）。
+
+def rich_content_disabled() -> bool:
+    """逃生门 RICH_CONTENT_DISABLE=1：11254 整个跳过不填（宁缺毋滥——发不了
+    rich 不该挡住整卡过审）。"""
+    import os
+
+    return os.getenv(_RICH_CONTENT_DISABLE_ENV, "0").strip() == "1"
+
+
+def rich_content_format() -> str:
+    """env RICH_CONTENT_FORMAT：默认 v2（Ozon 实收 schema）；=v1 回滚旧格式。"""
+    import os
+
+    return os.getenv(_RICH_CONTENT_FORMAT_ENV, "v2").strip().lower() or "v2"
+
+
+def _rich_mobile_dims() -> Tuple[int, int]:
+    """手机渲染框默认值（env 可覆盖；非法/非正数回退默认）。"""
+    import os
+
+    def _int(name: str, dflt: int) -> int:
+        try:
+            val = int(os.getenv(name, "") or dflt)
+            return val if val > 0 else dflt
+        except (TypeError, ValueError):
+            return dflt
+
+    return _int("RICH_CONTENT_MOBILE_W", _RICH_MOBILE_W_DEFAULT), _int(
+        "RICH_CONTENT_MOBILE_H", _RICH_MOBILE_H_DEFAULT
+    )
+
+
+def _build_rich_json_v1(imgs: List[str], title_ru: str) -> str:
+    """回滚格式（RICH_CONTENT_FORMAT=v1）：v0.83 旧 chess/to_the_edge 口径逐字保持。
+
+    ⚠️ 该格式已被 Ozon 全量拒（缺根 version + 缺 imgLink/widthMobile/heightMobile），
+    仅作紧急回滚逃生口保留，勿作默认。
     """
-    imgs: List[str] = []
-    for img in images or []:
-        if isinstance(img, str) and img.strip() and img.strip() not in imgs:
-            imgs.append(img.strip())
-    if len(imgs) < 2:
-        return None
     blocks = [
         {
             "img": {
@@ -287,6 +362,58 @@ def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
     ]
     payload = {"content": [{"widgetName": "raShowcase", "type": "chess", "blocks": blocks}]}
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_rich_json_v2(imgs: List[str], title_ru: str) -> str:
+    """Ozon 实收 schema（默认）：根 version + 每图一个 roll widget，img 7 键齐全。"""
+    alt = _norm_text(_strip_cjk(str(title_ru or "")))[:120]
+    width_mobile, height_mobile = _rich_mobile_dims()
+    widgets: List[Dict[str, Any]] = []
+    for url in imgs[:RICH_CONTENT_MAX_IMAGES]:
+        widgets.append({
+            "widgetName": "raShowcase",
+            "type": "roll",
+            "blocks": [{
+                "imgLink": "",
+                "img": {
+                    "src": url,
+                    "srcMobile": url,
+                    "alt": alt,
+                    "position": "width_full",
+                    "positionMobile": "width_full",
+                    "widthMobile": width_mobile,
+                    "heightMobile": height_mobile,
+                },
+            }],
+        })
+    payload = {"content": widgets, "version": _RICH_CONTENT_VERSION}
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
+    """确定性生成 Rich-контент JSON（属性 11254）。
+
+    默认走 Ozon 实收 schema（见本模块 N1 schema 小抄注释）：根
+    `{"content":[...], "version":0.3}` + 每图一个 `roll` widget（width_full），
+    img 7 必需字段齐全；前 RICH_CONTENT_MAX_IMAGES 张图；json.dumps ensure_ascii=False。
+
+    逃生门：
+    - `RICH_CONTENT_DISABLE=1` → 恒 None（11254 整个跳过，不挡整卡过审）；
+    - `RICH_CONTENT_FORMAT=v1` → 回滚 v0.83 旧 chess 格式（缺 version，已被 Ozon 拒）。
+
+    有效图 < 2 张返回 None（不强造）。
+    """
+    if rich_content_disabled():
+        return None
+    imgs: List[str] = []
+    for img in images or []:
+        if isinstance(img, str) and img.strip() and img.strip() not in imgs:
+            imgs.append(img.strip())
+    if len(imgs) < 2:
+        return None
+    if rich_content_format() == _LEGACY_RICH_FORMAT:
+        return _build_rich_json_v1(imgs, title_ru)
+    return _build_rich_json_v2(imgs, title_ru)
 
 
 # ── v0.83 批②：4191 撰写链（唯一来源）──────────────────────────
@@ -391,6 +518,8 @@ def collect_evidence_keys(
     packaging_table_text: str = "",
     sku_details: Optional[List[Any]] = None,
     gross_weight_g: Any = 0,
+    final_weight_g: Any = 0,
+    final_dims_mm: Optional[Dict[str, Any]] = None,
 ) -> set:
     """数字事实锚定的证据集：draft 中文属性值 + 归一 RU 属性值 + 重量/尺寸 +
     1688 详情原文 + 1688 规格表/SKU 明细/毛重箱规 + 额外文本，全部抽数字归一成
@@ -400,6 +529,15 @@ def collect_evidence_keys(
     携带的 1688 规格表与 SKU 明细）与毛重/箱规数值——此前规格表真实值（如尺寸
     9.6*7*4.5、箱规 500 件、毛重）不在证据集 → 撰写引用即被误剥/或漏锚。重量
     token 做 kg/кг↔g 单位归一（只归一不改数值，无容差）。
+
+    ✅ v0.83.1 B4-evidence（fix/rich-content-format-v083）：补入**管线内最终真值**
+    `final_weight_g`/`final_dims_mm`——即 prepare 侧 reconcile（箱级毛重回收）+
+    体积密度兜底（ensure_volume_weight_floor，cap 原值×3）**之后**、将要写进卡面
+    的重量与尺寸。实机 gate 重跑取证：4191 写出的 `Вес: 121 г` 是 100g→121g 体积
+    兜底结果（1688 无重量，毛重 160g 未被采用），该数字必须可溯且不被锚定闸剥除
+    ——它是 worker 管线内真值，比 1688 毛重更接近最终卡面声明。与 `weight_g`/
+    `dims_mm` 的区别仅在语义标注（后者是调用方传入的裁决输入；本组是由 prepare
+    显式声明「这是 guard 之后的值」，防未来重排调用顺序时静默丢锚）。
 
     4191 出口的任何数字 token 必须命中本集合（否则剥除）——撰写 ≠ 编造规格。
     """
@@ -441,6 +579,13 @@ def collect_evidence_keys(
     if weight_g:
         _add(weight_g)
         texts.append(weight_g)
+    # ✅ v0.83.1 B4-evidence: 管线内最终真值（reconcile + 体积兜底之后）显式进证据集
+    if final_weight_g:
+        _add(final_weight_g)
+        texts.append(final_weight_g)
+    for value in (final_dims_mm or {}).values():
+        _add(value)
+        texts.append(value)
     for value in (dims_mm or {}).values():
         _add(value)
         texts.append(value)
@@ -629,6 +774,8 @@ def author_annotation(
     packaging_table_text: str = "",
     sku_details: Optional[List[Any]] = None,
     gross_weight_g: Any = 0,
+    final_weight_g: Any = 0,
+    final_dims_mm: Optional[Dict[str, Any]] = None,
     llm: Optional[Callable[[str, str, Optional[List[str]]], Optional[str]]] = None,
     translate: Optional[Callable[[str], Optional[str]]] = None,
     sanitize: Optional[Callable[[str], str]] = None,
@@ -665,6 +812,8 @@ def author_annotation(
         packaging_table_text=packaging_table_text,
         sku_details=sku_details,
         gross_weight_g=gross_weight_g,
+        final_weight_g=final_weight_g,
+        final_dims_mm=final_dims_mm,
     )
     user_text = str(draft_description or "").strip()
 
