@@ -134,11 +134,13 @@ def test_export_b_batch_columns(tmp_path):
     assert {"follow_profit_cny", "follow_margin", "ozon_old_price",
             "match_1688_freight_cny"} <= set(fields)
     # fix/category-root-cause-v1 尾追加 match_category_divergent（divergent 信号
-    # 透传），B 批次五列前移但相对列序不变
-    assert fields[-6:] == ["follow_profit_cny", "follow_margin",
+    # 透传），B 批次五列前移但相对列序不变；v0.83 批⑤ 再尾追加 session_run_id
+    # （canonical run id）——旧列相对列序不变，仅新增列在更尾。
+    assert fields[-7:] == ["follow_profit_cny", "follow_margin",
                            "ozon_old_price", "match_1688_freight_cny",
                            "custom_click_rate",
-                           "match_category_divergent"], "尾追加列序"
+                           "match_category_divergent",
+                           "session_run_id"], "尾追加列序"
     assert row["follow_profit_cny"] == "12.3"
     assert row["follow_margin"] == "0.0"          # 真实 0 保留
     assert row["ozon_old_price"] == "7695.0"
@@ -156,8 +158,11 @@ def test_export_click_rate_column(tmp_path):
         reader = csv.DictReader(f)
         fields = reader.fieldnames
         row = list(reader)[0]
-    # fix/category-root-cause-v1 起本列为倒数第二（尾追加 match_category_divergent）
-    assert fields[-2] == "custom_click_rate"
+    # fix/category-root-cause-v1 起本列为倒数第二（尾追加 match_category_divergent）；
+    # v0.83 批⑤ 再尾追加 session_run_id → 本列现为倒数第三
+    assert fields[-3] == "custom_click_rate"
+    assert fields[-2] == "match_category_divergent"
+    assert fields[-1] == "session_run_id"
     assert row["sales_growth"] == "0.0"           # 既有列不回归（dataclass 默认 0.0）
     assert row["drr"] == "0.0"
     assert row["custom_click_rate"] == "45.0"

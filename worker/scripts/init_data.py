@@ -205,6 +205,41 @@ def migrate_ledger_outcome_v078(engine):
     )
 
 
+def migrate_discovery_session_v083(engine):
+    """v0.83 批⑤: discovery_runs 补 canonical session 列 + 部分唯一索引（幂等）。
+
+    新增列：``session_run_id VARCHAR(64)`` / ``schema_version VARCHAR(40)`` /
+    ``session_json JSONB``（均可空——老行/旧 skill 上报无值，读侧按 legacy:true）。
+    部分唯一索引 ``uq_discovery_runs_session_run_id``（``WHERE session_run_id IS NOT
+    NULL``）：session_run_id 是上报幂等 upsert 键；NULL（老行）不计入唯一约束。
+
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用，见 AGENTS 记忆
+    sqlalchemy-jsonb-cast-trap）。结构性 DDL **响失败**（对齐 migrate_ledger_model_v0772）。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLE = "discovery_runs"
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS session_run_id VARCHAR(64)"
+        ))
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS schema_version VARCHAR(40)"
+        ))
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS session_json JSONB"
+        ))
+        conn.execute(sql_text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_discovery_runs_session_run_id "
+            f"ON {_TABLE} (session_run_id) WHERE session_run_id IS NOT NULL"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "v083_discovery_session",
+        "v0.83 批⑤ discovery_runs 补 session_run_id/schema_version/session_json + 部分唯一索引",
+    )
+
+
 # A8 F6/BL-06（repo-gov B5）：MXOU key 明文落库的五张贡献表 → token_fp 指纹列。
 # (表名, 明文来源列)：discovery_runs 的明文在 tenant_id（_handle_discovery_run_report
 # 写 clean token，probe_assets S5 同结论），其余四表在 contributed_by_token_id。
@@ -442,6 +477,8 @@ def create_tables(engine):
     migrate_card_audit_v081(engine)
     # ✅ v0.83 批⑥ 回执真值化: listing_result_log 补实盘利润三列（幂等）。
     migrate_profit_reality_v083(engine)
+    # ✅ v0.83 批⑤: discovery_runs 补 canonical session 列 + 部分唯一索引（幂等）。
+    migrate_discovery_session_v083(engine)
     logger.info("✅ 表结构已就绪")
 
 

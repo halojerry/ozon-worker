@@ -132,7 +132,9 @@ class TestDivergentTransmission:
     def test_csv_row_and_fields_tail_appended(self):
         """导出面：CSV 列尾追加 + 行值仅 True 落值（非 True 空串）。"""
         from scripts.lib.ozon_discovery import _EXPORT_FIELDS, _candidate_row
-        assert _EXPORT_FIELDS[-1] == "match_category_divergent", "列序契约：尾追加"
+        # v0.83 批⑤ 再尾追加 session_run_id → match_category_divergent 现为倒数第二
+        assert _EXPORT_FIELDS[-2] == "match_category_divergent", "列序契约：尾追加"
+        assert _EXPORT_FIELDS[-1] == "session_run_id"
         assert _candidate_row(_cand(match_category_divergent=True))[
             "match_category_divergent"] is True
         assert _candidate_row(_cand())["match_category_divergent"] == ""

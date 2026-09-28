@@ -6,6 +6,11 @@
 （discover / extensions.discovery_meta 在场的信封），无锚恒 ok，零误杀。
 
 改前必读：
+- **引用化红线（v0.83 批⑤）**：``discovery_meta.ozon_price`` / ``min_competing_price``
+  是**锚价**，恒 materialize 进信封（skill 侧 write-through）——**绝不可改为引用键
+  或延迟解析**（引用化=提交闸依赖网络/额外查询，守卫会在锚价缺失时静默退化为
+  「无锚恒 ok」，错货防线失效）。其余 discovery_meta 键（如 run_id）可投影/引用，
+  但这两个数值锚价不得改派生。
 - 锚价取 ``discovery_meta.ozon_price``，退 ``min_competing_price``；非法/≤0 一律
   视为无锚 → ``("ok", {})``。
 - ``final_price <= 0`` 是定价层自己的 bug（compute_price 自有除零兜底），本守卫

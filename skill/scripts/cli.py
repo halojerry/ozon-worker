@@ -245,6 +245,55 @@ def _write_run_report(cmd: str, items: list[dict], summary: dict) -> str:
         return ""
 
 
+def _emit_discover_session_out(candidates: list) -> None:
+    """v0.83 批⑤：discover/discover-multi 出口结构化尾 JSON。
+
+    供 pounding-mcp background 收割（批④前置）与 agent 机读——``run_id`` /
+    ``candidates_count`` / ``summary`` / ``session_path``（先例 cmd_discover_task
+    的 ``_out``）。无进程内 session（理论不可达）时静默不发。
+    """
+    try:
+        from dataclasses import asdict as _asdict
+
+        from scripts.lib import discovery_session as _sess
+
+        run_id = _sess.current_run_id()
+        if not run_id:
+            return
+        flat: list[dict] = []
+        for c in candidates or []:
+            try:
+                flat.append(_asdict(c))
+            except Exception:
+                flat.append(dict(getattr(c, "__dict__", {}) or {}))
+        _out({
+            "run_id": run_id,
+            "candidates_count": len(flat),
+            "summary": _sess.build_summary(flat),
+            "session_path": _sess.session_path(),
+        })
+    except Exception:
+        pass
+
+
+def _emit_queries_out(rows: list) -> None:
+    """v0.83 批⑤：queries 出口结构化尾 JSON（run_id + 行数；批④后台收割前置）。"""
+    try:
+        from scripts.lib import discovery_session as _sess
+
+        run_id = _sess.current_run_id()
+        if not run_id:
+            return
+        _out({
+            "run_id": run_id,
+            "candidates_count": len(rows or []),
+            "summary": {"rows": len(rows or [])},
+            "session_path": _sess.session_path(),
+        })
+    except Exception:
+        pass
+
+
 def _print_logs(task_id: str = "") -> int:
     """``check --logs`` 实现（v0.78 批B5）——只读日志通道，零 Chrome/网络。
 
@@ -697,6 +746,28 @@ def _acquire_heavy_lock_waiting(cmd_name: str):
         print(f"⏳ 重采集闸仍被占（{read_lock_holder(HEAVY_LOCK_PATH)}），继续排队等待…"
               f"（Ctrl-C 退出）", file=sys.stderr, flush=True)
         time.sleep(1)  # I-1 兜底：持久性 open 失败时防无节流紧凑空转
+
+
+def _discovery_session_scope(func):
+    """v0.83 批⑤：命令退出时清空进程内 canonical session 上下文（finally 兜底）。
+
+    session 上下文（``discovery_session._CURRENT``）是进程全局——CLI 每进程一命令
+    无碍，但同进程多次调用（测试/嵌入式）会串味：前一条命令的 run_id 泄漏给
+    后续库直调 ``_save_discovery_log``，把旧 legacy 路径误切成 canonical。
+    本装饰器保证「命令即会话边界」：入口 begin_session，出口（含异常）end_session。
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        from scripts.lib import discovery_session as _sess
+
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _sess.end_session()
+
+    return wrapper
 
 
 def _heavy_gate(func):
@@ -1865,6 +1936,7 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.ozon_discovery import (
@@ -1880,6 +1952,23 @@ def cmd_discover(args: argparse.Namespace) -> int:
         (get_store_profile(args.store) or {}).get("fx_rate")
         or get_setting("fx_rate", DEFAULT_FX_RATE)
         or DEFAULT_FX_RATE)
+
+    # v0.83 批⑤：进程启动即生成 canonical session run_id（disc_*），全链路共享
+    # （落盘/上报/尾 JSON/信封 discovery_meta.run_id）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover",
+        keyword=args.keyword or "",
+        url=args.url or "",
+        params={
+            "max_products": args.max_products, "min_margin": args.min_margin,
+            "filter_profile": getattr(args, "filter_profile", "") or "",
+            "rules": args.rules or "", "brand_filter": args.brand_filter,
+            "min_price": args.min_price, "max_price": args.max_price,
+            "auto_submit": bool(args.auto_submit), "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
 
     print("🔍 Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）", flush=True)
     print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {fx_rate} CNY", flush=True)
@@ -2013,6 +2102,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
     if not candidates:
         print("未采集到产品。检查关键词/URL 或增大 --max-products。")
+        _emit_discover_session_out(candidates)
         return 0
 
     # ── C4 step2: 蓝海反哺预计算（阶段③ 表格展示前，便于挑选）──
@@ -2214,17 +2304,20 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             csv_path = export_to_csv(selected, matched_export)
             print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
 
-    # ── 自动生成结构性分析文档（MD+JSON，供 Agent/用户直接汇报）──
-    try:
-        from scripts.lib.ozon_discovery import export_analysis_report
-        _report = export_analysis_report(selected)
-        if _report:
-            print(f"📄 分析文档已生成: {_report['md']}")
-            print(f"📄 结构化 JSON: {_report['json']}")
-    except Exception as exc:
-        import logging
-        _logger = logging.getLogger(__name__)
-        _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
+    # ── 结构性分析文档（MD+JSON）——v0.83 批⑤：默认不再无条件生成，
+    # 改 --report 显式开关（canonical session 落盘已含自包含候选；旧 analysis_*
+    # 产物噪音大且与 session 重复）。显式 --report 时保持旧行为。
+    if getattr(args, "report", False):
+        try:
+            from scripts.lib.ozon_discovery import export_analysis_report
+            _report = export_analysis_report(selected)
+            if _report:
+                print(f"📄 分析文档已生成: {_report['md']}")
+                print(f"📄 结构化 JSON: {_report['json']}")
+        except Exception as exc:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
 
     # ── auto-submit ──
     # v0.78 批B4: 终局 run 报告（逐条 + 汇总落 data/logs/report_*.json）——
@@ -2284,6 +2377,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         if not to_submit:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             _emit_run_report()
+            _emit_discover_session_out(candidates)
             return 0
         print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
         # v0.77.3（gate 发现修复）：--non-interactive + --auto-submit 组合语义 = 无人值守
@@ -2391,6 +2485,9 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
 
     _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    # v0.83 批⑤：结构化尾 JSON（run_id+计数+summary+session_path）——批④后台收割前置。
+    # 置于 NEXT 行之前，保证 NEXT 仍是出口末行（agent 读尾行取下一步）。
+    _emit_discover_session_out(candidates)
     # v0.79 Task C1: 出口 NEXT——按出口形态给下一步（入箱/直提/纯选品三分支）
     if getattr(args, "to_box", False):
         _print_next("批量入箱完成——draft_id 见上方逐行与运行报告，上架由用户到 WebUI 认领")
@@ -2571,6 +2668,7 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover_multi(args: argparse.Namespace) -> int:
     """Ozon 选品 · 多关键词并行（D7'）— N 关键词串行滚动 → 合并去重 → 单次并行分析。
 
@@ -2590,6 +2688,20 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
         (get_store_profile(args.store) or {}).get("fx_rate")
         or get_setting("fx_rate", DEFAULT_FX_RATE)
         or DEFAULT_FX_RATE)
+
+    # v0.83 批⑤：canonical session run_id（多关键词同样一次 run 一个 disc_*）
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover-multi", keyword=", ".join(keywords), keywords=keywords,
+        params={
+            "max_each": args.max_each, "min_margin": args.min_margin,
+            "filter_profile": getattr(args, "filter_profile", "") or "",
+            "rules": args.rules or "", "brand_filter": args.brand_filter,
+            "min_price": args.min_price, "max_price": args.max_price,
+            "auto_submit": bool(args.auto_submit), "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
 
     print("🔍 Ozon 选品 v2 · 多关键词并行（滚动串行 + 分析并行）", flush=True)
     print(f"   关键词 {len(keywords)} 个: {', '.join(keywords)} | 每词上限: {args.max_each} | "
@@ -3187,6 +3299,7 @@ def _route_discovery_export(candidates: list, filepath: str) -> str:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -3292,6 +3405,22 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                    else args.target_count * 3)
     prior_profitable = sum(1 for v in (processed or {}).values()
                            if isinstance(v, dict) and v.get("status") == "profitable")
+
+    # v0.83 批⑤：canonical session run_id（一次 discover-task = 一个 disc_*；
+    # state 文件与尾 JSON 均带；落盘/上报/信封 discovery_meta.run_id 共享）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover-task", keyword=keyword, url=url,
+        params={
+            "target_count": args.target_count, "max_scan": args.max_scan,
+            "filter_profile": profile, "min_margin": args.min_margin,
+            "match_limit": match_limit, "match_concurrency": args.match_concurrency,
+            "expend_shop": expend_shop,
+            "auto_submit": bool(getattr(args, "auto_submit", False)),
+            "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
     _profile_label = profile if lib_profile == profile else f"{profile}→off(--filters 覆盖)"
     print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}"
           f"｜目标 {args.target_count}（达标）｜扫描上限 {args.max_scan}"
@@ -3438,6 +3567,8 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                    f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）"):
         state = {
             "task_id": task_id,
+            # v0.83 批⑤：canonical session run_id（--resume / 尾 JSON / 采集箱 run_id 同源）
+            "run_id": _disc_session.current_run_id(),
             "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
             "entry": {"url": url, "keyword": keyword},
             "params": {"target_count": args.target_count, "filter_profile": profile,
@@ -3579,6 +3710,9 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # agent/任务中心也直接机读 summary（_out 自带凭证脱敏）
     _out({
         "task_id": task_id,
+        # v0.83 批⑤ canonical：run_id + session_path（批④后台收割/身份层前置）
+        "run_id": _disc_session.current_run_id(),
+        "session_path": _disc_session.session_path(),
         "entry": state["entry"],
         "summary": state["summary"],
         "state_path": str(_task_state_path(task_id)),
@@ -3883,6 +4017,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    dp.add_argument("--report", action="store_true",
+                    help="显式生成结构性分析文档 analysis_*.md/json（v0.83 批⑤起默认不生成——"
+                         "canonical session 已自包含候选，此开关仅兼容旧流程）")
     _add_heavy_gate_args(dp)
     dp.set_defaults(func=cmd_discover)
 
@@ -3925,6 +4062,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    dpm.add_argument("--report", action="store_true",
+                     help="显式生成结构性分析文档 analysis_*.md/json（v0.83 批⑤起默认不生成）")
     _add_heavy_gate_args(dpm)
     dpm.set_defaults(func=cmd_discover_multi)
 
@@ -4008,6 +4147,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     dtp.add_argument("--export", default="", help="全量候选导出路径（.xlsx=Excel 选品簿，其余=CSV）")
     _add_heavy_gate_args(dtp)
     dtp.set_defaults(func=cmd_discover_task)
+
+    # ── discover session 补传（v0.83 批⑤）──
+    ssp = sub.add_parser(
+        "sync-sessions",
+        help="补传本地未上报的 discover session（canonical 幂等 upsert）")
+    ssp.add_argument("--limit", type=int, default=50,
+                     help="单次最多补传条数（默认 50）")
+    ssp.set_defaults(func=cmd_sync_sessions)
 
 
     # ── 自动更新 ──
@@ -4272,20 +4419,36 @@ def _silent_update_check(command: str) -> None:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_seller(args: argparse.Namespace) -> int:
     """卖家店铺全产品运营分析(v0.29.x): 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。"""
     from scripts.lib.ozon_discovery import fetch_seller_analysis
-    import json
+
+    # v0.83 批⑤：run_id 身份层（seller 也是重命令，批④后台化按 run_id 收割）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(kind="seller", seller_id=args.seller_id)
 
     result = fetch_seller_analysis(
         seller_id=args.seller_id,
         max_products=args.max_products,
         max_skus=args.max_skus,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    # v0.83 批⑤：结构化尾 JSON 带 canonical run_id/session_path（保留原 products 字段，
+    # 向后兼容既有消费方）。
+    _out({
+        **(result if isinstance(result, dict) else {"result": result}),
+        "run_id": _disc_session.current_run_id(),
+        "session_path": _disc_session.session_path(),
+        "candidates_count": int((result or {}).get("product_count", 0) or 0),
+        "summary": {
+            "product_count": (result or {}).get("product_count", 0),
+            "analyzed_count": (result or {}).get("analyzed_count", 0),
+        },
+    })
     return 0
 
 
+@_discovery_session_scope
 def cmd_queries(args: argparse.Namespace) -> int:
     """what-to-sell SPA 三页查询(v0.33.2, C4 step1; v0.57 W5.6 静默 cookie 直调)。
 
@@ -4299,6 +4462,10 @@ def cmd_queries(args: argparse.Namespace) -> int:
     import io
 
     from scripts.lib import ozon_seller_analytics as osa
+
+    # v0.83 批⑤：run_id 身份层（queries 重命令批④后台化按 run_id 收割）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(kind="queries", keyword=args.keyword or "")
 
     rows: list[dict] = []
     # ── 静默 cookie 直调优先（W5.6 / I-13）：免开可见 Chrome 页面 ──
@@ -4372,6 +4539,7 @@ def cmd_queries(args: argparse.Namespace) -> int:
 
     if not rows:
         print("（无数据）", flush=True)
+        _emit_queries_out(rows)
         return 0
 
     if args.export == "json":
@@ -4393,6 +4561,34 @@ def cmd_queries(args: argparse.Namespace) -> int:
                 f.write(text)
         else:
             print(text, end="", flush=True)
+    # v0.83 批⑤：结构化尾 JSON（canonical run_id + 行数）
+    _emit_queries_out(rows)
+    return 0
+
+
+def cmd_sync_sessions(args: argparse.Namespace) -> int:
+    """v0.83 批⑤：补传本地未上报的 discover session（``sync-sessions``）。
+
+    扫描 ``data/discovery/sessions/`` 下无 ``.reported`` sidecar 的 session，
+    逐个重传 Worker ``/api/v1/discovery/runs``（worker 按 session_run_id 幂等
+    upsert，重复上报安全）。无 token → 提示后 exit 1（fail-open 不崩）。
+    """
+    from scripts.lib import discovery_session as _sess
+    from scripts.lib.config_store import get_mxou_token
+    from scripts.lib.ozon_discovery import REPORT_FIELDS
+
+    res = _sess.sync_sessions(REPORT_FIELDS, get_mxou_token,
+                              limit=max(1, int(getattr(args, "limit", 50) or 50)))
+    _out({**res, "pending_after": len(_sess.pending_sessions())})
+    if res.get("reason") == "no_token":
+        print("（无 token：`set_token` 配置后重跑 sync-sessions 补传）", flush=True)
+        _print_next("运行 `python3 scripts/cli.py set_token <key>` 后重跑 sync-sessions")
+        return 1
+    if res.get("failed"):
+        print(f"⚠️ {res['failed']} 条补传失败（可再次重跑；幂等安全）", flush=True)
+        _print_next("稍后重跑 sync-sessions 补传失败项（幂等，不会重复入库）")
+        return 1
+    _print_next("session 已全部同步到 worker（可到 WebUI 选品记录查看）")
     return 0
 
 

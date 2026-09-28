@@ -2998,6 +2998,19 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     if match_imgs:
         meta["match_image_url"] = match_imgs[0]
     meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # v0.83 批⑤：canonical session run_id（disc_*）——候选自带（batch_test 复用
+    # 从 session 还原）优先，进程内 session 回退。键名 run_id（webui
+    # DraftDiscoveryMeta.run_id 消费）。**锚价 ozon_price/min_competing_price 恒
+    # materialize（见 price_sanity_guard 引用化红线），run_id 是纯标识键**。
+    try:
+        from scripts.lib import discovery_session as _discovery_session
+
+        _run_id = (getattr(candidate, "session_run_id", "")
+                   or _discovery_session.current_run_id())
+        if _run_id:
+            meta["run_id"] = _run_id
+    except Exception:
+        pass
     # discover 跨平台静默货源匹配（cross_source v1 批3）：候选级跨源快照整包并入
     # （钩子只在比价发生时写 source_comparison 键；空 dict 并入零增键，缺键省略
     # 纪律）。worker 零消费整包透传，采集箱可见可改（可见性兜底，非必经决策点

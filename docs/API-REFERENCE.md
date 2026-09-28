@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.82.0 · 144 个 path / 180 个操作（155 含兼容别名）/ 63 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.82.0 · 145 个 path / 181 个操作（156 含兼容别名）/ 64 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -18,7 +18,7 @@
 - [commissions](#commissions) （1）
 - [credentials](#credentials) （9）
 - [dashboard](#dashboard) （1）
-- [discovery](#discovery) （2）
+- [discovery](#discovery) （3）
 - [drafts](#drafts) （14）
 - [error_reports](#error-reports) （2）
 - [estimate](#estimate) （2）
@@ -1442,6 +1442,44 @@ V1 Discovery Report Run — discover 选品结果归档（W10 D12）：单次上
   "inserted": 42,
   "status": "ok",
   "upserted": 7
+}
+```
+
+### `GET /api/v1/discovery/runs/{session_run_id}`
+V1 Discovery Get Run — 读取 canonical discover session（v0.83 批⑤）：session_json 全文 + meta。
+
+**参数**
+
+| 名称 | 位置 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| `session_run_id` | path | string | ✓ |  |
+
+**响应**
+
+| 状态码 | 说明 | Schema |
+|---|---|---|
+| 200 | Successful Response | [DiscoveryRunDetail](#schema-discoveryrundetail) |
+| 404 | session 不存在或非本租户（跨租户 404，不泄漏存在性） | — |
+| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
+
+响应示例：
+
+```json
+{
+  "created_at": "2026-09-28T10:15:30",
+  "keyword": "宠物饮水机",
+  "legacy": false,
+  "schema_version": "discover.session.v1",
+  "session_json": {
+    "candidates": [],
+    "schema_version": "discover.session.v1",
+    "session_run_id": "disc_260928_101530_a1b2c3",
+    "summary": {
+      "profitable": 5,
+      "total": 23
+    }
+  },
+  "session_run_id": "disc_260928_101530_a1b2c3"
 }
 ```
 
@@ -4101,6 +4139,40 @@ config 目录下的配置文件名。
   "shop_name": "测试店",
   "status": "active",
   "updated_at": "2026-09-08T10:00:00Z"
+}
+```
+
+### DiscoveryRunDetail <a id="schema-discoveryrundetail"></a>
+GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `session_run_id` | string | ✓ | discover session id（disc_*） |
+| `schema_version` | string \| null |  | session 文档 schema 版本 |
+| `keyword` | string |  | 选品关键词（默认 `""`） |
+| `created_at` | string \| null |  | 落库时间（ISO8601） |
+| `legacy` | boolean |  | 老行（无 session_json）为 true（默认 `false`） |
+| `session_json` | dict[str, any] \| null |  | 自包含 canonical session 文档（legacy 行 null） |
+| `candidates` | list[dict[str, any]] |  | 投影候选（legacy 行回退 candidates_json） |
+
+示例：
+
+```json
+{
+  "created_at": "2026-09-28T10:15:30",
+  "keyword": "宠物饮水机",
+  "legacy": false,
+  "schema_version": "discover.session.v1",
+  "session_json": {
+    "candidates": [],
+    "schema_version": "discover.session.v1",
+    "session_run_id": "disc_260928_101530_a1b2c3",
+    "summary": {
+      "profitable": 5,
+      "total": 23
+    }
+  },
+  "session_run_id": "disc_260928_101530_a1b2c3"
 }
 ```
 

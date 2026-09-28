@@ -280,12 +280,58 @@ class AnalyticsMarketBestsellersRequest(BaseModel):
 
 
 class DiscoveryRunItem(BaseModel):
-    """discover 选品结果归档单条（W10 D12）。"""
+    """discover 选品结果归档单条（W10 D12；v0.83 批⑤ 追加 canonical session 字段）。"""
+    model_config = _examples({
+        "token": "__TOKEN_EXAMPLE__",
+        "keyword": "宠物饮水机",
+        "filters": {"min_margin": 15},
+        "candidates": [{"ozon_product_id": "123", "status": "profitable"}],
+        "session_run_id": "disc_260928_101530_a1b2c3",
+        "schema_version": "discover.session.v1",
+    })
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     keyword: str = Field(..., description="选品关键词")
     filters: Optional[dict[str, Any]] = Field(None, description="选品过滤条件")
     candidates: list[dict[str, Any]] = Field(
         default_factory=list, description="候选产品列表（skill 端白名单裁剪后）"
+    )
+    # v0.83 批⑤ canonical（可选——旧 skill 不带 → 走旧行为；带 → 幂等 upsert 键）
+    session_run_id: Optional[str] = Field(
+        None, description="discover session id（disc_*；幂等 upsert 键，缺省走旧行为）"
+    )
+    schema_version: Optional[str] = Field(
+        None, description="session 文档 schema 版本（如 discover.session.v1）"
+    )
+    session_json: Optional[dict[str, Any]] = Field(
+        None, description="自包含 canonical session 文档（请求体 ≤4MB）"
+    )
+
+
+class DiscoveryRunDetail(BaseModel):
+    """GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。"""
+    model_config = _examples({
+        "session_run_id": "disc_260928_101530_a1b2c3",
+        "schema_version": "discover.session.v1",
+        "keyword": "宠物饮水机",
+        "created_at": "2026-09-28T10:15:30",
+        "legacy": False,
+        "session_json": {
+            "schema_version": "discover.session.v1",
+            "session_run_id": "disc_260928_101530_a1b2c3",
+            "summary": {"total": 23, "profitable": 5},
+            "candidates": [],
+        },
+    })
+    session_run_id: str = Field(..., description="discover session id（disc_*）")
+    schema_version: Optional[str] = Field(None, description="session 文档 schema 版本")
+    keyword: str = Field("", description="选品关键词")
+    created_at: Optional[str] = Field(None, description="落库时间（ISO8601）")
+    legacy: bool = Field(False, description="老行（无 session_json）为 true")
+    session_json: Optional[dict[str, Any]] = Field(
+        None, description="自包含 canonical session 文档（legacy 行 null）"
+    )
+    candidates: list[dict[str, Any]] = Field(
+        default_factory=list, description="投影候选（legacy 行回退 candidates_json）"
     )
 
 

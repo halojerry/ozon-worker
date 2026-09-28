@@ -92,6 +92,7 @@ description: >
 | `check` | 环境诊断 / `--logs` 看运行轨迹 | [可调] |
 | `report` | 上报问题到 worker | [照抄] |
 | `session-sync` | 收割 seller 会话上传 worker | [照抄] |
+| `sync-sessions` | 补传本地未上报的 discover session（v0.83，幂等） | [照抄] |
 | `import-cookies` / `probe-win-cookies` | cookie 导入 / Windows 排障探针 | [可调] |
 | `set_store` / `set_token` / `set_ak` / `list_stores` / `get_ak` | 凭证配置 | [照抄] |
 | `update` / `migrate_profile` / `cleanup` | 升级 / profile 迁移 / 磁盘清理 | [照抄] |
