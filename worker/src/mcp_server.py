@@ -402,6 +402,15 @@ async def get_task_forensics(task_id: str) -> dict:
     return await _call("GET", f"/api/v1/forensics/task/{task_id}")
 
 
+@mcp.tool()
+async def get_discovery_run(session_run_id: str) -> dict:
+    """读取 canonical discover session（本地 discover 族落盘后上报的自包含选品文档）。只读。
+
+    返回 session_json 全文（entry/params/env/candidates/summary）+ schema_version/
+    keyword/created_at；跨租户 / 不存在的 session_run_id 返回 404（不可枚举）。"""
+    return await _call("GET", f"/api/v1/discovery/runs/{session_run_id}")
+
+
 TOOLS = [
     "submit_task", "get_task_status", "cancel_task", "get_task_statistics",
     "list_drafts", "submit_draft", "batch_submit_drafts",
@@ -410,4 +419,5 @@ TOOLS = [
     "list_stores", "analyze_store", "run_store_action",
     "lookup_commission", "quote_logistics", "lookup_mapping", "get_seo_keywords",
     "report_issue", "list_error_reports", "get_task_forensics",
+    "get_discovery_run",
 ]

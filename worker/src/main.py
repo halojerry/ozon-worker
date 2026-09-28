@@ -21,6 +21,7 @@ from api.schemas import (
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
     AuthVerifyResponse, AnalyticsReportResponse,
     BlueOceanQueryItem, OzonBestsellerItem, MarketBestsellerItem, DiscoveryRunItem,
+    DiscoveryRunDetail,
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
@@ -3015,6 +3016,10 @@ async def v1_task_statistics(request: Request):
 # skill what-to-sell 采集的蓝海/榜单数据集体沉淀到 worker PG（数据来源于用户、服务于用户）。
 # 每类数据: (表名, 去重冲突列, 可更新数据列, 条目 Pydantic 模型, body 列表字段名)
 
+# discovery_runs 上报请求体上限（v0.83 批⑤ canonical session_json 自包含；超限 413）。
+# 对照 pounding-mcp tasks_server 的 1MB 先例，canonical 文档含候选证据故放宽到 4MB。
+_DISCOVERY_REPORT_MAX_BYTES = 4 * 1024 * 1024
+
 _ANALYTICS_KINDS = {
     "queries": (
         BlueOceanQuery,
@@ -3178,7 +3183,11 @@ async def _handle_analytics_report(request: Request, kind: str):
 
 
 async def _handle_discovery_run_report(request: Request):
-    """discover 选品结果归档（W10 D12）：单条 run 落库，不做批量 upsert（无自然冲突键）。
+    """discover 选品结果归档（W10 D12）。
+
+    v0.83 批⑤ canonical：请求体可带 ``session_run_id``/``schema_version``/
+    ``session_json`` —— 存在 session_run_id 时按它幂等 upsert（重报同 run 不炸、
+    只覆盖）；缺省保持旧行为（裸 insert，兼容旧 skill）。请求体上限 4MB（超限 413）。
 
     鉴权/限流复用 analytics 模式；candidates 白名单裁剪在 skill 端，worker 原样存 JSONB。
     tenant_id = clean token（POST 归属写入；GET 全局共享——见 v1_discovery_list_runs）。
@@ -3186,6 +3195,19 @@ async def _handle_discovery_run_report(request: Request):
     同行双写 token_fp 指纹（唯一入口 tenant_service.token_fingerprint）。
     """
     from services.tenant_service import token_fingerprint
+
+    # v0.83 批⑤：请求体上限 4MB（canonical session_json 自包含，cap 后仍应远小于此；
+    # 超限直接 413 防超大 JSON 打爆内存/DB）。对照 pounding-mcp tasks_server 1MB 先例。
+    # getattr 防御：既有回归测试夹具 FakeRequest 无 headers 属性。
+    _headers = getattr(request, "headers", None)
+    try:
+        _clen = int((_headers.get("content-length") if _headers else 0) or 0)
+    except (TypeError, ValueError):
+        _clen = 0
+    if _clen > _DISCOVERY_REPORT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=(
+            f"request_too_large: max {_DISCOVERY_REPORT_MAX_BYTES} bytes"))
+
     try:
         body = await request.json()
     except Exception:
@@ -3217,12 +3239,37 @@ async def _handle_discovery_run_report(request: Request):
         "filters_json": item.filters,
         "candidates_json": item.candidates,
     }
+    session_run_id = (item.session_run_id or "").strip()
+    if session_run_id:
+        row["session_run_id"] = session_run_id
+        row["schema_version"] = item.schema_version
+        row["session_json"] = item.session_json
     try:
         engine = get_engine()
         with engine.connect() as conn:
-            r = conn.execute(pg_insert(DiscoveryRun).values([row]))
+            if session_run_id:
+                # canonical 幂等 upsert：重报同 session_run_id 只覆盖不新增
+                stmt = pg_insert(DiscoveryRun).values([row])
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["session_run_id"],
+                    set_={
+                        "tenant_id": stmt.excluded.tenant_id,
+                        "token_fp": stmt.excluded.token_fp,
+                        "keyword": stmt.excluded.keyword,
+                        "filters_json": stmt.excluded.filters_json,
+                        "candidates_json": stmt.excluded.candidates_json,
+                        "schema_version": stmt.excluded.schema_version,
+                        "session_json": stmt.excluded.session_json,
+                    },
+                )
+                r = conn.execute(stmt)
+                inserted = 0
+                upserted = int(r.rowcount or 0)
+            else:
+                r = conn.execute(pg_insert(DiscoveryRun).values([row]))
+                inserted = int(r.rowcount or 0)
+                upserted = 0
             conn.commit()
-            inserted = int(r.rowcount or 0)
     except Exception as e:
         logger.error("discovery run insert failed: %s", e)
         return error_response(
@@ -3242,7 +3289,7 @@ async def _handle_discovery_run_report(request: Request):
     except Exception as e:
         logger.warning("source_candidates derivation skipped (keyword=%s): %s", item.keyword, e)
 
-    return {"status": "ok", "inserted": inserted, "upserted": 0}
+    return {"status": "ok", "inserted": inserted, "upserted": upserted}
 
 
 @v1.post("/analytics/queries", response_model=AnalyticsReportResponse, tags=["analytics"])
@@ -3327,12 +3374,13 @@ def _fetch_discovery_runs_rows(*, limit: int, offset: int):
 
     SQL 主体从原 v1_discovery_list_runs 内联处平移，零语义变更。返回 (rows, total)。
     SELECT 保留 tenant_id 明文列（r[5]）供 Python 内算指纹用——明文绝不进响应 dict
-    （v0.76 api-C1：读侧只发 contributed_by_fp）。
+    （v0.76 api-C1：读侧只发 contributed_by_fp）。v0.83 批⑤追加 session_run_id（r[6]）。
     """
     from sqlalchemy import text
     with get_engine().connect() as conn:
         rows = conn.execute(text(
-            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id "
+            "SELECT id, keyword, filters_json, candidates_json, created_at, tenant_id, "
+            "session_run_id "
             "FROM discovery_runs "
             "ORDER BY created_at DESC LIMIT :limit OFFSET :offset"
         ), {"limit": limit, "offset": offset}).fetchall()
@@ -3391,8 +3439,91 @@ async def v1_discovery_list_runs(request: Request):
         # v0.76 安全修复(api-C1): "contributed_by_token_id" 明文键已删除——读侧只发 fp
         #（读时从 tenant_id 现算与写侧 token_fingerprint 同源等值；DB 明文列保留，defer 退役）。
         "contributed_by_fp": token_fingerprint(str(r[5] or ""))[:8],
+        # v0.83 批⑤：canonical session id（老行为 None）
+        "session_run_id": (str(r[6]) if len(r) > 6 and r[6] is not None else None),
     } for r in rows]
     return {"items": items, "total": int(total), "limit": limit, "offset": offset}
+
+
+@v1.get("/discovery/runs/{session_run_id}", tags=["analytics"],
+        response_model=DiscoveryRunDetail, responses={
+    200: {"content": {"application/json": {"example": {
+        "session_run_id": "disc_260928_101530_a1b2c3",
+        "schema_version": "discover.session.v1",
+        "keyword": "宠物饮水机",
+        "created_at": "2026-09-28T10:15:30",
+        "legacy": False,
+        "session_json": {
+            "schema_version": "discover.session.v1",
+            "session_run_id": "disc_260928_101530_a1b2c3",
+            "summary": {"total": 23, "profitable": 5},
+            "candidates": [],
+        },
+    }}}},
+    404: {"description": "session 不存在或非本租户（跨租户 404，不泄漏存在性）"},
+})
+async def v1_discovery_get_run(session_run_id: str, request: Request):
+    """读取 canonical discover session（v0.83 批⑤）：session_json 全文 + meta。
+
+    鉴权 Bearer（``resolve_tenant_from_request``：Bearer→verify→限流→租户）+
+    跨租户 404（run_id 带 disc_ 前缀 + 随机段不可枚举，见 skill
+    discovery_session.new_run_id）。归属判定用写侧同源指纹（token_fp）——
+    discovery_runs.tenant_id 存的是 clean token 明文，与 resolve_tenant 的
+    user_id 不同域，故用 ``token_fingerprint`` 等值比较（写入侧唯一算法入口）。
+    老行（无 session_json）→ ``legacy: true``，``session_json`` null，
+    ``candidates`` 回退 candidates_json。
+    """
+    from api.deps_tenant import _extract_bearer, resolve_tenant_from_request
+    from sqlalchemy import text
+
+    rid = (session_run_id or "").strip()
+    # 形态校验（与 skill new_run_id 同口径；防路径注入/无意义查询）
+    if not _is_valid_session_run_id(rid):
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # 四段鉴权（Bearer→verify→限流→resolve_tenant；401/429/503 与全网收口同源）
+    resolve_tenant_from_request(request)
+    _raw_token, clean_token = _extract_bearer(request)
+
+    with get_engine().connect() as conn:
+        row = conn.execute(text(
+            "SELECT session_run_id, schema_version, keyword, session_json, "
+            "candidates_json, created_at, token_fp "
+            "FROM discovery_runs WHERE session_run_id = :rid LIMIT 1"
+        ), {"rid": rid}).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    # 跨租户 404：非本人不暴露存在性。写侧同行双写 token_fp（唯一算法入口
+    # tenant_service.token_fingerprint）；老行 token_fp 为空时不拦（兼容）。
+    from services.tenant_service import token_fingerprint
+    row_fp = str(row[6] or "")
+    if row_fp and row_fp != token_fingerprint(clean_token):
+        raise HTTPException(status_code=404, detail="session not found")
+
+    return {
+        "session_run_id": str(row[0] or ""),
+        "schema_version": row[1],
+        "keyword": str(row[2] or ""),
+        "created_at": row[5].isoformat() if row[5] is not None else None,
+        "legacy": row[3] is None,
+        "session_json": row[3],
+        "candidates": list(row[4] or []) if row[3] is None else [],
+    }
+
+
+def _is_valid_session_run_id(run_id: str) -> bool:
+    """``disc_<6d>_<6d>_<6hex>`` 形态校验（与 skill discovery_session.is_valid_run_id 同口径）。"""
+    rid = (run_id or "").strip()
+    if not rid.startswith("disc_"):
+        return False
+    parts = rid.split("_")
+    if len(parts) != 4:
+        return False
+    _, d, t, hx = parts
+    if len(d) != 6 or len(t) != 6 or not (d + t).isdigit():
+        return False
+    return len(hx) == 6 and all(c in "0123456789abcdef" for c in hx)
 
 
 @v1.get("/mappings/lookup", tags=["analytics"], responses={

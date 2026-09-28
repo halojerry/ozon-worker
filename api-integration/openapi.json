@@ -587,6 +587,97 @@
         "title": "CredentialOut",
         "type": "object"
       },
+      "DiscoveryRunDetail": {
+        "description": "GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。",
+        "examples": [
+          {
+            "created_at": "2026-09-28T10:15:30",
+            "keyword": "宠物饮水机",
+            "legacy": false,
+            "schema_version": "discover.session.v1",
+            "session_json": {
+              "candidates": [],
+              "schema_version": "discover.session.v1",
+              "session_run_id": "disc_260928_101530_a1b2c3",
+              "summary": {
+                "profitable": 5,
+                "total": 23
+              }
+            },
+            "session_run_id": "disc_260928_101530_a1b2c3"
+          }
+        ],
+        "properties": {
+          "candidates": {
+            "description": "投影候选（legacy 行回退 candidates_json）",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "落库时间（ISO8601）",
+            "title": "Created At"
+          },
+          "keyword": {
+            "default": "",
+            "description": "选品关键词",
+            "title": "Keyword",
+            "type": "string"
+          },
+          "legacy": {
+            "default": false,
+            "description": "老行（无 session_json）为 true",
+            "title": "Legacy",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "session 文档 schema 版本",
+            "title": "Schema Version"
+          },
+          "session_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "自包含 canonical session 文档（legacy 行 null）",
+            "title": "Session Json"
+          },
+          "session_run_id": {
+            "description": "discover session id（disc_*）",
+            "title": "Session Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_run_id"
+        ],
+        "title": "DiscoveryRunDetail",
+        "type": "object"
+      },
       "DraftAiResponse": {
         "description": "T14b: 单字段 AI 重新生成响应（只读结果，前端决定 PATCH 保存）。",
         "examples": [
@@ -7241,6 +7332,69 @@
           }
         },
         "summary": "V1 Discovery Report Run",
+        "tags": [
+          "v1",
+          "analytics"
+        ]
+      }
+    },
+    "/api/v1/discovery/runs/{session_run_id}": {
+      "get": {
+        "description": "读取 canonical discover session（v0.83 批⑤）：session_json 全文 + meta。\n\n鉴权 Bearer（``resolve_tenant_from_request``：Bearer→verify→限流→租户）+\n跨租户 404（run_id 带 disc_ 前缀 + 随机段不可枚举，见 skill\ndiscovery_session.new_run_id）。归属判定用写侧同源指纹（token_fp）——\ndiscovery_runs.tenant_id 存的是 clean token 明文，与 resolve_tenant 的\nuser_id 不同域，故用 ``token_fingerprint`` 等值比较（写入侧唯一算法入口）。\n老行（无 session_json）→ ``legacy: true``，``session_json`` null，\n``candidates`` 回退 candidates_json。",
+        "operationId": "v1_discovery_get_run_api_v1_discovery_runs__session_run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_run_id",
+            "required": true,
+            "schema": {
+              "title": "Session Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "created_at": "2026-09-28T10:15:30",
+                  "keyword": "宠物饮水机",
+                  "legacy": false,
+                  "schema_version": "discover.session.v1",
+                  "session_json": {
+                    "candidates": [],
+                    "schema_version": "discover.session.v1",
+                    "session_run_id": "disc_260928_101530_a1b2c3",
+                    "summary": {
+                      "profitable": 5,
+                      "total": 23
+                    }
+                  },
+                  "session_run_id": "disc_260928_101530_a1b2c3"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "session 不存在或非本租户（跨租户 404，不泄漏存在性）"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "V1 Discovery Get Run",
         "tags": [
           "v1",
           "analytics"

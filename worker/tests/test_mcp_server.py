@@ -61,7 +61,8 @@ async def test_all_tools_registered():
     names = {t.name for t in tools}
     assert set(mcp_server.TOOLS) <= names, f"缺工具: {set(mcp_server.TOOLS) - names}"
     # v0.71: 17 + get_draft/patch_draft/search_categories/get_category_attributes/assemble_draft
-    assert len(names) == 22
+    # v0.83 批⑤: + get_discovery_run → 23
+    assert len(names) == 23
 
 
 async def test_submit_task_injects_token_into_body(monkeypatch):

@@ -634,12 +634,31 @@ class DiscoveryRun(Base):
     candidates_json: Mapped[list] = mapped_column(
         JSONB, nullable=False, comment="候选产品列表（skill 白名单裁剪后）"
     )
+    # v0.83 批⑤ canonical session：skill 生成的 disc_* run id（幂等 upsert 键）。
+    # 可空——老行/旧 skill 上报无此列值（读侧 legacy:true）。部分唯一索引
+    # uq_discovery_runs_session_run_id（WHERE session_run_id IS NOT NULL）由
+    # init_data.migrate_discovery_session_v083 兜底创建（NULL 不参与唯一约束）。
+    session_run_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, comment="discover session id（disc_*，幂等 upsert 键）"
+    )
+    # schema 版本（现 'discover.session.v1'；老行 NULL）
+    schema_version: Mapped[Optional[str]] = mapped_column(
+        String(40), nullable=True, comment="session 文档 schema 版本"
+    )
+    # 自包含 session 文档（{schema_version,session_run_id,entry,params,env,candidates,summary}）
+    session_json: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, comment="canonical session 自包含文档（老行 NULL → legacy）"
+    )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
     __table_args__ = (
         Index("idx_discovery_runs_tenant", "tenant_id"),
+        # 部分唯一索引：session_run_id 非空才唯一（老行 NULL 可重复）。ORM 侧仅声明
+        # 供 create_all 新库就位；存量库由 init_data 幂等迁移兜底建同名索引。
+        Index("uq_discovery_runs_session_run_id", "session_run_id",
+              unique=True, postgresql_where=text("session_run_id IS NOT NULL")),
     )
 
 
