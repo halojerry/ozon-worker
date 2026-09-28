@@ -50,29 +50,67 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
     ozon_client_id = state.ozon_client_id
     ozon_api_key = state.ozon_api_key
     
-    # 🔍 获取currency_code（关键：从GlobalState获取，如果为空则fallback查询Ozon API）
-    currency_code = state.currency_code
-    logger.info(f"pricing_node收到currency_code: '{state.currency_code}' (原始值)")
-    
-    # Fallback：如果currency_code为空，直接调用Ozon API查询
+    # 🔍 币种解析（v0.83 gate B2 信任序：信封 → 本地凭证行 → Ozon API）
+    # 背景：此前信封/凭证都没有时回源 Ozon，查询超时/失败**静默回落默认 RUB** →
+    # CNY 合约店发出 RUB 价 → Ozon 拒 currency_differs_from_contract（gate #4 实锤）。
+    # 现在按信任序逐级降级，全败 → 显式 failed（CURRENCY_UNRESOLVED），绝不静默 RUB。
+    from utils.currency_resolver import normalize_currency, resolve_credential_currency
+
+    currency_code = ""
+    currency_source = ""
+
+    # ① 信封显式币种（extensions.currency_code；skill 侧可选注入，最权威）
+    _envelope_cc = normalize_currency((extensions or {}).get("currency_code"))
+    if _envelope_cc:
+        currency_code, currency_source = _envelope_cc, "envelope"
+
+    # ② 本地凭证行币种（纯本地读，不触网不超时；tenant 缺省则跳过——防 mock 场景误查）
+    if not currency_code:
+        _tenant = str(getattr(state, "user_id", "") or "")
+        if _tenant:
+            _cred_cc = resolve_credential_currency(_tenant, ozon_client_id)
+            if _cred_cc:
+                currency_code, currency_source = _cred_cc, "credential"
+
+    # ③ auth_node 透传的 Ozon API 查询结果（非空即权威）
+    if not currency_code:
+        _state_cc = normalize_currency(state.currency_code)
+        if _state_cc:
+            currency_code, currency_source = _state_cc, "ozon_api"
+
+    # ③b 节点内 Ozon API 兜底查询（auth_node 查询失败/为空时再试一次）
     if not currency_code and ozon_client_id and ozon_api_key:
         try:
-            logger.info("currency_code为空，fallback调用Ozon API查询店铺货币")
+            logger.info("币种仍未解析，fallback调用Ozon API查询店铺货币")
             # F-F01（2026-09-09 审计）：收敛 ozon_post（全局限流 + 429/5xx 重试）
             ozon_data = ozon_post(ozon_client_id, ozon_api_key, "/v1/seller/info", {}, timeout=60)
             company = ozon_data.get('company', {})
             if isinstance(company, dict):
-                currency_code = company.get('currency', '')
-                logger.info(f"Ozon API查询成功，currency: '{currency_code}'")
+                _api_cc = normalize_currency(company.get('currency', ''))
+                if _api_cc:
+                    currency_code, currency_source = _api_cc, "ozon_api"
+                    logger.info(f"Ozon API查询成功，currency: '{currency_code}'")
         except Exception as e:
             logger.warning(f"Ozon API查询失败: {str(e)}")
-    
-    # 如果仍然为空，使用默认值"RUB"
+
+    # ④ 全败 → 显式失败（绝不静默 RUB；非永久错误——重试/重采集可恢复）
     if not currency_code:
-        currency_code = "RUB"
-        logger.warning("currency_code仍然为空，使用默认值RUB")
-    
-    logger.info(f"pricing_node最终使用currency_code: '{currency_code}'")
+        logger.error("币种解析失败（信封/本地凭证/Ozon API 均未返回有效币种）→ CURRENCY_UNRESOLVED 阻断")
+        return PricingOutput(
+            pricing_info={"currency_source": "unresolved"},
+            price="",
+            old_price="",
+            error_message=(
+                "[PRICING_FAILED] 店铺币种无法确定（信封/本地凭证/Ozon API 均未返回有效币种），"
+                "拒绝按默认币种报价（CNY 合约店错发 RUB 价会被 Ozon 拒 currency_differs_from_contract）"
+            ),
+            error_code="CURRENCY_UNRESOLVED",
+            failed_stage="pricing",
+        )
+
+    logger.info(
+        "pricing_node最终使用currency_code: '%s' (source=%s)", currency_code, currency_source,
+    )
     
     # 空值判断：draft为None或完全空字典时报错
     if draft is None:
@@ -132,6 +170,10 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             audit_out=_audit,
             debug_state_currency_code=state.currency_code,
         )
+
+        # ✅ v0.83 gate B2: 币种来源审计键（envelope/credential/ozon_api）——
+        # 供排查「价格为何是该币种」（此前静默 RUB 无法回溯币种从哪来）。
+        pricing_info["currency_source"] = currency_source
 
         # ✅ v0.37 A2/B2: 重量/尺寸标疑放行但上报 Sentry（留痕，不阻断定价）
         _wd_audit = _audit.get("wd_audit") or {}

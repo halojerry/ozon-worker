@@ -51,11 +51,20 @@ class WorkerErrorCode(str, Enum):
     # 见 utils/image_source.py；禁止加进永久错误清单）。
     IMAGE_GEN_ALL_FAILED = "IMAGE_GEN_ALL_FAILED"
 
+    # v0.83 gate B2（fix/gate-findings-v083）：店铺币种无法确定。
+    # 定价链信任序（信封 extensions.currency_code → 本地凭证行 currency → Ozon
+    # API /v1/seller/info）全部未返回有效币种时显式失败——此前静默回落默认 RUB
+    # → CNY 合约店发 RUB 价 → Ozon 拒 currency_differs_from_contract（gate #4 实锤）。
+    # ⚠️ 非永久错误（Ozon 查币超时/网络抖动属临时态）——任务终态 failed 后可重提/
+    # 重采集恢复；**禁止**加进永久错误清单（本码是 graph 失败出口，非 raise 异常）。
+    CURRENCY_UNRESOLVED = "CURRENCY_UNRESOLVED"
+
 
 # v0.78 批A：管线内部错误码默认中文文案（随异常消息/任务 error_message 透出，
 # 非 HTTP 错误信封——image_source.ImageGenAllFailedError 的 raise 文案唯一来源）
 PIPELINE_ERROR_MESSAGES: dict = {
     WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value: "生图全部失败，任务将重试后终态失败；不出原始图卡片",
+    WorkerErrorCode.CURRENCY_UNRESOLVED.value: "店铺币种无法确定（信封/本地凭证/Ozon API 均未返回），拒绝按默认币种报价",
 }
 
 
