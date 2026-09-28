@@ -12,7 +12,7 @@ from graphs.state import PrepareOzonUploadInput, PrepareOzonUploadOutput
 from utils.progress_logger import ProgressLogger
 from utils.size_mapper import build_attribute_matching_table
 from utils.mxou_llm import call_mxou_chat_api
-from utils.mxou_api import MxouOutOfQuotaError
+from utils.mxou_api import MxouOutOfQuotaError, MxouContentViolationError
 from utils.title_sanitizer import sanitize_title
 from utils.attribute_utils import is_customs_attr, is_hazard_attr, get_safe_hazard_default, has_chinese  # ⚠️ v0.16 海关 / v0.21 危险品防御
 from utils.title_formula import build_title_formula_prompt, parse_title_formula_keywords  # v0.59 标题公式唯一入口
@@ -475,57 +475,55 @@ def _sanitize_rich_description(description: str) -> str:
     return sanitized
 
 
-def _generate_rich_description(product_name: str, attributes: dict, token: str, image_urls: list = None) -> str:
-    """
-    LLM 生成俄语 HTML 富文本描述（用于 Ozon 属性 4191）。
+def _generate_rich_description(
+    product_name: str,
+    attributes: dict,
+    token: str,
+    image_urls: list = None,
+    *,
+    final_attributes: list = None,
+    draft_description: str = "",
+    weight_g: int = 0,
+    dims_mm: dict = None,
+    system_prompt: str = None,
+    user_prompt: str = None,
+) -> str:
+    """4191 撰写链 LLM 腿（v0.83 批②重造；4191 唯一来源的写入侧）。
 
-    使用 <b>、<ul>/<li>、<p> 等 HTML 标签格式化产品卖点。
-    v5: 传入商品图片 URL 作为上下文参考，提升描述准确性。
+    与旧实现的关键差别（旧版把图片 URL 当纯文本塞 prompt → vision 模型实际瞎的）：
+    - 真视觉：`call_mxou_chat_api(..., image_urls=[...])` 走 OpenAI Vision array；
+    - 证据面：draft 中文属性 + 归一 RU 属性值 + 重量/尺寸 + 1688 详情文本
+      （prompt 由 utils.content_enrich.build_description_prompt 唯一构造）；
+    - 失败返回 ""，交 author_annotation 降级链；`MxouOutOfQuotaError` 穿透
+      （永久错误不回退）；`MxouContentViolationError` 显式 catch（不重试、降级）。
     """
     if not token:
         return ""
 
     try:
         from utils.mxou_api import call_mxou_chat_api
+        from utils.content_enrich import build_description_prompt
 
-        attr_text = ""
-        if attributes:
-            items = list(attributes.items())[:8]
-            attr_text = "\n".join(f"- {k}: {v}" for k, v in items)
+        if not system_prompt or not user_prompt:
+            system_prompt, user_prompt = build_description_prompt(
+                product_name,
+                attributes,
+                final_attributes=final_attributes,
+                draft_description=draft_description,
+                weight_g=weight_g,
+                dims_mm=dims_mm,
+            )
 
-        img_context = ""
-        if image_urls:
-            img_urls = [u for u in image_urls if isinstance(u, str) and u.strip()][:3]
-            if img_urls:
-                img_context = "\nИзображения товара (ссылки):\n" + "\n".join(img_urls)
-
-        system = """Ты профессиональный копирайтер для Ozon карточек товаров. 
-Создай описание товара на русском языке с HTML-разметкой.
-Правила:
-1. Используй <b>жирный</b> для ключевых характеристик
-2. Используй <ul><li>список</li></ul> для технических параметров
-3. Используй <p> для абзацев
-4. НЕ используй латиницу (английские слова)
-5. НЕ используй ссылки, email, телефоны
-6. Общая длина: 500-1500 символов
-
-Структура:
-<p>Краткое описание товара (1-2 предложения)</p>
-<b>Характеристики:</b><ul>...</ul>
-<p>Преимущества и особенности</p>"""
-
-        user = f"""Товар: {product_name}
-
-Технические данные:
-{attr_text}{img_context}"""
+        imgs = [u for u in (image_urls or []) if isinstance(u, str) and u.strip()][:4]
 
         result = call_mxou_chat_api(
             token=token,
-            system_prompt=system,
-            user_prompt=user,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             model="deepseek-v4-flash-vision-exp",
             max_tokens=2000,
             temperature=0.3,
+            image_urls=imgs or None,
         )
 
         if result:
@@ -533,10 +531,65 @@ def _generate_rich_description(product_name: str, attributes: dict, token: str, 
 
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不回退兜底 HTML
+    except MxouContentViolationError:
+        # v0.83 批②（对齐生图节点 scene_2_gen_node 先例）：内容违规不重试，warning
+        # 后沿降级链下落（翻译 → build_annotation → 通用句），绝不 fail 任务。
+        logger.warning("LLM 富文本描述内容违规（不重试，走降级链）")
     except Exception as e:
         logger.warning(f"LLM 生成富文本描述失败: {e}")
 
     return ""
+
+
+def _author_rich_description(
+    *,
+    title_ru: str,
+    draft_attrs: dict,
+    final_attributes: list,
+    draft_description: str,
+    weight_g: int,
+    dims_mm: dict,
+    token: str,
+    vision_images: list,
+    vision_source: str,
+    box_reviewed: bool,
+) -> tuple:
+    """4191 撰写链编排（v0.83 批②，唯一来源）。
+
+    委托 utils.content_enrich.author_annotation（唯一编排，纯函数注入 LLM/翻译/净化），
+    并组装真实证据面。返回 (html, marks)。
+    """
+    from utils.content_enrich import author_annotation
+
+    def _llm(system: str, user: str, imgs) -> str:
+        return _generate_rich_description(
+            title_ru, draft_attrs, token, image_urls=imgs,
+            final_attributes=final_attributes,
+            draft_description=draft_description,
+            weight_g=weight_g,
+            dims_mm=dims_mm,
+            system_prompt=system,
+            user_prompt=user,
+        )
+
+    def _translate(text: str) -> str:
+        return _translate_to_russian_llm(text, token, source_lang="auto")
+
+    return author_annotation(
+        title_ru=title_ru,
+        draft_attrs=draft_attrs,
+        final_attributes=final_attributes,
+        draft_description=draft_description,
+        weight_g=weight_g,
+        dims_mm=dims_mm,
+        token=token,
+        image_urls=vision_images,
+        vision_source=vision_source,
+        box_reviewed=box_reviewed,
+        llm=_llm,
+        translate=_translate,
+        sanitize=_sanitize_rich_description,
+    )
 
 
 def _generate_rich_description_fallback(product_name: str, attributes: dict, description: str = "") -> str:
@@ -544,6 +597,9 @@ def _generate_rich_description_fallback(product_name: str, attributes: dict, des
     v5: LLM 失败时的兜底富文本——用产品名 + 属性组装简单 HTML。
 
     不依赖 LLM，确保 4191 属性始终有值。
+    v0.83 批②：中文值不再直接丢弃——先经 content_enrich.translate_zh_value 确定性
+    映射（映射不到才跳过）；中文属性名无法译 → 用通用标签 «Характеристика»，
+    避免整条证据因中文键被埋。
     """
     if not product_name:
         return ""
@@ -551,17 +607,25 @@ def _generate_rich_description_fallback(product_name: str, attributes: dict, des
     parts = [f"<p>{product_name}.</p>"]
 
     if attributes:
+        from utils.content_enrich import translate_zh_value
+
         attr_items = []
         for k, v in list(attributes.items())[:6]:
-            if v and str(v).strip():
-                # ⚠️ v0.16: 属性名/值含中文的一律跳过该 <li>（Ozon 富文本禁中文，
-                # 且该 fallback 结果不经过 _sanitize_rich_description，必须源头清洗）
-                if has_chinese(k) or has_chinese(v):
+            if not (v and str(v).strip()):
+                continue
+            # 净化值：中文 → 确定性俄语映射（映射不到才跳过，绝不把中文送上卡）
+            clean_v = str(v).strip()
+            if has_chinese(clean_v):
+                clean_v = translate_zh_value(clean_v)
+                if not clean_v:
                     continue
-                # 净化值：去中文（残留防御）
-                clean_v = re.sub(r'[\u4e00-\u9fff]+', '', str(v)).strip()
-                if clean_v:
-                    attr_items.append(f"<li>{k}: {clean_v}</li>")
+            clean_v = re.sub(r'[\u4e00-\u9fff]+', '', clean_v).strip()
+            if not clean_v:
+                continue
+            clean_k = str(k)
+            if has_chinese(clean_k):
+                clean_k = "Характеристика"
+            attr_items.append(f"<li>{clean_k}: {clean_v}</li>")
         if attr_items:
             parts.append("<b>Характеристики:</b><ul>" + "".join(attr_items) + "</ul>")
 
@@ -2358,6 +2422,8 @@ def prepare_ozon_upload_node(
     
     title_cn = draft.get("title", "")
     description = draft.get("description", "")
+    # v0.83 批②：1688 详情原文（撰写链证据面；提前快照，避免被下方标题占位/翻译覆写）
+    _draft_description_raw = str(description or "").strip()
     # ✅ 提取1688属性关键词（用于标题翻译失败时的兜底生成）
     _draft_attrs_1688: Dict[str, Any] = draft.get("attributes", {}) if isinstance(draft, dict) else {}
     _attr_keywords_cn: str = " ".join(str(v) for v in _draft_attrs_1688.values() if v and len(str(v)) < 20)[:200]
@@ -2666,29 +2732,75 @@ def prepare_ozon_upload_node(
         except Exception:
             pass  # 规格表失败不影响描述主流程
 
-    # ✅ P2 修复：生成富文本 HTML 描述（Ozon 属性 4191）
+    # ✅ v0.83 批②（feat/desc-4191-authoring-v1）：4191 从「通用句」重造为
+    # 「事实锚定的俄语描述」——撰写链成为 4191 唯一来源（替换旧
+    # _generate_rich_description 把图片 URL 当纯文本喂 prompt 的实现）。
+    # - 输入全集：draft 中文属性 + 归一 RU final_attributes + 1688 详情原文 +
+    #   vision 真图（原图 COS 镜像 > 已生成 AI 图，见 content_enrich.select_vision_images）；
+    # - 出口过数字事实锚定硬闸（证据集外数字 → 删断言/整段）；
+    # - 降级链：撰写 → 翻译 → build_annotation → 通用句（marks.description_fallback）；
+    # - 跟卖卡整链跳过（UPDATE 竞品卡，绝不写我方内容——A6 红线，含 _ensure 兜底）；
+    # - box_reviewed 且用户写了描述 → 只翻译/sanitize（采集箱即权威）。
     rich_desc = ""
+    _content_marks: Dict[str, Any] = {}
+    draft_attrs: Dict[str, Any] = (draft or {}).get("attributes", {})
+    if not isinstance(draft_attrs, dict):
+        draft_attrs = {}
+    _is_follow_card = bool((_ext or {}).get("follow_sell")) or bool((draft or {}).get("ozon_product_id"))
     try:
-        draft_attrs = (draft or {}).get("attributes", {})
-        # v5: 传图片 URL 作为上下文，帮助 LLM 理解商品外观
-        product_images = shared_marketing_images if shared_marketing_images else (draft or {}).get("images", [])[:5]
-        if mxou_token:
-            rich_desc = _generate_rich_description(title_ru, draft_attrs, mxou_token, product_images)
-            if rich_desc:
-                logger.info(f"✅ 富文本描述已生成: {len(rich_desc)} 字符")
-        # v5: LLM 失败或无 token 时用兜底
-        # C8: 兜底不依赖 title_ru 非空——title_ru 空时用类目兜底标题，保证 4191 有最小 HTML
-        final_attributes, rich_desc = _ensure_rich_description_attr(
-            final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
-        )
+        _existing_4191 = ""
+        for _fa in final_attributes or []:
+            if isinstance(_fa, dict) and int(_fa.get("attribute_id") or 0) == 4191:
+                _existing_4191 = str(_fa.get("value") or "").strip()
+                break
+        if _is_follow_card:
+            rich_desc = _existing_4191
+            _content_marks["description_source"] = "follow_card_skip"
+        elif _existing_4191:
+            # state 带入的 4191（retry/box 等）不重写——已存在即权威
+            rich_desc = _existing_4191
+            _content_marks["description_source"] = "existing_4191"
+        else:
+            from utils.content_enrich import select_vision_images
+            _vision_imgs, _vision_src = select_vision_images(
+                (draft or {}).get("images") or [],
+                shared_marketing_images,
+            )
+            rich_desc, _content_marks = _author_rich_description(
+                title_ru=title_ru,
+                draft_attrs=draft_attrs,
+                final_attributes=final_attributes,
+                draft_description=_draft_description_raw,
+                weight_g=weight_g,
+                dims_mm={"length": depth_mm, "width": width_mm, "height": height_mm},
+                token=mxou_token or "",
+                vision_images=_vision_imgs,
+                vision_source=_vision_src,
+                box_reviewed=_box_reviewed_draft,
+            )
+            logger.info(
+                "✅ 4191 撰写: source=%s fallback=%s vision=%s stripped=%s len=%d",
+                _content_marks.get("description_source"),
+                _content_marks.get("description_fallback"),
+                _content_marks.get("vision_image_source"),
+                _content_marks.get("numbers_stripped"),
+                len(rich_desc or ""),
+            )
+        # C8 兜底：撰写链产物为空/过短时用确定性 fallback（不依赖 title_ru 非空）。
+        # 跟卖卡不追加（绝不写竞品卡面）。
+        if not _is_follow_card:
+            final_attributes, rich_desc = _ensure_rich_description_attr(
+                final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
+            )
     except MxouOutOfQuotaError:
         raise  # v0.63.1: 富文本 LLM 余额/鉴权/额度失败 → 任务明确失败（调用方不吞）
     except Exception as e:
-        logger.warning(f"⚠️ 富文本描述生成失败: {e}")
-        # 最终兜底
-        final_attributes, rich_desc = _ensure_rich_description_attr(
-            final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
-        )
+        logger.warning(f"⚠️ 富文本描述生成（4191 撰写链）失败: {e}")
+        # 最终兜底（跟卖卡同样跳过）
+        if not _is_follow_card:
+            final_attributes, rich_desc = _ensure_rich_description_attr(
+                final_attributes, rich_desc, title_ru, draft_attrs, description or "", state
+            )
 
     # ✅ v0.81 内容评分闭环：富内容（Rich Content，属性 11254）与 4191 简介改为
     # 「payload 出口恒填闸」统一补齐（_ensure_content_attrs_in_payload，位于
@@ -3481,24 +3593,12 @@ def prepare_ozon_upload_node(
                 else {}
             ),
         },
+        # ✅ v0.83 批②：4191 撰写链留痕（description_source / description_fallback /
+        # vision_image_source / numbers_stripped）——同 _wd_audit 模式嵌 payload（Ozon
+        # 忽略未知顶层键），供 query/forensics 取证。死字段 description_json 已删除
+        # （契约外，Ozon 静默忽略；卡面描述唯一载体=属性 4191）。
+        "_content_audit": dict(_content_marks or {}),
     }
-    
-    # ✅ 修复1：添加description_json字段（Ozon结构化描述）
-    # Ozon官方文档要求：description_json包含tags、hashtag、materials数组
-    # 标签格式：只使用字母、数字、#、下划线，用空格分隔
-    # 主题标签格式：每个以#开头，用空格分隔（如 #时尚 #便携）
-    # 材料格式：必须从Ozon属性列表选择dictionary_value_id
-    description_json = {
-        "tags": [],  # 标签数组（暂时为空，后续可以从attributes提取）
-        "hashtag": [],  # 主题标签数组（暂时为空，后续可以从description提取）
-        "materials": []  # 材料数组（暂时为空，后续可以从attributes提取）
-    }
-    
-    # 将description_json添加到payload中
-    ozon_payload["items"][0]["description_json"] = description_json
-    
-    logger.info("✅ 已添加description_json字段（Ozon结构化描述）")
-    
     # ✅ 图片设置（根据Ozon官方文档规范）
     # primary_image单独指定主图（如果为空，images数组第一张为主图）
     # images最多29张（如果primary_image指定），最多30张（如果primary_image为空）
@@ -4197,8 +4297,9 @@ def prepare_ozon_upload_node(
 
     # ✅ v0.81 内容评分闭环（预防层）：4191/11254 出口恒填——最终图定型后
     # 确定性补齐（文本描述组占内容评级 50% 权重，缺失卡分 42-57，补齐 90+）。
-    # 跟卖卡跳过（UPDATE 竞品卡，不得改写卡面简介/富内容）。
-    if not is_follow_sell:
+    # 跟卖卡跳过（UPDATE 竞品卡，不得改写卡面简介/富内容）——v0.83 批②起用
+    # _is_follow_card（信封 follow_sell ∪ draft.ozon_product_id）加固，防两处标记不一致。
+    if not (is_follow_sell or _is_follow_card):
         try:
             _ensure_content_attrs_in_payload(
                 ozon_payload,

@@ -356,6 +356,33 @@ def _source_facts(tenant_id: str, product_ids: list[str]) -> dict[str, dict]:
     return out
 
 
+def _follow_sell_ids(tenant_id: str, product_ids: list[str]) -> set:
+    """v0.83 批②（A6 红线）：返回「跟卖卡」的 product_id 集（我方绝不写竞品卡面）。
+
+    源：product_task_index → listing_result_log.pipeline_source='follow'（真跟卖标记，
+    listing_result_log._pipeline_source 三态判定；discover 变体不是 follow）。
+    查不到映射（workbuddy 时代卡）→ 不出键（保守：按普通卡处理，无 draft 证据时
+    enrich 也只做保守裁决）。
+    """
+    if not product_ids:
+        return set()
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(text(
+                """
+                SELECT DISTINCT pti.product_id
+                FROM product_task_index pti
+                JOIN listing_result_log l ON l.task_db_id = pti.task_id::text
+                WHERE pti.tenant_id = :t AND pti.product_id = ANY(:pids)
+                  AND l.pipeline_source = 'follow'
+                """
+            ), {"t": tenant_id, "pids": list(product_ids)}).fetchall()
+    except Exception as exc:
+        logger.warning("card_audit 跟卖标记查询失败（按空集处理）: %s", str(exc)[:150])
+        return set()
+    return {str(r[0]) for r in rows if r and r[0] is not None}
+
+
 def _llm_source_match(llm_token: str, source_title_cn: str,
                       source_category_path: str, card_name: str) -> dict:
     """LLM 语义比对 → {verdict: match/mismatch/unsure, reason}。
@@ -414,6 +441,13 @@ def _check_rating_gap(state: dict, pid: str, rating_p: dict, stored: Optional[di
         extract_improve_attrs,
     )
     from utils.ozon_client import ozon_post
+
+    # ✅ v0.83 批②（A6 红线）：跟卖卡是竞品卡，我方一个字节都不写（含 4191/11254）。
+    # 不落 finding（否则每轮巡检都重复开单），只计数留痕。
+    if pid in (state.get("follow_ids") or set()):
+        state["summary"]["follow_skipped"] = state["summary"].get("follow_skipped", 0) + 1
+        logger.info("card_audit A 跳过跟卖卡 pid=%s（不写竞品卡面）", pid)
+        return
 
     rating = float(rating_p.get("rating") or 0)
     improve = extract_improve_attrs(rating_p)
@@ -657,6 +691,7 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
             "source_mismatch": 0, "capped": False, "llm_skipped_no_token": False,
             "price_fixed": 0, "price_reported": 0,
             "card_errors": 0, "findings_open": 0,
+            "follow_skipped": 0,
         },
     }
     summary = state["summary"]
@@ -691,6 +726,9 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
             summary["archived_skipped"] += 1
             continue
         live.append((pid, info))
+
+    # ✅ v0.83 批②：跟卖卡标记（A rating_gap 跳过写竞品卡面，A6 红线）
+    state["follow_ids"] = _follow_sell_ids(tenant_id, [p for p, _ in live])
 
     need_echo: list[str] = []
     for pid, info in live:
