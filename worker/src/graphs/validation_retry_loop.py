@@ -1201,9 +1201,16 @@ def _try_recategorize_card(state: ValidationRetryLoopState) -> bool:
             from graphs.nodes.assemble_ozon_product_node import (
                 _leaf_substring_overlap,
                 _non_generic_overlap_words,
+                _ru_non_generic_overlap_words,
             )
+            # ✅ v0.83 gate B3: 语言一致比较——候选来自 ZH 搜索时走中文源词判据；
+            # 来自 RU 回退搜索（`search_nodes(ru_name, language="RU")`）时路径是 RU，
+            # 中文 signal 恒空 → 必须补 RU 路径 × RU 产品名（ru_name）同语言判据，
+            # 否则 RU 候选永远零 overlap 被误弃（与 Step6.5 同款跨语言缺陷）。
             _r4_ov = (_non_generic_overlap_words(new_path, [signal])
-                      or _leaf_substring_overlap(str(best.get("node_name") or ""), [signal]))
+                      or _leaf_substring_overlap(str(best.get("node_name") or ""), [signal])
+                      or _ru_non_generic_overlap_words(new_path, [ru_name])
+                      or _ru_non_generic_overlap_words(str(best.get("node_name") or ""), [ru_name]))
             _r4_guard_ran = True
         except Exception as _r4_g_e:
             logger.warning(f"R4 重配: overlap 守卫异常({_r4_g_e})，按既有路径采纳")

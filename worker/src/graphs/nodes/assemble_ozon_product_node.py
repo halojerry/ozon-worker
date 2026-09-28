@@ -418,15 +418,48 @@ def _leaf_substring_overlap(node_name: str, texts) -> set:
     return hits
 
 
-def _step65_adoption_overlap(path: str, node_name: str, source_texts) -> set:
+def _ru_non_generic_overlap_words(path: str, ru_texts) -> set:
+    """候选路径/叶子名 vs RU 文本（LLM 俄语标题等）的非泛词重叠（语言一致比较）。
+
+    ✅ v0.83 gate B3：Step 6.5 原来拿**中文**源词比 **RU** 候选路径/叶子名 → 跨语言
+    恒空集 → 置信度 1.00 的重配候选也被拦入箱（gate #3 实锤）。同语言 token（西里尔
+    ≥3 字符，剔除 _GENERIC_OVERLAP_RU）才有判别力——对齐 _check_category_consistency
+    的叶子词集口径（≥3 字符）。
+    """
+    if not path or not ru_texts:
+        return set()
+    low = str(path).lower()
+    words: set = set()
+    for t in ru_texts or []:
+        for w in re.findall(r"[а-яё]{3,}", str(t or "").lower()):
+            words.add(w)
+    return {w for w in words if w in low and w not in _GENERIC_OVERLAP_RU}
+
+
+def _step65_adoption_overlap(path: str, node_name: str, source_texts,
+                             ru_texts=None) -> set:
     """Step 6.5 采纳点的源词 overlap 守卫（纯函数，可单测）。
 
     v083 堵后门②：Step 6.5 用 RU 标题重搜/LLM fallback 换类目时，仅「RU 标题与
     候选 RU 路径词面一致」不够（RU 营销标题会把类目换到无关子树——A4 型错配：
-    除草关键词牵引）；采纳前必须与 1688 源词有非泛词重叠，否则类目可能在无关
-    域落定。判据同 R2b：full_path 字面 overlap 或叶子名子串 overlap。
-    返回非空命中集 = 放行采纳；空集 = 守卫失败（调用方继续试下一候选，最终入箱）。
+    除草关键词牵引）；采纳前必须与货源有非泛词重叠，否则类目可能在无关域落定。
+
+    ✅ v0.83 gate B3（语言一致比较）：原判据拿**中文**源词比 RU 候选路径 → 跨语言
+    恒空集 → 守卫恒失败。现按语言分流，任一命中即放行（非空）：
+      a) 候选 RU 路径/叶子名 vs LLM 俄语标题 tokens（ru_texts，同语言有判别力）；
+      b) 候选路径/叶子名 vs 中文源词（原字面判据，候选为 ZH 树路径时命中）；
+    全空 → 空集（调用方**降 R2b 阶梯**，不再直接入箱）。
+
+    返回非空命中集 = 放行采纳；空集 = 守卫失败（调用方继续试下一候选，再走门控仲裁）。
     """
+    # a) 同语言（RU×RU）——LLM 俄语标题 token 与候选 RU 路径/叶子名
+    ov = _ru_non_generic_overlap_words(path, ru_texts)
+    if ov:
+        return ov
+    ov = _ru_non_generic_overlap_words(node_name, ru_texts)
+    if ov:
+        return ov
+    # b) 原字面判据（候选为 ZH 路径时与中文源词命中）
     ov = _non_generic_overlap_words(path, source_texts)
     if ov:
         return ov
@@ -2753,12 +2786,13 @@ def assemble_ozon_product_node(
                             pass
                         # 用俄语路径验证一致性
                         re_consistent = _check_category_consistency(llm_name, re_ru_path or re_path, re_cat_id, re_type_id)
-                        # ✅ v083 堵后门②: 采纳前加源词 overlap 守卫——仅 RU 标题词面
-                        # 一致不够（RU 营销标题会把类目换到无关子树），必须与 1688 源词
-                        # 有非泛词重叠；零 overlap 跳过该候选（继续试/落 LLM fallback）。
+                        # ✅ v083 堵后门②（v083 gate B3 语言一致修正）: 采纳前加源词
+                        # overlap 守卫——不仅 RU 标题词面一致，还须与货源有非泛词重叠；
+                        # 判据按语言分流（RU 路径×RU 标题 / ZH 路径×中文源词），任一命中
+                        # 即放行；零 overlap 跳过该候选（继续试/落 LLM fallback）。
                         if re_consistent and _step65_adoption_overlap(
                                 re_path, str(candidate.get("node_name") or ""),
-                                _s65_src_texts):
+                                _s65_src_texts, ru_texts=[llm_name]):
                             logger.info(f"✅ 重新匹配成功: {description_category_id}/{type_id} → {re_cat_id}/{re_type_id} ({re_path})")
                             # ✅ v0.9.0: 类目变更后完整重建属性 schema + items + final_attributes
                             rebuild_result = _rebuild_for_new_category(
@@ -2849,12 +2883,13 @@ def assemble_ozon_product_node(
             if best_by_llm:
                 llm_cid = best_by_llm.get("description_category_id", 0)
                 llm_tid = best_by_llm.get("type_id", 0)
-                # ✅ v083 堵后门②: LLM fallback 采纳前同款源词 overlap 守卫
-                # （full_path 字面或叶子名子串）；不过 → 不采纳（下方统一 _blocked_exit）。
+                # ✅ v083 堵后门②（v083 gate B3 语言一致修正）: LLM fallback 采纳前
+                # 同款源词 overlap 守卫（RU 路径×RU 标题 / ZH 路径×中文源词）；不过 →
+                # 不采纳（下方降门控仲裁阶梯，仍不过才 _blocked_exit）。
                 _s65_llm_ok = bool(_step65_adoption_overlap(
                     str(best_by_llm.get("full_path") or ""),
                     str(best_by_llm.get("node_name") or ""),
-                    _s65_src_texts))
+                    _s65_src_texts, ru_texts=[llm_name]))
                 if (llm_cid and llm_tid
                         and (llm_cid != description_category_id or llm_tid != type_id)
                         and _s65_llm_ok):
@@ -2926,8 +2961,88 @@ def assemble_ozon_product_node(
                     f"❌ 类目一致性严重失败：产品「{llm_name[:60]}」与类目「{category_path}」"
                     f"无共同关键词，且 pg_trgm 和 LLM 重新匹配均无解。"
                 )
+        # ✅ v0.83 gate B3: 空集不再是终局——再降一级「真 R2b 确认」阶梯。
+        # 跨语言（中文源词 × RU 候选）恒空导致重配永远走不到采纳；此处用
+        # _gated_category_arbitration（LLM 仲裁 + R1 veto + 敏感候选过滤，带
+        # source_category 上下文）做最后一级确认：过则采纳（match_layer="R2b"
+        # 真标记——非伪造），不过才入采集箱。
+        if recategorize_failed:
+            try:
+                from graphs.nodes.follow_sell_import_node import (
+                    _gate_search_terms, _gated_category_arbitration,
+                )
+                _s65_terms = _gate_search_terms(
+                    {}, {"source_category": source_category},
+                    extra=[str((draft or {}).get("title") or "")])
+                _g_signal = " ".join(_s65_src_texts) or str(source_category or "")
+                _g_dc, _g_tp = _gated_category_arbitration(
+                    _s65_terms, _g_signal, draft, state, query=locals().get("query"))
+            except MxouOutOfQuotaError:
+                raise  # v0.63.1: LLM 401/403 → 任务明确失败，不降级
+            except Exception as _s65_g_e:
+                logger.warning(f"   ⚠️ Step6.5 门控仲裁异常（{_s65_g_e}），按无解入箱")
+                _g_dc, _g_tp = "", ""
+            if _g_dc and _g_tp and str(_g_dc).isdigit() and str(_g_tp).isdigit():
+                _g_dc_i, _g_tp_i = int(_g_dc), int(_g_tp)
+                if _g_dc_i == int(description_category_id or 0) and _g_tp_i == int(type_id or 0):
+                    # 仲裁确认当前类目即最优 → 无需重建，R2b 真标记放行
+                    match_layer = "R2b"
+                    _r2b_confirmed = True
+                    recategorize_failed = False
+                    logger.info(f"   ✅ Step6.5 门控仲裁确认当前类目 [{_g_dc}/{_g_tp}] → 放行")
+                else:
+                    _g_ru_path = ""
+                    try:
+                        from sqlalchemy import text as _sql_text5
+                        with get_session() as _s5:
+                            _row5 = _s5.execute(_sql_text5(
+                                "SELECT full_path FROM category_tree_nodes "
+                                "WHERE description_category_id=:cid AND type_id=:tid AND language='RU' LIMIT 1"
+                            ), {"cid": _g_dc_i, "tid": _g_tp_i}).fetchone()
+                            if _row5:
+                                _g_ru_path = _row5[0]
+                    except Exception:
+                        pass
+                    _g_rebuild = _rebuild_for_new_category(
+                        new_dc=_g_dc_i, new_type=_g_tp_i,
+                        draft=draft, images=images,
+                        ozon_client_id=ozon_client_id, ozon_api_key=ozon_api_key,
+                        weight_grams=weight_grams, dimensions=dimensions,
+                        price_rub=price_rub, old_price_rub=old_price_rub,
+                        currency_code=currency_code, token=token,
+                        ru_category_path=_g_ru_path,
+                        traffic_keywords=traffic_kws,
+                    )
+                    if _g_rebuild:
+                        description_category_id = _g_dc_i
+                        type_id = _g_tp_i
+                        try:
+                            _g_node = query.get_node(_g_dc_i, _g_tp_i)
+                        except Exception:
+                            _g_node = None
+                        _g_path = str((_g_node or {}).get("full_path") or "").strip()
+                        if _g_path:
+                            category_path = _g_path
+                        if _g_ru_path:
+                            ru_category_path = _g_ru_path
+                        attr_list = _g_rebuild["attr_list"]
+                        dict_lookup = _g_rebuild["dict_lookup"]
+                        items = _g_rebuild["items"]
+                        final_attributes = _g_rebuild["final_attributes"]
+                        llm_attributes = final_attributes
+                        llm_name = _g_rebuild["llm_name"]
+                        match_layer = "R2b"
+                        _r2b_confirmed = True
+                        recategorize_failed = False
+                        logger.info(
+                            f"   ✅ Step6.5 门控仲裁采纳新类目 [{_g_dc}/{_g_tp}] "
+                            f"{str(category_path)[:60]}")
+                    else:
+                        logger.warning(
+                            "   ⚠️ Step6.5 门控仲裁通过但属性重建失败 → 维持入箱")
         # ✅ v083 堵后门②: 重配最终无解（pg_trgm 零 overlap / LLM fallback 未采纳或
-        # 零 overlap）→ 不静默保留旧类目（错配可再生），诚实入采集箱待人工确认。
+        # 零 overlap / 门控仲裁未通过）→ 不静默保留旧类目（错配可再生），诚实入
+        # 采集箱待人工确认。
         if recategorize_failed:
             _s65_reason = (
                 f"类目一致性校验失败且重新匹配未找到与货源类目重叠的候选"

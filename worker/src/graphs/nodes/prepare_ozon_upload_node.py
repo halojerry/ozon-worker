@@ -553,6 +553,10 @@ def _author_rich_description(
     vision_images: list,
     vision_source: str,
     box_reviewed: bool,
+    packaging_rows: list | None = None,
+    packaging_table_text: str = "",
+    sku_details: list | None = None,
+    gross_weight_g: Any = 0,
 ) -> tuple:
     """4191 撰写链编排（v0.83 批②，唯一来源）。
 
@@ -586,6 +590,10 @@ def _author_rich_description(
         image_urls=vision_images,
         vision_source=vision_source,
         box_reviewed=box_reviewed,
+        packaging_rows=packaging_rows,
+        packaging_table_text=packaging_table_text,
+        sku_details=sku_details,
+        gross_weight_g=gross_weight_g,
         llm=_llm,
         translate=_translate,
         sanitize=_sanitize_rich_description,
@@ -2777,6 +2785,15 @@ def prepare_ozon_upload_node(
                 vision_images=_vision_imgs,
                 vision_source=_vision_src,
                 box_reviewed=_box_reviewed_draft,
+                # ✅ v0.83 gate B4: 1688 规格表/SKU 明细/毛重进 4191 证据集（数字锚定
+                # 可溯，防规格真实值被误剥或漏锚）
+                packaging_rows=(draft or {}).get("packagingRows")
+                or (draft or {}).get("packaging_rows"),
+                packaging_table_text=(draft or {}).get("packagingTableText") or "",
+                sku_details=(draft or {}).get("skuDetails")
+                or (draft or {}).get("sku_details"),
+                gross_weight_g=(draft or {}).get("gross_weight_g")
+                or (draft or {}).get("weight_gross_g"),
             )
             logger.info(
                 "✅ 4191 撰写: source=%s fallback=%s vision=%s stripped=%s len=%d",

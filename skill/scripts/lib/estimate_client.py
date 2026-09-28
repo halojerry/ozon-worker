@@ -99,6 +99,12 @@ def estimate_envelope(envelope: dict, overrides: dict | None = None,
         body: dict = {"envelope": envelope}
         if isinstance(overrides, dict):
             body.update(overrides)
+        # worker ``POST /api/v1/estimate``（estimate_routes.router_estimate）用
+        # ``_extract_token_from_body`` 从**请求体 token 字段**取鉴权——只发 Bearer
+        # 会被 401 "Token is required" 降级无预估（v0.83 gate B1 实锤）。同源先例
+        # ``_query_logistics_from_worker``：body token + Bearer 头同时发（服务端剥
+        # 一层 sk-，有无前缀均可）。token 在 overrides 之后落，防被覆盖。
+        body["token"] = token
         resp = requests.post(
             f"{base}/api/v1/estimate",
             json=body,
