@@ -1,5 +1,122 @@
 # Changelog
 
+## [0.83.0] — 2026-09-28（上架质量战役 v0.83：预估统一 + 4191 撰写链 + 类目权威边界 + agent 后台化 + discover session 落盘 + 回执真值化，七批 + 四修复批）
+
+> dev 自 v0.82.0 共 10 个 PR（#91-#100）。方案 `docs/PLAN-v083-quality-campaign-v1.md`
+> （实锤 A：`/v3/product/import` 顶层 `description`/`description_json` 是**死字段**，卡面唯一
+> 载体是属性 4191 → 批②靶位重定义；实锤 B：系统内多条独立算价链漂移 → 批① 唯一核）。
+> 七批主体 + 四修复批同车，含店铺 4718259 三轮实机 gate 取证（11 单真实提交）。
+
+### 批① 预估统一（#92，改定价/预估链前必读）
+
+- **定价纯计算核 `utils/pricing_core.py`（`compute_pricing_core`）**：`pricing_node` /
+  `estimate_service` / 新批量端点共调**同一算价链**；带副作用部分（Sentry 留痕、
+  `price_sanity_guard` 价差守卫 block、Ozon API 兜底汇率/币种、余额检查、多 SKU 变体
+  循环）刻意留在 `pricing_node`。**禁止任何消费方内联定价公式**（同 `pricing_estimate`
+  唯一入口纪律）。
+- **新端点 `POST /api/v1/estimate/batch`**（Bearer + 限流，≤50/批，逐项失败隔离）。
+- **skill 五处内联公式退役**：`_calculate_profit` / `_estimate_and_print` / `cmd_search` /
+  `cloud_probe` 常量 `1.44375` / `estimate_shipping_cny` 全部消费化改调 worker 预估。
+- **黄金对账测试** `worker/tests/test_estimate_batch_parity_v083.py`：node / estimate /
+  batch 三处逐字段相等锁定；佣金缺失时 `commission_resolver` 走 `fbo` 回退。
+
+### 批② 4191 撰写链唯一来源（#91，改描述/富文本链前必读）
+
+- **靶位重定义**：4191（Аннотация）撰写链替换旧「1688 详情翻译」链，成为卡面描述
+  唯一载体；**`description_json` 死键停发**（顶层 `description` 键保留但不再承载验收）。
+- **事实锚定硬闸**：正文数字必须可溯到 draft 属性/规格表（数字事实锚定）；真
+  **vision**（`image_urls=`）参与撰写。
+- **`box_reviewed` 闸补 4191 链**（采集箱草稿不自主重写）；retry 的
+  `DESCRIPTION_DECLINE` 修复靶位从死字段迁到 **4191**。
+- **跟卖卡内容零写入**：`fetch_back` / `card_audit` 两处豁免（跟卖卡描述不重造）。
+
+### 批③ 类目权威边界重定义（#93，改类目闸前必读）
+
+- **`_divergent_match_verdict` 降级阶梯**（纯函数）：语义分歧 `match_evidence.divergent`
+  按来源权威度分级降级，取代旧的单一硬拦。
+- **R4 不再伪造 R2b 标记**（重配审计如实标注）；**Step 6.5 / R4 源词守卫**。
+- **follow 三值判定统一 + follow 空标题洞**修补；**L0 清洗脚本**
+  `worker/scripts/audit_category_mapping.py`；语义闸埋点补齐。
+
+### 批④ agent 后台化（#97，改 MCP 采集/CLI 重命令前必读）
+
+- **MCP 七采集工具 `background` 默认 True**（同步需显式 `background=false`）。
+- **skill 新增 `--detach` / `jobs` / `job-status` / `job-result`**（与 `--wait` 互斥）。
+- **注册表单一事实源 `skill/data/jobs/`**；孤儿收割（`jobs` 顺带清理）。
+
+### 批⑤ discover session 落盘 canonical（#95）
+
+- `disc_*` run_id；**自包含文档 `discover.session.v1`**（`{schema_version, session_run_id,
+  entry, params, env, candidates, summary}`）；`sessions/` + `index.jsonl` 落盘。
+- 上报幂等 upsert + **4MB 闸**；`GET /api/v1/discovery/runs/{session_run_id}`（跨租户 404）。
+- worker 远程 MCP 补 `get_discovery_run`（22→**23 工具**）。
+- **红线：锚价（`discovery_meta.ozon_price`）恒 materialize 进信封，绝不可引用化/延迟解析**
+  （见 `utils/price_sanity_guard.py` 模块注释）。
+
+### 批⑥ 回执真值化（#94，零新增 Ozon 调用）
+
+- **`utils/profit_reality.py` 唯一入口**（`compute_profit_reality`）——实盘利润对账。
+- `learning_record` 复用 `/v5/product/info/prices` 响应，**零新增 API**。
+- **card_audit 第 5 不变量**（profit 对账）；双门阈值 + 最低价门 + `fallback-info`。
+- `listing_result_log` 新增 `real_profit_cny` / `gap_pct` / `profit_reality` 三列。
+
+### 批⑦ 发版收口（本版）
+
+- VERSION 四源 → 0.83.0；CHANGELOG / AGENTS 顶部块；`gen_api_docs.py` 重生成四件产物。
+- **测试终验**：worker **3764 passed / 2 skipped** · skill **1828 passed** ·
+  pounding-mcp **144 passed** 全绿；`gen_api_docs --check --fail-on-missing-examples`
+  零漂移（145 path / 181 操作 / 156 含兼容别名，示例 64/64 100%）。
+
+### 修复批（gate 取证驱动）
+
+- **#96（B1-B4）**：B1 `estimate` body token 鉴权修复；B2 币种信任序
+  （envelope → 本地凭证 → Ozon API → **`CURRENCY_UNRESOLVED` fail-closed**）；B3 Step 6.5
+  跨语言守卫 + R2b 阶梯；B4 锚定证据补规格表/毛重。
+- **#98（N1/N2/B4）**：N1 **11254 富文本 `version 0.3` 重造**（本店 15 张已过审卡 ground
+  truth）+ `RICH_CONTENT_FORMAT` / `RICH_CONTENT_DISABLE` 逃生门；N2 双非泛词换类目；
+  终态重量/尺寸入证据集。
+- **#99**：envelope 形态预估接店铺凭证 / `ozon_client_id` 反查。
+- **#100**：`pricing_node` 体积兜底（低密度件按真实计费重量计价）。
+
+### 三轮实机 gate 取证（店铺 4718259，11 单真实提交）
+
+- **死字段实锤**：读侧 `description` ≡ 属性 4191 逐字节（MCP + 本地 swagger 双源）。
+- **N1 对照实验**：同店、同合法类目、同载荷，**唯一变量 = 11254 的值** → 新格式 v2 被
+  Ozon 接受（错误只剩 `missing_dimension`/`error_attribute_values_empty`）、旧 v1/chess
+  被拒（重现 `invalid_rich_content_json`）；image host（COS vs Ozon CDN）已排除为无关因素。
+- **B1/B2/B3 修复逐项验证 PASS**（预估打印恢复、币种 `currency_differs_from_contract`
+  拦截生效、Step 6.5 跨语言恒拦解除）。
+- 取证产物：`skill/data/gate_v083/`（4 单）/ `gate_v083_rerun/`（4 单）/
+  `gate_v083_round3/`（3 单），各含 REPORT + forensics + skill 日志。
+
+### ⚠️ 行为变更（必须显眼）
+
+1. **MCP 七采集工具 `background` 默认 True**（同步需显式 `false`）。
+2. `graph --no-submit` 展示态经 `job_result` 获取。
+3. skill 重命令新增 **`--detach`**（与 `--wait` 互斥）。
+4. **低密度商品上架价上浮**至真实计费重量口径（预估/实价/卡面声明三者一致，#100）。
+5. **4191 从通用句变事实锚定撰写**；`description_json` 停发。
+6. **跟卖卡内容零写入**（prepare / fetch_back / card_audit 三处豁免）。
+7. **CNY 等非 RUB 契约店币种 fail-closed**（`CURRENCY_UNRESOLVED`）。
+8. `estimate` 体积兜底与定价同链（预估价可能上浮至卡价）。
+9. validate 换类目需**双非泛词**。
+10. **富文本 11254 新格式（version 0.3）**。
+
+### 升级注意
+
+- **需跑 `init_data`**：`listing_result_log` 三列（`real_profit_cny`/`gap_pct`/
+  `profit_reality`）+ `discovery_runs` session 列（`session_run_id`/`schema_version`/
+  `session_json`）+ 部分唯一索引 `uq_discovery_runs_session_run_id`（幂等；cos-update 自带，
+  Docker 镜像重建不自动跑）。
+- **skill 包需更新**（后台化 / 预估 / 语义闸出证）；**worker 需重建镜像**。
+
+### 已知问题（下战役登记）
+
+- **体积重量 `ML_INCORRECT_VOLUME_WEIGHT` 拒单**根修未做（估算尺寸质量，0.68 已知类同宗）。
+- **尸体卡 UPDATE 重提被旧错误劫持**（运维缓解：归档删除 / 换 offer_id）。
+- **assemble 主 LLM-fallback 硬拦路径未接 R2b 阶梯**（#96 只修 Step 6.5 分支）。
+- 低密度件定价触发 Sentry `WEIGHT_DIM_SUSPECT` 事件量上升（既有通道，待静音评估）。
+
 ## [0.82.0] — 2026-09-27（店铺卡不变量巡检域 card_audit：坏卡自愈层落地）
 
 > dev 自 v0.81.0 共 1 个 PR（#89）。方案 `docs/PLAN-card-audit-sweep-v1.md`

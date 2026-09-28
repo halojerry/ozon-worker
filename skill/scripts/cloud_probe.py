@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import re
 import sys
@@ -162,8 +161,8 @@ def build_envelope(
         if store.get('shipping_provider'):
             resolved_extensions.setdefault("shipping_provider", store['shipping_provider'])
             resolved_extensions.setdefault("shipping_service", store.get('shipping_service', 'Standard'))
-            if store.get('currency'):
-                resolved_extensions.setdefault("ozon_currency", store['currency'])
+            # v0.83 批①：ozon_currency 死键清理（worker 零消费；币种由 worker /v1/seller/info
+            # 兜底解析，skill 不再透传一个无人读的键）。
         else:
             # Auto-detect from Ozon API (cached per-session, 1h TTL)
             _shipping_cache = getattr(build_envelope, '_shipping_cache', None)
@@ -2822,6 +2821,52 @@ def build_graph_envelope(
     }
 
 
+# ── v083 语义闸/权威来源占比埋点（logger，**不打点表/不落库**）──
+# 批③口径：semantic_unknown 与权威来源占比目前零量化，先埋点一周再决定是否升级
+# semantic_unknown 硬拦口径。进程级计数，跑完即弃。
+_MATCH_EVIDENCE_STATS: dict[str, int] = {"total": 0, "unknown": 0, "divergent": 0}
+_CAT_AUTHORITY_STATS: dict[str, int] = {
+    "total": 0, "authoritative": 0,
+    "page": 0, "what_to_sell": 0, "search_kw": 0, "manual": 0, "mapping": 0,
+}
+_AUTHORITATIVE_CAT_SOURCES = ("page", "what_to_sell", "mapping", "manual")
+
+
+def _bump_match_evidence_stat(*, unknown: bool = False, divergent: bool = False,
+                              ready: bool = False) -> None:
+    """match_evidence 组装计数（每 25 次打一行 INFO 占比；unknown/divergent 口径）。"""
+    s = _MATCH_EVIDENCE_STATS
+    s["total"] += 1
+    if unknown:
+        s["unknown"] += 1
+    if divergent:
+        s["divergent"] += 1
+    n = s["total"]
+    if ready and n % 25 == 0:
+        logger.info(
+            "match_evidence 统计(n=%d): unknown=%d(%.1f%%) divergent=%d(%.1f%%)",
+            n, s["unknown"], 100.0 * s["unknown"] / n,
+            s["divergent"], 100.0 * s["divergent"] / n)
+
+
+def _bump_cat_authority_stat(source: str) -> None:
+    """draft.ozon_category 采纳来源计数（每 25 次打一行 INFO 占比；权威来源占比）。"""
+    s = _CAT_AUTHORITY_STATS
+    s["total"] += 1
+    src = str(source or "")
+    if src in s:
+        s[src] += 1
+    if src in _AUTHORITATIVE_CAT_SOURCES:
+        s["authoritative"] += 1
+    n = s["total"]
+    if n % 25 == 0:
+        logger.info(
+            "类目来源统计(n=%d): 权威=%d(%.1f%%) page=%d what_to_sell=%d "
+            "search_kw=%d manual=%d mapping=%d",
+            n, s["authoritative"], 100.0 * s["authoritative"] / n,
+            s["page"], s["what_to_sell"], s["search_kw"], s["manual"], s["mapping"])
+
+
 def _assemble_match_evidence(
     *,
     method: str = "",
@@ -2869,10 +2914,13 @@ def _assemble_match_evidence(
     if semantic_unknown:
         mev["semantic_unknown"] = True
     if not mev:
+        _bump_match_evidence_stat(ready=True)
         return {}
     if method:
         mev["method"] = str(method)
     mev["trusted"] = bool(method == "aibuy" or badge >= 1.0)
+    _bump_match_evidence_stat(unknown=bool(mev.get("semantic_unknown")),
+                              divergent=bool(mev.get("divergent")), ready=True)
     return mev
 
 
@@ -2950,6 +2998,19 @@ def _assemble_discovery_meta(candidate) -> dict[str, Any]:
     if match_imgs:
         meta["match_image_url"] = match_imgs[0]
     meta["discovered_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # v0.83 批⑤：canonical session run_id（disc_*）——候选自带（batch_test 复用
+    # 从 session 还原）优先，进程内 session 回退。键名 run_id（webui
+    # DraftDiscoveryMeta.run_id 消费）。**锚价 ozon_price/min_competing_price 恒
+    # materialize（见 price_sanity_guard 引用化红线），run_id 是纯标识键**。
+    try:
+        from scripts.lib import discovery_session as _discovery_session
+
+        _run_id = (getattr(candidate, "session_run_id", "")
+                   or _discovery_session.current_run_id())
+        if _run_id:
+            meta["run_id"] = _run_id
+    except Exception:
+        pass
     # discover 跨平台静默货源匹配（cross_source v1 批3）：候选级跨源快照整包并入
     # （钩子只在比价发生时写 source_comparison 键；空 dict 并入零增键，缺键省略
     # 纪律）。worker 零消费整包透传，采集箱可见可改（可见性兜底，非必经决策点
@@ -3111,6 +3172,12 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
         cat.setdefault("namespace", "seller")
         draft["ozon_category"] = cat
 
+    # ✅ v083 埋点：采纳来源占比（page/what_to_sell/manual/mapping/search_kw），
+    # 每 25 次打一行 INFO——量化权威来源占比后再议语义闸升级口径（不打点表）。
+    try:
+        _bump_cat_authority_stat(str((draft.get("ozon_category") or {}).get("source") or ""))
+    except Exception:
+        pass
     # 特征属性（来自页面，归属页面面包屑——web_category_id 仅排查线索，
     # worker 属性校验以 dc/tp 为准）
     if page_attrs:
@@ -3662,6 +3729,46 @@ def build_variant_envelope(
     return envelope
 
 
+def _worker_price_estimate(
+    cost_cny, weight_g, enriched: dict | None, store_id: str = ""
+) -> dict[str, Any]:
+    """worker 单信封预估（v0.83 批①）→ price_estimate dict。
+
+    退役旧本地魔数公式 ``ceil((cost+ship+2.0) * 1.44375)``——改打唯一算价出口
+    worker ``POST /api/v1/estimate``。worker 不可达/成本缺失 → estimate_source=
+    ``unavailable``（est_shipping/est_retail 为 None，**绝不回落本地公式**）。
+    """
+    base = {
+        "cost_cny": cost_cny,
+        "est_shipping": None,
+        "est_retail": None,
+        "estimate_source": "unavailable",
+    }
+    try:
+        if not cost_cny or float(cost_cny) <= 0:
+            return base
+        from scripts.cli import _store_pricing_extensions
+        from scripts.lib.estimate_client import estimate_envelope
+
+        draft: dict[str, Any] = {"purchase_cost": float(cost_cny), "weight": weight_g}
+        dims = (enriched or {}).get("dimensions_mm")
+        if isinstance(dims, dict) and dims:
+            draft["dimensions"] = dims
+        est = estimate_envelope(
+            {"draft": draft, "extensions": _store_pricing_extensions(store_id)}
+        )
+        if not est:
+            return base
+        return {
+            "cost_cny": cost_cny,
+            "est_shipping": est.get("logistics_cost_cny"),
+            "est_retail": est.get("price"),
+            "estimate_source": "worker",
+        }
+    except Exception:
+        return base
+
+
 def publish_product_new(
     *,
     item_id: str,
@@ -3929,17 +4036,12 @@ def publish_product_new(
 
     # 4. Price estimate
     cost_cny = _parse_price(result['enriched'].get('price', ''))
-    # ⚠️ v0.58: 默认重量/运费与 discover 选品分析同源（ozon_discovery.estimate_shipping_cny
-    # 分段 6/8/15）——此前默认 500g → ¥6，discover 无重量落 ¥15，差 ¥9/单误判利润不足。
-    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G, estimate_shipping_cny
+    # ⚠️ v0.83 批①：退役本地魔数公式 ceil((cost+ship+2)*1.44375) → worker /api/v1/estimate
+    # （唯一算价出口 compute_price 链）；无重量 → DEFAULT_WEIGHT_G（与上架管线同源缺省）。
+    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G
     weight_g = result['enriched'].get('weight_grams') or DEFAULT_WEIGHT_G
-    est_shipping = estimate_shipping_cny(weight_g)
-    est_retail = math.ceil((cost_cny + est_shipping + 2.0) * 1.44375)
-    result['price_estimate'] = {
-        'cost_cny': cost_cny,
-        'est_shipping': est_shipping,
-        'est_retail': est_retail,
-    }
+    result['price_estimate'] = _worker_price_estimate(
+        cost_cny, weight_g, result['enriched'], store_id)
 
     # 5. Run local pipeline（DAG；v0.79 起经 worker /submit_task 触发云端管线）
     if poll:
@@ -4692,11 +4794,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # 园艺手套、钓鱼腰包→宽檐渔夫帽）。discover 链不传（默认 False 零变化）。
             _ozon_cat_path = str(
                 (result.get("ozon_category") or {}).get("category_path", "") or "")
-            best = _pick_best_match(
-                matches, ozon_title, token=mxou_token, trusted_source=_trusted,
-                ozon_category_path=_ozon_cat_path,
-                require_category_consistency=True,
-            ) if ozon_title else matches[0]
+            if ozon_title:
+                best = _pick_best_match(
+                    matches, ozon_title, token=mxou_token, trusted_source=_trusted,
+                    ozon_category_path=_ozon_cat_path,
+                    require_category_consistency=True,
+                )
+            else:
+                # ✅ fix/category-authority-v1 v083 堵后门③: 竞品标题为空时**不得**
+                # 走 matches[0] 直通（此前绕过整道语义闸）——语义闸前提缺失，改标
+                # match_semantic_unknown=True 出证（worker 阶梯裁决；非权威来源会
+                # 被 worker 硬拦入箱，不产生错配卡）。
+                best = dict(matches[0]) if matches else None
+                if best is not None:
+                    best["match_semantic_unknown"] = True
+                    logger.warning(
+                        "follow: 竞品标题为空，类目语义闸前提缺失 → matches[0] "
+                        "semantic_unknown 出证（交 worker 阶梯裁决）")
             if best:
                 result["best_match"] = best
                 # ── D3 L3: 人工评审暂停（--review）──

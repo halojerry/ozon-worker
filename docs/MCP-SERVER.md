@@ -171,9 +171,20 @@ curl -i -X POST https://worker.mxou.cn/mcp \
 **①类（MCP 缺 CLI 参数）真漂移 4 工具 7 参，已修**（缺省不进 argv，旧行为逐字保持）：
 `search`+export/threads、`image_search`+ozon_product_id、`queries`+export/output、
 `session_sync`+status/cdp_url。**①类有意裁剪面 3 工具 44 参，登记不修**（discover 族
-docstring 委托 `--help`）。**②类（MCP 有 CLI 无）0 处**（background/force 是 MCP 层参数，
-`_run_or_background` 消费不进 argv；report_issue 字段是 worker REST 体，不走 argv）。
+docstring 委托 `--help`）。**②类（MCP 有 CLI 无）0 处**（background 是 MCP 层参数，
+v0.83 批④ 起 `_run_or_background(background=True)` 经 skill `--detach` 落 argv（白名单已
+放行 detach）；report_issue 字段是 worker REST 体，不走 argv）。
 **③类语义漂移 2 处，登记不修**（见下）。
+
+### v0.83 批④ 参数变更（后台默认翻转 + detach 透传）
+
+- 七工具（`discover`/`discover_multi`/`discover_task`/`follow`/`seller`/`queries`/`graph`）
+  `background` **缺省 True**（旧为 False）——调用立即返回 job 句柄（skill `--detach` 落
+  `skill/data/jobs/`）；需同步结果显式 `background=false`。
+- `ALLOWED_PARAM_KEYS` 七命令补 `detach`（MCP/网关可显式传 `--detach`）。
+- `job_status` 优先读 skill 注册表并附 `run_id`/`session_path`（`extract_discovery_run_id`
+  跳过 `^\d{8}_\d{6}$` 本地时间戳坑）；`job_result` 恒含 `run_id`（可提取时）。
+  旧 pounding `data/tasks/` 注册表保留（回退读历史任务）。
 
 ### 矩阵（21 个 skill CLI 封装）
 

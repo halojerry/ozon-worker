@@ -71,9 +71,19 @@ def _run(cands, *, workers=1, match=None, profitable=True, **kw):
     def _fake_profit(candidate, **_):
         candidate.profit_margin = 50.0 if profitable else 0.0
 
+    # v0.83 批①：算价走 worker batch —— loop 调 od._estimate_candidates 批量回填；
+    # 替身返回与候选等长的 worker row（profit_rate 决定 profitable/rejected）。
+    def _fake_estimate(cands, fx_rate=None):
+        rate = 0.5 if profitable else 0.0
+        return [{
+            "ok": True, "profit_rate": rate, "commission_source": "segments:leq_5000",
+            "commission_rate": 0.1, "profit_cny": 1.0, "logistics_cost_cny": 1.0,
+            "price": 1, "logistics_source": "store",
+        } for _ in cands]
+
     with mock.patch.object(od, "_search_1688_source", _fake_search), \
          mock.patch.object(od, "_discover_workers", return_value=workers), \
-         mock.patch.object(od, "_calculate_profit", _fake_profit), \
+         mock.patch.object(od, "_estimate_candidates", _fake_estimate), \
          mock.patch.object(od, "_log_review_record"), \
          mock.patch("scripts.lib.cdp_client.CdpConnection"), \
          mock.patch.object(od.time, "sleep", lambda s: None), \

@@ -14,6 +14,16 @@
     - <4 字符的 token 恒不参与（与 validate 的 _MIN_COMMON_WORD_LEN 对齐）。
     - 词表只做「放行面」的扩张，绝不制造新的拦截；加载失败静默退化为空表（宁严勿松）。
 
+泛词表（v0.83.1 N2，fix/rich-content-format-v083）：
+    另一组独立的「泛词」词表（config 的 `generic_words`）——**通用形容词/量级词**，
+    自身不携带任何品类信息（портативный/декоративный/универсальный…）。消费方
+    ozon_validate_node._try_validate_recategorize 在「强匹配」判据里剔除它们：单个
+    泛形容词共享绝不足以判定「同一个类目」（实机 gate unit3 风扇
+    «портативный вентилятор» × «Коагулометр портативный» 被换到凝血仪；
+    unit2 钥匙盒 «декоративный камень» × «Декоративный камень для отделки»）。
+    与 groups 的区别：groups 是「放行面扩张」（同义对，只增不减拦截），
+    generic_words 是「判据收紧」（在重配的强匹配里降权），方向相反，勿混用。
+
 红线（改词条前必读）： держатель↔полка 这类「非同义对」严禁入表——它们零交集被拦
 是防线在干活（2026-09-26 主店铺 gate 8 单真错配即证据）。
 """
@@ -43,6 +53,26 @@ def _load_groups() -> tuple[tuple[str, ...], ...]:
             if len(stems) >= 2:
                 out.append(stems)
         return tuple(out)
+    except Exception:
+        return ()
+
+
+@lru_cache(maxsize=1)
+def _load_generic_words() -> tuple[str, ...]:
+    """读 config 的 generic_words（泛形容词/量级词词根）。
+
+    泛词自身无品类信息，单靠它共享不构成类目强匹配。缺失/损坏 → 空表
+    （空表 = 不过滤，退化为旧行为；宁松勿因加载失败误拦——收紧只作用于
+    重配强匹配判据，不新增类目拦截）。
+    """
+    try:
+        with open(_LEXICON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        words = data.get("generic_words") or []
+        return tuple(
+            str(w).lower().strip() for w in words
+            if str(w).strip() and len(str(w).strip()) >= _MIN_STEM_LEN
+        )
     except Exception:
         return ()
 
@@ -82,3 +112,22 @@ def sets_overlap(words_a, words_b) -> bool:
     for w in words_b or ():
         exp_b.update(related_words(w))
     return bool(exp_a & exp_b)
+
+
+def is_generic_word(word: str) -> bool:
+    """word 是否泛词（通用形容词/量级词，前缀≥4 命中即算）。
+
+    <4 字符恒不算泛词（短词本就不参与 ≥4 词长判据）。加载失败 → 空表 →
+    False（退化为旧行为，不误收紧）。
+    """
+    w = (word or "").lower().strip()
+    if len(w) < _MIN_STEM_LEN:
+        return False
+    with _lock:
+        generic = _load_generic_words()
+    return any(_is_stem_match(w, stem) for stem in generic)
+
+
+def non_generic_words(words) -> set:
+    """剔除泛词后剩余的「携带品类信息」词集（重配强匹配判据用）。"""
+    return {w for w in (words or ()) if not is_generic_word(w)}

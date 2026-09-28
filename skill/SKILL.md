@@ -1,6 +1,6 @@
 ---
 name: pounding-ozon-probe
-version: "0.82.0"
+version: "0.83.0"
 agent_created: true
 compatibility: Requires Python >=3.12, Google Chrome (auto-launched via CDP), network access to 1688/Ozon/Worker
 license: Proprietary
@@ -54,7 +54,8 @@ description: >
 | 多个链接/批量处理 | `batch_test.py --urls-file <文件> --submit --wait` |
 | 关键词选品/蓝海/跟卖选品 | `discover --keyword <词>` |
 | 自动采集/无人值守/跑 N 个 | `discover-task --keyword <词> --target-count <N> --to-box` |
-| 查任务进度/完成了吗 | `query <task_id> --watch` |
+| 查任务进度/完成了吗 | `query <task_id> --watch`（云端）· 本地后台任务 `job-status <job_id>` |
+| 后台跑起来/别干等 | 六重命令加 `--detach` → `job-status <job_id>` → `job-result <job_id>`；`jobs` 列全部 |
 | 环境报错/首次使用 | `check` |
 
 ### 关键规则（压缩版，细则全在 references/）
@@ -62,8 +63,8 @@ description: >
 1. **URL 先判类型**：1688 商品页→A / Ozon 商品页→B / 搜索类目页→C discover --url / 多 URL→batch；截图先转 URL 供 image_search。
 2. **提交确认二分法**（详见 §3）：明确上架意图→直提；弱意图→展示等确认；**选品类双出口**（`--to-box` 可自动 / `--auto-submit` 须确认）用户没说走哪条就先问。
 3. **指代不清 / 数量不符 / 重上** → 必须追问核对，禁止猜测；"选 N 个"先问要多少个达标的。
-4. **长任务后台纪律**：MCP 调 discover/discover-task/follow/seller/graph 一律 `background=true` → `job_status` 看进度（带 `next_poll_s`，按它轮询勿秒查）→ 完成后 `job_result`；会话关闭任务照跑，重开会话 `job_list` 找回；需终止用 `job_cancel`。
-5. **重命令串行闸**：六命令跨进程互斥，闸被占 **exit 4** → 加 `--wait` 排队；`--force` 仅用户明确要求时用。
+4. **长任务后台纪律（v0.83 批④：默认即后台）**：六重命令（discover/discover-multi/discover-task/follow/graph/seller）加 `--detach` 立即返回 job 句柄（job_id）；MCP 侧 discover/discover-multi/discover-task/follow/seller/queries/graph **`background` 缺省 True**（agent 不再全程干等）。拿句柄后：MCP `job_status` 看进度（带 `next_poll_s`，按它轮询勿秒查）→ 完成后 `job_result` 取结果；`job_list` 列全部，重开会话先 `job_list` 找回，需终止用 `job_cancel`。CLI 等价：`jobs` / `job-status <id>` / `job-result <id>`。**需要同步等结果**：CLI 不加 `--detach`（可加 `--wait`）；MCP 显式 `background=false`。`--detach` 与 `--wait` 互斥（同给 exit 2）。
+5. **重命令串行闸**：六命令跨进程互斥，闸被占 **exit 4** → 加 `--wait` 排队；`--force` 仅用户明确要求时用。`--detach` 启动前会探闸，闸不空即 exit 4 不启动（避免子进程秒退）。
 6. **趋势选品**命令层无 trend：先 web_search + LLM 提炼再 discover（`references/trend-selection.md`）。
 7. **免登录**：readiness 自动从本机浏览器导入 cookie（每小时最多一次）；手动 `import-cookies`，失败走人工登录。
 8. **任务 failed 无解 / 未知错误码 / 假成功** → `report` 上报（`references/error-report.md`），把 report_id 回给用户。
@@ -92,6 +93,7 @@ description: >
 | `check` | 环境诊断 / `--logs` 看运行轨迹 | [可调] |
 | `report` | 上报问题到 worker | [照抄] |
 | `session-sync` | 收割 seller 会话上传 worker | [照抄] |
+| `sync-sessions` | 补传本地未上报的 discover session（v0.83，幂等） | [照抄] |
 | `import-cookies` / `probe-win-cookies` | cookie 导入 / Windows 排障探针 | [可调] |
 | `set_store` / `set_token` / `set_ak` / `list_stores` / `get_ak` | 凭证配置 | [照抄] |
 | `update` / `migrate_profile` / `cleanup` | 升级 / profile 迁移 / 磁盘清理 | [照抄] |

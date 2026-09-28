@@ -172,7 +172,7 @@ def test_cancel_kills_background_process(mgr):
 
 
 def test_run_or_background_sync_path_unchanged(mgr, monkeypatch):
-    """background=False（缺省）走同步 run_and_record，行为与旧版一致。"""
+    """background=False（v0.83 批④ 起为显式同步 opt-out）走同步 run_and_record。"""
     monkeypatch.setattr("pounding_mcp.server.get_manager", lambda: mgr)
     monkeypatch.setattr(tasks_mod, "run_skill_command",
                         lambda *a, **k: {"ok": True, "result": "sync"})

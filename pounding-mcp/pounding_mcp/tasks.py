@@ -62,6 +62,61 @@ _POSITIONAL: dict[str, list[str]] = {
 _PROGRESS_RE = re.compile(r"\[(\d+)/(\d+)\]")
 _STAGE_RE = re.compile(r"阶段\s*(\d+)/(\d+)")
 
+# discover canonical run_id：`disc_<yymmdd>_<hhmmss>_<6hex>`（v0.83 批⑤ 身份层）。
+# ⚠️ 与 `^\d{8}_\d{6}$` 本地时间戳 id 严格区分（后者是 --resume 本地任务号）。
+_RUN_ID_RE = re.compile(r"^disc_\d{6}_\d{6}_[0-9a-f]{6}$")
+
+
+def extract_worker_task_ids(result: dict | None) -> list[str]:
+    """从结果 dict 递归提取 worker 云任务 id（唯一实现，方法层薄转发）。
+
+    跳过 discovery 本地任务号（YYYYMMDD_HHMMSS 形态）——那是 --resume 用的
+    本地 id，state_path 里已有，别混进 worker 语义。"""
+    found: list[str] = []
+
+    def _walk(o) -> None:
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("task_id", "taskId") and isinstance(v, str) \
+                        and 6 <= len(v) <= 64 and not re.match(r"^\d{8}_\d{6}$", v):
+                    found.append(v)
+                else:
+                    _walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                _walk(v)
+
+    if isinstance(result, dict):
+        _walk(result)
+    return list(dict.fromkeys(found))[:10]
+
+
+def extract_discovery_run_id(result: dict | None) -> str:
+    """从结果 dict 提取 discover canonical run_id（``disc_*``）。
+
+    只认 ``disc_`` 前缀 + 合法形态（``_RUN_ID_RE``）——**跳过** ``^\\d{8}_\\d{6}$``
+    本地时间戳 id 的坑（先例 ``extract_worker_task_ids``）。顶层 ``run_id``/
+    ``session_run_id`` 优先，再兜底递归扫嵌套（如 envelope extensions.discovery_meta）。
+    """
+    if not isinstance(result, dict):
+        return ""
+
+    def _walk(o, depth: int) -> str:
+        if depth > 4 or not isinstance(o, dict):
+            return ""
+        for k in ("run_id", "session_run_id"):
+            v = o.get(k)
+            if isinstance(v, str) and _RUN_ID_RE.match(v):
+                return v
+        for v in o.values():
+            if isinstance(v, dict):
+                got = _walk(v, depth + 1)
+                if got:
+                    return got
+        return ""
+
+    return _walk(result, 0)
+
 
 def _exec(kind: str, params: dict) -> dict:
     """执行 skill 命令，正确处理位置参数（search 的 query 等）。"""
@@ -370,26 +425,13 @@ class CollectTaskManager:
 
         跳过 discovery 本地任务号（YYYYMMDD_HHMMSS 形态）——那是 --resume 用的
         本地 id，state_path 里已有，别混进 worker 语义。"""
-        import re
-
         result, _ = self._result_from_log(task_id)
-        found: list[str] = []
+        return extract_worker_task_ids(result)
 
-        def _walk(o) -> None:
-            if isinstance(o, dict):
-                for k, v in o.items():
-                    if k in ("task_id", "taskId") and isinstance(v, str) \
-                            and 6 <= len(v) <= 64 and not re.match(r"^\d{8}_\d{6}$", v):
-                        found.append(v)
-                    else:
-                        _walk(v)
-            elif isinstance(o, list):
-                for v in o:
-                    _walk(v)
-
-        if isinstance(result, dict):
-            _walk(result)
-        return list(dict.fromkeys(found))[:10]
+    def extract_discovery_run_id(self, task_id: str) -> str:
+        """从任务结果提取 discover canonical run_id（v0.83 批④：job_status 身份层）。"""
+        result, _ = self._result_from_log(task_id)
+        return extract_discovery_run_id(result)
 
     def _run(self, task_id: str, kind: str, params: dict) -> None:
         """后台执行 skill 命令（Popen 逐行解析实时进度），完成后更新状态。"""

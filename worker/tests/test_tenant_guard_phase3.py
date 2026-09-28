@@ -43,7 +43,8 @@ _TENANT_READ_PATH_RE = re.compile(
     r"|credentials(/[^\s/]*)*"
     r"|orders(/[^\s/]*)*"
     r"|stores/[^/]+(/[^\s/]*)*"
-    r"|discovery/runs"
+    # v0.83 批⑤：discovery/runs/{session_run_id} 明细读端点（行级归属 404）同域锁定
+    r"|discovery/runs(/[^\s/]+)?"
     r"|categories/(search|attributes)"
     r"|task_status/[^/]+"
     r")$"

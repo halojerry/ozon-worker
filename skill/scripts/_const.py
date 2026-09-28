@@ -33,4 +33,11 @@ LOGS_DIR = DATA_DIR / 'logs'
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR = DATA_DIR / 'cache'
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+# 重采集串行闸锁（v0.83 批④：从 cli.py 上提——detach 占用探针与闸共用同一路径，
+# 单一事实源，防两处字面量漂移）
+LOCKS_DIR = DATA_DIR / 'locks'
+LOCKS_DIR.mkdir(parents=True, exist_ok=True)
+HEAVY_LOCK_PATH = LOCKS_DIR / 'heavy_cdp.lock'
+# 后台任务注册表（v0.83 批④：--detach 落盘；pounding-mcp job_* 读同目录）
+JOBS_DIR = DATA_DIR / 'jobs'
 SKILL_NAME = 'pounding-ozon-probe'

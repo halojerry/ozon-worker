@@ -1,9 +1,10 @@
 # 学习记录节点（上传成功后记录学习数据）
 import os
 import time
+import math
 import logging
 import requests
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
@@ -333,30 +334,140 @@ def _backfill_web_category_path(state) -> None:
         logger.warning("Web 面包屑映射回填跳过（非阻断）: %s", e)
 
 
-def _backfill_category_commission(state) -> None:
-    """任务 1.4: 上传成功后回填 category_commission（approved 分支内，非阻断追加）。
+def _collect_backfill_product_ids(state, product_id: str) -> List[str]:
+    """多 SKU：主 product_id + uploaded_products 的 product_id 去重（≤1000 契约上限）。
+
+    同一个 /v5 请求带上全部已知 product_id（仍是一次调用），响应 items[] 逐
+    product_id 对齐算实盘。uploaded_products 缺失/畸形 → 只留主 id（单 SKU 行为不变）。
+    """
+    ids: List[str] = [str(product_id)]
+    ups = getattr(state, "uploaded_products", None) or []
+    if isinstance(ups, list):
+        for u in ups:
+            if not isinstance(u, dict):
+                continue
+            pid = str(u.get("product_id") or "").strip()
+            if pid and pid not in ids:
+                ids.append(pid)
+    return ids[:1000]
+
+
+def _to_float_or_none(v) -> Any:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) else f  # NaN → None
+
+
+def _resolve_fx_rate_for_profit(pricing_info: Dict[str, Any], currency_code: str) -> float:
+    """实盘折算用的 CNY→RUB 汇率。
+
+    RUB 店：pricing_info.exchange_rate 是真实 CNY→RUB（>0）；缺失 → resolve_cny_rub_rate()。
+    非 RUB 店（如 CNY 测试店）：pricing_info.exchange_rate 恒 1.0（CNY 定价路径不换算，
+    1.0 不是汇率）→ 另取真实 CNY→RUB 算 `real_price_rub` 的 RUB 当量（最低价门槛口径）。
+    复用现成内存级三级链（PG 缓存优先，无出站重查询），双失败自带 12.0 兜底。
+    """
+    cur = str(currency_code or "RUB").strip().upper()
+    fx = _to_float_or_none(pricing_info.get("exchange_rate")) or 0.0
+
+    def _from_service() -> float:
+        try:
+            from utils.fx_rate_service import resolve_cny_rub_rate
+            rate, _src = resolve_cny_rub_rate()
+            return float(rate) if rate and rate > 0 else 1.0
+        except Exception as e:
+            logger.warning("实盘利润: 汇率解析失败（按 1.0 处理）: %s", e)
+            return 1.0
+
+    if cur == "RUB":
+        if fx <= 0:
+            fx = _from_service()
+        return fx if fx > 0 else 1.0
+    # 非 RUB：exchange_rate<=1 视为「非换算汇率」→ 取真实 CNY→RUB
+    if fx <= 1.0:
+        fx = _from_service()
+    return fx if fx > 0 else 1.0
+
+
+def _build_profit_reality(state, resp: Optional[Dict[str, Any]], product_id: str) -> Optional[Dict[str, Any]]:
+    """同一 /v5 响应 → 实盘利润（utils/profit_reality 唯一入口，非阻断）。
+
+    守卫：pricing_info.profit_estimation 存在（有预估才有「实盘 vs 预估」可比；
+    也避免无预估的 mock/legacy 路径误触发汇率 IO）。任何异常 → None + warning。
+    """
+    try:
+        pricing_info = getattr(state, "pricing_info", None) or {}
+        if not isinstance(pricing_info, dict):
+            return None
+        profit_est = pricing_info.get("profit_estimation")
+        if not isinstance(profit_est, dict):
+            logger.info("⏭️ 实盘利润跳过: pricing_info 无 profit_estimation（无可比预估）")
+            return None
+        items = (resp or {}).get("items")
+        if not isinstance(items, list) or not items:
+            logger.info("⏭️ 实盘利润跳过: prices 响应无 items")
+            return None
+
+        from utils.profit_reality import compute_profit_reality_multi, resolve_commission_mode
+
+        envelope = getattr(state, "envelope", None) or {}
+        extensions = envelope.get("extensions", {}) if isinstance(envelope, dict) else {}
+        currency_code = str(pricing_info.get("currency_code") or "").strip().upper() or "RUB"
+        fx_rate = _resolve_fx_rate_for_profit(pricing_info, currency_code)
+        reality = compute_profit_reality_multi(
+            items,
+            primary_product_id=str(product_id or ""),
+            purchase_cost_cny=_to_float_or_none(pricing_info.get("cost_cny")),
+            logistics_cost_cny=_to_float_or_none(pricing_info.get("logistics_cost_cny")),
+            predicted_profit_cny=_to_float_or_none(profit_est.get("profit_cny")),
+            fx_rate=fx_rate,
+            currency_code=currency_code,
+            commission_mode=resolve_commission_mode(extensions),
+        )
+        if reality:
+            logger.info(
+                "✅ 实盘利润回填: product_id=%s real=%.2f CNY predicted=%s gap_cny=%s gap_pct=%s",
+                product_id, reality.get("real_profit_cny", 0.0),
+                reality.get("predicted_profit_cny"), reality.get("gap_cny"),
+                reality.get("gap_pct"),
+            )
+        return reality
+    except Exception as e:
+        logger.warning("⚠️ 实盘利润计算失败（不阻断学习）: %s", e)
+        return None
+
+
+def _backfill_category_commission(state) -> Optional[Dict[str, Any]]:
+    """任务 1.4 + v0.83 批⑥: 上传成功后回填 category_commission 并将同一
+    /v5/product/info/prices 响应里被丢弃的实盘字段补算 `profit_reality`（非阻断追加）。
 
     守卫：product_id + description_category_id + 凭证（ozon_client_id/ozon_api_key，从
     运行时合并 GlobalState 读，LearningRecordInput 不含）都存在，否则跳过。
-    /v5/product/info/prices 用真实 product_id 查询（不是空 offer_id），
-    parse_prices_commissions 取 items[0].commissions.sales_percent_rfbs 比例；
-    upsert 按 pick_price_band(售价) 填 fbs 对应段（百分比）；售价未知/非 RUB →
-    中性段 fbs_leq_5000。任何异常 → logger.warning，不抛（学习路径不被佣金回填阻断）。
+    /v5/product/info/prices 用真实 product_id 查询（不是空 offer_id），多 SKU 同请求
+    带上 uploaded_products 的全部 product_id（逐 product_id 对齐）。
+    - 佣金：parse_prices_commissions 取佣金比例 → upsert 按 pick_price_band(售价) 填
+      fbs 对应段（百分比）；售价未知/非 RUB → 中性段 fbs_leq_5000。
+    - 实盘利润：utils/profit_reality 唯一入口（marketing_seller_price / 真实佣金 /
+      acquiring / FBS 物流费 / fx / 未建模费项单列）。
+    任何异常 → logger.warning，返回 None（学习路径不被回填阻断）。
+
+    Returns: profit_reality dict（无预估/无售价/异常 → None）。
     """
     try:
         product_id = getattr(state, "product_id", None)
         if not product_id or str(product_id) in ("0", "None", ""):
             logger.info("⏭️ 佣金回填跳过: product_id 缺失/无效")
-            return
+            return None
         description_category_id = getattr(state, "description_category_id", None)
         if not description_category_id:
             logger.info("⏭️ 佣金回填跳过: description_category_id 缺失")
-            return
+            return None
         ozon_client_id = str(getattr(state, "ozon_client_id", "") or "").strip()
         ozon_api_key = str(getattr(state, "ozon_api_key", "") or "").strip()
         if not ozon_client_id or not ozon_api_key:
             logger.info("⏭️ 佣金回填跳过: ozon_client_id/ozon_api_key 缺失（凭证不在 state）")
-            return
+            return None
 
         from utils.ozon_client import ozon_post  # 懒导入（模块级 import 会拖 PG/Supabase 依赖）
         from utils.commission_resolver import (
@@ -365,34 +476,40 @@ def _backfill_category_commission(state) -> None:
             upsert_category_commission,
         )
 
+        _pids = _collect_backfill_product_ids(state, product_id)
         resp = ozon_post(
             client_id=ozon_client_id,
             api_key=ozon_api_key,
             endpoint="/v5/product/info/prices",
-            body={"filter": {"product_id": [str(product_id)]}, "limit": 1},
+            body={"filter": {"product_id": _pids}, "limit": len(_pids)},
         )
+
+        # ── A) 佣金回填（现有行为）──
         commission_ratio = parse_prices_commissions(resp)
         if commission_ratio is None:
             logger.info("⏭️ 佣金回填跳过: prices 响应无 commissions（product_id=%s）", product_id)
-            return
+        else:
+            # 选段：RUB 售价 → pick_price_band 选 fbs 对应段；售价未知/CNY → 中性段 leq_5000
+            pricing_info = getattr(state, "pricing_info", None) or {}
+            currency_code = str(pricing_info.get("currency_code") or "").upper()
+            price_rub = float(pricing_info.get("price") or 0) if currency_code == "RUB" else None
+            band = pick_price_band(price_rub) if price_rub and price_rub > 0 else "leq_5000"
+            segment = f"fbs_{band}"
+            pct = round(commission_ratio * 100.0, 4)  # 比例 → 百分比（upsert 段值约定）
 
-        # 选段：RUB 售价 → pick_price_band 选 fbs 对应段；售价未知/CNY → 中性段 leq_5000
-        pricing_info = getattr(state, "pricing_info", None) or {}
-        currency_code = str(pricing_info.get("currency_code") or "").upper()
-        price_rub = float(pricing_info.get("price") or 0) if currency_code == "RUB" else None
-        band = pick_price_band(price_rub) if price_rub and price_rub > 0 else "leq_5000"
-        segment = f"fbs_{band}"
-        pct = round(commission_ratio * 100.0, 4)  # 比例 → 百分比（upsert 段值约定）
+            upsert_category_commission(
+                int(description_category_id),
+                source="prices_api",
+                **{segment: pct},
+            )
+            logger.info("✅ 佣金回填成功: dc=%s %s=%.2f%% product_id=%s",
+                        description_category_id, segment, commission_ratio * 100.0, product_id)
 
-        upsert_category_commission(
-            int(description_category_id),
-            source="prices_api",
-            **{segment: pct},
-        )
-        logger.info("✅ 佣金回填成功: dc=%s %s=%.2f%% product_id=%s",
-                    description_category_id, segment, commission_ratio * 100.0, product_id)
+        # ── B) 实盘利润（同一响应，v0.83 批⑥）──
+        return _build_profit_reality(state, resp, product_id)
     except Exception as e:
         logger.warning(f"⚠️ 佣金回填失败（不阻断学习）: {e}")
+        return None
 
 
 def learning_record_node(
@@ -727,12 +844,14 @@ def learning_record_node(
     
     # ✅ T9: 上传成功（approved）回填 product_task_index — 非阻断，任何缺失/异常仅 warning
     _backfill_product_index(state, config)
-    # ✅ 任务 1.4: 上传成功（approved）回填类目佣金 — 非阻断，任何缺失/异常仅 warning
-    _backfill_category_commission(state)
+    # ✅ 任务 1.4 + v0.83 批⑥: 上传成功（approved）回填类目佣金 + 实盘利润
+    # （同一 /v5 响应，非阻断，任何缺失/异常仅 warning）
+    _profit_reality = _backfill_category_commission(state) or {}
     # ✅ F-B04: approved 回填 Web 面包屑 → dc/tp 映射（discover 同面包屑直通闭环）
     _backfill_web_category_path(state)
     
     return LearningRecordOutput(
         recorded_count=recorded_count,
-        progress_counter=24  # ← 固定进度计数器（24号节点）
+        progress_counter=24,  # ← 固定进度计数器（24号节点）
+        profit_reality=_profit_reality,  # v0.83 批⑥: 经 Output → GlobalState → GraphOutput 透传
     )

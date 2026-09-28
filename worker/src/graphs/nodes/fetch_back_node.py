@@ -121,6 +121,21 @@ def _content_rating_enhance(
         audit["reason"] = "env_gate_off"
         return audit
 
+    # ✅ v0.83 批②（A6 红线）：跟卖卡是竞品卡——我方绝不写 4191/11254（含任何属性）。
+    # 判定双源（与 prepare 同款）：信封 extensions.follow_sell ∪ draft.ozon_product_id。
+    _ext = state.extensions if isinstance(getattr(state, "extensions", None), dict) else {}
+    _draft = state.draft if isinstance(state.draft, dict) else {}
+    _is_follow = bool(getattr(state, "is_follow_sell", False)) or bool(_ext.get("follow_sell")) \
+        or bool(_draft.get("ozon_product_id"))
+    if _is_follow:
+        audit["action"] = "skipped"
+        audit["reason"] = "follow_card_skip"
+        logger.info("⭐ 内容评级增强跳过：跟卖卡（我方不写竞品卡面）product_id=%s", product_id)
+        return audit
+
+    # box_reviewed 草稿：采集箱即权威，禁用 4191 重生成（其余属性保守补填不变）
+    _box_reviewed = bool(_ext.get("box_reviewed"))
+
     # ① 评级复检
     resp = ozon_post(
         state.ozon_client_id, state.ozon_api_key,
@@ -192,6 +207,9 @@ def _content_rating_enhance(
         currency_code=str(pricing.get("currency_code") or "CNY"),
         vat=vat,
         images360=images360,
+        # v0.83 批②：rating<90 且卡上 4191 <500 字符 → 允许确定性重生成替换
+        # （box_reviewed 草稿排除——采集箱即权威，不重写用户内容）
+        allow_annotation_replace=not _box_reviewed,
     )
     audit.update(audit_partial)
     if not body:

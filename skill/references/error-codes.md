@@ -65,8 +65,9 @@ Worker 返回：
 - **单任务查询**：用 `query <task_id>`（cli.py v0.28.5+，参数与输出见 references/commands-ops.md）查状态；需要等终态时加 `--watch`（每 10s 轮询直到完成，`--timeout` 控制上限，默认 900s）。任务 ID 是 `graph`/`follow`/`batch_test` 提交时返回的 UUID。
 - **终态语义（v0.38）**：`completed`=审核通过；`rejected`=Ozon 审核被拒（终态，可重提）；`failed`=执行失败（终态，可重提）；`cancelled`=取消。`rejected`/`failed` 任务可调 `POST /api/v1/resubmit_task/{task_id}` 重提（需带 token，跨租户 404）——重提自动重新生成图片，适合"修正后一键重试"。
 - **批量提交**：用 `batch_test.py --wait` 自动轮询（每 5s 查一次），完成后打印每个产品的明细（1688链接/利润率/售价/采购价/运费/净利润率/OzonID）。
-- **本地采集任务进度（v0.70）**：MCP `job_status(task_id)` / `job_list()` 查 background=true
-  的本地采集/选品任务（进度/阶段/日志尾）；云端任务仍用 `query`。`job_status` 返回的
+- **本地采集任务进度（v0.70；v0.83 起默认即后台）**：CLI `jobs` / `job-status <id>` /
+  `job-result <id>`（`--detach` 启动），或 MCP `job_status(task_id)` / `job_list()`
+  查本地采集/选品任务（进度/阶段/日志尾/run_id）；云端任务仍用 `query`。`job_status` 返回的
   `worker_task_ids` 可直接喂给 `query` 查云任务。
 - **失败取证（v0.70）**：MCP `get_task_forensics(task_id)` 一站式聚合任务快照 + 上架留存
   （listing_result_log）+ 类目/属性匹配审计——failed/rejected 排查首选，比零散 query 更快定位。

@@ -269,8 +269,11 @@ def test_r4_recategorize_success_downgrades_old_row():
 
     class _FakeQuery:
         def search_nodes(self, *a, **k):
+            # v083: R4 采纳前过源词 overlap 守卫——候选路径须与草稿 source_category
+            # （成人用品 > 女用器具 > 震动棒）有非泛词重叠方可直采（对齐本用例
+            # 「重配成功」语义；零 overlap 的新语义由 test_category_authority_v083 锁定）。
             return [{"description_category_id": NEW_DC, "type_id": NEW_TP,
-                     "full_path": "儿童玩具 > 滑梯", "node_name": "滑梯",
+                     "full_path": "成人用品 > 女用器具 > 震动棒", "node_name": "震动棒",
                      "similarity": 0.9}]
 
     def _fake_rebuild(new_dc, new_type, **kw):

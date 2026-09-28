@@ -112,6 +112,9 @@ AUX_FILES = [
     "scripts/lib/lock_utils.py",     # T1 跨平台文件锁（chrome_launcher/cli 重命令闸共用，stdlib 明文）
     "scripts/lib/match_scoring.py",  # v0.72.1 P0-4 货源匹配复合评分（纯函数，ozon_discovery 引用）
     "scripts/lib/metrics_pool_client.py",  # 数据池 skill 侧客户端（读-回馈闭环，fire-and-forget 明文）
+    # v0.83 批①（预估统一）：worker 预估客户端（/estimate + /estimate/batch 唯一算价
+    # 出口消费方，明文——与 metrics_pool_client 同类，无源码保护诉求且改动面小）。
+    "scripts/lib/estimate_client.py",
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代

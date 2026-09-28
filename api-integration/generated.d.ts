@@ -1071,6 +1071,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discovery/runs/{session_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * V1 Discovery Get Run
+         * @description 读取 canonical discover session（v0.83 批⑤）：session_json 全文 + meta。
+         *
+         *     鉴权 Bearer（``resolve_tenant_from_request``：Bearer→verify→限流→租户）+
+         *     跨租户 404（run_id 带 disc_ 前缀 + 随机段不可枚举，见 skill
+         *     discovery_session.new_run_id）。归属判定用写侧同源指纹（token_fp）——
+         *     discovery_runs.tenant_id 存的是 clean token 明文，与 resolve_tenant 的
+         *     user_id 不同域，故用 ``token_fingerprint`` 等值比较（写入侧唯一算法入口）。
+         *     老行（无 session_json）→ ``legacy: true``，``session_json`` null，
+         *     ``candidates`` 回退 candidates_json。
+         */
+        get: operations["v1_discovery_get_run_api_v1_discovery_runs__session_run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drafts": {
         parameters: {
             query?: never;
@@ -1355,13 +1383,46 @@ export interface paths {
          * Estimate Envelope Standalone
          * @description P2a 独立定价器：直接传 envelope（无 draft_id）→ 同源公式预估。
          *
-         *     body: {envelope: {draft:{purchase_cost, weight, dimensions}, extensions:{}},
+         *     body: {envelope: {draft:{purchase_cost, weight, dimensions},
+         *            extensions:{credential_id?, ozon_client_id?, ...}},
          *            margin_rate?, commission_rate?, fx_buffer?, margin_anchor?, margin_floor?,
          *            variable_cost_rate?, promo_variable_cost_rate?}
          *     与 /api/v1/drafts/{id}/estimate 同公式（estimate_from_envelope）；
          *     前端/skill 不写公式铁律不变。
+         *
+         *     v0.83 gate 批①：``envelope.extensions`` 可带 ``credential_id``（worker 内部 UUID）
+         *     或 ``ozon_client_id``（skill 侧店铺 client_id，worker 按 (tenant, client) 反查凭证）
+         *     → 物流费走店铺真实 3PL（``logistics_source=store``），与 pricing_node 同源；缺省
+         *     回落 default_rets。
          */
         post: operations["estimate_envelope_standalone_api_v1_estimate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/estimate/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Estimate Batch
+         * @description POST /api/v1/estimate/batch —— 批量预估（≤50/批，唯一算价出口批量形态）。
+         *
+         *     - 鉴权：``_require_bearer``（只认 Authorization Bearer）；独立限流桶
+         *       ``estimate_batch:{token}``（不与提交额度互挤），超限 429。
+         *     - 租户：恒自身租户（``resolve_tenant``）；credential_id 在场经 credential_service
+         *       解密探测店铺 3PL（跨租户 → 404 由其内部保证）。
+         *     - 不支持 variants（schema ``extra="forbid"`` 定死，收到即 422）。
+         *     - 部分失败不整体 4xx：逐项 ``items[{ok,index,...}]`` + ``failed[{index,reason}]``。
+         */
+        post: operations["estimate_batch_api_v1_estimate_batch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1647,7 +1708,12 @@ export interface paths {
         put?: never;
         /**
          * Mxou Login
-         * @description MXOU 账号密码登录（无 token 鉴权——登录入口本身；限流防爆破）。
+         * @description MXOU 账号密码登录（v0.81 安全收尾判定：**设计公开**，非缺鉴权）。
+         *
+         *     设计依据：登录入口本身无 token 可验（模块 docstring「唯一无 token 鉴权
+         *     端点」）；防滥用由按 username 独立限流承担（429 防爆破）；鉴权语义由登录
+         *     成功后签发的 access_token/session 承担。对齐 docs/API-OVERVIEW.md 鉴权矩阵
+         *     ——不补 Bearer（补了登录就死锁）。
          */
         post: operations["mxou_login_api_v1_mxou_login_post"];
         delete?: never;
@@ -2799,6 +2865,11 @@ export interface paths {
         /**
          * Http Async Run
          * @description [DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
+         *
+         *     v0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写
+         *     操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行
+         *     🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效
+         *     token → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。
          */
         post: operations["http_async_run_async_run_post"];
         delete?: never;
@@ -3684,6 +3755,69 @@ export interface components {
              * @description 更新时间
              */
             updated_at?: string | null;
+        };
+        /**
+         * DiscoveryRunDetail
+         * @description GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。
+         * @example {
+         *       "created_at": "2026-09-28T10:15:30",
+         *       "keyword": "宠物饮水机",
+         *       "legacy": false,
+         *       "schema_version": "discover.session.v1",
+         *       "session_json": {
+         *         "candidates": [],
+         *         "schema_version": "discover.session.v1",
+         *         "session_run_id": "disc_260928_101530_a1b2c3",
+         *         "summary": {
+         *           "profitable": 5,
+         *           "total": 23
+         *         }
+         *       },
+         *       "session_run_id": "disc_260928_101530_a1b2c3"
+         *     }
+         */
+        DiscoveryRunDetail: {
+            /**
+             * Candidates
+             * @description 投影候选（legacy 行回退 candidates_json）
+             */
+            candidates?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Created At
+             * @description 落库时间（ISO8601）
+             */
+            created_at?: string | null;
+            /**
+             * Keyword
+             * @description 选品关键词
+             * @default
+             */
+            keyword: string;
+            /**
+             * Legacy
+             * @description 老行（无 session_json）为 true
+             * @default false
+             */
+            legacy: boolean;
+            /**
+             * Schema Version
+             * @description session 文档 schema 版本
+             */
+            schema_version?: string | null;
+            /**
+             * Session Json
+             * @description 自包含 canonical session 文档（legacy 行 null）
+             */
+            session_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Session Run Id
+             * @description discover session id（disc_*）
+             */
+            session_run_id: string;
         };
         /**
          * DraftAiResponse
@@ -8623,6 +8757,62 @@ export interface operations {
             };
         };
     };
+    v1_discovery_get_run_api_v1_discovery_runs__session_run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "created_at": "2026-09-28T10:15:30",
+                     *       "keyword": "宠物饮水机",
+                     *       "legacy": false,
+                     *       "schema_version": "discover.session.v1",
+                     *       "session_json": {
+                     *         "candidates": [],
+                     *         "schema_version": "discover.session.v1",
+                     *         "session_run_id": "disc_260928_101530_a1b2c3",
+                     *         "summary": {
+                     *           "profitable": 5,
+                     *           "total": 23
+                     *         }
+                     *       },
+                     *       "session_run_id": "disc_260928_101530_a1b2c3"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DiscoveryRunDetail"];
+                };
+            };
+            /** @description session 不存在或非本租户（跨租户 404，不泄漏存在性） */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_drafts_api_v1_drafts_get: {
         parameters: {
             query?: {
@@ -9315,6 +9505,107 @@ export interface operations {
                      *       "profit_rate": 0.152,
                      *       "promo_price": 129,
                      *       "variable_cost_rate": 0.155
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    estimate_batch_api_v1_estimate_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description 店铺凭证 ID；在场则解密探测店铺 3PL（否则 default_rets） */
+                    credential_id?: string | null;
+                    items: {
+                        /**
+                         * Attributes
+                         * @description 1688 属性（箱级毛重 reconcile 用）
+                         */
+                        attributes?: {
+                            [key: string]: unknown;
+                        } | null;
+                        /**
+                         * Commission Segments
+                         * @description 佣金分段（百分比）{'fbs':{leq_*},'fbo':{leq_*}}
+                         */
+                        commission_segments?: {
+                            [key: string]: unknown;
+                        } | null;
+                        /**
+                         * Currency Code
+                         * @description 店铺币种 RUB/CNY；缺省按 CNY
+                         */
+                        currency_code?: string | null;
+                        /**
+                         * Dc
+                         * @description Ozon description_category_id（佣金缓存表键）
+                         */
+                        dc?: string | null;
+                        /**
+                         * Dims Mm
+                         * @description 尺寸（毫米）{length,width,height} 或 {d,w,h}；缺省走归一化兜底
+                         */
+                        dims_mm?: {
+                            [key: string]: number;
+                        } | null;
+                        /**
+                         * Purchase Cost
+                         * @description 采购成本 CNY（已含国内运费）
+                         */
+                        purchase_cost: number;
+                        /**
+                         * Weight G
+                         * @description 单件重量（克）；缺省走归一化兜底
+                         */
+                        weight_g?: number | null;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "failed": [
+                     *         {
+                     *           "index": 1,
+                     *           "reason": "ValueError: 非数字采购成本"
+                     *         }
+                     *       ],
+                     *       "items": [
+                     *         {
+                     *           "commission_rate": 0.15,
+                     *           "commission_source": "segments:leq_5000",
+                     *           "estimate_source": "worker",
+                     *           "index": 0,
+                     *           "logistics_cost_cny": 8,
+                     *           "logistics_source": "default_rets",
+                     *           "marks": {
+                     *             "commission_source": "segments:leq_5000",
+                     *             "exchange_rate_source": "",
+                     *             "weight_suspect": ""
+                     *           },
+                     *           "ok": true,
+                     *           "old_price": 258,
+                     *           "price": 215,
+                     *           "profit_cny": 32.6,
+                     *           "profit_rate": 0.152,
+                     *           "promo_price": 129
+                     *         }
+                     *       ]
                      *     }
                      */
                     "application/json": unknown;

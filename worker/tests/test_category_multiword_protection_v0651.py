@@ -419,9 +419,16 @@ def _fake_rebuild(cap):
 
 
 def test_r4_recategorize_on_22507_switches_dc_and_rebuilds():
-    """糖果 dc + 22507 类目错 → 重配到非敏感帽子 dc + 调用 _rebuild_for_new_category。"""
+    """糖果 dc + 22507 类目错 → 重配到非敏感帽子 dc + 调用 _rebuild_for_new_category。
+
+    v083: R4 采纳前过源词 overlap 守卫——补 1688 货源类目「服装 > 帽子」使信号与
+    候选路径（儿童用品 > 帽子 > 儿童帽）有非泛词重叠「帽子」，保持本用例「重配
+    成功」语义（守卫行为的独立用例见 test_category_authority_v083）。
+    """
     from graphs.validation_retry_loop import error_repair_llm_node
-    state = _candy_declined_state()
+    state = _candy_declined_state(
+        draft={"title": "冬季保暖帽 渔夫帽", "attributes": {},
+               "source_category": "服装 > 帽子"})
     cap = {}
     fake_q = _FakeQuery([_HAT_NODE])
     with mock.patch("utils.ozon_category_query.get_category_query", return_value=fake_q), \

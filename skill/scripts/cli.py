@@ -69,58 +69,91 @@ def _redact_keys(obj, keys: set, _depth: int = 0) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
-    """提交前预估售价（v0.39 需求1 引入；v0.78 批B6 从 cmd_graph 提取为共享入口）。
+_STORE_PRICING_EXT_KEYS = (
+    "margin_rate", "commission_rate", "fx_buffer",
+    "margin_floor", "margin_anchor", "variable_cost_rate", "promo_variable_cost_rate",
+)
 
-    复用 worker 定价公式（售价 = 总成本×(1+margin)/(1-commission)），参数与信封
-    extensions 同源。graph/follow 两腿共用本函数——**禁止再内联定价公式**。
+
+def _store_pricing_extensions(store: str = "") -> dict:
+    """店铺定价配置 → extensions（与信封注入同源键；空值/零值省略，worker 走默认）。
+
+    v0.83 gate 批①：额外带 ``ozon_client_id``（店铺 client_id）——worker 预估端点
+    据此反查凭证解密探测店铺真实 3PL（否则恒走默认 RETS，预估↔卡价物流漂移 +5.9%）。
+    """
+    prof: dict = {}
+    client_id = ""
+    try:
+        from scripts.lib.config_store import get_store, get_store_profile
+        prof = get_store_profile(store or "") or {}
+        client_id = str((get_store(store or "") or {}).get("client_id") or "")
+    except Exception:
+        prof = {}
+        client_id = ""
+    ext: dict = {}
+    for k in _STORE_PRICING_EXT_KEYS:
+        v = prof.get(k)
+        if v in (None, ""):
+            continue
+        try:
+            if float(v) == 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        ext[k] = v
+    if client_id:
+        ext["ozon_client_id"] = client_id
+    return ext
+
+
+def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
+    """提交前预估售价（v0.39 引入；v0.78 批B6 提取共享入口；v0.83 批① 改打 worker）。
+
+    **v0.83 批①：删除本地定价公式**（旧 margin 0.25/commission 0.10 硬编码 + 内联
+    公式），改调 worker ``POST /api/v1/estimate``（唯一算价出口 compute_price 链）；
+    店铺 margin/commission/三档配置经 extensions 透传（与信封注入同源）。
+
+    **降级纪律**：worker 不可达/404 → 无预估（``estimate_source="unavailable"``）+
+    打「无预估」一行，**绝不回落 legacy 公式**；``--min-margin`` 对无预估不拦。
 
     返回 {estimated_retail_price_cny, estimated_logistics_cny, estimated_profit_cny,
-    estimated_profit_rate}；数据不足（无采购价/无重量）或异常 → None 不打印。
-    副作用：stdout 打印 💰 预估一行 + 免责一行（预估非终价，worker 实算为准）。
+    estimated_profit_rate, estimate_source, currency}；数据不足 → None。
+    副作用：stdout 打印 💰 预估/无预估一行 + 免责一行。
     """
     if not isinstance(draft, dict):
         return None
     try:
-        from scripts.lib.config_store import get_ozon_credentials as _get_oz_creds
-        from scripts.lib.ozon_discovery import _query_logistics_from_worker
         _w = draft.get("weight") or 0
         _cost = draft.get("purchase_cost") or 0
-        _dim = draft.get("dimensions") or {}
         try:
-            _cost_f = float(_cost)
-            _w_f = float(_w)
+            _cost_f, _w_f = float(_cost), float(_w)
         except (TypeError, ValueError):
             _cost_f, _w_f = 0.0, 0.0
         if _cost_f <= 0 or _w_f <= 0:
             return None
-        # 店铺定价参数（与信封 extensions 注入同源）
-        _margin = 0.25
-        _commission = 0.10
-        try:
-            _store_cfg = _get_oz_creds(store or "")
-            if _store_cfg:
-                _margin = float(_store_cfg.get("margin_rate") or _margin)
-                _commission = float(_store_cfg.get("commission_rate") or _commission)
-        except Exception:
-            pass
-        _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
-        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
-        _total = _cost_f + _logistics
-        _divisor = (1.0 - _commission)
-        _est_price = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
-        _est_profit = round(_est_price - _total, 2)
-        _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
-        est = {
-            "estimated_retail_price_cny": _est_price,
-            "estimated_logistics_cny": round(_logistics, 2),
-            "estimated_profit_cny": _est_profit,
-            "estimated_profit_rate": _est_rate,
-        }
+        ext = _store_pricing_extensions(store)
+        from scripts.lib.estimate_client import estimate_envelope
+        est = estimate_envelope({"draft": draft, "extensions": ext})
+        if not est:
+            print("💰 预估: 无预估（worker 不可达，未回落本地公式）", flush=True)
+            return {"estimate_source": "unavailable"}
+        _price = float(est.get("price") or 0)
+        _profit = float(est.get("profit_cny") or 0)
+        _rate = round(float(est.get("profit_rate") or 0) * 100, 1)
+        _logistics = float(est.get("logistics_cost_cny") or 0)
+        _unit = str(est.get("currency") or "CNY")
+        _sym = "¥" if _unit == "CNY" else f"{_unit} "
         print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
-              f"售价≈¥{_est_price:.2f} (利润¥{_est_profit:.2f}, 率{_est_rate}%)", flush=True)
+              f"售价≈{_sym}{_price:.2f} (利润¥{_profit:.2f}, 率{_rate}%)", flush=True)
         print("   （预估非终价，以 Worker 实算为准）", flush=True)
-        return est
+        return {
+            "estimated_retail_price_cny": round(_price, 2),
+            "estimated_logistics_cny": round(_logistics, 2),
+            "estimated_profit_cny": round(_profit, 2),
+            "estimated_profit_rate": _rate,
+            "estimate_source": "worker",
+            "currency": _unit,
+        }
     except Exception:
         return None
 
@@ -128,10 +161,14 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
 def _min_margin_block_reason(estimate: dict | None, min_margin: float) -> str:
     """--min-margin 拦截判定（graph/follow 同语义，对齐 --min-density）。
 
-    返回拦截原因文案；空串 = 不拦截（estimate 缺失或阈值 ≤0 或利润率达标）。
+    返回拦截原因文案；空串 = 不拦截（estimate 缺失 / 阈值 ≤0 / 无预估 / 利润率达标）。
+    v0.83 批①：worker 不可达（``estimate_source="unavailable"``）**不拦**——无预估时
+    无从判断利润率，拦截会误杀（对齐「无预估字段 + 不回落公式」降级纪律）。
     """
     _mm = float(min_margin or 0.0)
     if _mm <= 0 or not isinstance(estimate, dict):
+        return ""
+    if estimate.get("estimate_source") == "unavailable":
         return ""
     _rate = float(estimate.get("estimated_profit_rate") or 0.0)
     if _rate >= _mm:
@@ -216,6 +253,55 @@ def _write_run_report(cmd: str, items: list[dict], summary: dict) -> str:
         return str(path)
     except Exception:
         return ""
+
+
+def _emit_discover_session_out(candidates: list) -> None:
+    """v0.83 批⑤：discover/discover-multi 出口结构化尾 JSON。
+
+    供 pounding-mcp background 收割（批④前置）与 agent 机读——``run_id`` /
+    ``candidates_count`` / ``summary`` / ``session_path``（先例 cmd_discover_task
+    的 ``_out``）。无进程内 session（理论不可达）时静默不发。
+    """
+    try:
+        from dataclasses import asdict as _asdict
+
+        from scripts.lib import discovery_session as _sess
+
+        run_id = _sess.current_run_id()
+        if not run_id:
+            return
+        flat: list[dict] = []
+        for c in candidates or []:
+            try:
+                flat.append(_asdict(c))
+            except Exception:
+                flat.append(dict(getattr(c, "__dict__", {}) or {}))
+        _out({
+            "run_id": run_id,
+            "candidates_count": len(flat),
+            "summary": _sess.build_summary(flat),
+            "session_path": _sess.session_path(),
+        })
+    except Exception:
+        pass
+
+
+def _emit_queries_out(rows: list) -> None:
+    """v0.83 批⑤：queries 出口结构化尾 JSON（run_id + 行数；批④后台收割前置）。"""
+    try:
+        from scripts.lib import discovery_session as _sess
+
+        run_id = _sess.current_run_id()
+        if not run_id:
+            return
+        _out({
+            "run_id": run_id,
+            "candidates_count": len(rows or []),
+            "summary": {"rows": len(rows or [])},
+            "session_path": _sess.session_path(),
+        })
+    except Exception:
+        pass
 
 
 def _print_logs(task_id: str = "") -> int:
@@ -340,53 +426,54 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     --sort     price_asc / price_desc / sold_desc（按销量）
     --export   CSV 导出路径（含利润估算）
-    定价复用 worker 同源公式（售价 = 总成本×(1+margin)/(1-commission)，
-    与 pricing_node.py 一致）——不做独立估算逻辑，避免两套公式漂移。
+    定价走 worker 唯一算价出口（v0.83 批①：POST /api/v1/estimate/batch），skill 零公式。
     """
     from scripts.lib.ak_1688_client import search_products
-    from scripts.lib.config_store import get_ozon_credentials
-
-    # 店铺定价参数（与信封 extensions 注入同源，worker 实际用同一份）
-    _margin = 0.25
-    _commission = 0.10
-    try:
-        _store = get_ozon_credentials(args.store)
-        if _store:
-            _margin = float(_store.get("margin_rate") or _margin)
-            _commission = float(_store.get("commission_rate") or _commission)
-    except Exception:
-        pass
 
     products = search_products(args.query, page_size=args.page_size)
 
-    # v0.39 Issue6: 利润估算复用 worker 定价公式——真实运费（worker quote）
-    # + 店铺 margin/commission，与 graph 提交后 worker 实算结果一致
-    from scripts.lib.ozon_discovery import _query_logistics_from_worker
-    estimated = []
+    # v0.83 批①: 利润估算退役本地公式 → 一次 worker batch（唯一算价出口）
+    from scripts.lib.estimate_client import build_batch_item, estimate_batch
+    _ext = _store_pricing_extensions(args.store)
+    _currency = str(_ext.get("currency_code") or "CNY")
+    _items = []
     for p in products:
         try:
             cost_cny = float(p.get("price") or 0)
         except (TypeError, ValueError):
             cost_cny = 0.0
         if cost_cny <= 0:
-            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
-                              "profit_margin": 0.0, "estimated_logistics_cny": 0})
+            _items.append(None)
             continue
-        _w = float(p.get("weight_grams") or p.get("moq_weight") or 0)
-        _quote = _query_logistics_from_worker(int(_w)) if _w > 0 else None
-        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w / 1000 * 15.0 if _w > 0 else 0)
-        # 与 worker pricing_node 一致：售价 = (采购+物流+包装) × (1+margin) / (1-commission)
-        _total = cost_cny + _logistics
-        _divisor = (1.0 - _commission)
-        _retail = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
-        _profit = round(_retail - _total, 2)
-        _margin_r = round(_profit / _retail, 4) if _retail > 0 else 0.0
+        try:
+            _w = float(p.get("weight_grams") or p.get("moq_weight") or 0)
+        except (TypeError, ValueError):
+            _w = 0.0
+        _items.append(build_batch_item(cost_cny, weight_g=_w or None, currency_code=_currency))
+    _valid = [it for it in _items if it is not None]
+    _rows = estimate_batch(_valid) if _valid else []
+    estimated = []
+    _ri = 0
+    for p, it in zip(products, _items):
+        if it is None or not _rows:
+            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
+                              "profit_margin": 0.0, "estimated_logistics_cny": 0,
+                              "estimate_source": "unavailable"})
+            continue
+        row = _rows[_ri] if _ri < len(_rows) else None
+        _ri += 1
+        if not row:
+            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
+                              "profit_margin": 0.0, "estimated_logistics_cny": 0,
+                              "estimate_source": "unavailable"})
+            continue
         estimated.append({
             **p,
-            "estimated_retail_cny": _retail,
-            "estimated_logistics_cny": round(_logistics, 2),
-            "estimated_profit_cny": _profit,
-            "profit_margin": _margin_r,
+            "estimated_retail_cny": row.get("price"),
+            "estimated_logistics_cny": row.get("logistics_cost_cny"),
+            "estimated_profit_cny": row.get("profit_cny"),
+            "profit_margin": row.get("profit_rate"),
+            "estimate_source": "worker",
         })
 
     # v0.39 Issue6: 排序（--sort）
@@ -608,10 +695,9 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 from datetime import datetime, timezone  # noqa: E402
 
-from scripts._const import DATA_DIR  # noqa: E402
+from scripts._const import HEAVY_LOCK_PATH  # noqa: E402,F401
 from scripts.lib import lock_utils  # noqa: E402
 
-HEAVY_LOCK_PATH = DATA_DIR / "locks" / "heavy_cdp.lock"
 _HEAVY_WAIT_HEARTBEAT_SECONDS = 30  # --wait 排队心跳间隔
 
 # 模块级持有标志：flock 同进程异 fd 互斥（见 lock_utils 头注释），闸只在真实
@@ -669,6 +755,28 @@ def _acquire_heavy_lock_waiting(cmd_name: str):
         print(f"⏳ 重采集闸仍被占（{read_lock_holder(HEAVY_LOCK_PATH)}），继续排队等待…"
               f"（Ctrl-C 退出）", file=sys.stderr, flush=True)
         time.sleep(1)  # I-1 兜底：持久性 open 失败时防无节流紧凑空转
+
+
+def _discovery_session_scope(func):
+    """v0.83 批⑤：命令退出时清空进程内 canonical session 上下文（finally 兜底）。
+
+    session 上下文（``discovery_session._CURRENT``）是进程全局——CLI 每进程一命令
+    无碍，但同进程多次调用（测试/嵌入式）会串味：前一条命令的 run_id 泄漏给
+    后续库直调 ``_save_discovery_log``，把旧 legacy 路径误切成 canonical。
+    本装饰器保证「命令即会话边界」：入口 begin_session，出口（含异常）end_session。
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        from scripts.lib import discovery_session as _sess
+
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _sess.end_session()
+
+    return wrapper
 
 
 def _heavy_gate(func):
@@ -741,6 +849,21 @@ def _add_heavy_gate_args(p: argparse.ArgumentParser) -> None:
                         "再退出（completed/failed 打一行，failed 时 exit 3）")
     p.add_argument("--force", action="store_true",
                    help="跳过重采集串行闸强制并行（多进程会互踩 Chrome/缓存，慎用）")
+    p.add_argument("--detach", action="store_true",
+                   help="后台运行：fork 脱离会话子进程后立即返回 job 句柄（job_id），"
+                        "用 `job-status <id>` 轮询、`job-result <id>` 取结果；"
+                        "与 --wait 互斥。锁与产出物与前台逐字一致（单事实源 skill/data/jobs/）")
+
+
+def _add_detach_arg(p: argparse.ArgumentParser) -> None:
+    """给**非重**命令（queries）挂 --detach（v0.83 批④：MCP 七工具 background 缺省 True）。
+
+    与 ``_add_heavy_gate_args`` 的 --detach 语义一致，但该命令不持重采集串行闸
+    （无 --wait/--force）——spawn 时不做闸占用探针（light 命令不该被重闸拦）。
+    """
+    p.add_argument("--detach", action="store_true",
+                   help="后台运行：fork 脱离会话子进程后立即返回 job 句柄（job_id），"
+                        "用 `job-status <id>` 轮询、`job-result <id>` 取结果")
 
 
 @_heavy_gate
@@ -840,6 +963,55 @@ def cmd_graph(args: argparse.Namespace) -> int:
                     if str(_oz_cat).isdigit():
                         graph["envelope"]["draft"]["ozon_attributes_category"] = int(_oz_cat)
                     print(f"✅ 竞品属性透传: {len(_attrs_all)} 个(ozon-ref-url)")
+                # ✅ fix/category-authority-v1 v083: --ozon-ref-url 顺带增强——保留
+                # 竞品面包屑类目路径 + 出证 match_evidence。graph 直传链**无类目语义
+                # 闸**（无 Ozon 竞品语料，见 CONTRACT-v4），本入口是唯一有 Ozon 语料
+                # 的场景。抓取数据 `_oz` 已带 category_path/web_category_id/
+                # breadcrumb_language（ozon_scraper 产出）——有才注入，无则只保留声明。
+                _oz_path = str(_oz.get("category_path") or "").strip()
+                if _oz_path:
+                    _env_ref = graph["envelope"]
+                    _dr_ref = _env_ref.setdefault("draft", {})
+                    _oc = _dr_ref.get("ozon_category")
+                    _oc = dict(_oc) if isinstance(_oc, dict) else {}
+                    _oc.setdefault("source", "page")
+                    _oc.setdefault("namespace", "widget")
+                    _oc["category_path"] = _oz_path
+                    if _oz.get("web_category_id"):
+                        _oc["web_category_id"] = str(_oz["web_category_id"])
+                    if _oz.get("breadcrumb_language"):
+                        _oc["breadcrumb_language"] = str(_oz["breadcrumb_language"])
+                    _dr_ref["ozon_category"] = _oc
+                    # 出证：1688 源类目 vs 竞品面包屑语义复核（复用 discover 同源
+                    # 复核器；前提缺失/LLM 失败 → semantic_unknown，不一致 → divergent）
+                    _zh_ref = ""
+                    _src_ref = _env_ref.get("source")
+                    if isinstance(_src_ref, dict):
+                        _zh_ref = str(_src_ref.get("source_category_path")
+                                      or _src_ref.get("match_category_name") or "")
+                    if not _zh_ref:
+                        _zh_ref = str(_dr_ref.get("source_category") or "")
+                    try:
+                        from types import SimpleNamespace as _NS
+
+                        from scripts.lib.ozon_discovery import _category_semantic_review
+                        from scripts.cloud_probe import _assemble_match_evidence
+                        _rev = _NS(match_1688_category_name=_zh_ref,
+                                   page_category_path=_oz_path, match_confidence=1.0,
+                                   ozon_title=str(_dr_ref.get("title") or ""),
+                                   match_category_divergent=False,
+                                   match_semantic_unknown=False)
+                        _category_semantic_review(_rev, graph.get("token") or "")
+                        _mev_ref = _assemble_match_evidence(
+                            divergent=bool(_rev.match_category_divergent),
+                            semantic_unknown=bool(_rev.match_semantic_unknown))
+                        if _mev_ref:
+                            _env_ref.setdefault("extensions", {})["match_evidence"] = _mev_ref
+                            print(f"✅ 竞品类目出证: path={_oz_path[:50]} "
+                                  f"divergent={_rev.match_category_divergent} "
+                                  f"unknown={_rev.match_semantic_unknown}")
+                    except Exception as _rev_e:
+                        print(f"⚠️ 竞品类目语义复核跳过(继续): {_rev_e}")
             except Exception as _oz_e:
                 print(f"⚠️ 竞品属性抓取失败(继续): {_oz_e}")
     except ProductValidationError as e:
@@ -1788,6 +1960,7 @@ def _fetch_live_blue_ocean_queries(cdp_url: str, keyword: str) -> list[dict]:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover(args: argparse.Namespace) -> int:
     """Ozon 选品 v2 — 先全量采集 → 表格分析 → 挑完再找货源。"""
     from scripts.lib.ozon_discovery import (
@@ -1803,6 +1976,23 @@ def cmd_discover(args: argparse.Namespace) -> int:
         (get_store_profile(args.store) or {}).get("fx_rate")
         or get_setting("fx_rate", DEFAULT_FX_RATE)
         or DEFAULT_FX_RATE)
+
+    # v0.83 批⑤：进程启动即生成 canonical session run_id（disc_*），全链路共享
+    # （落盘/上报/尾 JSON/信封 discovery_meta.run_id）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover",
+        keyword=args.keyword or "",
+        url=args.url or "",
+        params={
+            "max_products": args.max_products, "min_margin": args.min_margin,
+            "filter_profile": getattr(args, "filter_profile", "") or "",
+            "rules": args.rules or "", "brand_filter": args.brand_filter,
+            "min_price": args.min_price, "max_price": args.max_price,
+            "auto_submit": bool(args.auto_submit), "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
 
     print("🔍 Ozon 选品 v2（先采集 → 表格分析 → 挑完再找货源）", flush=True)
     print(f"   采集上限: {args.max_products} 个 | 最低利润率: {args.min_margin}% | 汇率: 1 RUB = {fx_rate} CNY", flush=True)
@@ -1936,6 +2126,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
     print(f"\n📊 采集完成: {len(candidates)} 个产品（全量已落盘 {DISCOVERY_CACHE_DIR}/）")
     if not candidates:
         print("未采集到产品。检查关键词/URL 或增大 --max-products。")
+        _emit_discover_session_out(candidates)
         return 0
 
     # ── C4 step2: 蓝海反哺预计算（阶段③ 表格展示前，便于挑选）──
@@ -2137,17 +2328,20 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
             csv_path = export_to_csv(selected, matched_export)
             print(f"📄 CSV 已导出（选中+货源）: {csv_path}")
 
-    # ── 自动生成结构性分析文档（MD+JSON，供 Agent/用户直接汇报）──
-    try:
-        from scripts.lib.ozon_discovery import export_analysis_report
-        _report = export_analysis_report(selected)
-        if _report:
-            print(f"📄 分析文档已生成: {_report['md']}")
-            print(f"📄 结构化 JSON: {_report['json']}")
-    except Exception as exc:
-        import logging
-        _logger = logging.getLogger(__name__)
-        _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
+    # ── 结构性分析文档（MD+JSON）——v0.83 批⑤：默认不再无条件生成，
+    # 改 --report 显式开关（canonical session 落盘已含自包含候选；旧 analysis_*
+    # 产物噪音大且与 session 重复）。显式 --report 时保持旧行为。
+    if getattr(args, "report", False):
+        try:
+            from scripts.lib.ozon_discovery import export_analysis_report
+            _report = export_analysis_report(selected)
+            if _report:
+                print(f"📄 分析文档已生成: {_report['md']}")
+                print(f"📄 结构化 JSON: {_report['json']}")
+        except Exception as exc:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.warning("分析文档生成失败（不影响选品主流程）: %s", exc)
 
     # ── auto-submit ──
     # v0.78 批B4: 终局 run 报告（逐条 + 汇总落 data/logs/report_*.json）——
@@ -2207,6 +2401,7 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
         if not to_submit:
             print("\n⚠️ 没有符合条件的 profitable 产品可提交")
             _emit_run_report()
+            _emit_discover_session_out(candidates)
             return 0
         print(f"\n🚀 提交 {len(to_submit)} 个产品到 Worker...", flush=True)
         # v0.77.3（gate 发现修复）：--non-interactive + --auto-submit 组合语义 = 无人值守
@@ -2314,6 +2509,9 @@ def _finish_discover_flow(args: argparse.Namespace, candidates: list,
 
     _emit_run_report()
     print(f"\n📁 选品日志已缓存: {DISCOVERY_CACHE_DIR}/")
+    # v0.83 批⑤：结构化尾 JSON（run_id+计数+summary+session_path）——批④后台收割前置。
+    # 置于 NEXT 行之前，保证 NEXT 仍是出口末行（agent 读尾行取下一步）。
+    _emit_discover_session_out(candidates)
     # v0.79 Task C1: 出口 NEXT——按出口形态给下一步（入箱/直提/纯选品三分支）
     if getattr(args, "to_box", False):
         _print_next("批量入箱完成——draft_id 见上方逐行与运行报告，上架由用户到 WebUI 认领")
@@ -2494,6 +2692,7 @@ def _analyze_pids(cdp_url: str, pids: list[str], *,
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover_multi(args: argparse.Namespace) -> int:
     """Ozon 选品 · 多关键词并行（D7'）— N 关键词串行滚动 → 合并去重 → 单次并行分析。
 
@@ -2513,6 +2712,20 @@ def cmd_discover_multi(args: argparse.Namespace) -> int:
         (get_store_profile(args.store) or {}).get("fx_rate")
         or get_setting("fx_rate", DEFAULT_FX_RATE)
         or DEFAULT_FX_RATE)
+
+    # v0.83 批⑤：canonical session run_id（多关键词同样一次 run 一个 disc_*）
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover-multi", keyword=", ".join(keywords), keywords=keywords,
+        params={
+            "max_each": args.max_each, "min_margin": args.min_margin,
+            "filter_profile": getattr(args, "filter_profile", "") or "",
+            "rules": args.rules or "", "brand_filter": args.brand_filter,
+            "min_price": args.min_price, "max_price": args.max_price,
+            "auto_submit": bool(args.auto_submit), "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
 
     print("🔍 Ozon 选品 v2 · 多关键词并行（滚动串行 + 分析并行）", flush=True)
     print(f"   关键词 {len(keywords)} 个: {', '.join(keywords)} | 每词上限: {args.max_each} | "
@@ -3110,6 +3323,7 @@ def _route_discovery_export(candidates: list, filepath: str) -> str:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_discover_task(args: argparse.Namespace) -> int:
     """Ozon 选品 · 任务式全自动（无人值守）。"""
     import time as _time
@@ -3215,6 +3429,22 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                    else args.target_count * 3)
     prior_profitable = sum(1 for v in (processed or {}).values()
                            if isinstance(v, dict) and v.get("status") == "profitable")
+
+    # v0.83 批⑤：canonical session run_id（一次 discover-task = 一个 disc_*；
+    # state 文件与尾 JSON 均带；落盘/上报/信封 discovery_meta.run_id 共享）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(
+        kind="discover-task", keyword=keyword, url=url,
+        params={
+            "target_count": args.target_count, "max_scan": args.max_scan,
+            "filter_profile": profile, "min_margin": args.min_margin,
+            "match_limit": match_limit, "match_concurrency": args.match_concurrency,
+            "expend_shop": expend_shop,
+            "auto_submit": bool(getattr(args, "auto_submit", False)),
+            "to_box": bool(getattr(args, "to_box", False)),
+        },
+        env={"fx_rate": fx_rate},
+    )
     _profile_label = profile if lib_profile == profile else f"{profile}→off(--filters 覆盖)"
     print(f"\n🤖 discover-task {task_id}｜入口: {url or keyword}"
           f"｜目标 {args.target_count}（达标）｜扫描上限 {args.max_scan}"
@@ -3361,6 +3591,8 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
                    f"（{'--to-box 入采集箱' if args.to_box and not args.dry_run else '干跑，不入箱'}）"):
         state = {
             "task_id": task_id,
+            # v0.83 批⑤：canonical session run_id（--resume / 尾 JSON / 采集箱 run_id 同源）
+            "run_id": _disc_session.current_run_id(),
             "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S"),
             "entry": {"url": url, "keyword": keyword},
             "params": {"target_count": args.target_count, "filter_profile": profile,
@@ -3502,6 +3734,9 @@ def cmd_discover_task(args: argparse.Namespace) -> int:
     # agent/任务中心也直接机读 summary（_out 自带凭证脱敏）
     _out({
         "task_id": task_id,
+        # v0.83 批⑤ canonical：run_id + session_path（批④后台收割/身份层前置）
+        "run_id": _disc_session.current_run_id(),
+        "session_path": _disc_session.session_path(),
         "entry": state["entry"],
         "summary": state["summary"],
         "state_path": str(_task_state_path(task_id)),
@@ -3593,6 +3828,117 @@ def _capture_exception(exc: Exception, command: str) -> None:
         sentry_sdk.flush(timeout=1)
     except Exception:
         pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 后台任务（--detach / jobs / job-status / job-result）— v0.83 批④
+# 唯一实现 scripts/lib/detach.py；本段只做 CLI 出口（_out + NEXT）。
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _handle_detach(args: argparse.Namespace) -> int:
+    """``--detach`` 父进程侧出口：fork 脱离会话子进程 → 打印句柄行 + 句柄 JSON + NEXT。
+
+    父进程**不持锁**（detach.spawn_detached 只做占用探针）；退出码语义：
+    0=已启动、2=与 --wait 互斥、4=闸被占、1=启动失败。
+    """
+    from scripts.lib import detach as _detach
+
+    # 重命令（带 --wait/--force）= 持重采集闸 → 启动前做闸占用探针；
+    # light 命令（queries）= 不持重闸 → 跳过探针。
+    res = _detach.spawn_detached(args, heavy=hasattr(args, "force"))
+    code = int(res.get("code", 1))
+    jid = str(res.get("job_id") or "")
+    if jid:
+        print(f"🚀 后台任务已启动 job_id={jid}（{args.command}）", flush=True)
+        _out({"job_id": jid, "status": "running", "kind": getattr(args, "command", ""),
+              "log": res.get("log", ""), "next_poll_s": 20})
+    if res.get("error") and code != 0:
+        print(f"❌ {res['error']}", file=sys.stderr, flush=True)
+    if code == 2:
+        _print_next("--detach 与 --wait 互斥——去掉其一后重跑（要后台轮询去掉 --wait；要同步等结果去掉 --detach）")
+    elif code == 4:
+        _print_next("串行闸被占——加 --wait 排队（同步）、--force 强制并行（慎用），或稍后重试 --detach")
+    elif jid:
+        _print_next(f"后台任务在跑——`python3 scripts/cli.py job-status {jid}` 查进度"
+                    f"（返回 next_poll_s，按其节奏轮询勿秒查）；完成后 "
+                    f"`job-result {jid}` 取结果。需要同步等结果则去掉 --detach 加 --wait")
+    else:
+        _print_next("启动失败——检查上方错误后重试；错误持续用 report 命令上报")
+    return code
+
+
+def cmd_jobs(args: argparse.Namespace) -> int:
+    """``jobs``：列出本机后台任务（--detach 启动；含孤儿收割）。"""
+    from scripts.lib import detach as _detach
+
+    limit = int(getattr(args, "limit", 20) or 20)
+    jobs = _detach.list_jobs(limit)
+    _out({"jobs": jobs, "total": len(jobs)})
+    if jobs:
+        _print_next("选一个 job_id 用 `python3 scripts/cli.py job-status <id>` 看进度与日志尾，"
+                    "或 `job-result <id>` 取完整结果")
+    else:
+        _print_next("无后台任务——重命令（discover/discover-multi/discover-task/follow/graph/seller）"
+                    "加 --detach 可后台启动")
+    return 0
+
+
+def cmd_job_status(args: argparse.Namespace) -> int:
+    """``job-status <id>``：单任务状态 + 日志尾 + run_id/session_path + 轮询节奏。"""
+    from scripts.lib import detach as _detach
+
+    jid = str(getattr(args, "job_id", "") or "")
+    job = _detach.read_job(jid)
+    if not job:
+        _out({"error": f"任务不存在: {jid}", "job_id": jid})
+        _print_next("`jobs` 列出全部后台任务；确认 job_id 未抄错后重试")
+        return 1
+    job = dict(job)
+    job["log_tail"] = _detach.log_tail(jid, int(getattr(args, "log_tail", 40) or 40))
+    if not job.get("run_id"):
+        _res = _detach.read_result(jid)[0] or {}
+        if _res.get("run_id"):
+            job["run_id"] = str(_res["run_id"])
+        if _res.get("session_path"):
+            job["session_path"] = str(_res["session_path"])
+    else:
+        job.setdefault("session_path", "")
+    _status = str(job.get("status") or "")
+    if _status == "running":
+        job["next_poll_s"] = 20
+        job["next_action"] = ("任务在跑——建议 ≥20s 后再 job-status（分钟级任务勿秒级轮询）；"
+                              "终态后 job-result 取完整结果")
+    elif _status in ("completed", "failed", "cancelled", "interrupted"):
+        job["next_action"] = ("任务已终态——job-result 取完整结果；failed 先看 error 与 log_tail，"
+                              "连续失败 2 次勿重试改 report 上报")
+    _out(job)
+    _print_next(job.get("next_action") or "按上方状态处理（jobs 可列全部后台任务）")
+    return 0
+
+
+def cmd_job_result(args: argparse.Namespace) -> int:
+    """``job-result <id>``：取后台任务完整结果（子进程尾 JSON 全文）。"""
+    from scripts.lib import detach as _detach
+
+    jid = str(getattr(args, "job_id", "") or "")
+    result, err = _detach.read_result(jid)
+    if not result:
+        job = _detach.read_job(jid)
+        if job is None:
+            _out({"error": f"任务不存在: {jid}", "job_id": jid})
+            _print_next("`jobs` 列出全部后台任务；确认 job_id 未抄错后重试")
+            return 1
+        _out({"job_id": jid, "status": job.get("status"),
+              "error": err or "尚无结构化结果（任务仍在跑或输出无尾 JSON）"})
+        if str(job.get("status") or "") == "running":
+            _print_next("任务未终态——`job-status <id>` 看进度，终态后重试 job-result")
+        else:
+            _print_next("任务已终态但无结构化结果——`job-status <id>` 看 error/log_tail 定位"
+                        "（失败在 preflight/提交前等无尾 JSON 分支）")
+        return 1
+    _out(result)
+    _print_next("结果已出——按 references/output-schema.md 汇报；需要后续上架用 graph/follow 或 query")
+    return 0
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -3806,6 +4152,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "env 热关即时生效——default=5 会让 env 永远失效）")
     dp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    dp.add_argument("--report", action="store_true",
+                    help="显式生成结构性分析文档 analysis_*.md/json（v0.83 批⑤起默认不生成——"
+                         "canonical session 已自包含候选，此开关仅兼容旧流程）")
     _add_heavy_gate_args(dp)
     dp.set_defaults(func=cmd_discover)
 
@@ -3848,6 +4197,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="人工评审暂停：弱匹配候选逐个确认（y/N/a=全部/s=跳过），决策写入 review_log")
     dpm.add_argument("--notify", action="store_true",
                      help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    dpm.add_argument("--report", action="store_true",
+                     help="显式生成结构性分析文档 analysis_*.md/json（v0.83 批⑤起默认不生成）")
     _add_heavy_gate_args(dpm)
     dpm.set_defaults(func=cmd_discover_multi)
 
@@ -3932,6 +4283,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     _add_heavy_gate_args(dtp)
     dtp.set_defaults(func=cmd_discover_task)
 
+    # ── discover session 补传（v0.83 批⑤）──
+    ssp = sub.add_parser(
+        "sync-sessions",
+        help="补传本地未上报的 discover session（canonical 幂等 upsert）")
+    ssp.add_argument("--limit", type=int, default=50,
+                     help="单次最多补传条数（默认 50）")
+    ssp.set_defaults(func=cmd_sync_sessions)
+
 
     # ── 自动更新 ──
     up = sub.add_parser("update", help="检查并应用 Skill 自动更新")
@@ -4003,6 +4362,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     qp.add_argument("--price-max", type=float, default=None, help="market-bestsellers: 价格上限 RUB")
     qp.add_argument("--export", choices=["csv", "json"], default="csv", help="导出格式(默认 csv)")
     qp.add_argument("--output", default="", help="输出文件路径(默认打印到 stdout)")
+    _add_detach_arg(qp)
     qp.set_defaults(func=cmd_queries)
 
     # ── 磁盘清理(N3 profile 缓存 + N7 垃圾文件清扫)──
@@ -4045,6 +4405,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="报告 JSON 输出路径（默认 data/probe/win_cookies_<ts>.json）")
     pwp.set_defaults(func=cmd_probe_win_cookies)
 
+    # ── 后台任务（v0.83 批④：--detach 启动，jobs 族轮询）──
+    jp = sub.add_parser("jobs", help="列出本机后台任务（--detach 启动）")
+    jp.add_argument("--limit", type=int, default=20, help="返回条目上限(默认 20)")
+    jp.set_defaults(func=cmd_jobs)
+
+    jsp = sub.add_parser("job-status", help="查单个后台任务：状态/阶段/日志尾/轮询节奏")
+    jsp.add_argument("job_id", help="job_id（--detach 返回的句柄 / jobs 列表）")
+    jsp.add_argument("--log-tail", type=int, default=40, help="日志尾部行数(默认 40)")
+    jsp.set_defaults(func=cmd_job_status)
+
+    jrp = sub.add_parser("job-result", help="取后台任务完整结果（子进程尾 JSON 全文）")
+    jrp.add_argument("job_id", help="job_id（--detach 返回的句柄 / jobs 列表）")
+    jrp.set_defaults(func=cmd_job_result)
+
     return parser
 
 
@@ -4068,6 +4442,11 @@ def main() -> int:
     if not args.command:
         parser.print_help()
         return 0
+
+    # ✅ v0.83 批④：--detach 父进程侧——fork 脱离会话子进程后立即返回 job 句柄。
+    # 必须先于运行日志/preflight（父进程不持锁、不做重活；子进程内自会走全流程）。
+    if getattr(args, "detach", False):
+        return _handle_detach(args)
 
     # ✅ v0.78 批B1: 统一运行日志——stderr(INFO) + 文件(DEBUG) 双通道，启动即打
     # 一行日志路径（data/logs/run_*.log），命令全程可追溯（黑盒抱怨根治第一半）。
@@ -4106,11 +4485,41 @@ def main() -> int:
     # close_tool_chrome() 保留(不自动调用), 需要时显式执行。
     # ⚠️ v0.35: Sentry 异常上报——捕获后 re-raise（保留 traceback + 退出码 1，不吞异常）。
     # KeyboardInterrupt/SystemExit 是 BaseException 子类，不会被 Exception 捕获 → 自然透传。
+    # v0.83 批④：detach 子进程出口回写 job 终态（非 detach 子进程恒 no-op）。
+    # 认领放在 preflight（可能 os.execve）之后、命令执行之前——嵌套 CLI 不误认领。
     try:
-        return args.func(args)
+        from scripts.lib import detach as _detach_claim
+        _detach_claim.claim_tracking_job_id()
+    except Exception:
+        pass
+    try:
+        _rc = args.func(args)
+    except SystemExit as _e:
+        _code = _e.code if isinstance(_e.code, int) else (0 if _e.code is None else 1)
+        _finish_job_tracking(_code)
+        raise
     except Exception as exc:
         _capture_exception(exc, getattr(args, "command", "unknown"))
+        _finish_job_tracking(1)
         raise
+    else:
+        _finish_job_tracking(_rc if isinstance(_rc, int) else 0)
+        return _rc
+
+
+def _finish_job_tracking(code: int) -> None:
+    """v0.83 批④：若本进程是 ``--detach`` 子进程（env 带 job_id），回写 job 终态。
+
+    非 detach 进程 / 注册表不可写 → 静默 no-op，绝不影响命令退出码。
+    """
+    try:
+        from scripts.lib import detach as _detach
+
+        _jid = _detach.tracking_job_id()
+        if _jid:
+            _detach.finish_job(_jid, code)
+    except Exception:
+        pass
 
 
 def _preflight_runtime() -> tuple[bool, str]:
@@ -4195,20 +4604,36 @@ def _silent_update_check(command: str) -> None:
 
 
 @_heavy_gate
+@_discovery_session_scope
 def cmd_seller(args: argparse.Namespace) -> int:
     """卖家店铺全产品运营分析(v0.29.x): 采集店铺产品 → what_to_sell 逐 SKU 拉运营数据。"""
     from scripts.lib.ozon_discovery import fetch_seller_analysis
-    import json
+
+    # v0.83 批⑤：run_id 身份层（seller 也是重命令，批④后台化按 run_id 收割）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(kind="seller", seller_id=args.seller_id)
 
     result = fetch_seller_analysis(
         seller_id=args.seller_id,
         max_products=args.max_products,
         max_skus=args.max_skus,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    # v0.83 批⑤：结构化尾 JSON 带 canonical run_id/session_path（保留原 products 字段，
+    # 向后兼容既有消费方）。
+    _out({
+        **(result if isinstance(result, dict) else {"result": result}),
+        "run_id": _disc_session.current_run_id(),
+        "session_path": _disc_session.session_path(),
+        "candidates_count": int((result or {}).get("product_count", 0) or 0),
+        "summary": {
+            "product_count": (result or {}).get("product_count", 0),
+            "analyzed_count": (result or {}).get("analyzed_count", 0),
+        },
+    })
     return 0
 
 
+@_discovery_session_scope
 def cmd_queries(args: argparse.Namespace) -> int:
     """what-to-sell SPA 三页查询(v0.33.2, C4 step1; v0.57 W5.6 静默 cookie 直调)。
 
@@ -4222,6 +4647,10 @@ def cmd_queries(args: argparse.Namespace) -> int:
     import io
 
     from scripts.lib import ozon_seller_analytics as osa
+
+    # v0.83 批⑤：run_id 身份层（queries 重命令批④后台化按 run_id 收割）。
+    from scripts.lib import discovery_session as _disc_session
+    _disc_session.begin_session(kind="queries", keyword=args.keyword or "")
 
     rows: list[dict] = []
     # ── 静默 cookie 直调优先（W5.6 / I-13）：免开可见 Chrome 页面 ──
@@ -4295,6 +4724,7 @@ def cmd_queries(args: argparse.Namespace) -> int:
 
     if not rows:
         print("（无数据）", flush=True)
+        _emit_queries_out(rows)
         return 0
 
     if args.export == "json":
@@ -4316,6 +4746,34 @@ def cmd_queries(args: argparse.Namespace) -> int:
                 f.write(text)
         else:
             print(text, end="", flush=True)
+    # v0.83 批⑤：结构化尾 JSON（canonical run_id + 行数）
+    _emit_queries_out(rows)
+    return 0
+
+
+def cmd_sync_sessions(args: argparse.Namespace) -> int:
+    """v0.83 批⑤：补传本地未上报的 discover session（``sync-sessions``）。
+
+    扫描 ``data/discovery/sessions/`` 下无 ``.reported`` sidecar 的 session，
+    逐个重传 Worker ``/api/v1/discovery/runs``（worker 按 session_run_id 幂等
+    upsert，重复上报安全）。无 token → 提示后 exit 1（fail-open 不崩）。
+    """
+    from scripts.lib import discovery_session as _sess
+    from scripts.lib.config_store import get_mxou_token
+    from scripts.lib.ozon_discovery import REPORT_FIELDS
+
+    res = _sess.sync_sessions(REPORT_FIELDS, get_mxou_token,
+                              limit=max(1, int(getattr(args, "limit", 50) or 50)))
+    _out({**res, "pending_after": len(_sess.pending_sessions())})
+    if res.get("reason") == "no_token":
+        print("（无 token：`set_token` 配置后重跑 sync-sessions 补传）", flush=True)
+        _print_next("运行 `python3 scripts/cli.py set_token <key>` 后重跑 sync-sessions")
+        return 1
+    if res.get("failed"):
+        print(f"⚠️ {res['failed']} 条补传失败（可再次重跑；幂等安全）", flush=True)
+        _print_next("稍后重跑 sync-sessions 补传失败项（幂等，不会重复入库）")
+        return 1
+    _print_next("session 已全部同步到 worker（可到 WebUI 选品记录查看）")
     return 0
 
 

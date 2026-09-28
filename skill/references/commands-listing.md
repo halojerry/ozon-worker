@@ -42,8 +42,12 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-
   - `--notify`：提交时 GraphInput 顶层携带 `notify=True`，Worker 完成推送 webhook（需 Worker 配置 `TASK_NOTIFY_URL`）
   - `--min-margin <N>`：提交前预估利润率低于 N% 拦截（exit 3；预估非终价）
   - `--wait`：提交后轮询 Worker 到终态再退出（completed/failed 各打一行；failed → exit 3）
+  - `--detach`：后台运行——立即返回 job 句柄（job-status/job-result 轮询，v0.83 批④）；与 `--wait` 互斥
 - **输出**：JSON `{summary, envelope, submit_result}`（字段解析见 output-schema.md）；
   出口末行 `👉 NEXT:` 提示下一步（v0.79）
+- **⚠️ 后台化（v0.83 批④ 行为变更）**：MCP `graph` 工具 `background` **缺省 True**——
+  `graph --no-submit` 的展示态信封 / 预估不再直接出现在工具返回里，改为**经 `job_result`
+  取**（工具先返回 job 句柄）；需要同步拿展示结果显式 `background=false`。CLI 直调不影响。
 - **自动完成**：CDP 抓取 1688 → 组装信封 → 提交 Worker
 - **⚠️ SKU 去重（v0.38 N1）**：同店铺同商品已有活跃任务（pending/running）时重复提交返回 409 `DUPLICATE_SUBMIT`。去重键含店铺维度 `{user}:{store}:{product}`——**同用户不同店铺可提交同款**（互不拦截）。终态任务（completed/failed/rejected/cancelled）不占用去重名额，可重新提交。收到 `DUPLICATE_SUBMIT` 时用 `query <task_id>` 查既有任务状态，而非反复重提
 - **执行后验证**：① `--no-submit` → 对照 `envelope_example.json` 检查信封字段完整性（title/images/weight/dimensions/purchase_cost 必填）再提交；② 已提交 → 记录返回的 `task_id`，带 `--wait` 或 `query <task_id> --watch` 跟踪，终态后再向用户汇报（勿让用户盲等）

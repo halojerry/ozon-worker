@@ -23,6 +23,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# v0.83 批①：唯一算价出口 = worker（skill 侧零公式）。顶层 import 保测试 patch 面
+# （tests 按 ``od.estimate_batch`` 模块属性注入替身）。
+from scripts.lib.estimate_client import build_batch_item, estimate_batch  # noqa: E402
+# v0.83 批⑤：canonical session 落盘（run_id/自包含文档/index/上报）唯一事实源。
+from scripts.lib import discovery_session as _session  # noqa: E402
+
 DISCOVERY_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "discovery"
 
 # Ozon China goods highlight page
@@ -175,6 +181,10 @@ class ProductCandidate:
     estimated_commission: float = 0.0
     estimated_profit_cny: float = 0.0
     profit_margin: float = 0.0  # percentage
+    # v0.83 批①：预估来源（worker=唯一算价出口 / unavailable=worker 不可达无预估）
+    # 与佣金来源（explicit/cache:*/segments:*/fallback*）——fallback 不标 profitable。
+    estimate_source: str = ""
+    commission_source: str = ""
 
     # Logistics estimate provenance (P1-5): False=Worker 实时费率（权威）；
     # True=last-good 缓存 / 40/kg 兜底估算（非权威，仅供选品参考）。
@@ -254,6 +264,10 @@ class ProductCandidate:
     # cloud_probe._assemble_discovery_meta 整包并入 extensions.discovery_meta
     # （worker 零消费透传，采集箱可见可改）。缺键省略纪律；绝不存 cookie/凭证。
     discovery_meta: dict = field(default_factory=dict)
+
+    # v0.83 批⑤：本次选品 run 的 canonical session id（disc_*）——落盘/上报/CSV 列
+    # 与信封 extensions.discovery_meta.run_id 共用同一值。无 session（库直调）空串。
+    session_run_id: str = ""
 
     def __post_init__(self):
         if self.dimensions_mm is None:
@@ -1329,73 +1343,84 @@ def match_selected(
         selected = selected[:max_matches]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
 
-    def _process_match(candidate: ProductCandidate, match) -> None:
-        """1688 匹配结果写回 + 利润/蓝海评分 + 状态分配（主线程执行）。"""
-        if match:
-            candidate.match_1688_url = match.get("url", "")
-            candidate.match_1688_title = match.get("title", "")
-            candidate.match_1688_price = float(match.get("price", 0))
-            candidate.match_1688_freight_cny = float(
-                match.get("freightCny", 0) or 0) or None  # 国内运费单列（None=未抓到，未知≠真实 0；aibuy 补键即自动生效）
-            candidate.match_1688_images = match.get("images", [])
-            # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
-            # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；
-            # 此处保留 aibuy 原键（cate_level2_id 优先/无则 cate_level1_id）兜底，CDP/AK
-            # 无值给空串——不因任一通道缺类目字段报错或污染候选。
-            candidate.match_1688_category_id = str(
-                match.get("category_id") or match.get("cate_level2_id")
-                or match.get("cate_level1_id") or "")
-            candidate.match_1688_category_name = str(match.get("category_name") or "")
-            # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
-            candidate.match_confidence = float(match.get("confidence", 0) or 0)
-            candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
-            candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
-            candidate.status = "matched"
-
-            # ⚠️ 货源有效性门槛（统一出口，aibuy 官方排序放行也不例外）：标题相关性
-            # 低于 _MIN_SOURCE_CONFIDENCE 的匹配不作为有效货源——匹配证据（url/
-            # title/价格）保留供 review 流查看，但状态归无货源，auto-submit 只取
-            # profitable，低置信货源绝不进自动提交。
-            if candidate.match_confidence < _MIN_SOURCE_CONFIDENCE:
-                candidate.match_reject_reason = "low_confidence_source"
-                candidate.status = "no_match"
-                logger.warning(
-                    "货源置信度过低（conf=%.2f < %.2f），按无货源处理: %s → %s",
-                    candidate.match_confidence, _MIN_SOURCE_CONFIDENCE,
-                    candidate.ozon_title[:40], candidate.match_1688_title[:40])
-                _review_log_write(candidate, match, "no_match", "low_confidence_source")
-                return
-
-            # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
-            # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
-            _backfill_1688_category(candidate)
-            # 类目一致性二次复核：官方图搜判图像相似，类目暴露品类漂移时降权
-            _category_semantic_review(candidate, mxou_token)
-
-            _calculate_profit(
-                candidate,
-                fx_rate=fx_rate,
-                logistics_cny=logistics_cny,
-                commission_rate=commission_rate,
-            )
-            density = None
-            if blue_ocean_rows:
-                density = compute_competitor_keyword_density(
-                    blue_ocean_rows, candidate.ozon_title or "")
-            candidate.blue_ocean_score = calculate_blue_ocean_score(
-                candidate, competitor_keyword_density=density)
-
-            if candidate.profit_margin >= min_margin_pct:
-                candidate.status = "profitable"
-                _review_log_write(candidate, match, "auto_pass", "")
-            else:
-                candidate.status = "rejected"
-                candidate.error = (f"margin too low "
-                                   f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
-                _review_log_write(candidate, match, "auto_reject", candidate.error)
-        else:
+    def _prepare_match(candidate: ProductCandidate, match) -> bool:
+        """匹配结果写回 + 货源有效性门槛 + 类目复核（不触网算价）；True=进入算价。"""
+        if not match:
             candidate.status = "no_match"
             _review_log_write(candidate, None, "no_match", "")
+            return False
+        candidate.match_1688_url = match.get("url", "")
+        candidate.match_1688_title = match.get("title", "")
+        candidate.match_1688_price = float(match.get("price", 0))
+        candidate.match_1688_freight_cny = float(
+            match.get("freightCny", 0) or 0) or None  # 国内运费单列（None=未抓到，未知≠真实 0；aibuy 补键即自动生效）
+        candidate.match_1688_images = match.get("images", [])
+        # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
+        # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；
+        # 此处保留 aibuy 原键（cate_level2_id 优先/无则 cate_level1_id）兜底，CDP/AK
+        # 无值给空串——不因任一通道缺类目字段报错或污染候选。
+        candidate.match_1688_category_id = str(
+            match.get("category_id") or match.get("cate_level2_id")
+            or match.get("cate_level1_id") or "")
+        candidate.match_1688_category_name = str(match.get("category_name") or "")
+        # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
+        candidate.match_confidence = float(match.get("confidence", 0) or 0)
+        candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
+        candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
+        candidate.status = "matched"
+
+        # ⚠️ 货源有效性门槛（统一出口，aibuy 官方排序放行也不例外）：标题相关性
+        # 低于 _MIN_SOURCE_CONFIDENCE 的匹配不作为有效货源——匹配证据（url/
+        # title/价格）保留供 review 流查看，但状态归无货源，auto-submit 只取
+        # profitable，低置信货源绝不进自动提交。
+        if candidate.match_confidence < _MIN_SOURCE_CONFIDENCE:
+            candidate.match_reject_reason = "low_confidence_source"
+            candidate.status = "no_match"
+            logger.warning(
+                "货源置信度过低（conf=%.2f < %.2f），按无货源处理: %s → %s",
+                candidate.match_confidence, _MIN_SOURCE_CONFIDENCE,
+                candidate.ozon_title[:40], candidate.match_1688_title[:40])
+            _review_log_write(candidate, None, "no_match", "low_confidence_source")
+            return False
+
+        # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
+        # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
+        _backfill_1688_category(candidate)
+        # 类目一致性二次复核：官方图搜判图像相似，类目暴露品类漂移时降权
+        _category_semantic_review(candidate, mxou_token)
+        return True
+
+    def _apply_and_score(candidate: ProductCandidate, row) -> None:
+        """回填 worker 预估 row + 蓝海评分 + 状态分配（主线程执行）。"""
+        _apply_estimate_row(candidate, row, fx_rate)
+        density = None
+        if blue_ocean_rows:
+            density = compute_competitor_keyword_density(
+                blue_ocean_rows, candidate.ozon_title or "")
+        candidate.blue_ocean_score = calculate_blue_ocean_score(
+            candidate, competitor_keyword_density=density)
+        _decide_status(candidate)
+
+    def _decide_status(candidate: ProductCandidate) -> None:
+        """状态分配（v0.83）：无预估 / fallback 佣金 → 一律不标 profitable（宁缺毋滥）。"""
+        if candidate.estimate_source == "unavailable":
+            candidate.status = "matched"
+            candidate.error = "estimate_unavailable"
+            _review_log_write(candidate, None, "no_estimate", "estimate_unavailable")
+            return
+        if (candidate.commission_source or "").startswith("fallback"):
+            candidate.status = "matched"
+            candidate.error = "commission_fallback_not_profitable"
+            _review_log_write(candidate, None, "no_estimate", "commission_fallback")
+            return
+        if candidate.profit_margin >= min_margin_pct:
+            candidate.status = "profitable"
+            _review_log_write(candidate, None, "auto_pass", "")
+        else:
+            candidate.status = "rejected"
+            candidate.error = (f"margin too low "
+                               f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
+            _review_log_write(candidate, None, "auto_reject", candidate.error)
 
     def _review_log_write(candidate, match, decision: str, reason: str) -> None:
         """候选级决策写 review_log（D3 L2）——fail-open，审计失败不阻断主流程。"""
@@ -1456,17 +1481,22 @@ def match_selected(
         with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
             streak = 0
             for i, candidate in enumerate(selected):
+                # v0.83 批①：串行块=单候选（早停语义逐字不变）；匹配后再一次 batch 回填
+                pending = False
                 try:
                     match = _search_1688_source(
                         cdp_url, candidate.ozon_images, candidate.ozon_title,
                         conn=shared_cdp, mxou_token=mxou_token,
                         ozon_category_path=candidate.page_category_path)
-                    _process_match(candidate, match)
+                    pending = _prepare_match(candidate, match)
                 except Exception as exc:
                     candidate.status = "error"
                     candidate.error = str(exc)
                     logger.warning("1688 match failed for %s: %s",
                                    candidate.ozon_product_id, exc)
+                if pending:
+                    rows = _estimate_candidates([candidate], fx_rate=fx_rate)
+                    _apply_and_score(candidate, rows[0] if rows else None)
                 _finalize(i, candidate)
                 if candidate.status == "profitable":
                     profitable_n += 1
@@ -1478,6 +1508,8 @@ def match_selected(
         # 内部对 conn=None 新建并自持），结果按候选顺序写回主线程。
         # Task 8a: 分块提交（块大小=workers）——块间检查 no_match 连击早停，
         # 未提交候选不再加码（已提交块内的 futures 不可撤，跑完即止）。
+        # v0.83 批①：块内匹配结果收集后**一次** batch 调用回填（每 chunk ≤ workers，
+        # ≤50 由 estimate_client 截断），不破坏块级早停/达标语义。
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -1489,15 +1521,22 @@ def match_selected(
                                        images=c.ozon_images, title=c.ozon_title,
                                        conn=None, mxou_token=mxou_token)
                            for c in chunk]
+                pending: list = []
                 for j, candidate in enumerate(chunk):
                     try:
                         match = futures[j].result()
-                        _process_match(candidate, match)
                     except Exception as exc:
                         candidate.status = "error"
                         candidate.error = str(exc)
                         logger.warning("1688 match failed for %s: %s",
                                        candidate.ozon_product_id, exc)
+                        continue
+                    if _prepare_match(candidate, match):
+                        pending.append(candidate)
+                rows = _estimate_candidates(pending, fx_rate=fx_rate) if pending else []
+                for k, candidate in enumerate(pending):
+                    _apply_and_score(candidate, rows[k] if k < len(rows) else None)
+                for j, candidate in enumerate(chunk):
                     _finalize(i + j, candidate)
                     if candidate.status == "profitable":
                         profitable_n += 1
@@ -1972,6 +2011,9 @@ _EXPORT_FIELDS: list[str] = [
     # 置 True 并把 match_confidence 封顶 0.5——此前死在候选对象上，导出/上报/信封
     # 三面均不可见）。列序契约只尾追加；行值非 True 落空串（见 _candidate_row）。
     'match_category_divergent',
+    # v0.83 批⑤ canonical：本次选品 run 的 session id（disc_*）——旧列全部保留原序，
+    # 仅尾追加本列（webui/drafts 消费 run_id 走 extensions.discovery_meta.run_id）。
+    'session_run_id',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -1989,6 +2031,8 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         # fix/category-root-cause-v1：类目语义复核分歧（与 CSV 同名字段，四区
         # 列合计必须等于 CSV 字段数——test_discovery_export_xlsx 锁定）
         ('match_category_divergent', '类目分歧'),
+        # v0.83 批⑤ canonical session id（与 CSV 同名字段，四区合计 = CSV 字段数）
+        ('session_run_id', '选品批次'),
     ]),
     ("销售数据", [
         ('monthly_sales', '月销量'), ('monthly_revenue', '月销售额(RUB)'),
@@ -2086,6 +2130,8 @@ def _candidate_row(c: ProductCandidate) -> dict:
         # 不写」纪律；列本身已尾追加进 _EXPORT_FIELDS（列序契约）。
         'match_category_divergent': (
             True if getattr(c, 'match_category_divergent', False) else ''),
+        # v0.83 批⑤ canonical：session run_id（无 session 时空串）
+        'session_run_id': getattr(c, 'session_run_id', '') or '',
     }
 
 
@@ -2921,9 +2967,11 @@ def _pick_best_match(
             专用类目一致性闸（竞品面包屑 vs 候选 1688 类目语义一致才放行，
             插在 badge/trusted 直通之前）。**默认 False，discover 链行为零变化**。
             fix/semantic-gate-coverage v082: True 时前提数据缺失（面包屑缺席 /
-            无 token 且词典无法映射面包屑）不再 fail-open 直通——降级 LLM 语义
-            确认，拿不出结论按 no_relevant_match 拦截；确认放行带
-            match_semantic_unknown=True 出闸（真实判定通过的候选不带该键）。
+            无 token 且词典无法映射面包屑）标记 semantic_unknown。
+            fix/category-authority-v1 v083: **三值统一（拒/出证放行/放行）**——
+            divergent（全候选不一致）与 semantic_unknown（前提缺失拿不出结论）
+            均**出证放行**（分别带 match_category_divergent / match_semantic_unknown
+            =True），最终裁决交 worker 类目权威阶梯；仅基础相关性护栏仍可返回 None。
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
@@ -3076,10 +3124,16 @@ def _pick_best_match(
     # 牛皮园艺手套、钓鱼腰包→宽檐渔夫帽——图搜视觉相近但品类不同）。
     # ✅ fix/semantic-gate-coverage v082: 闸前提数据缺失（面包屑缺席 / 无 token 且
     # 词典无法映射面包屑）不再 fail-open 静默直通——标记 semantic_unknown 并降级
-    # 走 LLM 语义确认（mode="category"）；LLM 也拿不出结论 → 按 no_relevant_match
-    # 语义拦截（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。确认放行的候选
-    # 带 match_semantic_unknown=True 出闸（消费方 `_assemble_match_evidence` 写进
-    # extensions.match_evidence 留证；worker 对该标志不拦）。
+    # 走 LLM 语义确认（mode="category"）。
+    # ✅ fix/category-authority-v1 v083 **follow 三值判定统一**：拒 / 出证放行 /
+    # 放行——闸只区分「有证据的不一致（divergent）」「前提缺失（semantic_unknown）」
+    # 与「一致」三种信号，**不再由 skill fail-closed 静默拒单**（拒只剩基础相关性
+    # 护栏口径）。divergent 与 unknown 均**出证放行**（conf 封顶 0.5 / 原 conf），
+    # 最终裁决交 worker 类目权威阶梯（authoritative→降级走 R2b/Step6.5 全闸 /
+    # 非权威→blocked_draft_box 入采集箱）。与 discover `_category_semantic_review`
+    # 「降权不拦截」政策对齐——skill 出证、worker 是最后一道网。确认放行的候选带
+    # match_semantic_unknown=True / match_category_divergent=True 出闸（消费方
+    # `_assemble_match_evidence` 写进 extensions.match_evidence 留证）。
     _sem_unknown = False
     if require_category_consistency:
         _GATE_CAP = 6  # LLM 费用封顶：沿排序列表最多判 6 个候选
@@ -3098,14 +3152,21 @@ def _pick_best_match(
                         _picked = (_sc, _idx, _r)
                         break
                 if _picked is None:
-                    # 全部候选不一致 → 拒绝（follow 通道 no_relevant_match，不组装信封）。
-                    # ⚠️ token 在场时 LLM 调用失败与真 NO 不可区分（均返回 False）→
-                    # fail-closed（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。
+                    # ✅ v083 follow 三值判定统一: 全候选与竞品类目不一致（LLM 实锤分歧，
+                    # 或 token 在场时 LLM 调用失败与真 NO 不可区分）→ **出证放行**
+                    # （match_category_divergent=True，conf 封顶 0.5），最终裁决交 worker
+                    # 类目权威阶梯（authoritative→降级走闸 / 非权威→入采集箱）。不再
+                    # fail-closed 静默拒单：与 discover `_category_semantic_review`
+                    # 「降权不拦截」政策对齐（worker 是最后一道网）。
                     logger.warning(
-                        "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，拒绝（不组装信封）",
+                        "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，出证放行"
+                        "（divergent，conf 封顶 0.5，交 worker 阶梯裁决）",
                         min(len(scored), _GATE_CAP), ozon_category_path[:60])
                     _log_review_record(_block_record("category_divergent", best, _conf_of_best))
-                    return None
+                    return _attach_match_meta(
+                        best, min(_conf_of_best, 0.5),
+                        _badge_effectiveness(best.get("badge", "") or ""), _best_score,
+                        divergent=True)
             else:
                 # 无 token → 降级词对快筛：面包屑经词典映射的中文词在候选
                 # category_name/title 命中则放行该候选；词典完全无法映射面包屑
@@ -3124,11 +3185,17 @@ def _pick_best_match(
                             _picked = (_sc, _idx, _r)
                             break
                     if _picked is None:
+                        # ✅ v083: 词对快筛零命中（无 token 环境的窄词典判定）→ 出证
+                        # 放行（divergent），交 worker 阶梯（词典覆盖窄，miss 不足以
+                        # 判死；worker 对非权威来源硬拦入箱，不产生错配卡）。
                         logger.warning(
-                            "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，拒绝",
-                            _zh_words[:4])
+                            "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，"
+                            "出证放行（divergent）", _zh_words[:4])
                         _log_review_record(_block_record("category_divergent", best, _conf_of_best))
-                        return None
+                        return _attach_match_meta(
+                            best, min(_conf_of_best, 0.5),
+                            _badge_effectiveness(best.get("badge", "") or ""), _best_score,
+                            divergent=True)
         else:
             # v082: 面包屑缺席（CDP 抓取失败/缓存空壳）→ 闸没跑成，不再静默 no-op。
             _sem_unknown = True
@@ -3160,10 +3227,17 @@ def _pick_best_match(
                     semantic_unknown=True)
             logger.warning(
                 "类目一致性闸: 语义前提缺失（面包屑在场=%s, token 在场=%s）且 LLM 拿不出结论，"
-                "拦截（no_relevant_match，不组装信封）",
+                "出证放行（semantic_unknown，交 worker 阶梯裁决，不再 fail-closed）",
                 bool(ozon_category_path), bool(token))
             _log_review_record(_block_record("category_semantic_unknown", best, _conf_of_best))
-            return None
+            _conf_u = _conf_of_best
+            if trusted_source:
+                # 对齐 trusted 放行基准（aibuy 候选 conf 恒 0，原样透传会被下游
+                # 硬门误杀语义——见 trusted 直通注释）
+                _conf_u = max(_conf_u, 0.5)
+            return _attach_match_meta(
+                best, _conf_u, _badge_effectiveness(best.get("badge", "") or ""),
+                _best_score, semantic_unknown=True)
         if _picked is not None:
             _sc, _idx, _r = _picked
             _conf_r = _title_conf(ozon_title, _r, is_ru_title)
@@ -4062,86 +4136,112 @@ def _worker_commission_rate_pct(candidate: ProductCandidate) -> float | None:
     return None
 
 
+def _candidate_commission_segments(candidate: ProductCandidate) -> dict | None:
+    """候选佣金分段（百分数）→ batch ``commission_segments`` ``{fbs,fbo}``；无 → None。
+
+    worker 侧 resolver 优先 explicit > 缓存表 > segments（fbs 缺失回退 fbo）> fallback。
+    """
+    segs: dict = {}
+    if candidate.commission_rfbs_segments:
+        segs["fbs"] = candidate.commission_rfbs_segments
+    if candidate.commission_fbp_segments:
+        segs["fbo"] = candidate.commission_fbp_segments
+    return segs or None
+
+
+def _build_estimate_item(candidate: ProductCandidate) -> dict:
+    """候选 → worker batch item（唯一算价出口；currency 恒 RUB——ozon_price 是 RUB）。"""
+    dc = None
+    if isinstance(candidate.ozon_category, dict):
+        dc = candidate.ozon_category.get("description_category_id")
+    return build_batch_item(
+        candidate.match_1688_price,
+        weight_g=candidate.weight_g or None,
+        dims_mm=candidate.dimensions_mm or None,
+        currency_code="RUB",
+        commission_segments=_candidate_commission_segments(candidate),
+        dc=dc,
+    )
+
+
+def _estimate_candidates(
+    cands: list[ProductCandidate], fx_rate: float = DEFAULT_FX_RATE
+) -> list:
+    """批量问 worker 要预估（v0.83 唯一算价出口）→ rows 与 cands 等长（失败项 None）。
+
+    **降级纪律**：worker 不可达/404/异常 → 全 None（调用方标
+    ``estimate_source="unavailable"``），**绝不回落本地公式**。
+    """
+    if not cands:
+        return []
+    items = [_build_estimate_item(c) for c in cands]
+    rows = estimate_batch(items)
+    if not rows:
+        return [None] * len(cands)
+    return rows
+
+
+def _compute_follow_profit(
+    candidate: ProductCandidate, fx_rate: float, commission_rate: float
+) -> None:
+    """跟卖利润空间（竞品价口径，PLAN 批①定案：保留 skill 本地算，与 batch 成本公式不同口径）。"""
+    if candidate.min_competing_price > 0:
+        follow_revenue = candidate.min_competing_price * fx_rate
+        if follow_revenue <= 0:
+            return
+        follow_cost = candidate.match_1688_price + candidate.estimated_logistics_cny \
+            + follow_revenue * commission_rate
+        follow_profit = follow_revenue - follow_cost
+        candidate.follow_profit_cny = round(follow_profit, 2)
+        candidate.follow_margin = round(follow_profit / follow_revenue * 100.0, 1)
+
+
+def _apply_estimate_row(
+    candidate: ProductCandidate, row: dict | None, fx_rate: float
+) -> None:
+    """worker 预估 row → 候选字段回填（row=None/未 ok → estimate_source=unavailable）。"""
+    if not isinstance(row, dict) or not row.get("ok"):
+        candidate.estimate_source = "unavailable"
+        return
+    try:
+        candidate.estimated_logistics_cny = float(row.get("logistics_cost_cny") or 0.0)
+    except (TypeError, ValueError):
+        candidate.estimated_logistics_cny = 0.0
+    # worker 已返回权威物流预估（logistics_source=store/default_rets）→ 非本地兜底
+    candidate.logistics_estimated = False
+    candidate.logistics_fallback_chain = str(row.get("logistics_source") or "")
+    try:
+        rate = float(row.get("commission_rate") or 0.0)
+    except (TypeError, ValueError):
+        rate = 0.0
+    candidate.estimated_commission = round(candidate.ozon_price * fx_rate * rate, 2)
+    try:
+        candidate.estimated_profit_cny = float(row.get("profit_cny") or 0.0)
+        candidate.profit_margin = round(float(row.get("profit_rate") or 0.0) * 100.0, 2)
+    except (TypeError, ValueError):
+        candidate.estimated_profit_cny, candidate.profit_margin = 0.0, 0.0
+    candidate.estimate_source = "worker"
+    candidate.commission_source = str(row.get("commission_source") or "")
+    _compute_follow_profit(candidate, fx_rate, rate)
+
+
 def _calculate_profit(
     candidate: ProductCandidate,
     fx_rate: float = DEFAULT_FX_RATE,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
     commission_rate: float = 0,
 ) -> None:
-    """Calculate profit margin for a candidate.
-    Updates candidate fields in-place:
-      estimated_logistics_cny, estimated_commission,
-      estimated_profit_cny, profit_margin,
-      follow_profit_cny, follow_margin（B 批次：min_competing_price 同成本链收入口径）
+    """单候选利润（v0.83 批① 起 = worker batch 单条；函数名/签名向后兼容调用方）。
 
-    佣金优先级：commission_rate（小数）> worker 真实分段佣金（fbs/fbo，按售价选带）
-    > 本地候选分段（commission_rfbs_segments）> 标量 commission_fbp/rfbs（百分数）
-    > 默认分段 12/14/18。物流：有真实重量按 kg 估算，否则用固定值。
+    ⚠️ 本地定价公式已退役：worker 不可达 → ``estimate_source="unavailable"``（无预估
+    字段/无 profit_margin），**绝不回落 legacy 公式**。跟卖利润 ``follow_profit_cny``
+    仍本地算（竞品价口径，与 batch 成本公式不同口径，PLAN 批①定案）。
+    ``logistics_cny``/``commission_rate`` 参数保留签名兼容，批次口径由 worker 决定。
     """
     if not candidate.match_1688_price or not candidate.ozon_price:
         return
-
-    effective_commission = commission_rate
-    if effective_commission <= 0:
-        # 分段佣金（百分数）逐级兜底；最终必得 >0 的有效率
-        rate_pct = _worker_commission_rate_pct(candidate)
-        if rate_pct is None:
-            rate_pct = _commission_band_rate(
-                candidate.commission_rfbs_segments, candidate.ozon_price)
-        if rate_pct is None:
-            real_comm = (candidate.commission_fbp or candidate.commission_rfbs or 0)
-            if real_comm > 0:
-                rate_pct = float(real_comm)
-        if rate_pct is None:
-            rate_pct = _commission_band_rate(
-                DEFAULT_COMMISSION_SEGMENTS, candidate.ozon_price)
-        effective_commission = rate_pct / 100.0
-
-    cost_cny = candidate.match_1688_price
-    revenue_cny = candidate.ozon_price * fx_rate
-
-    if revenue_cny <= 0:
-        return
-
-    # 物流估算：优先查 Worker 费率表（精确, 按重量+体积重），失败降级本地估算
-    # ⚠️ v0.29.x: skill 端不再硬编码 40 CNY/kg —— 调 /api/v1/logistics/quote
-    # (worker 侧 PG logistics_rates 142 条真实费率), 无重量/离线时降级旧逻辑。
-    # ⚠️ P1-5: API 失败优先复用同重量带 last-good 费率（24h TTL）再谈 40/kg；
-    # 非实时费率一律标记 logistics_estimated=True（选品参考，非权威报价）。
-    quote = _query_logistics_from_worker(candidate.weight_g, dims_mm=candidate.dimensions_mm)
-    if quote is not None:
-        candidate.estimated_logistics_cny = quote.cost
-        candidate.logistics_estimated = quote.estimated
-        candidate.logistics_fallback_chain = quote.fallback_chain
-    else:
-        candidate.logistics_estimated = True
-        if candidate.weight_g > 0:
-            candidate.estimated_logistics_cny = max(
-                8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
-            candidate.logistics_fallback_chain = "flat_per_kg_40"
-        else:
-            # ⚠️ v0.58: 费率表+last-good 均不可达（worker 离线）时兜底——与上架
-            # 管线（cloud_probe price_estimate）同源分段（默认 500g → ¥6），
-            # 不再落到 DEFAULT_LOGISTICS_CNY=15（曾多估 ¥9/单误判利润不足）。
-            candidate.estimated_logistics_cny = estimate_shipping_cny(candidate.weight_g)
-            candidate.logistics_fallback_chain = f"default_{DEFAULT_WEIGHT_G}g"
-
-    # Commission
-    candidate.estimated_commission = revenue_cny * effective_commission
-
-    total_cost = cost_cny + candidate.estimated_logistics_cny + candidate.estimated_commission
-    candidate.estimated_profit_cny = revenue_cny - total_cost
-    candidate.profit_margin = (candidate.estimated_profit_cny / revenue_cny) * 100.0
-
-    # 跟卖利润空间：跟到跟卖最低价还能剩多少（同一成本链，仅换收入口径）
-    if candidate.min_competing_price > 0:
-        follow_revenue = candidate.min_competing_price * fx_rate
-        # 佣金沿用主价带（Ozon 佣金随价格分段，跟卖价带未单独取档——筛选级估算，已知简化）
-        follow_cost = cost_cny + candidate.estimated_logistics_cny \
-            + follow_revenue * effective_commission
-        follow_profit = follow_revenue - follow_cost
-        candidate.follow_profit_cny = round(follow_profit, 2)
-        candidate.follow_margin = round(follow_profit / follow_revenue * 100.0, 1)
+    rows = _estimate_candidates([candidate], fx_rate=fx_rate)
+    _apply_estimate_row(candidate, rows[0] if rows else None, fx_rate)
 
 
 def calculate_blue_ocean_score(
@@ -4426,11 +4526,17 @@ REPORT_STATUSES: tuple[str, ...] = ("ok", "matched", "profitable")
 
 
 def _report_discovery_run(keyword: str, filters: dict | None,
-                          candidates: list[ProductCandidate]) -> None:
+                          candidates: list[ProductCandidate],
+                          session: dict | None = None) -> bool:
     """同步上报 discover run 到 Worker /api/v1/discovery/runs（fail-open）。
 
-    白名单裁剪 + 仅 ok/matched/profitable 候选，单次 POST。任何异常只 warning，
-    绝不影响调用方（由 _spawn_discovery_report 在 daemon 线程中触发）。
+    返回 True=HTTP <300 上报成功（供 daemon 重试循环判断）；任何异常/失败返回
+    False（绝不影响调用方——由 _spawn_discovery_report 在 daemon 线程中触发）。
+
+    白名单裁剪 + 仅 ok/matched/profitable 候选，单次 POST。v0.83 批⑤起请求体
+    带 canonical ``session_run_id``/``schema_version``/``session_json``（自包含，
+    session 非空时）——worker 侧按 session_run_id 幂等 upsert；旧字段 keyword/
+    filters/candidates 保持（向后兼容旧 worker）。
     """
     try:
         from scripts._const import CLOUD_API_BASE
@@ -4440,7 +4546,7 @@ def _report_discovery_run(keyword: str, filters: dict | None,
         token = get_mxou_token()
         if not token:
             logger.warning("discovery run 上报跳过：无 token（set_token 配置）")
-            return
+            return False
 
         rows = []
         for c in candidates:
@@ -4465,67 +4571,138 @@ def _report_discovery_run(keyword: str, filters: dict | None,
             "filters": filters or {},
             "candidates": rows,
         }
+        # v0.83 批⑤ canonical：自包含 session 文档（幂等键 session_run_id）
+        _rid = ""
+        if isinstance(session, dict) and session.get("session_run_id"):
+            _rid = str(session["session_run_id"])
+            payload["session_run_id"] = _rid
+            payload["schema_version"] = session.get("schema_version",
+                                                    _session.SCHEMA_VERSION)
+            payload["session_json"] = session
         resp = _req.post(
             f"{CLOUD_API_BASE}/api/v1/discovery/runs",
             json=payload,
-            timeout=8,
+            timeout=20,
         )
         if resp.status_code >= 300:
             logger.warning("discovery run 上报失败: HTTP %s", resp.status_code)
+            return False
+        if _rid:
+            _session.mark_reported(_rid)
+        return True
     except Exception as exc:
         logger.warning("discovery run 上报失败（本地落盘不受影响）: %s", exc)
+        return False
+
+
+# 上报重试（v0.83 批⑤）：daemon 线程内有限重试 + 退避——旧实现 8s 超时单发静默丢
+# （实锤 F：后台收割摘要恒 0）。最多 3 次，仍失败留给 `--sync-sessions` 补传。
+_REPORT_ATTEMPTS = 3
+_REPORT_RETRY_BACKOFF_S = 3.0
 
 
 def _spawn_discovery_report(keyword: str, filters: dict | None,
-                            candidates: list[ProductCandidate]) -> None:
-    """非阻塞触发上报（daemon 线程，fail-open）。"""
+                            candidates: list[ProductCandidate],
+                            session: dict | None = None) -> None:
+    """非阻塞触发上报（daemon 线程，可重试，fail-open）。"""
+    def _run() -> None:
+        for attempt in range(_REPORT_ATTEMPTS):
+            if _report_discovery_run(keyword, filters, candidates, session=session):
+                return
+            if attempt < _REPORT_ATTEMPTS - 1:
+                time.sleep(_REPORT_RETRY_BACKOFF_S * (attempt + 1))
+
     try:
-        threading.Thread(
-            target=_report_discovery_run,
-            args=(keyword, filters, candidates),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_run, daemon=True).start()
     except Exception as exc:
         logger.warning("discovery run 上报线程启动失败: %s", exc)
 
 
+def _save_legacy_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
+                               filters: dict | None = None) -> Path | None:
+    """旧路径：无进程内 session 时写 ``discovery_{ts}.json``（兼容直调/测试）。"""
+    DISCOVERY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    path = DISCOVERY_CACHE_DIR / f"discovery_{ts}.json"
+
+    data = []
+    for c in candidates:
+        entry = asdict(c)
+        # 空 discovery_meta 不落 JSON（Fix Round 1 Minor #4）：off 路径产物
+        # 干净（无 "discovery_meta": {} 空壳）；快照只在比价发生时存在。
+        if not entry.get("discovery_meta"):
+            entry.pop("discovery_meta", None)
+        data.append(entry)
+
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    logger.info("Discovery log saved: %s (%d products)", path, len(data))
+    if keyword or filters:
+        _spawn_discovery_report(keyword, filters, candidates)
+    return path
+
+
+def _save_canonical_session(candidates: list[ProductCandidate], keyword: str = "",
+                            filters: dict | None = None) -> Path | None:
+    """canonical 落盘：自包含 session 文档 + index（替代 discovery_*.json）。
+
+    预匹配/后匹配两次调用写同一 ``{run_id}.json``（后写覆盖，index 同 run_id
+    只保留一行）。带 keyword/filters 时触发可重试上报（canonical 载荷）。
+    """
+    run_id = _session.current_run_id()
+    flat_rows: list[dict] = []
+    for c in candidates:
+        if not getattr(c, "session_run_id", ""):
+            try:
+                c.session_run_id = run_id
+            except Exception:
+                pass
+        entry = asdict(c)
+        if not entry.get("discovery_meta"):
+            entry.pop("discovery_meta", None)
+        # 保证扁平 dict 带 run_id（asdict 默认 ""；setattr 失败的非常规对象兜底）
+        entry["session_run_id"] = entry.get("session_run_id") or run_id
+        flat_rows.append(entry)
+
+    doc = _session.build_session_document(flat_rows)
+    if keyword and not (doc.get("entry") or {}).get("keyword"):
+        doc.setdefault("entry", {})["keyword"] = keyword
+    if filters and not doc.get("params"):
+        doc["params"] = dict(filters)
+    path = _session.save_session(doc)
+    if path is not None:
+        _session.set_session_path(str(path))
+        logger.info("Discovery session saved: %s (%d products, run_id=%s)",
+                    path, len(flat_rows), run_id)
+        if keyword or filters:
+            _spawn_discovery_report(keyword, filters, candidates, session=doc)
+    return path
+
+
 def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
                         filters: dict | None = None) -> Path | None:
-    """Save discovery results to a timestamped JSON cache file.
+    """落盘 discover 结果。
 
-    keyword/filters 非空时非阻塞上报 Worker /api/v1/discovery/runs
-    （白名单裁剪，fail-open，不影响本地落盘）。
+    v0.83 批⑤：进程内存在 canonical session（CLI discover 族启动时 begin_session）
+    → 写 ``data/discovery/sessions/{run_id}.json`` + index；否则走旧
+    ``discovery_*.json``（库直调/无 session 上下文的兼容路径）。
 
+    keyword/filters 非空时非阻塞上报 Worker /api/v1/discovery/runs（fail-open）。
     Returns the path to the saved file, or None on failure.
     """
     if not candidates:
         return None
 
     try:
-        DISCOVERY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        path = DISCOVERY_CACHE_DIR / f"discovery_{ts}.json"
-
-        data = []
-        for c in candidates:
-            entry = asdict(c)
-            # 空 discovery_meta 不落 JSON（Fix Round 1 Minor #4）：off 路径产物
-            # 干净（无 "discovery_meta": {} 空壳）；快照只在比价发生时存在。
-            if not entry.get("discovery_meta"):
-                entry.pop("discovery_meta", None)
-            data.append(entry)
-
-        path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        logger.info("Discovery log saved: %s (%d products)", path, len(data))
-        if keyword or filters:
-            _spawn_discovery_report(keyword, filters, candidates)
-        return path
+        if _session.current_run_id():
+            return _save_canonical_session(candidates, keyword=keyword, filters=filters)
+        return _save_legacy_discovery_log(candidates, keyword=keyword, filters=filters)
     except Exception as exc:
         logger.error("Failed to save discovery log: %s", exc)
         return None
+
 
 
 # ---------------------------------------------------------------------------
@@ -4534,21 +4711,40 @@ def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
 
 
 def load_latest_discovery() -> list[dict[str, Any]]:
-    """Load the most recent discovery cache file.
+    """Load the most recent discovery candidates (flat dicts)。
 
-    Returns list of product dicts, or empty list if no cache exists.
+    v0.83 批⑤：优先 canonical session（``data/discovery/sessions/``，候选按
+    provenance 还原为扁平 dict）；无 session 或有更新的旧 ``discovery_*.json``
+    → 兼容读旧文件。返回扁平产品 dict 列表（batch_test 复用 / 无 → 空列表）。
     """
-    if not DISCOVERY_CACHE_DIR.exists():
-        return []
+    legacy_files: list[Path] = []
+    if DISCOVERY_CACHE_DIR.exists():
+        legacy_files = sorted(DISCOVERY_CACHE_DIR.glob("discovery_*.json"),
+                              reverse=True)
+    legacy_mtime = 0.0
+    if legacy_files:
+        try:
+            legacy_mtime = legacy_files[0].stat().st_mtime
+        except OSError:
+            legacy_mtime = 0.0
+    try:
+        sess_mtime = _session.latest_session_mtime()
+    except Exception:
+        sess_mtime = 0.0
 
-    files = sorted(DISCOVERY_CACHE_DIR.glob("discovery_*.json"), reverse=True)
-    if not files:
+    if sess_mtime and sess_mtime >= legacy_mtime:
+        try:
+            return _session.load_latest_candidates()
+        except Exception as exc:
+            logger.warning("读取最新 session 失败（回落旧缓存）: %s", exc)
+
+    if not legacy_files:
         return []
 
     try:
-        return json.loads(files[0].read_text(encoding="utf-8"))
+        return json.loads(legacy_files[0].read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning("Failed to load discovery cache %s: %s", files[0], exc)
+        logger.warning("Failed to load discovery cache %s: %s", legacy_files[0], exc)
         return []
 
 

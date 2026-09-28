@@ -1,4 +1,4 @@
-# 运维类命令（check / query / report / session-sync / import-cookies / cleanup / update / 配置）
+# 运维类命令（check / query / report / 后台任务 / session-sync / sync-sessions / import-cookies / cleanup / update / 配置）
 
 > v0.79 拆分自 command-reference.md（PLAN-agent-ergonomics-v1 D3）。选管线见 routing.md；
 > 上架类见 commands-listing.md；选品类见 commands-discovery.md。
@@ -6,8 +6,10 @@
 ## 目录
 - [环境检查（check）](#环境检查check)
 - [任务查询（query）](#任务查询query)
+- [本地后台任务（jobs / job-status / job-result / --detach，v0.83）](#本地后台任务jobs--job-status--job-result---detachv083)
 - [问题上报（report）](#问题上报report)
 - [卖家会话代管（session-sync）](#卖家会话代管session-sync)
+- [discover session 补传（sync-sessions，v0.83）](#discover-session-补传sync-sessionsv083)
 - [跨浏览器 cookie 导入（import-cookies / probe-win-cookies）](#跨浏览器-cookie-导入import-cookies--probe-win-cookies)
 - [凭证配置（set_store / set_token / set_ak / list_stores / get_ak）](#凭证配置set_store--set_token--set_ak--list_stores--get_ak)
 - [自动更新（update）](#自动更新update)
@@ -54,6 +56,36 @@ python3 scripts/cli.py query 550e8400-... --watch --timeout 1800
 - **执行后验证**：① 终态 `completed` → 确认 `moderate_status` 后再向用户报成功；② `rejected`/`failed` → 按 error-codes.md 引导（看 Ozon 后台拒绝原因 / 可重提）；③ `pending`/`running` 非终态 → 告知预计 10-20 分钟，建议 `--watch` 或稍后重查
 - **⚠️ rejected/failed 重提（v0.38 N2）**：终态不占用 SKU 去重名额，可重新提交。重提方式：调 Worker `POST /api/v1/resubmit_task/{task_id}`（请求体带 `token`，复制原载荷 + 重生成图片重新入队）。CLI 暂未内置 resubmit 命令；重提后返回新 task_id，用 `query <新id> --watch` 跟踪。
 
+## 本地后台任务（jobs / job-status / job-result / --detach，v0.83）
+
+**触发**：agent 不想干等重命令 / 用户说「后台跑起来」/ 重开会话找回之前的本地任务。
+
+六重命令（discover / discover-multi / discover-task / follow / graph / seller）可加 `--detach`：
+fork 脱离会话子进程后**立即返回 job 句柄**（exit 0）。锁与产出物（session 落盘 / 尾 JSON /
+采集箱）与前台逐字一致；`--detach` 与 `--wait` 互斥（同给 **exit 2**）；闸被占 **exit 4** 不启动。
+
+```bash
+# 后台启动（立即返回把 job_id 回给用户）
+python3 scripts/cli.py discover --keyword 手套 --to-box --detach
+# 🚀 后台任务已启动 job_id=20260928_120000_abcdef
+# { "job_id": "20260928_120000_abcdef", "status": "running", "next_poll_s": 20, ... }
+# 👉 NEXT: 后台任务在跑——job-status <id> 查进度；完成后 job-result <id> 取结果…
+
+python3 scripts/cli.py jobs                    # 列全部后台任务（含孤儿收割）
+python3 scripts/cli.py job-status <job_id>     # 状态/阶段/日志尾/run_id/session_path + next_poll_s
+python3 scripts/cli.py job-result <job_id>     # 取完整结果（子进程尾 JSON 全文）
+```
+
+- **注册表单一事实源**：`skill/data/jobs/{job_id}.json`（+ `.log`）——job_id 形如
+  `YYYYMMDD_HHMMSS_<6hex>`（含 hex 后缀，区别于本地时间戳 id）；pounding-mcp 的
+  `job_status`/`job_result`/`job_list`/`job_cancel` 读同目录（env `SKILL_JOBS_DIR` 可覆写）。
+- **轮询节奏**：`job-status`（skill）与 `job_status`（MCP）running 态都带 `next_poll_s=20` 与
+  `next_action`——按它轮询，勿秒级。
+- **孤儿收割**：进程不在且无终态写入（会话中断/机器重启）→ `interrupted`。
+- **失败**：子进程非零退出 → `failed` + `exit_code` + 日志尾；诊断看 `job-status` 的
+  `error`/`log_tail`。
+- MCP 侧等价：重命令 `background` 缺省 True（走同一 skill `--detach`），返回 `job_id`。
+
 ## 问题上报（report）
 
 **触发**：任务 failed 重试无解 / Ozon 拒审反复 / 未知错误码 / 假成功。
@@ -78,6 +110,21 @@ python3 scripts/cli.py session-sync --credential-id 123 --status   # 只查状�
 
 - CDP 收割 seller cookie 上传 worker 加密代管（AES-GCM，不回显值）
 - 无 sc_company_id 拒传 exit 2；细则见 `session-sync.md`
+
+## discover session 补传（sync-sessions，v0.83）
+
+**触发**：discover/discover-multi/discover-task 跑完但上报失败（worker 不可达/超时/无 token），
+选品数据未进 worker 归档；或跨机同步历史 session。
+
+```bash
+python3 scripts/cli.py sync-sessions                # 补传全部未上报 session（默认 ≤50/次）
+python3 scripts/cli.py sync-sessions --limit 200    # 单次上限
+```
+
+- 扫描 `data/discovery/sessions/` 下无 `.reported` sidecar 的 session，逐个重传
+  `POST /api/v1/discovery/runs`——worker 按 `session_run_id` **幂等 upsert**，重复上报安全
+- 无 token → exit 1 并提示 `set_token`；部分失败 exit 1（可重跑，幂等）
+- discover 族每次运行也会在后台可重试上报（3 次退避），本命令是漏网补传兜底
 
 ## 跨浏览器 cookie 导入（import-cookies / probe-win-cookies）
 

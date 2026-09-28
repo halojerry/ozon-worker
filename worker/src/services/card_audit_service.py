@@ -15,6 +15,10 @@
   D price_sanity     old_price 缺失/低于现价/差价不足 → 阈值内自动修
                      （build_price_update_body 单字段口径）；min_price 关系异常
                      等其余 → 只报告
+  E profit_reality   v0.83 批⑥ 第 5 不变量：预估利润 vs 当前 /v5 实盘利润
+                     （utils/profit_reality 重算）差超双门阈值（PCT+ABS）→ 只报告
+                     （价格域绝不改价；最低价门槛 + fallback 佣金设计内差异降为
+                     计数不 open，防噪）
 
 纪律红线（违者返工）：
 - 自动修只允许经 utils/content_enrich 家族构造器（全量回显防洗卡，A6 纪律），
@@ -31,6 +35,9 @@ env 开关：
                            跳过并在 summary 标 llm_skipped_no_token——后台域没有
                            用户任务 token，需要运维配置专用 key 才启用 C）
   CARD_AUDIT_INTERVAL_MIN  域水位间隔（默认 1440 = 日级）
+  PROFIT_REALITY_GAP_PCT   E 不变量相对差异双门之一（默认 0.15）
+  PROFIT_REALITY_GAP_ABS_CNY  E 不变量绝对差异双门之一 CNY（默认 20.0）
+  PROFIT_REALITY_MIN_PRICE_RUB E 最低价门槛 RUB（默认 300，低价卡噪声大不判）
 
 与 PLAN 的实现偏差（2026-09-26 落地实录）：
 - LLM token：PLAN 未指明后台域 token 来源；实现为 env 配置专用 key，未配置则
@@ -68,8 +75,34 @@ INVARIANT_RATING_GAP = "rating_gap"
 INVARIANT_DECLINED = "declined"
 INVARIANT_SOURCE_MISMATCH = "source_mismatch"
 INVARIANT_PRICE_SANITY = "price_sanity"
+# ✅ v0.83 批⑥ 回执真值化：第 5 不变量——预估利润 vs 实盘利润（当前 /v5 响应重算）
+INVARIANT_PROFIT_REALITY = "profit_reality"
 
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$")
+
+
+def _profit_gap_pct_threshold() -> float:
+    """实盘 vs 预估 差异相对阈值（双门之一，默认 0.15）。畸形 → 默认。"""
+    try:
+        return abs(float(os.getenv("PROFIT_REALITY_GAP_PCT", "0.15")))
+    except (TypeError, ValueError):
+        return 0.15
+
+
+def _profit_gap_abs_threshold() -> float:
+    """实盘 vs 预估 差异绝对阈值 CNY（双门之一，默认 20.0）。畸形 → 默认。"""
+    try:
+        return abs(float(os.getenv("PROFIT_REALITY_GAP_ABS_CNY", "20.0")))
+    except (TypeError, ValueError):
+        return 20.0
+
+
+def _profit_min_price_rub() -> float:
+    """最低价门槛（RUB；默认 300）——低价卡 fx/浮点噪声大，不参与判定。"""
+    try:
+        return abs(float(os.getenv("PROFIT_REALITY_MIN_PRICE_RUB", "300")))
+    except (TypeError, ValueError):
+        return 300.0
 
 
 def card_audit_enabled() -> bool:
@@ -235,11 +268,14 @@ def _fetch_info_map(client_id: str, api_key: str, product_ids: list[str]) -> dic
 
 
 def _fetch_price_map(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
-    """/v5/product/info/prices 批量现价 → {product_id: {price, old_price, currency_code}}。
+    """/v5/product/info/prices 批量现价 → {product_id: {price, old_price, currency_code, ...}}。
 
     ⚠️ 契约坑（sweep 已踩平）：/v3/product/info/list 不回价格；/v5 是嵌套 price
     对象（items[].price{price,old_price,currency_code}），product_id 走 filter
     且必须整数数组。
+    ✅ v0.83 批⑥ 回执真值化：同一响应里被丢弃的实盘字段（marketing_seller_price/
+    commissions/acquiring）原样保留（`price_item`=整条 item 供 utils/profit_reality
+    消费），**零新增调用**。
     """
     from utils.ozon_client import ozon_post
 
@@ -265,6 +301,11 @@ def _fetch_price_map(client_id: str, api_key: str, product_ids: list[str]) -> di
                 "price": p.get("price"),
                 "old_price": p.get("old_price") or p.get("marketing_price") or p.get("price"),
                 "currency_code": str(p.get("currency_code") or "CNY"),
+                # v0.83 批⑥：实盘字段 + 整条 item（profit_reality 计算用）
+                "marketing_seller_price": p.get("marketing_seller_price"),
+                "commissions": it.get("commissions") or {},
+                "acquiring": it.get("acquiring"),
+                "price_item": it,
             }
     return prices
 
@@ -356,6 +397,33 @@ def _source_facts(tenant_id: str, product_ids: list[str]) -> dict[str, dict]:
     return out
 
 
+def _follow_sell_ids(tenant_id: str, product_ids: list[str]) -> set:
+    """v0.83 批②（A6 红线）：返回「跟卖卡」的 product_id 集（我方绝不写竞品卡面）。
+
+    源：product_task_index → listing_result_log.pipeline_source='follow'（真跟卖标记，
+    listing_result_log._pipeline_source 三态判定；discover 变体不是 follow）。
+    查不到映射（workbuddy 时代卡）→ 不出键（保守：按普通卡处理，无 draft 证据时
+    enrich 也只做保守裁决）。
+    """
+    if not product_ids:
+        return set()
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(text(
+                """
+                SELECT DISTINCT pti.product_id
+                FROM product_task_index pti
+                JOIN listing_result_log l ON l.task_db_id = pti.task_id::text
+                WHERE pti.tenant_id = :t AND pti.product_id = ANY(:pids)
+                  AND l.pipeline_source = 'follow'
+                """
+            ), {"t": tenant_id, "pids": list(product_ids)}).fetchall()
+    except Exception as exc:
+        logger.warning("card_audit 跟卖标记查询失败（按空集处理）: %s", str(exc)[:150])
+        return set()
+    return {str(r[0]) for r in rows if r and r[0] is not None}
+
+
 def _llm_source_match(llm_token: str, source_title_cn: str,
                       source_category_path: str, card_name: str) -> dict:
     """LLM 语义比对 → {verdict: match/mismatch/unsure, reason}。
@@ -414,6 +482,13 @@ def _check_rating_gap(state: dict, pid: str, rating_p: dict, stored: Optional[di
         extract_improve_attrs,
     )
     from utils.ozon_client import ozon_post
+
+    # ✅ v0.83 批②（A6 红线）：跟卖卡是竞品卡，我方一个字节都不写（含 4191/11254）。
+    # 不落 finding（否则每轮巡检都重复开单），只计数留痕。
+    if pid in (state.get("follow_ids") or set()):
+        state["summary"]["follow_skipped"] = state["summary"].get("follow_skipped", 0) + 1
+        logger.info("card_audit A 跳过跟卖卡 pid=%s（不写竞品卡面）", pid)
+        return
 
     rating = float(rating_p.get("rating") or 0)
     improve = extract_improve_attrs(rating_p)
@@ -632,6 +707,155 @@ def _check_source_mismatch(state: dict, pid: str, card_name: str,
 # ── 主入口 ─────────────────────────────────────────────────────
 
 
+def _profit_facts(tenant_id: str, product_ids: list[str]) -> dict[str, dict]:
+    """pti → listing_result_log 取预估侧事实 {product_id: {...}}（同 product 取最近一条）。
+
+    预估利润来自提交期 pricing_info.profit_estimation.profit_cny；成本/运费同源
+    pricing_info（cost_cny/logistics_cost_cny，缺失回落 listing_result_log.purchase_cost）。
+    """
+    if not product_ids:
+        return {}
+    with get_engine().connect() as conn:
+        rows = conn.execute(text(
+            """
+            SELECT pti.product_id, l.pricing_info, l.purchase_cost
+            FROM product_task_index pti
+            JOIN listing_result_log l ON l.task_db_id = pti.task_id::text
+            WHERE pti.tenant_id = :t AND pti.product_id = ANY(:pids)
+            ORDER BY l.created_at DESC
+            """
+        ), {"t": tenant_id, "pids": list(product_ids)}).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        pid = str(r.product_id)
+        if pid in out:
+            continue  # 已取最近一条
+        pi = r.pricing_info if isinstance(r.pricing_info, dict) else {}
+        pe = pi.get("profit_estimation") if isinstance(pi.get("profit_estimation"), dict) else {}
+        predicted = _to_num(pe.get("profit_cny"))
+        out[pid] = {
+            "predicted_profit_cny": predicted,
+            "purchase_cost_cny": _to_num(pi.get("cost_cny")) or _to_num(r.purchase_cost),
+            "logistics_cost_cny": _to_num(pi.get("logistics_cost_cny")),
+            "currency_code": str(pi.get("currency_code") or ""),
+            "commission_source_at_submit": _commission_source_at_submit(pi),
+        }
+    return out
+
+
+def _commission_source_at_submit(pi: dict) -> str:
+    """提交期佣金来源归一：pricing_info.commission_source 只在超龄降级时落
+    'stale_fallback'（pricing_core 口径）→ 归一为 'fallback:stale'；'fallback' 原样。
+    其余/缺失 → ''（真实来源在场，差异不可归因于 fallback）。"""
+    raw = str((pi or {}).get("commission_source") or "").strip()
+    if raw == "stale_fallback":
+        return "fallback:stale"
+    if raw == "fallback":
+        return "fallback"
+    return raw
+
+
+def _resolve_audit_fx_rate() -> float:
+    """card_audit 实盘利润用的 CNY→RUB 汇率（一次解析，全轮复用；PG 缓存优先）。"""
+    try:
+        from utils.fx_rate_service import resolve_cny_rub_rate
+        rate, _src = resolve_cny_rub_rate()
+        return float(rate) if rate and rate > 0 else 12.0
+    except Exception as exc:
+        logger.warning("card_audit 实盘利润取汇率失败（按 12.0 兜底）: %s", str(exc)[:150])
+        return 12.0
+
+
+def _severity_for_gap(gap_pct: float) -> str:
+    g = abs(float(gap_pct))
+    if g >= 0.5:
+        return "high"
+    if g >= 0.25:
+        return "medium"
+    return "low"
+
+
+def _check_profit_reality(state: dict, pid: str, px: dict, info: dict) -> None:
+    """E profit_reality：预估利润 vs 当前 /v5 实盘利润，**双门 + 最低价门槛**防噪。
+
+    - 双门（PCT + ABS）同时超才开 finding；
+    - 最低价门槛：real_price_rub < PROFIT_REALITY_MIN_PRICE_RUB → 跳过（低价卡噪声）；
+    - `commission_source_at_submit ∈ {fallback, fallback:stale}` 的卡：设计内差异，
+      只计数 + 日志（severity=info），**不自动开 open finding**（防噪把不变量做废）；
+    - 跟卖卡参与（我方定价口径，A6 内容红线不涉价格域）。
+    只报告，绝不改卡（价格域不改价——改价是 D 唯一白名单）。
+    """
+    from utils.profit_reality import compute_profit_reality
+
+    summary = state["summary"]
+    facts = (state.get("profit_facts") or {}).get(pid)
+    if not facts:
+        summary["profit_skipped_no_predicted"] += 1
+        return
+    predicted = facts.get("predicted_profit_cny")
+    price_item = px.get("price_item")
+    if predicted is None or not isinstance(price_item, dict):
+        summary["profit_skipped_no_predicted"] += 1
+        return
+
+    currency_code = str(px.get("currency_code") or facts.get("currency_code") or "RUB").upper()
+    reality = compute_profit_reality(
+        price_item,
+        purchase_cost_cny=facts.get("purchase_cost_cny"),
+        logistics_cost_cny=facts.get("logistics_cost_cny"),
+        predicted_profit_cny=predicted,
+        fx_rate=state.get("cny_rub_rate") or 1.0,
+        currency_code=currency_code,
+        commission_mode=state.get("commission_mode") or "rfbs",
+    )
+    if not reality:
+        summary["profit_skipped_no_predicted"] += 1
+        return
+    summary["profit_checked"] += 1
+
+    if float(reality.get("real_price_rub") or 0) < _profit_min_price_rub():
+        summary["profit_below_price"] += 1
+        return
+
+    gap_cny = reality.get("gap_cny")
+    gap_pct = reality.get("gap_pct")
+    if gap_cny is None or gap_pct is None:
+        return
+    if abs(gap_pct) <= _profit_gap_pct_threshold() or abs(gap_cny) <= _profit_gap_abs_threshold():
+        return  # 双门未同时超 → 不开 finding
+
+    detail = {
+        "predicted_profit_cny": reality.get("predicted_profit_cny"),
+        "real_profit_cny": reality.get("real_profit_cny"),
+        "gap_cny": gap_cny,
+        "gap_pct": gap_pct,
+        "real_price_rub": reality.get("real_price_rub"),
+        "real_commission_pct": reality.get("real_commission_pct"),
+        "acquiring_pct": reality.get("acquiring_pct"),
+        "fbs_fees_rub": reality.get("fbs_fees_rub"),
+        "unmodeled_fees": reality.get("unmodeled_fees"),
+        "fx_rate": reality.get("fx_rate"),
+        "commission_mode": reality.get("commission_mode"),
+        "commission_source_at_submit": facts.get("commission_source_at_submit") or "",
+        "action": "report_only",
+    }
+    if detail["commission_source_at_submit"] in ("fallback", "fallback:stale"):
+        summary["profit_reported_info"] += 1
+        logger.info(
+            "card_audit E 实盘利润差异（fallback 佣金=设计内差异，不 open）pid=%s "
+            "gap_cny=%s gap_pct=%s", pid, gap_cny, gap_pct,
+        )
+        return
+
+    summary["profit_gap"] += 1
+    summary["findings_open"] += 1
+    _record_finding(state["tenant"], state["cid"], pid, INVARIANT_PROFIT_REALITY,
+                    _severity_for_gap(gap_pct), detail)
+
+
+# ── 主入口 ─────────────────────────────────────────────────────
+
+
 def run_card_audit(tenant_id: str, credential_id: str) -> dict:
     """单店一轮巡检（调度经 run_card_audit_if_due；测试/运维可直调）。
 
@@ -657,6 +881,10 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
             "source_mismatch": 0, "capped": False, "llm_skipped_no_token": False,
             "price_fixed": 0, "price_reported": 0,
             "card_errors": 0, "findings_open": 0,
+            "follow_skipped": 0,
+            # ✅ v0.83 批⑥ E profit_reality 计数
+            "profit_checked": 0, "profit_gap": 0, "profit_reported_info": 0,
+            "profit_below_price": 0, "profit_skipped_no_predicted": 0,
         },
     }
     summary = state["summary"]
@@ -691,6 +919,20 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
             summary["archived_skipped"] += 1
             continue
         live.append((pid, info))
+
+    # ✅ v0.83 批②：跟卖卡标记（A rating_gap 跳过写竞品卡面，A6 红线）
+    state["follow_ids"] = _follow_sell_ids(tenant_id, [p for p, _ in live])
+
+    # ✅ v0.83 批⑥ E 不变量前置：预估侧事实（pti→listing_result_log）+ 汇率/模式一次解析。
+    # 巡检面无信封 extensions → 履约模式默认 rFBS 主通道；汇率一次解析全轮复用。
+    state["commission_mode"] = "rfbs"
+    state["cny_rub_rate"] = _resolve_audit_fx_rate()
+    try:
+        state["profit_facts"] = _profit_facts(tenant_id, [p for p, _ in live])
+    except Exception as exc:
+        summary["card_errors"] += 1
+        logger.warning("card_audit E 预估侧事实查询失败（本轮 E 跳过）: %s", str(exc)[:150])
+        state["profit_facts"] = {}
 
     need_echo: list[str] = []
     for pid, info in live:
@@ -749,6 +991,12 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
         except Exception as exc:
             summary["card_errors"] += 1
             logger.warning("card_audit D 不变量异常 pid=%s: %s", pid, str(exc)[:150])
+        try:
+            # E 实盘利润（v0.83 批⑥；只报告，绝不改价）
+            _check_profit_reality(state, pid, price_map.get(pid) or {}, info)
+        except Exception as exc:
+            summary["card_errors"] += 1
+            logger.warning("card_audit E 不变量异常 pid=%s: %s", pid, str(exc)[:150])
 
     # ⑤ C source_mismatch（LLM；无 token / 超 cap → 本轮跳过并如实标记）
     if not state["llm_token"]:

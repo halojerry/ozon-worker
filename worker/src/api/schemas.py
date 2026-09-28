@@ -280,12 +280,58 @@ class AnalyticsMarketBestsellersRequest(BaseModel):
 
 
 class DiscoveryRunItem(BaseModel):
-    """discover 选品结果归档单条（W10 D12）。"""
+    """discover 选品结果归档单条（W10 D12；v0.83 批⑤ 追加 canonical session 字段）。"""
+    model_config = _examples({
+        "token": "__TOKEN_EXAMPLE__",
+        "keyword": "宠物饮水机",
+        "filters": {"min_margin": 15},
+        "candidates": [{"ozon_product_id": "123", "status": "profitable"}],
+        "session_run_id": "disc_260928_101530_a1b2c3",
+        "schema_version": "discover.session.v1",
+    })
     token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
     keyword: str = Field(..., description="选品关键词")
     filters: Optional[dict[str, Any]] = Field(None, description="选品过滤条件")
     candidates: list[dict[str, Any]] = Field(
         default_factory=list, description="候选产品列表（skill 端白名单裁剪后）"
+    )
+    # v0.83 批⑤ canonical（可选——旧 skill 不带 → 走旧行为；带 → 幂等 upsert 键）
+    session_run_id: Optional[str] = Field(
+        None, description="discover session id（disc_*；幂等 upsert 键，缺省走旧行为）"
+    )
+    schema_version: Optional[str] = Field(
+        None, description="session 文档 schema 版本（如 discover.session.v1）"
+    )
+    session_json: Optional[dict[str, Any]] = Field(
+        None, description="自包含 canonical session 文档（请求体 ≤4MB）"
+    )
+
+
+class DiscoveryRunDetail(BaseModel):
+    """GET /api/v1/discovery/runs/{session_run_id} 响应（canonical session 全文 + meta）。"""
+    model_config = _examples({
+        "session_run_id": "disc_260928_101530_a1b2c3",
+        "schema_version": "discover.session.v1",
+        "keyword": "宠物饮水机",
+        "created_at": "2026-09-28T10:15:30",
+        "legacy": False,
+        "session_json": {
+            "schema_version": "discover.session.v1",
+            "session_run_id": "disc_260928_101530_a1b2c3",
+            "summary": {"total": 23, "profitable": 5},
+            "candidates": [],
+        },
+    })
+    session_run_id: str = Field(..., description="discover session id（disc_*）")
+    schema_version: Optional[str] = Field(None, description="session 文档 schema 版本")
+    keyword: str = Field("", description="选品关键词")
+    created_at: Optional[str] = Field(None, description="落库时间（ISO8601）")
+    legacy: bool = Field(False, description="老行（无 session_json）为 true")
+    session_json: Optional[dict[str, Any]] = Field(
+        None, description="自包含 canonical session 文档（legacy 行 null）"
+    )
+    candidates: list[dict[str, Any]] = Field(
+        default_factory=list, description="投影候选（legacy 行回退 candidates_json）"
     )
 
 
@@ -1317,3 +1363,66 @@ class TaskImageRegenRequest(BaseModel):
     """POST /tasks/{id}/images/{slot}/regen 请求体（Bearer 优先，body token 兜底，可整体省略）。"""
     model_config = _examples({"token": "__TOKEN_EXAMPLE__"})
     token: str = Field("", description="MXOU API Key（Authorization: Bearer 缺席时的兜底；可省略）")
+
+
+# ──────────────────────────────────────────────
+# v0.83 批①：POST /api/v1/estimate/batch（≤50/批，逐项明细，部分失败不整体 4xx）
+# ──────────────────────────────────────────────
+
+
+class EstimateBatchItem(BaseModel):
+    """批量预估单条输入（轻量信封替代：直接给采购成本/重量/尺寸/属性/佣金分段）。
+
+    ⚠️ 不支持 variants（多 SKU 交回终价链）——schema 用 ``extra="forbid"`` 定死，
+    收到未知键（含 ``variants``）即 422。
+    """
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{
+            "purchase_cost": 8.5,
+            "weight_g": 120,
+            "dims_mm": {"length": 150, "width": 90, "height": 60},
+            "attributes": {"商品重量": "120克", "材质": "硅胶"},
+            "currency_code": "CNY",
+            "commission_segments": {"fbs": {"leq_1500": 12.0, "leq_5000": 15.0, "gt_5000": 18.0}},
+            "dc": "17028929",
+        }]},
+    )
+    purchase_cost: float = Field(..., description="采购成本 CNY（已含国内运费）")
+    weight_g: Optional[float] = Field(None, description="单件重量（克）；缺省走归一化兜底")
+    dims_mm: Optional[Dict[str, float]] = Field(
+        None,
+        description="尺寸（毫米）{length,width,height} 或 {d,w,h}；缺省走归一化兜底",
+    )
+    attributes: Optional[Dict[str, Any]] = Field(None, description="1688 属性（箱级毛重 reconcile 用）")
+    currency_code: Optional[str] = Field(None, description="店铺币种 RUB/CNY；缺省按 CNY")
+    commission_segments: Optional[Dict[str, Any]] = Field(
+        None, description="佣金分段（百分比）{'fbs':{leq_*},'fbo':{leq_*}}"
+    )
+    dc: Optional[str] = Field(None, description="Ozon description_category_id（佣金缓存表键）")
+
+
+class EstimateBatchIn(BaseModel):
+    """POST /api/v1/estimate/batch 请求体（≤50 条逐项预估，失败不阻断其余）。
+
+    ⚠️ 不支持 variants（schema 定死，收到即 422）。
+    """
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{
+            "items": [{
+                "purchase_cost": 8.5,
+                "weight_g": 120,
+                "dims_mm": {"length": 150, "width": 90, "height": 60},
+                "attributes": {"商品重量": "120克"},
+                "currency_code": "CNY",
+                "commission_segments": {"fbs": {"leq_1500": 12.0, "leq_5000": 15.0, "gt_5000": 18.0}},
+                "dc": "17028929",
+            }],
+            "credential_id": "3c9d2f4e-1111-4222-8333-444455556666",
+        }]},
+    )
+    items: List[EstimateBatchItem] = Field(..., description="批量输入（≤50/批；超限 422）")
+    credential_id: Optional[str] = Field(
+        None, description="店铺凭证 ID；在场则解密探测店铺 3PL（否则 default_rets）"
+    )

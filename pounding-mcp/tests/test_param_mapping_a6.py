@@ -57,7 +57,8 @@ def _flag_value(argv: list[str], flag: str) -> str:
 def test_graph_category_type_density_map_to_cli(capture_argv):
     """category_id/type_id/min_density → --category-id/--type-id/--min-density。"""
     server.graph(url="https://detail.1688.com/offer/123.html",
-                 category_id=15904, type_id=9262, min_density=0.1)
+                 category_id=15904, type_id=9262, min_density=0.1,
+                 background=False)
     argv = capture_argv["argv"]
     assert "graph" in argv
     assert _flag_value(argv, "--category-id") == "15904"
@@ -67,7 +68,7 @@ def test_graph_category_type_density_map_to_cli(capture_argv):
 
 def test_graph_new_params_default_omitted(capture_argv):
     """缺省（None）三个新参不得出现在 argv——旧行为逐字保持。"""
-    server.graph(url="https://detail.1688.com/offer/123.html")
+    server.graph(url="https://detail.1688.com/offer/123.html", background=False)
     argv = capture_argv["argv"]
     for flag in ("--category-id", "--type-id", "--min-density"):
         assert flag not in argv, f"缺省参数不应出现在 argv: {flag}"
@@ -78,7 +79,8 @@ def test_graph_new_params_default_omitted(capture_argv):
 def test_discover_task_expend_shop_maps_to_cli(capture_argv):
     """expend_shop → --expend-shop（v0.74 拓店模式，url 须为商品页种子）。"""
     server.discover_task(url="https://www.ozon.ru/product/xxx/",
-                         expend_shop=20, to_box=True, dry_run=False)
+                         expend_shop=20, to_box=True, dry_run=False,
+                         background=False)
     argv = capture_argv["argv"]
     assert "discover-task" in argv  # 别名映射（下划线命令名 ≠ CLI 连字符名）
     assert _flag_value(argv, "--expend-shop") == "20"
@@ -87,7 +89,7 @@ def test_discover_task_expend_shop_maps_to_cli(capture_argv):
 
 def test_discover_task_expend_shop_default_omitted(capture_argv):
     """缺省（None）→ 无 --expend-shop（CLI 默认 0=关闭，行为与现状一致）。"""
-    server.discover_task(keyword="留香珠")
+    server.discover_task(keyword="留香珠", background=False)
     argv = capture_argv["argv"]
     assert "--expend-shop" not in argv
 
@@ -96,7 +98,8 @@ def test_discover_task_expend_shop_default_omitted(capture_argv):
 
 def test_discover_note_maps_to_cli(capture_argv):
     """note → --note（to_box 入箱时随草稿存储；运营态，不进上架信封）。"""
-    server.discover(keyword="留香珠", to_box=True, note="竞品跟卖候选，利润率待复核")
+    server.discover(keyword="留香珠", to_box=True, note="竞品跟卖候选，利润率待复核",
+                    background=False)
     argv = capture_argv["argv"]
     assert "discover" in argv
     assert _flag_value(argv, "--note") == "竞品跟卖候选，利润率待复核"

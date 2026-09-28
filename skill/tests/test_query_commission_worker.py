@@ -8,8 +8,8 @@ worker 端点 GET /api/v1/commissions/lookup?category_id={int}（Bearer token，
 1. 命中 → 返回 fbs/fbo/source 分段 dict；请求带 Bearer token + category_id。
 2. found:false → None（调用方走本地兜底）。
 3. Worker 不可达/异常 → None（不 raise）。
-4. _calculate_profit 接入：worker 分段佣金优先（按 ozon_price 选带）。
-5. _calculate_profit 接入：worker 不可达 → 本地候选分段 → 默认 12/14/18。
+4. _calculate_profit（v0.83 批① 起走 worker batch）：佣金率由 worker 回填，候选
+   dc/segments 透传进 batch item。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_query_commission_worker.py -q
@@ -117,7 +117,7 @@ def test_query_commission_no_category_id():
     assert od._query_commission_from_worker(None) is None
 
 
-# ── ④ _calculate_profit：worker 分段佣金优先 ─────────────────────────
+# ── ④ _calculate_profit：worker batch 回填（v0.83 批①）─────────────────
 
 def _mk_candidate(price=2000.0, category_id="17028892"):
     c = ProductCandidate(ozon_product_id="p1", ozon_title="Товар", ozon_price=price)
@@ -128,44 +128,53 @@ def _mk_candidate(price=2000.0, category_id="17028892"):
     return c
 
 
-def test_calculate_profit_uses_worker_commission_segments():
-    """worker 分段佣金优先：2000₽ → leq_5000 带 14%。"""
-    _clear_commission_caches()
+def test_calculate_profit_uses_worker_batch_commission():
+    """_calculate_profit 走 worker batch：commission_rate 回填 estimated_commission。"""
     cand = _mk_candidate(price=2000.0)
-    worker_segs = {
-        "fbs": {"leq_1500": 12.0, "leq_5000": 14.0, "gt_5000": 18.0},
-        "fbo": {},
-        "source": "cache",
-    }
-    with mock.patch("scripts.lib.ozon_discovery._query_commission_from_worker",
-                    return_value=worker_segs) as m_c:
+    captured = {}
+
+    def _fake_batch(items):
+        captured["items"] = items
+        return [{
+            "ok": True, "profit_rate": 0.2, "commission_rate": 0.14,
+            "commission_source": "segments:leq_5000", "profit_cny": 5.0,
+            "logistics_cost_cny": 6.0, "price": 100, "logistics_source": "store",
+        }]
+
+    with mock.patch.object(od, "estimate_batch", side_effect=_fake_batch):
         od._calculate_profit(cand, fx_rate=0.08)
-    m_c.assert_called_once_with("17028892")
+    assert cand.estimate_source == "worker"
+    assert cand.commission_source == "segments:leq_5000"
     assert cand.estimated_commission == pytest.approx(cand.ozon_price * 0.08 * 0.14), \
-        f"应使用 worker leq_5000 段 14%, got {cand.estimated_commission}"
+        f"应使用 worker 回填的 14%, got {cand.estimated_commission}"
+    # 候选 dc / currency 透传进 batch item（worker 侧 resolver 消费）
+    item = captured["items"][0]
+    assert item["dc"] == "17028892"
+    assert item["currency_code"] == "RUB"
 
 
-# ── ⑤ _calculate_profit：本地分段 → 默认 12/14/18 ───────────────────
+# ── ⑤ _calculate_profit：候选本地分段落进 batch item ──────────────────
 
-def test_calculate_profit_fallback_local_segments_then_defaults():
-    """worker 不可达 → 本地候选分段；两者皆无 → 默认分段 12/14/18。"""
-    _clear_commission_caches()
-    # worker None + 候选无分段 → 默认：8000₽ → gt_5000 段 18%
-    cand = _mk_candidate(price=8000.0)
-    with mock.patch("scripts.lib.ozon_discovery._query_commission_from_worker",
-                    return_value=None):
+def test_calculate_profit_carries_candidate_segments():
+    """候选本地分段 → batch item commission_segments（fbs/fbo）。"""
+    cand = _mk_candidate(price=1200.0)
+    cand.commission_rfbs_segments = {"leq_1500": 10.0, "leq_5000": 11.0, "gt_5000": 12.0}
+    cand.commission_fbp_segments = {"leq_1500": 9.0}
+    captured = {}
+
+    def _fake_batch(items):
+        captured["items"] = items
+        return [{
+            "ok": True, "profit_rate": 0.1, "commission_rate": 0.10,
+            "commission_source": "segments:leq_1500", "profit_cny": 1.0,
+            "logistics_cost_cny": 2.0, "price": 10, "logistics_source": "store",
+        }]
+
+    with mock.patch.object(od, "estimate_batch", side_effect=_fake_batch):
         od._calculate_profit(cand, fx_rate=0.08)
-    assert cand.estimated_commission == pytest.approx(cand.ozon_price * 0.08 * 0.18), \
-        f"默认应取 gt_5000 段 18%, got {cand.estimated_commission}"
-
-    # worker None + 候选有本地分段 → 本地：1200₽ → leq_1500 段 10%
-    cand2 = _mk_candidate(price=1200.0)
-    cand2.commission_rfbs_segments = {"leq_1500": 10.0, "leq_5000": 11.0, "gt_5000": 12.0}
-    with mock.patch("scripts.lib.ozon_discovery._query_commission_from_worker",
-                    return_value=None):
-        od._calculate_profit(cand2, fx_rate=0.08)
-    assert cand2.estimated_commission == pytest.approx(cand2.ozon_price * 0.08 * 0.10), \
-        f"应使用本地 leq_1500 段 10%, got {cand2.estimated_commission}"
+    segs = captured["items"][0]["commission_segments"]
+    assert segs["fbs"]["leq_1500"] == 10.0
+    assert segs["fbo"]["leq_1500"] == 9.0
 
 
 if __name__ == "__main__":

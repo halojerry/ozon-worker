@@ -30,8 +30,9 @@ import 补 4191+11254 后卡分实测 42-57 → 90+。
 from __future__ import annotations
 
 import json
+import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # old_price 唯一规则（v0.81.1 收敛）：常量与实现在 utils/pricing_estimate，
 # 此处 re-export 既有名字保持兼容（clamp_old_price 薄转发同一出口）。
@@ -40,6 +41,8 @@ from utils.pricing_estimate import (
     MIN_OLD_PRICE_GAP,
     enforce_old_price_rule,
 )
+
+logger = logging.getLogger(__name__)
 
 # 评级阈值：>= 90 视为优秀，复检闭环不再动作
 RATING_THRESHOLD = 90.0
@@ -51,6 +54,24 @@ RICH_CONTENT_ATTR_ID = 11254
 MEDIA_ATTR_IDS = frozenset({21841, 21845, 4195})
 # Rich content 取前 4 张图（实机验证口径）
 RICH_CONTENT_MAX_IMAGES = 4
+
+# ── v0.83 批② 4191 撰写链（feat/desc-4191-authoring-v1）─────────────
+# Ozon 内容评级对 Аннотация(4191) 有两级文本分：>100 字符 +25、>500 字符 +25。
+# 目标区间 500–1500 字符（<100 视为无分，validate 拦截）。
+ANNOTATION_HARD_MIN = 100      # 硬下限（<100 无评级分，validate 拦截线）
+ANNOTATION_TARGET_MIN = 500    # 满分线（>500 满文本分）
+ANNOTATION_TARGET_MAX = 1500   # 撰写目标上限（超长截断）
+AUTHOR_MAX_DRAFT_ATTRS = 40    # 喂给撰写的 draft 中文属性条数上限
+AUTHOR_MAX_SOURCE_CHARS = 5000  # 喂给撰写的 1688 详情文本字符上限
+VISION_MAX_IMAGES = 4          # vision 真图上限（call_mxou_chat_api 契约 ≤4）
+
+# vision 图源标记（写进 marks.vision_image_source 留痕）：
+#   mirror_draft = 草稿原图的本方 COS 1:1 镜像（draft-images/ 前缀，submit 时落 COS）
+#   ai_generated = 已生成的本方 AI 营销图（file/images/ 或 mxou-b64/ 前缀）
+#   none         = 两类都不可达 → 不带 vision
+VISION_SOURCE_MIRROR = "mirror_draft"
+VISION_SOURCE_AI = "ai_generated"
+VISION_SOURCE_NONE = "none"
 
 _CJK_RE = re.compile(r"[\u2e80-\u2eff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -133,6 +154,11 @@ def _translate_zh_value(value: str) -> str:
         if zh in v:
             return _ZH_VALUE_RU[zh]
     return ""
+
+
+def translate_zh_value(value: str) -> str:
+    """公开入口：中文属性值 → 俄语确定性映射（映射不到返回空串，绝不编造）。"""
+    return _translate_zh_value(value)
 
 
 def enrichment_enabled() -> bool:
@@ -234,19 +260,94 @@ def _first_int(value: Any) -> Optional[int]:
     return int(m.group()) if m else None
 
 
-def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
-    """确定性生成 Rich-контент JSON（属性 11254）。
+# ── v0.83.1 N1（fix/rich-content-format-v083）: 11254 Ozon 实收 schema 小抄 ──
+#
+# 2026-09-28 实机 gate 重跑（REPORT-v083-rerun.md N1）实锤：旧构造器产
+# {"content":[{"widgetName":"raShowcase","type":"chess","blocks":[{"img":{...}}]}]}
+# 被 Ozon 全量拒 `invalid_rich_content_json`（Rich-контент JSON не соответствует
+# шаблону），导致**所有保留 11254 的 CREATE 卡无法过审**（0 completed 的 P0 根因）。
+#
+# schema 来源于两个已验证来源（逐块提取，非猜测）：
+#   ① 本店真实 approved 卡 11254 值 ×15（skill/data/audit_4718259_20260926.json）；
+#   ② 官方发货模板 worker/assets/offer_description*.json（4 份）。
+# 逐块字段清单（每个字段名均在真卡/模板中出现过）：
+#
+#   根对象：{"content": [<widget>, ...], "version": 0.3}
+#     - `version` 是**强制根键**（15/15 真卡 + 4/4 官方模板均为 0.3）；
+#       缺它 = Ozon 全量拒（本轮 P0 直接根因）。
+#
+#   widget：{"widgetName": "raShowcase", "type": <块型>, "blocks": [<block>, ...]}
+#     - 块型枚举（真卡实测均在售过审）：
+#         · `roll`      —— 单图/多图横滑，position=width_full（真卡 5830685285 6 widgets
+#                          各 1 block；5874824242 1 widget 2 blocks）；
+#         · `chess`     —— 图文交错，position=to_the_edge（真卡 5837014560）；
+#         · `billboard` —— 大图横幅（真卡 5874832646）；
+#         · `tileXL`    —— 官方模板块型（position=to_the_edge）。
+#       ⚠️ 旧构造器把块型/位置写成 chess+to_the_edge 本身**不是**拒绝根因（chess 在
+#       真卡过审过）——拒绝根因是缺根 `version` 与缺 img 必需字段（下）。
+#
+#   block（每块字段）：
+#     - 图片轮播（roll）：{"imgLink": "", "img": {<img>}}（必有 imgLink，真卡恒空串）；
+#     - 图文（chess/billboard）：{"imgLink", "img", "title", "text"[, "reverse"]}；
+#       title/text 结构见 offer_description.json（items[{type,content}] + size/align/color）。
+#
+#   img（每张图的必需子对象——真卡恒含这 7 键，缺字段即不符合模板）：
+#     {"src", "srcMobile", "alt", "position", "positionMobile",
+#      "widthMobile", "heightMobile"}
+#     - src/srcMobile：同 URL（PC 与手机展示，真卡两键相同）；
+#     - alt：字符串（真卡可为 ""）；
+#     - position/positionMobile：roll/billboard → "width_full"；chess/tileXL → "to_the_edge"；
+#     - widthMobile/heightMobile：手机渲染框像素（正整数）。真卡实例：1594×986、
+#       1672×941、900×1200、官方模板 3232×3232——**任一正整数均可**，故给安全默认
+#       1594×986（逐字抄自我们自己过审的 roll 卡），env 可覆盖。
+#
+# 本管线出口策略：**每张图一个 roll widget**（真卡 5830685285 同型，最保守），
+# position=width_full；imgLink 空串；前 RICH_CONTENT_MAX_IMAGES 张。
+_RICH_CONTENT_FORMAT_ENV = "RICH_CONTENT_FORMAT"
+_RICH_CONTENT_DISABLE_ENV = "RICH_CONTENT_DISABLE"
+_LEGACY_RICH_FORMAT = "v1"
+_RICH_CONTENT_VERSION = 0.3
+_RICH_MOBILE_W_DEFAULT = 1594
+_RICH_MOBILE_H_DEFAULT = 986
 
-    结构为 2026-09-26 真实卡验证有效口径（raShowcase / chess / img 块、
-    position=to_the_edge），前 4 张图；json.dumps ensure_ascii=False。
-    有效图 < 2 张返回 None（chess 最低 2 blocks，不强造）。
+
+def rich_content_disabled() -> bool:
+    """逃生门 RICH_CONTENT_DISABLE=1：11254 整个跳过不填（宁缺毋滥——发不了
+    rich 不该挡住整卡过审）。"""
+    import os
+
+    return os.getenv(_RICH_CONTENT_DISABLE_ENV, "0").strip() == "1"
+
+
+def rich_content_format() -> str:
+    """env RICH_CONTENT_FORMAT：默认 v2（Ozon 实收 schema）；=v1 回滚旧格式。"""
+    import os
+
+    return os.getenv(_RICH_CONTENT_FORMAT_ENV, "v2").strip().lower() or "v2"
+
+
+def _rich_mobile_dims() -> Tuple[int, int]:
+    """手机渲染框默认值（env 可覆盖；非法/非正数回退默认）。"""
+    import os
+
+    def _int(name: str, dflt: int) -> int:
+        try:
+            val = int(os.getenv(name, "") or dflt)
+            return val if val > 0 else dflt
+        except (TypeError, ValueError):
+            return dflt
+
+    return _int("RICH_CONTENT_MOBILE_W", _RICH_MOBILE_W_DEFAULT), _int(
+        "RICH_CONTENT_MOBILE_H", _RICH_MOBILE_H_DEFAULT
+    )
+
+
+def _build_rich_json_v1(imgs: List[str], title_ru: str) -> str:
+    """回滚格式（RICH_CONTENT_FORMAT=v1）：v0.83 旧 chess/to_the_edge 口径逐字保持。
+
+    ⚠️ 该格式已被 Ozon 全量拒（缺根 version + 缺 imgLink/widthMobile/heightMobile），
+    仅作紧急回滚逃生口保留，勿作默认。
     """
-    imgs: List[str] = []
-    for img in images or []:
-        if isinstance(img, str) and img.strip() and img.strip() not in imgs:
-            imgs.append(img.strip())
-    if len(imgs) < 2:
-        return None
     blocks = [
         {
             "img": {
@@ -261,6 +362,541 @@ def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
     ]
     payload = {"content": [{"widgetName": "raShowcase", "type": "chess", "blocks": blocks}]}
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_rich_json_v2(imgs: List[str], title_ru: str) -> str:
+    """Ozon 实收 schema（默认）：根 version + 每图一个 roll widget，img 7 键齐全。"""
+    alt = _norm_text(_strip_cjk(str(title_ru or "")))[:120]
+    width_mobile, height_mobile = _rich_mobile_dims()
+    widgets: List[Dict[str, Any]] = []
+    for url in imgs[:RICH_CONTENT_MAX_IMAGES]:
+        widgets.append({
+            "widgetName": "raShowcase",
+            "type": "roll",
+            "blocks": [{
+                "imgLink": "",
+                "img": {
+                    "src": url,
+                    "srcMobile": url,
+                    "alt": alt,
+                    "position": "width_full",
+                    "positionMobile": "width_full",
+                    "widthMobile": width_mobile,
+                    "heightMobile": height_mobile,
+                },
+            }],
+        })
+    payload = {"content": widgets, "version": _RICH_CONTENT_VERSION}
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_rich_json(images: List[str], title_ru: str) -> Optional[str]:
+    """确定性生成 Rich-контент JSON（属性 11254）。
+
+    默认走 Ozon 实收 schema（见本模块 N1 schema 小抄注释）：根
+    `{"content":[...], "version":0.3}` + 每图一个 `roll` widget（width_full），
+    img 7 必需字段齐全；前 RICH_CONTENT_MAX_IMAGES 张图；json.dumps ensure_ascii=False。
+
+    逃生门：
+    - `RICH_CONTENT_DISABLE=1` → 恒 None（11254 整个跳过，不挡整卡过审）；
+    - `RICH_CONTENT_FORMAT=v1` → 回滚 v0.83 旧 chess 格式（缺 version，已被 Ozon 拒）。
+
+    有效图 < 2 张返回 None（不强造）。
+    """
+    if rich_content_disabled():
+        return None
+    imgs: List[str] = []
+    for img in images or []:
+        if isinstance(img, str) and img.strip() and img.strip() not in imgs:
+            imgs.append(img.strip())
+    if len(imgs) < 2:
+        return None
+    if rich_content_format() == _LEGACY_RICH_FORMAT:
+        return _build_rich_json_v1(imgs, title_ru)
+    return _build_rich_json_v2(imgs, title_ru)
+
+
+# ── v0.83 批②：4191 撰写链（唯一来源）──────────────────────────
+
+
+_CYRILLIC_RE = re.compile(r"[а-яёА-ЯЁ]")
+_NUM_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_TAGLESS_RE = re.compile(r"<[^>]+>")
+_LI_ITEM_RE = re.compile(r"<li\b[^>]*>.*?</li>", re.DOTALL | re.IGNORECASE)
+_P_BLOCK_RE = re.compile(r"<p\b[^>]*>.*?</p>", re.DOTALL | re.IGNORECASE)
+_TAG_SPLIT_RE = re.compile(r"(<[^>]+>)")
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+")
+_HTML_STRUCT_RE = re.compile(r"<(p|ul|ol|li|b|strong|br)\b", re.IGNORECASE)
+
+
+def _has_cyrillic(text: str) -> bool:
+    return bool(_CYRILLIC_RE.search(str(text or "")))
+
+
+def _tagless(text: Any) -> str:
+    return re.sub(r"\s+", " ", _TAGLESS_RE.sub(" ", str(text or ""))).strip()
+
+
+def _plain_len(text: Any) -> int:
+    """4191 值的正文字符数（剔 HTML 标签）。"""
+    return len(_tagless(text))
+
+
+def _num_key(token: Any) -> str:
+    """数字 token 归一化：只留数字、去前导零（'100'→'100'，'01.5'→'15'）。"""
+    digits = re.sub(r"\D", "", str(token or ""))
+    return digits.lstrip("0") or "0"
+
+
+def extract_numbers(text: Any) -> List[str]:
+    """抽取文本中所有数字 token（含小数，逗号/点皆认）。"""
+    return _NUM_TOKEN_RE.findall(str(text or ""))
+
+
+# ✅ v0.83 gate B4: 重量 token 单位识别（kg/кг 与 g/г 双向归一，只归一不改数值）。
+_WEIGHT_UNIT_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(kg|кг|kilogram\w*|килограмм\w*|g|г|gram\w*|грамм\w*)",
+    re.IGNORECASE,
+)
+_KG_UNIT_PREFIXES = ("kg", "кг", "kilogram", "килограмм")
+
+
+def _collect_evidence_texts(value: Any) -> str:
+    """把嵌套 dict/list/标量摊平为空格分隔文本（1688 规格表/SKU 明细结构宽松）。
+
+    gate B4：packagingRows（规格表行）/skuDetails（SKU 明细）是结构化对象，逐层摊平
+    后抽数字——键名与值都进证据集（如 {"lengthText": "9.6"} → 9.6 可溯）。
+    """
+    parts: List[str] = []
+
+    def _walk(v: Any) -> None:
+        if v is None:
+            return
+        if isinstance(v, dict):
+            for k, sub in v.items():
+                parts.append(str(k))
+                _walk(sub)
+        elif isinstance(v, (list, tuple, set)):
+            for sub in v:
+                _walk(sub)
+        elif isinstance(v, str) and v.strip():
+            parts.append(v)
+        elif isinstance(v, (int, float)):
+            parts.append(str(v))
+
+    _walk(value)
+    return " ".join(parts)
+
+
+def _add_weight_unit_keys(text: Any, keys: set) -> None:
+    """重量 token 的单位归一：kg/кг ×1000 → 克，把归一值补进证据集。
+
+    「0.1 кг」与「100 г」等价（同 g）；撰写侧写 100 г 而证据侧只留 0.1 кг 时，
+    归一值 100 使锚定闸不误剥。**只做单位归一、不做数值容差**——120 ≠ 121，
+    仍按未锚定剥除（宁剥勿放）。非整数结果不补（避免引入精度假设）。
+    """
+    for m in _WEIGHT_UNIT_RE.finditer(str(text or "")):
+        try:
+            val = float(m.group(1).replace(",", "."))
+        except ValueError:
+            continue
+        unit = m.group(2).lower()
+        grams = val * 1000 if unit.startswith(_KG_UNIT_PREFIXES) else val
+        if grams > 0 and abs(grams - round(grams)) < 1e-6:
+            keys.add(str(round(grams)))
+
+
+def collect_evidence_keys(
+    *,
+    draft_attrs: Optional[Dict[str, Any]] = None,
+    final_attributes: Optional[List[Dict[str, Any]]] = None,
+    weight_g: Any = 0,
+    dims_mm: Optional[Dict[str, Any]] = None,
+    description: str = "",
+    extra_texts: Optional[List[Any]] = None,
+    packaging_rows: Optional[List[Any]] = None,
+    packaging_table_text: str = "",
+    sku_details: Optional[List[Any]] = None,
+    gross_weight_g: Any = 0,
+    final_weight_g: Any = 0,
+    final_dims_mm: Optional[Dict[str, Any]] = None,
+) -> set:
+    """数字事实锚定的证据集：draft 中文属性值 + 归一 RU 属性值 + 重量/尺寸 +
+    1688 详情原文 + 1688 规格表/SKU 明细/毛重箱规 + 额外文本，全部抽数字归一成
+    key 集合。
+
+    ✅ v0.83 gate B4：补入 `packagingRows`/`packagingTableText`/`skuDetails`（信封
+    携带的 1688 规格表与 SKU 明细）与毛重/箱规数值——此前规格表真实值（如尺寸
+    9.6*7*4.5、箱规 500 件、毛重）不在证据集 → 撰写引用即被误剥/或漏锚。重量
+    token 做 kg/кг↔g 单位归一（只归一不改数值，无容差）。
+
+    ✅ v0.83.1 B4-evidence（fix/rich-content-format-v083）：补入**管线内最终真值**
+    `final_weight_g`/`final_dims_mm`——即 prepare 侧 reconcile（箱级毛重回收）+
+    体积密度兜底（ensure_volume_weight_floor，cap 原值×3）**之后**、将要写进卡面
+    的重量与尺寸。实机 gate 重跑取证：4191 写出的 `Вес: 121 г` 是 100g→121g 体积
+    兜底结果（1688 无重量，毛重 160g 未被采用），该数字必须可溯且不被锚定闸剥除
+    ——它是 worker 管线内真值，比 1688 毛重更接近最终卡面声明。与 `weight_g`/
+    `dims_mm` 的区别仅在语义标注（后者是调用方传入的裁决输入；本组是由 prepare
+    显式声明「这是 guard 之后的值」，防未来重排调用顺序时静默丢锚）。
+
+    4191 出口的任何数字 token 必须命中本集合（否则剥除）——撰写 ≠ 编造规格。
+    """
+    keys: set = set()
+    texts: List[Any] = []
+
+    def _add(value: Any) -> None:
+        if value is None:
+            return
+        for tok in extract_numbers(value):
+            keys.add(_num_key(tok))
+
+    for value in (draft_attrs or {}).values():
+        _add(value)
+        texts.append(value)
+    for attr in (final_attributes or []):
+        if not isinstance(attr, dict):
+            continue
+        _add(attr.get("value"))
+        texts.append(attr.get("value"))
+        values = attr.get("values")
+        if isinstance(values, list):
+            for item in values:
+                if isinstance(item, dict):
+                    _add(item.get("value"))
+                    texts.append(item.get("value"))
+    # ✅ v0.83 gate B4: 1688 规格表/SKU 明细（结构化摊平）/毛重箱规进证据集
+    for _struct in (packaging_rows, sku_details):
+        if _struct:
+            _flat = _collect_evidence_texts(_struct)
+            _add(_flat)
+            texts.append(_flat)
+    if packaging_table_text:
+        _add(packaging_table_text)
+        texts.append(packaging_table_text)
+    if gross_weight_g:
+        _add(gross_weight_g)
+        texts.append(gross_weight_g)
+    if weight_g:
+        _add(weight_g)
+        texts.append(weight_g)
+    # ✅ v0.83.1 B4-evidence: 管线内最终真值（reconcile + 体积兜底之后）显式进证据集
+    if final_weight_g:
+        _add(final_weight_g)
+        texts.append(final_weight_g)
+    for value in (final_dims_mm or {}).values():
+        _add(value)
+        texts.append(value)
+    for value in (dims_mm or {}).values():
+        _add(value)
+        texts.append(value)
+    _add(description)
+    texts.append(description)
+    for text in (extra_texts or []):
+        _add(text)
+        texts.append(text)
+    # 单位归一（kg/кг → g；只归一不改数值，无容差）
+    for text in texts:
+        _add_weight_unit_keys(text, keys)
+    return keys
+
+
+def enforce_number_anchoring(html: str, evidence_keys: set) -> Tuple[str, List[str]]:
+    """数字事实锚定硬闸：剥除含「证据集外数字」的断言/整段。
+
+    粒度：① <li> 项含未锚定数字 → 删该项；② <p> 段含未锚定数字 → 删该段；
+    ③ 其它裸文本按句（.!?; 边界）切分，含未锚定数字的句子删除。
+    返回 (cleaned_html, 被剥除的数字 token 列表)。证据集为空 → 所有数字都被剥。
+    """
+    if not html:
+        return html, []
+    stripped: List[str] = []
+
+    def _bad_numbers(text: str) -> List[str]:
+        return [tok for tok in extract_numbers(text) if _num_key(tok) not in evidence_keys]
+
+    # ① <li>
+    def _li_repl(match: re.Match) -> str:
+        bad = _bad_numbers(_tagless(match.group(0)))
+        if bad:
+            stripped.extend(bad)
+            return ""
+        return match.group(0)
+
+    out = _LI_ITEM_RE.sub(_li_repl, html)
+
+    # ② <p>
+    def _p_repl(match: re.Match) -> str:
+        bad = _bad_numbers(_tagless(match.group(0)))
+        if bad:
+            stripped.extend(bad)
+            return ""
+        return match.group(0)
+
+    out = _P_BLOCK_RE.sub(_p_repl, out)
+
+    # ③ 标签外裸文本 → 按句
+    parts = _TAG_SPLIT_RE.split(out)
+    rebuilt: List[str] = []
+    for part in parts:
+        if part.startswith("<"):
+            rebuilt.append(part)
+            continue
+        kept: List[str] = []
+        for sent in _SENT_SPLIT_RE.split(part):
+            bad = _bad_numbers(sent)
+            if bad:
+                stripped.extend(bad)
+                continue
+            kept.append(sent)
+        rebuilt.append(" ".join(kept))
+    out = "".join(rebuilt)
+
+    # 清理：空 <ul> 容器 / 空白
+    out = re.sub(r"<ul>\s*</ul>", "", out, flags=re.IGNORECASE)
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out, stripped
+
+
+def build_description_prompt(
+    product_name: str,
+    draft_attrs: Optional[Dict[str, Any]] = None,
+    *,
+    final_attributes: Optional[List[Dict[str, Any]]] = None,
+    draft_description: str = "",
+    weight_g: Any = 0,
+    dims_mm: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    """构造 4191 撰写 prompt（system, user）。
+
+    证据面：draft 中文属性（≤40）+ 归一 RU 属性值 + 重量/尺寸 + 1688 详情原文（≤5000）。
+    硬约束：只允许使用「Данные」块里字面存在的数字/规格，禁止引入证据外数字。
+    """
+    system = (
+        "Ты профессиональный копирайтер карточек товаров для Ozon.\n"
+        "Напиши описание товара на русском языке с HTML-разметкой.\n"
+        "СТРУКТУРА (строго):\n"
+        "1) <p> — 1-2 предложения, что это за товар и для чего.\n"
+        "2) <b>Характеристики:</b><ul><li>параметр: значение</li>...</ul> — "
+        "только параметры из блока «Данные».\n"
+        "3) <p> — сценарий использования / преимущества.\n"
+        "ЖЁСТКИЕ ПРАВИЛА:\n"
+        "- КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО придумывать числа и характеристики, "
+        "которых нет в блоке «Данные».\n"
+        "- Любое число (размер, вес, количество, мощность, объём, срок) допустимо "
+        "ТОЛЬКО если оно буквально присутствует в «Данные».\n"
+        "- Не используй латиницу (английские слова), ссылки, email, телефоны.\n"
+        "- Не добавляй название товара отдельной строкой в начало.\n"
+        "- Общая длина: 500-1500 символов."
+    )
+    lines: List[str] = []
+    for idx, (key, value) in enumerate((draft_attrs or {}).items()):
+        if idx >= AUTHOR_MAX_DRAFT_ATTRS:
+            break
+        k = str(key or "").strip()
+        v = str(value or "").strip()
+        if k and v:
+            lines.append(f"- {k}: {v}")
+    for attr in (final_attributes or []):
+        if not isinstance(attr, dict):
+            continue
+        name = str(attr.get("name") or attr.get("attribute_name") or attr.get("id") or "").strip()
+        value = str(attr.get("value") or "").strip()
+        if name and value and value not in {ln.split(": ", 1)[-1] for ln in lines}:
+            lines.append(f"- {name}: {value}")
+    if weight_g:
+        lines.append(f"- Вес: {weight_g} г")
+    for label, key in (("Длина", "length"), ("Ширина", "width"), ("Высота", "height")):
+        val = (dims_mm or {}).get(key)
+        if val:
+            lines.append(f"- {label}: {val} мм")
+    src = str(draft_description or "").strip()[:AUTHOR_MAX_SOURCE_CHARS]
+    if src:
+        lines.append(f"- Исходное описание (китайский, только для смысла): {src}")
+    user = f"Товар: {str(product_name or '').strip()}\n\nДанные (только отсюда можно брать факты):\n" + "\n".join(lines)
+    return system, user
+
+
+def select_vision_images(
+    draft_images: Optional[List[Any]],
+    ai_images: Optional[List[Any]],
+    limit: int = VISION_MAX_IMAGES,
+) -> Tuple[List[str], str]:
+    """按真实可达性选 vision 真图源，返回 (urls, source_label)。
+
+    优先级（改前先看镜像时序：submit 时 `_ensure_images_mirrored_for_submit` 把
+    draft.images 换成本方 COS 的 `draft-images/` 1:1 镜像）：
+      ① 本方 COS 草稿原图镜像（classify=="mirror_draft"）——可达且非二次编造；
+      ② 已生成 AI 图（classify=="ai"，COS 可达、画的是本商品）；
+      ③ 都不可得 → ([], VISION_SOURCE_NONE)。
+    外链（alicdn 等未镜像）不入选——vision 模型拉不到。
+    """
+    from utils.image_source import classify_image_source
+
+    mirrored: List[str] = []
+    ai: List[str] = []
+    for url in (draft_images or []):
+        if isinstance(url, str) and url.strip() and classify_image_source(url) == "mirror_draft":
+            if url not in mirrored:
+                mirrored.append(url)
+    for url in (ai_images or []):
+        if isinstance(url, str) and url.strip() and classify_image_source(url) == "ai":
+            if url not in ai:
+                ai.append(url)
+    if mirrored:
+        return mirrored[:limit], VISION_SOURCE_MIRROR
+    if ai:
+        return ai[:limit], VISION_SOURCE_AI
+    return [], VISION_SOURCE_NONE
+
+
+def _wrap_paragraph(text: str) -> str:
+    t = str(text or "").strip()
+    if not t:
+        return ""
+    if _HTML_STRUCT_RE.search(t):
+        return t
+    return f"<p>{t}</p>"
+
+
+def author_annotation(
+    *,
+    title_ru: str,
+    draft_attrs: Optional[Dict[str, Any]] = None,
+    final_attributes: Optional[List[Dict[str, Any]]] = None,
+    draft_description: str = "",
+    weight_g: Any = 0,
+    dims_mm: Optional[Dict[str, Any]] = None,
+    token: str = "",
+    image_urls: Optional[List[str]] = None,
+    vision_source: str = VISION_SOURCE_NONE,
+    box_reviewed: bool = False,
+    packaging_rows: Optional[List[Any]] = None,
+    packaging_table_text: str = "",
+    sku_details: Optional[List[Any]] = None,
+    gross_weight_g: Any = 0,
+    final_weight_g: Any = 0,
+    final_dims_mm: Optional[Dict[str, Any]] = None,
+    llm: Optional[Callable[[str, str, Optional[List[str]]], Optional[str]]] = None,
+    translate: Optional[Callable[[str], Optional[str]]] = None,
+    sanitize: Optional[Callable[[str], str]] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    """4191 撰写链唯一编排（纯函数；LLM/翻译/净化经注入，零网络依赖）。
+
+    降级链：撰写(LLM) → 翻译用户/1688 原文 → build_annotation 确定性句 →
+    通用句最后兜底（build_annotation 内置），并置 marks.description_fallback=True。
+
+    红线：
+    - 数字锚定硬闸只作用于 LLM 产物（用户文本/确定性兜底不剥——用户原文即证据）；
+    - box_reviewed 且用户写了描述 → 只翻译/sanitize，绝不 LLM 重写（采集箱即权威）；
+    - `MxouOutOfQuotaError` 向上抛（永久错误）；`MxouContentViolationError` 显式
+      catch 走降级链（不重试、不 fail）。
+
+    返回 (html, marks)。marks 含 description_source / description_fallback /
+    vision_image_source / numbers_stripped。
+    """
+    marks: Dict[str, Any] = {
+        "vision_image_source": vision_source,
+        "description_source": "",
+        "description_fallback": False,
+        "numbers_stripped": [],
+    }
+    _sanitize = sanitize or (lambda t: str(t or ""))
+    _ContentViolation, _OutOfQuota = _mxou_error_types()
+    evidence_keys = collect_evidence_keys(
+        draft_attrs=draft_attrs,
+        final_attributes=final_attributes,
+        weight_g=weight_g,
+        dims_mm=dims_mm,
+        description=draft_description,
+        packaging_rows=packaging_rows,
+        packaging_table_text=packaging_table_text,
+        sku_details=sku_details,
+        gross_weight_g=gross_weight_g,
+        final_weight_g=final_weight_g,
+        final_dims_mm=final_dims_mm,
+    )
+    user_text = str(draft_description or "").strip()
+
+    # ① box_reviewed + 用户写了描述 → 只翻译/sanitize（绝不 LLM 重写）
+    if box_reviewed and user_text:
+        text = user_text
+        if not _has_cyrillic(text) and translate is not None:
+            try:
+                text = translate(text) or user_text
+            except Exception as exc:
+                if _OutOfQuota is not None and isinstance(exc, _OutOfQuota):
+                    raise
+                logger.warning("4191 box_reviewed 用户文本翻译失败，回落原文: %s", exc)
+                text = user_text
+        html = _sanitize(_wrap_paragraph(text))
+        if html and _plain_len(html) >= ANNOTATION_HARD_MIN:
+            marks["description_source"] = "user_text"
+            return html, marks
+
+    # ② LLM 撰写（box_reviewed 且无描述 → 允许；有描述已在上方返回）
+    if token and llm is not None:
+        system, user = build_description_prompt(
+            title_ru, draft_attrs,
+            final_attributes=final_attributes,
+            draft_description=draft_description,
+            weight_g=weight_g,
+            dims_mm=dims_mm,
+        )
+        raw: Optional[str] = None
+        try:
+            raw = llm(system, user, list(image_urls or [])[:VISION_MAX_IMAGES] or None)
+        except Exception as exc:
+            if _OutOfQuota is not None and isinstance(exc, _OutOfQuota):
+                raise
+            if _ContentViolation is not None and isinstance(exc, _ContentViolation):
+                logger.warning("4191 撰写内容违规（不重试，走降级链）: %s", exc)
+            else:
+                logger.warning("4191 LLM 撰写失败，走降级链: %s", exc)
+            raw = None
+        if raw:
+            cand = _sanitize(str(raw))
+            cand, stripped = enforce_number_anchoring(cand, evidence_keys)
+            marks["numbers_stripped"] = stripped
+            if cand and _plain_len(cand) >= ANNOTATION_HARD_MIN and _has_cyrillic(cand):
+                marks["description_source"] = "llm_authored"
+                return cand, marks
+
+    # ③ 降级：翻译 1688/用户原文（需 token；无 token 直接走确定性兜底）
+    if token and user_text and translate is not None:
+        try:
+            translated = user_text if _has_cyrillic(user_text) else (translate(user_text) or "")
+        except Exception as exc:
+            if _OutOfQuota is not None and isinstance(exc, _OutOfQuota):
+                raise
+            logger.warning("4191 降级翻译失败: %s", exc)
+            translated = ""
+        if translated:
+            html = _sanitize(_wrap_paragraph(translated))
+            if html and _plain_len(html) >= ANNOTATION_HARD_MIN:
+                marks["description_source"] = "translated_source"
+                marks["description_fallback"] = True
+                return html, marks
+
+    # ④ 确定性兜底（build_annotation 内部含通用句最后兜底）
+    html = build_annotation(title_ru, draft_attrs or {})
+    marks["description_source"] = "build_annotation"
+    marks["description_fallback"] = True
+    return html, marks
+
+
+def _mxou_error_types() -> Tuple[Optional[type], Optional[type]]:
+    """惰性取 mxou 永久错误类型（避免本模块 import 期依赖网络库）。"""
+    try:
+        from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError
+
+        return MxouContentViolationError, MxouOutOfQuotaError
+    except Exception:
+        return None, None
+
+
+def annotation_needs_regen(card_value: Any) -> bool:
+    """卡上 4191 是否值得重生成：缺失 / 正文 <500 字符（未满文本分）。"""
+    return _plain_len(card_value) < ANNOTATION_TARGET_MIN
 
 
 # ── 评级响应解析 ──────────────────────────────────────────────
@@ -626,6 +1262,7 @@ def build_enrich_update_body(
     currency_code: str = "CNY",
     vat: Any = None,
     images360: Optional[List[Any]] = None,
+    allow_annotation_replace: bool = False,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """构造评分驱动的 /v3/product/import UPDATE body（全量回显 + 新填属性）。
 
@@ -640,10 +1277,13 @@ def build_enrich_update_body(
             /v4/product/info/prices 取。
         vat/images360: /v3/product/info/list 回显（v0.81.1 新参；可得则带回真实
             值，缺省省略键——绝不写死 vat="0"/空数组，见 _card_echo_base 留证）。
+        allow_annotation_replace: v0.83 批②——rating<90 且卡上 4191 正文 <500 字符
+            时允许用 build_annotation 重生成替换（仅当新产物更长或现值 < 硬下限
+            才替换，防降级）。调用方须先过 box_reviewed / 跟卖闸。
 
     Returns:
         (body, audit_partial)。body=None 表示不该动作（audit_partial.reason 说明）。
-        audit_partial: {filled, skipped, media_gap, reason?}——filled 含 4191/11254。
+        audit_partial: {filled, skipped, media_gap, replaced?, reason?}——filled 含 4191/11254。
     """
     audit: Dict[str, Any] = {"filled": [], "skipped": [], "media_gap": []}
     parts, reason = _card_echo_base(
@@ -667,13 +1307,27 @@ def build_enrich_update_body(
 
     new_attrs: List[Dict[str, Any]] = []
 
-    # ① 4191 简介：卡片缺失 或 Ozon 点名要求补 → 用 build_annotation 兜底
-    need_annotation = ANNOTATION_ATTR_ID in improves_by_id or not _card_value(ANNOTATION_ATTR_ID)
+    # ① 4191 简介：卡片缺失 或 Ozon 点名要求补 → build_annotation 兜底；
+    #    v0.83 批②新增：allow_annotation_replace 且现值过短（<500）→ 可替换重生成
+    #    （仅当新产物更长或现值 < 硬下限才替换，宁不动勿降级）。
+    existing_annotation = _card_value(ANNOTATION_ATTR_ID)
+    need_annotation = ANNOTATION_ATTR_ID in improves_by_id or not existing_annotation
+    replace_annotation = False
+    if not need_annotation and allow_annotation_replace and annotation_needs_regen(existing_annotation):
+        need_annotation = True
+        replace_annotation = True
     if need_annotation:
         annotation = build_annotation(str(stored_item.get("name") or ""), draft_attrs)
-        if annotation:
+        if annotation and (
+            not existing_annotation
+            or not replace_annotation
+            or _plain_len(annotation) > _plain_len(existing_annotation)
+            or _plain_len(existing_annotation) < ANNOTATION_HARD_MIN
+        ):
             new_attrs.append(_free_text_attr(ANNOTATION_ATTR_ID, annotation))
             audit["filled"].append(ANNOTATION_ATTR_ID)
+            if replace_annotation:
+                audit.setdefault("replaced", []).append(ANNOTATION_ATTR_ID)
 
     # ② 11254 Rich JSON：卡片缺失 或 点名要求补，且有 ≥2 图
     need_rich = RICH_CONTENT_ATTR_ID in improves_by_id or not _card_value(RICH_CONTENT_ATTR_ID)

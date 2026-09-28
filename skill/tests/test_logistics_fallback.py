@@ -1,12 +1,13 @@
-"""P1-5: 物流报价失败 → last-good 缓存 / 40kg 兜底 + 估算标记（TDD RED→GREEN）。
+"""P1-5: 物流报价失败 → last-good 缓存 + 鉴权 header（TDD RED→GREEN）。
 
-反馈：报价 API 失败时利润估算用 40 CNY/kg 平仓费率，与实际标价偏差大 ——
-估算必须标记为估算，并在 API 失败时优先复用 last-good 费率。
+v0.83 批①：算价走 worker batch 后，本地物流 helper（``_query_logistics_from_worker``）
+不再参与利润估算，但仍是 discover 直查物流费率表的唯一入口（cli/cloud_probe 复用）
+——本文件改为**直接测该 helper**（原经 _calculate_profit 的间接断言已随公式退役）。
 
 覆盖：
-1. API 失败 + last-good 命中（同重量带）→ 用缓存费率而非 40/kg；estimated=True。
-2. API 成功 → 真实费率；estimated=False；fallback_chain 透传。
-3. API 失败 + 无 last-good → 40/kg 兜底 + estimated=True。
+1. API 失败 + last-good 命中（同重量带）→ 用缓存费率；estimated=True。
+2. API 成功 → 真实费率；estimated=False；fallback_chain 透传 + 写 last-good。
+3. API 失败 + 无 last-good → None（调用方如实降级，不再本地假运费）。
 4. candidate.dimensions_mm（竞品尺寸）传入 → 请求体按 cm 转换。
 5. 无尺寸 → 请求体默认 10cm 立方（行为保持）。
 6. worker api-M4 鉴权收口联动 → 请求必须带 Authorization Bearer header。
@@ -25,7 +26,6 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.lib import ozon_discovery as od  # noqa: E402
-from scripts.lib.ozon_discovery import ProductCandidate  # noqa: E402
 
 
 class _FakeResp:
@@ -35,14 +35,6 @@ class _FakeResp:
 
     def json(self):
         return self._payload
-
-
-def _mk(weight_g=0, dims_mm=None, price=1000.0, cost=50.0):
-    c = ProductCandidate(ozon_product_id="p1", ozon_title="Товар", ozon_price=price)
-    c.match_1688_price = cost
-    c.weight_g = weight_g
-    c.dimensions_mm = dict(dims_mm) if dims_mm else {}
-    return c
 
 
 def _clear_caches():
@@ -65,21 +57,20 @@ def _patch_token(post=None):
     return stack
 
 
-# ── ① API 失败 + last-good 命中 → 用缓存费率（非 40/kg）───────────────────────
+# ── ① API 失败 + last-good 命中 → 用缓存费率 ──────────────────────────────────
 
 def test_api_fail_last_good_rate_used_not_flat():
     """API 失败 + 同重量带 last-good 命中 → 用缓存费率；estimated=True。"""
     _clear_caches()
     od._LAST_GOOD_LOGISTICS[500] = (18.5, time.time())  # 500g 带（250g 带宽）
-    cand = _mk(weight_g=550)
     with _patch_token():
-        od._calculate_profit(cand)
-    assert cand.estimated_logistics_cny == 18.5, "应复用 last-good 费率而非 40/kg"
-    assert cand.logistics_estimated is True
-    assert cand.logistics_fallback_chain == "last_good"
+        q = od._query_logistics_from_worker(550)
+    assert q is not None and q.cost == 18.5, "应复用 last-good 费率"
+    assert q.estimated is True
+    assert q.fallback_chain == "last_good"
 
 
-# ── ② API 成功 → 真实费率，非估算，fallback_chain 透传 ───────────────────────
+# ── ② API 成功 → 真实费率，非估算，fallback_chain 透传 + 写 last-good ─────────
 
 def test_api_success_real_rate_not_estimated():
     """API 成功 → 真实费率；estimated=False；fallback_chain/channel 透传。"""
@@ -89,34 +80,28 @@ def test_api_success_real_rate_not_estimated():
         "fallback_chain": ["default_weight_rate", "RETS_standard"],
         "channel": "RETS_Standard_fallback",
     })
-    cand = _mk(weight_g=1000)
     with _patch_token(post=lambda *a, **k: resp):
-        od._calculate_profit(cand)
-    assert cand.estimated_logistics_cny == 12.5
-    assert cand.logistics_estimated is False, "实时费率不算估算"
-    assert "RETS_standard" in cand.logistics_fallback_chain
+        q = od._query_logistics_from_worker(1000)
+    assert q is not None and q.cost == 12.5
+    assert q.estimated is False, "实时费率不算估算"
+    assert "RETS_standard" in q.fallback_chain
     assert od._LAST_GOOD_LOGISTICS.get(od._logistics_weight_band(1000))[0] == 12.5, \
         "API 成功后应写入 last-good 缓存供后续失败复用"
 
 
-# ── ③ API 失败 + 无 last-good → 40/kg 兜底 + estimated=True ──────────────────
+# ── ③ API 失败 + 无 last-good → None（如实降级）──────────────────────────────
 
-def test_api_fail_no_last_good_flat_fallback():
-    """API 失败 + 无 last-good → 40/kg 兜底；estimated=True。"""
+def test_api_fail_no_last_good_returns_none():
+    """API 失败 + 无 last-good → None（调用方无预估，不再本地假运费）。"""
     _clear_caches()
-    cand = _mk(weight_g=1000)
     with _patch_token():
-        od._calculate_profit(cand)
-    expected = max(8.0, cand.weight_g / 1000.0 * od.LOGISTICS_PER_KG_CNY)
-    assert cand.estimated_logistics_cny == expected
-    assert cand.logistics_estimated is True
-    assert cand.logistics_fallback_chain == "flat_per_kg_40"
+        assert od._query_logistics_from_worker(1000) is None
 
 
 # ── ④ 竞品尺寸传入 → 请求体按 cm 转换 ────────────────────────────────────────
 
 def test_competitor_dims_forwarded_as_cm():
-    """candidate.dimensions_mm 传入 → 请求体 depth/width/height_cm 为 mm/10。"""
+    """dims_mm 传入 → 请求体 depth/width/height_cm 为 mm/10。"""
     _clear_caches()
     resp = _FakeResp(payload={"logistics_cost_cny": 9.9})
     seen = {}
@@ -125,9 +110,8 @@ def test_competitor_dims_forwarded_as_cm():
         seen.update(json or {})
         return resp
 
-    cand = _mk(weight_g=800, dims_mm={"length": 200, "width": 150, "height": 100})
     with _patch_token(post=_capture):
-        od._calculate_profit(cand)
+        od._query_logistics_from_worker(800, dims_mm={"length": 200, "width": 150, "height": 100})
     assert seen.get("depth_cm") == 20.0
     assert seen.get("width_cm") == 15.0
     assert seen.get("height_cm") == 10.0
@@ -146,9 +130,8 @@ def test_default_dims_10cm_cube_when_none():
         seen.update(json or {})
         return resp
 
-    cand = _mk(weight_g=300)
     with _patch_token(post=_capture):
-        od._calculate_profit(cand)
+        od._query_logistics_from_worker(300)
     assert seen.get("depth_cm") == 10.0
     assert seen.get("width_cm") == 10.0
     assert seen.get("height_cm") == 10.0
@@ -157,13 +140,7 @@ def test_default_dims_10cm_cube_when_none():
 # ── ⑥ worker api-M4 后 Bearer 必填 → 请求必须带 Authorization header ─────────
 
 def test_bearer_header_sent_with_token():
-    """worker T10(api-M4) 鉴权收口联动：请求带 ``Authorization: Bearer <token>``。
-
-    worker `/api/v1/logistics/quote` 自 v0.76 起 Bearer 必填（``_require_bearer``，
-    无 header 401）——skill 端仍只发 body token 会被拒、静默降级 last-good/本地
-    估算（失去权威费率表）。header 值直接用 body 同源 token（``_require_bearer``
-    剥 sk- 一层，有无前缀均可）。
-    """
+    """worker T10(api-M4) 鉴权收口联动：请求带 ``Authorization: Bearer <token>``。"""
     _clear_caches()
     resp = _FakeResp(payload={"logistics_cost_cny": 9.9})
     seen_headers = {}
@@ -172,9 +149,8 @@ def test_bearer_header_sent_with_token():
         seen_headers.update(headers or {})
         return resp
 
-    cand = _mk(weight_g=300)
     with _patch_token(post=_capture):
-        od._calculate_profit(cand)
+        od._query_logistics_from_worker(300)
     assert seen_headers.get("Authorization") == "Bearer sk-test"
 
 

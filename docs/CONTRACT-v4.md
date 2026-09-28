@@ -28,6 +28,7 @@ status: active
   - [1.5 POST /api/v1/auth/verify](#15-post-apiv1authverify)
   - [1.6 GET /api/v1/health](#16-get-apiv1health)
   - [1.7 自测用例（API 合约）](#17-自测用例api-合约)
+  - [1.9 POST /api/v1/estimate/batch（批量预估，v0.83 批①）](#19-post-apiv1estimatebatch批量预估v083-批)
 - [Part 1b: WebUI v1 API 契约](#part-1b-webui-v1-api-契约)（v0.41.0 新增）
   - [1b.1 WebUI v1 新端点清单](#1b1-webui-v1-新端点清单)
   - [1b.2 新数据表（C1/C1b/C2）](#1b2-新数据表c1c1bc2)
@@ -200,8 +201,8 @@ status: active
 | `envelope.source.platform` | string | ❌ | 缺失按 `purchase_url` 域名推断 | 货源平台标识（跨平台货源扩展 v1）：`"1688"\|"taobao"\|"tmall"\|"pdd"`。**worker 零强制消费**（信封透传，不校验不分支）；缺失不报错。taobao/tmall/pdd 信封**省略** `source_category_id`/`source.category_id` 等 cid 类键（防 L0 学习表 cid 数字空间污染），`draft.ozon_category` 缺省走 worker 文本+LLM 链 |
 | `envelope.extensions` | object | ❌ | — | `{margin_rate, commission_rate, fx_buffer, follow_sell, max_skus}` |
 | `envelope.extensions.competitor_ref_images` | string[] | ❌ | v0.69+ | 跟卖竞品主图快照（串图修复引入）：skill 写入、**worker 暂零消费**（预留语义位）——绝不进 `draft.images`/生图参考链，随 payload 落盘供后续接线
-| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate, follow_profit_cny, follow_margin, ozon_old_price, match_1688_freight_cny, custom_click_rate}`（\*=图列表首张派生；follow_\*=跟卖最低价同成本链测算，默认 0.0 真实保留；ozon_old_price=widget originalPrice 市场参考**不写 draft.original_price**、match_1688_freight_cny=货源国内运费单列，两者 None=未知省略；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留；data-pool批7：`custom_click_rate`=商品点击率%（what_to_sell `qtyViewPdp/views` 派生，maozi 3.2.6 同款计算字段，无 direct `customClickRate` 键；None=未知省略；卡片缺口三键的另两键 月销售动态增长率=`sales_growth`、广告份额 ДРР=`drr` 自 v0.70 已在基础组，不另增键）。跨平台静默比价快照 `source_comparison`（discover 跨源匹配 v1 批3，2026-09-10：`{baseline:{url,price,freight,landed_cost}, platforms:{taobao|pdd:{url,price,freight,sold,matched,confirm,switched,freight_unknown} | {skipped:not_logged_in} | {skipped:error,count}}, decision:{winner,reason,switched}, thresholds:{same_min,switch_ratio}}`；未探测/预算耗尽平台省略键，freight None=未知，无 cookie/凭证；候选级跳过形态 `source_comparison={"skipped":"1688 基线无效"|"无参照标题"}` 同样整包进信封；胜者已写回货源槽位 `draft.purchase_url/purchase_cost`（即 match_1688_* 同槽位换值，URL 平台前缀自证）——采集箱可见可改，非必经决策点）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用 |
-| `envelope.extensions.match_evidence` | object | ❌ | v0.66.1 | 图搜匹配证据（skill 写入；worker `learning_record_node` L0 学习置信门槛消费：method≠aibuy 且 confidence<0.3 → 学习置信压 0.6）。键：`method`（`aibuy\|cdp\|image\|text`，缺失省略）、`confidence`/`badge_eff`（非正数省略）、`trusted`（bool：aibuy 官方排序或 matchBadgeFull 直通语义）。**fix/semantic-gate-coverage 增两布尔键（True 才写，缺失省略）**：`divergent`=LLM 实锤 1688 类目与竞品面包屑语义不一致（skill `_category_semantic_review`/follow 语义闸出闸，conf 已封顶 0.5；**worker assemble 消费**：采纳来源非权威[对齐 `_is_skill_authoritative` 白名单，widget 面包屑 hint 不豁免] → 不进管线、blocked_draft_box 入采集箱 failed_stage=category_match 待人工确认；权威来源[what_to_sell/manual/mapping]放行）、`semantic_unknown`=语义闸前提数据缺失（1688 类目名/竞品面包屑/token 缺一）复核没跑成=未复核（**worker 不拦**，只留证防 CDP 降级停摆；skill 侧 batch_test 复用闸/discover `--auto-submit` 按「不可信」处理：不复用不自动提交）。无任何正数数值信号且无布尔标记 → 整键不注入（防空壳） |
+| `envelope.extensions.discovery_meta` | object | ❌ | v0.69+ | discover 选品元数据快照。v0.70 扩键（对标上品帮选品记录，数据已在手纯透出）：基础组 `{ozon_product_id, ozon_url, ozon_price, blue_ocean_score, monthly_sales, monthly_revenue, sales_growth, drr, create_days, competing_sellers, rating, review_count, weight_g, dimensions_mm, profit_margin, estimated_profit_cny, match_confidence, discovered_at}` + 扩容组 `{min_competing_price, sales_schema, estimated_logistics_cny, estimated_commission, match_1688_title, match_1688_category_name, ozon_image*, match_image_url*, session_count, conv_to_cart_pdp, conv_to_cart_search, days_in_promo, discount, days_with_trafarets, promo_revenue_share, nullable_redemption_rate, return_cancel_rate, follow_profit_cny, follow_margin, ozon_old_price, match_1688_freight_cny, custom_click_rate}`（\*=图列表首张派生；follow_\*=跟卖最低价同成本链测算，默认 0.0 真实保留；ozon_old_price=widget originalPrice 市场参考**不写 draft.original_price**、match_1688_freight_cny=货源国内运费单列，两者 None=未知省略；漏斗组畅销榜池未命中为 None → 键省略；0 是真实数据保留；data-pool批7：`custom_click_rate`=商品点击率%（what_to_sell `qtyViewPdp/views` 派生，maozi 3.2.6 同款计算字段，无 direct `customClickRate` 键；None=未知省略；卡片缺口三键的另两键 月销售动态增长率=`sales_growth`、广告份额 ДРР=`drr` 自 v0.70 已在基础组，不另增键）。跨平台静默比价快照 `source_comparison`（discover 跨源匹配 v1 批3，2026-09-10：`{baseline:{url,price,freight,landed_cost}, platforms:{taobao|pdd:{url,price,freight,sold,matched,confirm,switched,freight_unknown} | {skipped:not_logged_in} | {skipped:error,count}}, decision:{winner,reason,switched}, thresholds:{same_min,switch_ratio}}`；未探测/预算耗尽平台省略键，freight None=未知，无 cookie/凭证；候选级跳过形态 `source_comparison={"skipped":"1688 基线无效"|"无参照标题"}` 同样整包进信封；胜者已写回货源槽位 `draft.purchase_url/purchase_cost`（即 match_1688_* 同槽位换值，URL 平台前缀自证）——采集箱可见可改，非必经决策点）。**worker 零消费整包透传**（payload JSONB 随任务/草稿留存），webui 采集箱/CSV 导出展示选品依据用。**v0.83 批⑤**：追加标识键 `run_id`（discover session id `disc_*`，见 §1.10；webui `DraftDiscoveryMeta.run_id` 消费）——`ozon_price`/`min_competing_price` 恒 materialize（引用化红线，见 §1.10 与 price_sanity_guard 头注释） |
+| `envelope.extensions.match_evidence` | object | ❌ | v0.66.1 | 图搜匹配证据（skill 写入；worker `learning_record_node` L0 学习置信门槛消费：method≠aibuy 且 confidence<0.3 → 学习置信压 0.6）。键：`method`（`aibuy\|cdp\|image\|text`，缺失省略）、`confidence`/`badge_eff`（非正数省略）、`trusted`（bool：aibuy 官方排序或 matchBadgeFull 直通语义）。**fix/semantic-gate-coverage 增两布尔键（True 才写，缺失省略）**：`divergent`=LLM 实锤 1688 类目与竞品面包屑语义不一致（skill `_category_semantic_review`/follow 语义闸出闸，conf 已封顶 0.5）、`semantic_unknown`=语义闸前提数据缺失（1688 类目名/竞品面包屑/token 缺一）复核没跑成=未复核。**v083「类目权威边界」降级阶梯（worker assemble 消费，替换 v082 权威二值豁免）**：`divergent`+非权威采纳来源（对齐 `_is_skill_authoritative` 白名单；widget 面包屑 hint 不豁免）→ 不进管线、`blocked_draft_box` 入采集箱 `failed_stage=category_match`；`divergent`+权威来源+**两侧语料齐备**（信封 `source.match_category_name`/`source_category_path` 有 1688 类目名 且 `draft.ozon_category.category_path` 有竞品面包屑）→ **降级为非权威**走 R2b/Step6.5 全闸链（过闸放行、不过入箱）；`divergent`+权威+语料缺失 → 留证不拦（unknown 语义）；`source==\"manual\"` 且 dc/tp 数字 → 恒豁免（R1 veto 仍硬）。`semantic_unknown` 恒**不拦**只留证（防 CDP 降级停摆）；skill 侧 batch_test 复用闸/discover `--auto-submit` 按「不可信」处理：不复用不自动提交。无任何正数数值信号且无布尔标记 → 整键不注入（防空壳） |
 | `timeout_seconds` | int | ❌ | 1800 | 300-7200 |
 | `max_retries` | int | ❌ | 3 | 0-10 |
 
@@ -226,6 +227,14 @@ status: active
 - 1688 链接：`source_category_id` → `category_mapping` 直查（curated+learned）→ `source_category_path` 语义精配 →（最后）标题+属性 LLM（候选预校验+一致性）。
 
 **来源信任**：仅 `source in {page, mapping, what_to_sell}` 视为权威（`match_layer="Skill"`，免门槛）；`search_kw` 一律降为候选，必须过 `_acceptable_match` + 一致性。
+
+**v083 类目语义闸覆盖矩阵（改类目链前必读）**：
+
+| 入口 | 是否有类目语义闸 | 说明 |
+|---|---|---|
+| `discover` | 有（`_category_semantic_review`，divergent 降权 conf≤0.5 + 出证） | 1688 图搜候选类目 vs Ozon 竞品面包屑 LLM 复核 |
+| `follow` | 有（`_pick_best_match(require_category_consistency=True)`） | v083 三值统一：divergent / semantic_unknown **均出证放行**交 worker 阶梯（不再 skill fail-closed 拒单）；竞品标题为空 → matches[0] 出证 semantic_unknown（不走直通） |
+| **`graph` 直传** | **无**（设计内） | graph 以 1688 链接直传、**无 Ozon 竞品语料**（无面包屑可比对），不存在语义闸前提；worker `_divergent_match_verdict` 因无 `match_evidence.divergent` 不介入。`--ozon-ref-url` 是唯一有 Ozon 竞品的场景——v083 起顺带抓取竞品 `category_path` 注入 `draft.ozon_category`（source=page/namespace=widget）并出证 `match_evidence`（divergent/semantic_unknown），让 worker 阶梯对该场景同样生效 |
 
 ⚠️ **v0.71 语义澄清（不改字段）**：`source=page` 时的 `description_category_id` 是 Ozon **Web 前台面包屑类目 ID**（`web_category_id`，面包屑链接 `-(\d+)/`），**不是 Seller 树的 dc**；`type_id` 同值占位、无独立语义。worker 消费 page 源时以 `category_path` 精配为准，不得把该数字当 Seller dc/tp 直查（`_resolve_skill_category` 树校验天然拦住）。discover 数字 dc/tp 优先级：candidate（what_to_sell）> draft 既有 search_kw 猜测 > page 路径先验（`_apply_discover_page_truth`）。
 
@@ -795,6 +804,163 @@ curl -s -X POST http://localhost:8080/api/v1/auth/verify \
   -H "Content-Type: application/json" \
   -d '{"token": "sk-test-valid-token", "client_id": "123456", "api_key": "test-key"}' | python3 -m json.tool
 ```
+
+---
+
+### 1.9 POST /api/v1/estimate/batch（批量预估，v0.83 批①）
+
+> v0.83.0（2026-09-28，预估统一批）新增。全系统唯一算价出口 = worker
+> `utils/pricing_core.compute_pricing_core`（pricing_node / `POST /api/v1/estimate` /
+> 本端点三处同源）；skill 侧内联定价公式已全部退役为消费方。
+
+- **鉴权**：`Authorization: Bearer <mxou key>`（`main._require_bearer` 唯一入口）；
+  无 Bearer → **401**。独立限流桶 `estimate_batch:{token}`，超限 **429**。
+- **租户**：恒自身租户（`resolve_tenant`）；`credential_id` 在场经
+  `credential_service.get_decrypted` 解密探测店铺 3PL（跨租户 → 404 由其内部保证）。
+- **上限**：`items` ≤ 50（超限 **422**，空 items 422）。
+- **不支持 variants**：schema `extra="forbid"` 定死——请求含 `variants`（或任何未知键）→ **422**
+  （多 SKU 交回终价链）。
+
+请求体：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `items[]` | object[] | ✅ | ≤50/批 |
+| `items[].purchase_cost` | number | ✅ | 采购成本 CNY（**已含国内运费**；discover 匹配期无运费则不加，`freight_unknown` 如实留痕） |
+| `items[].weight_g` | number | ❌ | 单件重量（克）；缺省走归一化兜底 |
+| `items[].dims_mm` | object | ❌ | `{length,width,height}`（或 `{d,w,h}`），毫米 |
+| `items[].attributes` | object | ❌ | 1688 属性（箱级毛重 `reconcile_weight_with_attrs`） |
+| `items[].currency_code` | string | ❌ | `RUB`/`CNY`；缺省按 CNY（RUB 且无汇率 → worker fx 三级链 `resolve_cny_rub_rate`） |
+| `items[].commission_segments` | object | ❌ | `{fbs:{leq_*},fbo:{leq_*}}`（百分比；fbs 缺失回退 fbo） |
+| `items[].dc` | string | ❌ | Ozon `description_category_id`（佣金缓存表键） |
+| `credential_id` | string | ❌ | 店铺凭证（在场探测 3PL，否则 `logistics_source="default_rets"`） |
+
+响应 200（**部分失败不整体 4xx**，逐项 ok/failed；先例 drafts_routes）：
+
+```json
+{"items": [{"index": 0, "ok": true, "price": 215, "old_price": 258, "promo_price": 129,
+            "profit_cny": 32.6, "profit_rate": 0.152,
+            "logistics_cost_cny": 8.0,
+            "commission_rate": 0.15, "commission_source": "segments:leq_5000",
+            "logistics_source": "default_rets", "estimate_source": "worker",
+            "marks": {"weight_suspect": "", "exchange_rate_source": "",
+                      "commission_source": "segments:leq_5000"}}],
+ "failed": [{"index": 1, "reason": "ValueError: ..."}]}
+```
+
+- `estimate_source` 恒 `"worker"`（本端点唯一算价出口）。
+- `commission_source` ∈ `explicit` / `cache:{band}[:fbo]` / `segments:{band}[:fbo]` /
+  `fallback` / `fallback:stale`；**`fallback*` 的候选 discovery 不标 profitable（宁缺毋滥）**。
+- `dc=None` 且 `commission_segments` 命中 → `commission_source` 以 `segments` 开头。
+
+**降级纪律（skill 侧消费）**：worker 不可达/404 → skill 无预估（字段省略 +
+`estimate_source="unavailable"`），**绝不回落 legacy 公式**；`--min-margin` 对无预估不拦。
+
+---
+
+### 1.10 discovery session 契约（v0.83 批⑤）
+
+> v0.83.0（2026-09-28，Session 落盘批）新增。一次 discover = 一个自包含 session
+> 文档；skill 本地落盘 + canonical 上报 worker 归档，run_id 贯穿落盘/上报/尾 JSON/
+> 信封 `extensions.discovery_meta.run_id`。
+
+**schema `discover.session.v1`**（skill 侧 `scripts/lib/discovery_session.py` 唯一事实源）：
+
+```json
+{
+  "schema_version": "discover.session.v1",
+  "session_run_id": "disc_260928_101530_a1b2c3",
+  "created_at": "2026-09-28T10:15:30",
+  "entry": {"kind": "discover|discover-multi|discover-task|seller|queries",
+             "keyword": "", "url": "", "keywords": [], "seller_id": ""},
+  "params": {"max_products": 50, "min_margin": 15, "filter_profile": "", "rules": "",
+             "brand_filter": "nobrand", "min_price": 0, "max_price": 0,
+             "auto_submit": false, "to_box": false},
+  "env": {"fx_rate": 0.075, "analytics_logged_in": false, "commission_source": ""},
+  "candidates": [{
+    "id": {"ozon_product_id": "..."},
+    "ozon": {"ozon_title": "", "ozon_price": 0, "ozon_url": "", "category": "",
+             "brand": "", "rating": 0, "review_count": 0, "sales_schema": "",
+             "ozon_old_price": null, "page_category_path": "", "page_web_category_id": "",
+             "ozon_category": {}},
+    "metrics": {"monthly_sales": 0, "monthly_revenue": 0, "sales_growth": 0, "drr": 0,
+                "create_days": 0, "has_analytics": false, "session_count": null,
+                "conv_to_cart_pdp": null, "conv_to_cart_search": null,
+                "days_in_promo": null, "discount": null, "promo_revenue_share": null,
+                "days_with_trafarets": null, "nullable_redemption_rate": null,
+                "return_cancel_rate": null, "custom_click_rate": null,
+                "blue_ocean_score": 0},
+    "competition": {"competing_sellers": 0, "min_competing_price": 0,
+                    "follow_profit_cny": 0, "follow_margin": 0},
+    "match_1688": {"match_1688_url": "", "match_1688_title": "", "match_1688_price": 0,
+                   "match_1688_category_id": "", "match_1688_category_name": "",
+                   "match_confidence": 0, "match_badge_eff": 0,
+                   "match_reject_reason": "", "match_category_divergent": false,
+                   "match_semantic_unknown": false, "review_decision": "",
+                   "match_1688_freight_cny": null},
+    "pricing": {"estimated_logistics_cny": 0, "estimated_commission": 0,
+                "estimated_profit_cny": 0, "profit_margin": 0, "estimate_source": "",
+                "commission_source": "", "logistics_estimated": false,
+                "logistics_fallback_chain": "", "commission_fbp": 0, "commission_rfbs": 0,
+                "commission_rfbs_segments": {}, "commission_fbp_segments": {},
+                "weight_g": 0, "dimensions_mm": {}},
+    "status": "profitable", "status_reason": "",
+    "discovery_meta": {},
+    "provenance": {"ozon_images": [], "match_1688_images": [],
+                   "competing_seller_list": [], "source_chain": [],
+                   "page_truth": {"category_path": "", "web_category_id": ""},
+                   "chain_depth": 0, "seed_category_id": 0, "session_run_id": ""}
+  }],
+  "summary": {"total": 0, "status_distribution": {}, "matched": 0, "profitable": 0}
+}
+```
+
+- **run_id 格式**：`disc_<yymmdd_hhmmss>_<6hex>`（**带 `disc_` 前缀 + 16^6 随机段，
+  不可枚举**；绝不用裸 id——worker 侧 run_id/task_id 语义已被占用）。skill
+  `discovery_session.is_valid_run_id` 与 worker `main._is_valid_session_run_id` 同口径。
+- **raw 证据 cap**（单候选）：图（`ozon_images`/`match_1688_images`）≤10 张、卖家列表
+  （`competing_seller_list`/`source_chain`）≤20 条、文本截 500 字。
+- **本地落盘**：`data/discovery/sessions/{session_run_id}.json`（自包含）+ `index.jsonl`
+  （一行一 run；同 run_id 幂等 upsert——预/后匹配两次落盘只留一行）。
+  `_save_discovery_log` 在无进程内 session（库直调）时回退旧 `discovery_*.json`
+  （`load_latest_discovery` 兼容读新旧）。
+- **分析文档默认不生成**：`analysis_*.md/json` 改 `discover/discover-multi --report`
+  显式开关（canonical session 已自包含候选）。
+
+**上报 `POST /api/v1/discovery/runs`**（扩展，向后兼容）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `token` | string | ✅ | MXOU API Key（旧字段不变） |
+| `keyword` / `filters` / `candidates` | 旧字段 | ❌ | 投影候选（白名单裁剪 + 派生 `ozon_image`），旧 worker 兼容 |
+| `session_run_id` | string | ❌ | `disc_*`；**在场 → 幂等 upsert 键**（重报同 run 只覆盖不新增）；缺省走旧裸 insert |
+| `schema_version` | string | ❌ | 现 `discover.session.v1` |
+| `session_json` | object | ❌ | 自包含 canonical session 文档 |
+
+- **请求体上限 4MB**（超限 **413** `request_too_large`；对照 pounding-mcp tasks_server 1MB 先例）。
+- **幂等**：`session_run_id` 在场按 `ON CONFLICT(session_run_id) DO UPDATE`（部分唯一索引
+  `uq_discovery_runs_session_run_id WHERE session_run_id IS NOT NULL`；NULL 老行不参与）。
+- **回退**：`skill sync-sessions` 扫描本地未上报 session（`.reported` sidecar）补传，
+  幂等安全；daemon 上报线程有限重试（3 次退避），仍失败留待补传。
+
+**读取 `GET /api/v1/discovery/runs/{session_run_id}`**（新端点）：
+
+- 鉴权 `resolve_tenant_from_request`（Bearer→verify→限流→租户；401/429/503 与全网收口同源）。
+- **跨租户 404**：归属判定用写侧同源指纹 `token_fp`（`discovery_runs.tenant_id` 存 clean
+  token 明文、与 `resolve_tenant` 的 user_id 不同域，故用 `token_fingerprint` 等值比较）；
+  非本人 / 不存在 / 形态非法一律 404（不泄漏存在性）。
+- 响应：`{session_run_id, schema_version, keyword, created_at, legacy, session_json, candidates}`；
+  老行（`session_json` NULL）→ `legacy: true`、`session_json: null`、`candidates` 回退 `candidates_json`。
+- list `GET /api/v1/discovery/runs` 追加 `session_run_id` 字段（老行为 None），鉴权维持全局共享。
+
+**引用化红线（写死）**：`extensions.discovery_meta.ozon_price` / `min_competing_price`
+**恒 materialize**（`price_sanity_guard` 提交闸输入；引用化 = 提交闸依赖网络，错货防线失效）。
+其余 meta 键可投影/引用；`run_id` 只放 `extensions.discovery_meta.run_id`（**不加
+`product_drafts` 顶层列**——CSV 导入无 discovery 来源）；信封业务键（`purchase_url` /
+`weight` / `attributes` / `ozon_category` 等）恒自包含。见
+`worker/src/utils/price_sanity_guard.py` 头注释。
+
+**worker MCP**：新增只读工具 `get_discovery_run(session_run_id)` → 本读取端点（工具数 22→23）。
 
 ---
 

@@ -9,7 +9,12 @@
 v0.70 后台化：慢命令（discover/discover_multi/discover_task/follow/seller/queries/
 graph）加 `background=true` → CLI 进程脱离会话独立运行（输出落盘），工具 <1s 返回
 task dict，agent 用 job_status/job_result 轮询；dsh 会话关闭任务照跑，重开会话
-job_list 找回。缺省 background=False 行为与旧版逐字一致。
+job_list 找回。
+
+v0.83 批④ 默认翻转：上述七工具 `background` **缺省 True**（agent 不再全程干等）；
+需要同步结果显式 `background=false`。后台路径改经 **skill `--detach`**（注册表
+`skill/data/jobs/{job_id}.json` 单一事实源，pounding `data/tasks/` 仅回退读旧任务）；
+job_status 带 run_id/session_path/next_poll_s。
 
 v0.74 会话代管（A6 P2 #6 / BL-13）：session_sync 封装 skill CLI session-sync，
 worker 409 session_expired 后对话内自愈；输出经脱敏层才返回（绝不回显 cookie 值）。
@@ -30,9 +35,10 @@ import re
 
 from fastmcp import FastMCP
 
-from .skill_runner import run_skill_command
+from . import skill_jobs
+from .skill_runner import SkillError, run_skill_command
 from .skill_runner import run_skill_command_capture
-from .tasks import get_manager
+from .tasks import _POSITIONAL, get_manager
 from .worker_http import analyze_store as _analyze_store
 from .worker_http import run_store_action as _run_store_action
 from .worker_http import report_issue as _report_issue
@@ -44,10 +50,43 @@ mcp = FastMCP("pounding")
 
 def _run_or_background(kind: str, params: dict, background: bool,
                        force: bool = False) -> dict:
-    """同步执行（缺省，兼容旧流程）或后台启动（background=true 立即返回）。"""
+    """同步执行（background=false / 非重命令）或后台启动（background=true，缺省）。
+
+    v0.83 批④：后台路径改经 **skill `--detach`**（``skill/data/jobs/`` 注册表单一
+    事实源——不出第二套 id）；skill 侧父进程只探占用不持锁，立即返回 job 句柄，
+    锁与产出物与前台逐字一致。返回句柄 dict（job_id/status/next_poll_s/next_action）。
+    """
     if not background:
         return get_manager().run_and_record(kind, params, source="agent")
-    return get_manager().start_background(kind, params, source="agent", force=force)
+    return _start_skill_job(kind, params, force=force)
+
+
+def _start_skill_job(kind: str, params: dict, force: bool = False) -> dict:
+    """后台启动：调 skill CLI `--detach`，解析句柄 JSON 并补轮询节奏字段。"""
+    p = dict(params or {})
+    positional = [p.pop(n) for n in _POSITIONAL.get(kind, []) if n in p and p[n] not in (None, "")]
+    flags = {**p, "detach": True}
+    if force:
+        flags["force"] = True
+    try:
+        out = run_skill_command(kind, *positional, **flags)
+    except SkillError as exc:
+        return {"error": str(exc)[:300]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    if not isinstance(out, dict) or not out.get("job_id"):
+        return {"error": f"skill `{kind} --detach` 未返回 job 句柄: {str(out)[:200]}"}
+    jid = str(out["job_id"])
+    return {
+        "job_id": jid,
+        "id": jid,  # 别名：job_status/job_result 两者皆可
+        "kind": kind,
+        "status": "running",
+        "log": out.get("log", ""),
+        "next_poll_s": 20,
+        "next_action": (f"任务在后台跑——`job_status('{jid}')` 查进度（按 next_poll_s 节奏，"
+                        f"勿秒级轮询）；完成后 `job_result('{jid}')` 取结果"),
+    }
 
 
 # ── 只读 / 诊断 ────────────────────────────────────────────────
@@ -134,9 +173,10 @@ def category(query: str, lang: str = "ZH_HANS", max: int = 5, store: str = "") -
 @mcp.tool()
 def follow(ozon_url: str, auto_submit: bool = False, to_box: bool = False,
            store: str = "", review: bool = False, notify: bool = False,
-           background: bool = False, force: bool = False) -> dict:
+           background: bool = True, force: bool = False) -> dict:
     """跟卖 Ozon 商品（竞品 → 找 1688 同款 → 上架）。auto_submit/to_box 触发 dsh 侧审批。
-    background=true 后台跑立即返回 task_id（job_status 轮询）；force 强制越过单飞闸。"""
+    background 缺省 True：后台跑立即返回 job 句柄（job_status 轮询）；需同步结果显式
+    background=false。force 强制越过采集串行闸。"""
     return _run_or_background("follow",
         {"ozon_url": ozon_url, "auto_submit": auto_submit, "to_box": to_box,
          "store": store, "review": review, "notify": notify},
@@ -151,12 +191,13 @@ def discover(url: str = "", keyword: str = "", local: bool = False,
              fission: bool = False, max_depth: int = 2,
              rules: str = "", review: bool = False, notify: bool = False,
              export: str = "", output: str = "",
-             background: bool = False, force: bool = False) -> dict:
+             background: bool = True, force: bool = False) -> dict:
     """Ozon 选品 v2（采集 → 分析 → 挑货）。只读；auto_submit/to_box/fission 触发 dsh 侧审批。
     export="csv|json|both" + output=路径 落盘全量+选中结果（后台跑完 CSV 可复核）。
     note=采集箱备注（to_box=True 入箱时随草稿存储，≤2000 字；运营态，不进上架信封）。
     更多参数（fx_rate / min_price / max_price / brand_filter / blue-ocean 等）见 skill CLI discover --help。
-    background=true 后台跑立即返回 task_id（分钟级任务必用，别阻塞对话）。"""
+    background 缺省 True：后台跑立即返回 job 句柄（分钟级任务勿阻塞对话）；
+    需同步结果显式 background=false。job_status 带 run_id（session 落盘身份）。"""
     return _run_or_background("discover",
         {"url": url, "keyword": keyword, "local": local,
          "max_products": max_products, "min_margin": min_margin, "store": store,
@@ -171,9 +212,9 @@ def discover(url: str = "", keyword: str = "", local: bool = False,
 def discover_multi(keywords: str, max_each: int = 30, local: bool = False,
                    min_margin: float = 15.0, store: str = "",
                    auto_submit: bool = False, to_box: bool = False,
-                   background: bool = False, force: bool = False) -> dict:
+                   background: bool = True, force: bool = False) -> dict:
     """多关键词批量选品。keywords 逗号分隔。auto_submit/to_box 触发 dsh 侧审批。
-    background=true 后台跑立即返回 task_id。
+    background 缺省 True：后台跑立即返回 job 句柄；需同步结果显式 background=false。
     其余筛选参数（fx_rate/min_price/max_price/brand_filter/filter_profile/
     base_filter/blue_ocean/export 等）与 discover 同族为有意裁剪面，
     见 skill CLI discover-multi --help。"""
@@ -192,7 +233,7 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
                   resume: bool = False, max_scan: int = 300,
                   expend_shop: int | None = None,
                   export: str = "", auto_submit: bool = False,
-                  background: bool = False, force: bool = False) -> dict:
+                  background: bool = True, force: bool = False) -> dict:
     """任务式全自动目标驱动选品（漏斗 v2，v0.70 语义翻转）：--max-scan 上限采集
     （默认 300，深滚动）→ ai 粗筛 → 自动 1688 匹配 → profitable 达到 target_count
     即停（达标数，护图搜配额；匹配池按达标可能性降序）。match_limit 缺省=目标×3。
@@ -207,7 +248,8 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
     会如实报告缺口。结果尾部输出结构化 summary。
     其余筛选参数（filters/filter_profile/min_price/max_price/brand_filter 等）见
     skill CLI discover-task --help。
-    background=true 后台跑立即返回 task_id——本命令分钟级，长任务必用。"""
+    background 缺省 True：本命令分钟级，后台跑立即返回 job 句柄；需同步结果显式
+    background=false。"""
     return _run_or_background("discover_task",
         {"url": url, "keyword": keyword, "target_count": target_count,
          "min_margin": min_margin, "match_limit": match_limit,
@@ -220,9 +262,9 @@ def discover_task(url: str = "", keyword: str = "", target_count: int = 50,
 
 @mcp.tool()
 def seller(seller_id: str, max_products: int = 60, max_skus: int = 30,
-           background: bool = False, force: bool = False) -> dict:
+           background: bool = True, force: bool = False) -> dict:
     """卖家店铺全产品运营分析（跟卖前 20 名卖家 → 店铺选品）。只读。
-    background=true 后台跑立即返回 task_id。"""
+    background 缺省 True：后台跑立即返回 job 句柄；需同步结果显式 background=false。"""
     return _run_or_background("seller",
         {"seller_id": seller_id, "max_products": max_products, "max_skus": max_skus},
         background, force)
@@ -232,11 +274,11 @@ def seller(seller_id: str, max_products: int = 60, max_skus: int = 30,
 def queries(type: str, keyword: str = "", sku: str = "", category_id: str = "",
             price_min: float | None = None, price_max: float | None = None,
             export: str = "", output: str = "",
-            background: bool = False, force: bool = False) -> dict:
+            background: bool = True, force: bool = False) -> dict:
     """what-to-sell 榜单查询。type: all-queries/ozon-bestsellers/market-bestsellers。只读。
     export="csv|json"（缺省 CLI 按 csv 打印 stdout）；output=落盘路径（缺省打印）。
     export="json" 且不落盘时返回结构化 JSON（好过 raw 文本逐行数）。
-    background=true 后台跑立即返回 task_id。"""
+    background 缺省 True：后台跑立即返回 job 句柄；需同步结果显式 background=false。"""
     return _run_or_background("queries",
         {"type": type, "keyword": keyword, "sku": sku, "category_id": category_id,
          "price_min": price_min, "price_max": price_max,
@@ -253,14 +295,15 @@ def graph(item_id: str = "", url: str = "", category_query: str = "",
           retries: int = 3, store: str = "", no_submit: bool = False,
           to_box: bool = False, ozon_ref_url: str = "",
           template_id: str = "", notify: bool = False,
-          background: bool = False, force: bool = False) -> dict:
+          background: bool = True, force: bool = False) -> dict:
     """组装 GraphInput 信封并提交上架。默认直接提交（dsh 侧 pre-execute 审批）；
     no_submit=True 只组装；to_box=True 入采集箱。
     category_id+type_id 同时提供=manual 权威类目直传（绕过自动匹配，v0.69 白名单
     通道；类目 ID 用 category 工具查询）；min_density=g/cm³ 密度下限拦截（如 0.1，
     缺省不拦截仅告警）。
-    background=true 后台跑立即返回 task_id——CDP+图搜分钟级，长任务必用；
-    完成后 job_status 的 worker_task_ids 可直接喂给 query 查云任务。"""
+    background 缺省 True：CDP+图搜分钟级，后台跑立即返回 job 句柄；需同步结果显式
+    background=false。--no-submit 展示态结果经 job_result 取（后台化后不再直接在
+    工具返回里）。完成后 job_status 的 worker_task_ids 可直接喂给 query 查云任务。"""
     return _run_or_background("graph",
         {"item_id": item_id, "url": url, "category_query": category_query,
          "category_id": category_id, "type_id": type_id,
@@ -277,33 +320,75 @@ def query(task_id: str, watch: bool = False, timeout: int = 900) -> dict:
     return run_skill_command("query", task_id, watch=watch, timeout=timeout)
 
 
-# ── 后台任务监控（v0.70：配 background=true 使用）──────────────────
+# ── 后台任务监控（v0.70 起；v0.83 批④ 优先 skill 注册表）──────────────
+
+def _skill_job_status(job: dict, task_id: str, log_tail: int) -> dict:
+    """skill 侧后台任务的 job_status 响应（run_id/session_path/worker_task_ids 富化）。"""
+    t = dict(job)
+    t["id"] = t.get("job_id") or task_id
+    t["log_tail"] = skill_jobs.log_tail(task_id, log_tail)
+    result = skill_jobs.read_result(task_id)
+    rid = skill_jobs.extract_discovery_run_id(result)
+    if rid:
+        t["run_id"] = rid
+    sp = str(result.get("session_path") or job.get("session_path") or "")
+    if sp:
+        t["session_path"] = sp
+    t["worker_task_ids"] = skill_jobs.extract_worker_task_ids(result)
+    _status = str(t.get("status") or "")
+    if _status == "running":
+        t["next_poll_s"] = 20
+        t["next_action"] = ("任务在跑——建议 ≥20s 后再 job_status（分钟级任务勿秒级轮询）；"
+                            "期间可处理其他用户请求；终态后 job_result 取结果")
+    elif _status in ("completed", "failed", "cancelled", "interrupted"):
+        t["next_action"] = ("任务已终态——job_result 取完整结果；failed 先看 error 字段与"
+                            " log_tail，连续失败 2 次勿重试改 report 上报")
+    return t
+
 
 @mcp.tool()
 def job_list(limit: int = 20) -> dict:
     """列出本机采集/选品/上架任务（含后台任务与实时进度）。只读。
 
     会话关闭后任务仍在跑（后台进程独立于会话）；重开会话先 job_list 找回。
+    v0.83 批④：优先列 skill ``data/jobs/`` 注册表（background 新任务落此），
+    旧 pounding ``data/tasks/`` 注册表并入（向后兼容旧任务）。
     返回 items[]：id/kind/label/status(running|completed|failed|cancelled|
     interrupted)/progress{current,total}/stage/summary/error。"""
-    return {"items": get_manager().list(limit)}
+    items = [_skill_job_status(j, str(j.get("job_id") or ""), 0)
+             for j in skill_jobs.list_jobs(limit)]
+    seen = {str(j.get("id")) for j in items}
+    try:
+        for t in get_manager().list(limit):
+            if str(t.get("id")) not in seen:
+                items.append(t)
+    except Exception:  # noqa: BLE001
+        pass
+    items.sort(key=lambda j: j.get("started_at") or 0, reverse=True)
+    return {"items": items[:limit]}
 
 
 @mcp.tool()
 def job_status(task_id: str, log_tail: int = 40) -> dict:
     """查单个任务详情：状态/阶段/进度/摘要/错误 + 日志尾 + 关联 worker task_id。只读。
 
-    后台任务（background=true 提交）的进度看 progress/stage 字段；卡住时看
+    后台任务（background 缺省 True）的进度看 progress/stage 字段；卡住时看
     log_tail 最后几行。完成后 worker_task_ids 给 query 工具查云端任务；
-    job_result 取完整结果。
+    job_result 取完整结果。v0.83 批④：优先读 skill 注册表并附 run_id/session_path。
 
     v0.79 人体工学（PLAN-agent-ergonomics-v1 C2）：running 态附带 next_poll_s/
     next_action——把轮询节奏从 agent 猜变成工具告知，消灭秒级无效轮询。"""
+    sk = skill_jobs.get_job(task_id)
+    if sk is not None:
+        return _skill_job_status(sk, task_id, log_tail)
     t = get_manager().get(task_id)
     if not t:
         return {"error": f"任务不存在: {task_id}（job_list 可列出全部）"}
     t["log_tail"] = get_manager().log_tail(task_id, log_tail)
     t["worker_task_ids"] = get_manager().extract_worker_task_ids(task_id)
+    _rid = get_manager().extract_discovery_run_id(task_id)
+    if isinstance(_rid, str) and _rid:
+        t["run_id"] = _rid
     _status = str(t.get("status") or "")
     if _status == "running":
         t["next_poll_s"] = 20
@@ -317,17 +402,35 @@ def job_status(task_id: str, log_tail: int = 40) -> dict:
 
 @mcp.tool()
 def job_result(task_id: str) -> dict:
-    """取任务完整结果 JSON（任务完成后调用；大结果单独取，不塞进 job_status）。只读。"""
+    """取任务完整结果 JSON（任务完成后调用；大结果单独取，不塞进 job_status）。只读。
+
+    v0.83 批④：skill 注册表任务读其日志尾 JSON；结果恒带 run_id（可提取时）。"""
+    if skill_jobs.get_job(task_id) is not None:
+        result = skill_jobs.read_result(task_id)
+        if not result:
+            job = skill_jobs.get_job(task_id) or {}
+            return {"error": f"任务 {task_id} 尚无结构化结果"
+                             f"（status={job.get('status')}）——job_status 查状态"}
+        rid = skill_jobs.extract_discovery_run_id(result)
+        if rid and not result.get("run_id"):
+            result = {**result, "run_id": rid}
+        return result
     result, err = get_manager().read_result(task_id)
     if result is None:
         return {"error": err or f"任务 {task_id} 尚无结果（job_status 查状态）"}
+    rid = get_manager().extract_discovery_run_id(task_id)
+    if isinstance(rid, str) and rid and not result.get("run_id"):
+        result = {**result, "run_id": rid}
     return result
 
 
 @mcp.tool()
 def job_cancel(task_id: str) -> dict:
     """取消运行中的任务（终止子进程/进程组；后台任务同样可取消）。写操作。"""
-    ok = get_manager().cancel(task_id)
+    if skill_jobs.get_job(task_id) is not None:
+        ok = skill_jobs.cancel(task_id)
+    else:
+        ok = get_manager().cancel(task_id)
     return {"ok": ok, "task_id": task_id,
             "hint": "" if ok else "任务不存在或已非 running（job_list 核对）"}
 

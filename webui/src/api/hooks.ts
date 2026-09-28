@@ -161,6 +161,8 @@ export interface DraftDiscoveryMeta {
   estimated_profit_cny?: number
   match_confidence?: number
   discovered_at?: string
+  // v0.83 批⑤ canonical session id（skill discover 族写入；值 disc_*）
+  run_id?: string
 }
 
 export interface DraftPayload {
@@ -599,6 +601,8 @@ export interface DiscoveryRun {
   candidates?: unknown[] | null
   created_at?: string | null
   contributed_by_fp: string
+  // v0.83 批⑤ canonical session id（老行为 null）
+  session_run_id?: string | null
 }
 
 export interface DiscoveryRunsResponse {
