@@ -116,6 +116,11 @@ class GlobalState(BaseModel):
     # action, ...}——fetch_back 写入，与 pricing_info 同级透出 GraphOutput
     # （唯一入口 utils/content_enrich；防抖：非空即不再复检）。
     content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（fetch_back 写入）")
+    # ✅ v0.83 批⑥ 回执真值化（feat/profit-reality-v1）：实盘利润审计块——
+    # learning_record approved 钩子复用同一 /v5 响应算出（utils/profit_reality 唯一入口），
+    # GraphOutput 同名透传 → listing_result_log.profit_reality 落库。channel 纪律：
+    # 不在此声明 + GraphOutput 同名声明，节点写的值会被静默吞掉。
+    profit_reality: Dict[str, Any] = Field(default_factory=dict, description="实盘利润审计块（learning_record 写入）")
 
     # 图片结果
     phase1_images: Dict[str, str] = Field(default_factory=dict, description="Phase1图片URLs")
@@ -288,6 +293,9 @@ class GraphOutput(BaseModel):
     # ✅ v0.81 内容评分闭环：审计块透出（与 pricing_info 同级；output_schema 按名
     # 过滤——GlobalState 同名通道加进 GraphOutput 即透传，任务终态/取证可见）
     content_rating: Dict[str, Any] = Field(default_factory=dict, description="内容评级复检审计块（rating/filled/skipped/media_gap）")
+    # ✅ v0.83 批⑥ 回执真值化：实盘利润透出（GlobalState 同名通道加进 GraphOutput 即
+    # 透传——output_schema 按名过滤；task_processor → listing_result_log 新列落库）。
+    profit_reality: Dict[str, Any] = Field(default_factory=dict, description="实盘利润审计块（real_*/gap_*/unmodeled_fees）")
     notice: str = Field(default="", description="中文可读失败说明")
 
 
@@ -955,6 +963,11 @@ class LearningRecordInput(BaseModel):
     # L0 自证防护失效（会继续给学习表自己加证据）。
     category_match_meta: Dict[str, Any] = Field(default_factory=dict,
                                                 description="类目匹配元数据（match_layer/confidence，写侧 L0 自证跳过/信任分档）")
+    # ✅ v0.83 批⑥ 回执真值化: uploaded_products 补进 input schema——langgraph 按节点
+    # Input model 过滤 channel，不声明则多 SKU 变体的 product_id 读不到，/v5 只查主
+    # product_id（多 SKU 逐 product_id 对齐回填失效）。类型对齐 GlobalState 同名通道。
+    uploaded_products: List[Dict[str, Any]] = Field(default_factory=list,
+                                                    description="已上传商品列表（多 SKU 逐 product_id 对齐用）")
 
 
 class LearningRecordOutput(BaseModel):
@@ -962,6 +975,10 @@ class LearningRecordOutput(BaseModel):
     progress_counter: int = Field(default=24, description="节点计数器（更新为24）")
     
     recorded_count: int = Field(..., description="记录的属性数量")
+    # ✅ v0.83 批⑥ 回执真值化: 实盘利润经节点 Output → GlobalState → GraphOutput 透传
+    # （channel 纪律：Output 不声明则该值进不了 GlobalState，GraphOutput 也读不到）。
+    profit_reality: Dict[str, Any] = Field(default_factory=dict,
+                                           description="实盘利润审计块（learning approved 钩子写入）")
 
 
 # ==================== fetch-back 回读节点（PR-0） ====================

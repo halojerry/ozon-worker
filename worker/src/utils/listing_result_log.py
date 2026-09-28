@@ -140,10 +140,49 @@ def derive_final_status(graph_result: dict) -> str:
     return "failed"
 
 
+def merge_variants_profit(variants: Any, profit_reality: Any,
+                          uploaded_products: Any = None) -> list:
+    """多 SKU：把 profit_reality.per_product 按 product_id 对齐回填到 variants 条目。
+
+    - 变体自带 `product_id` → 直接查 per_product；
+    - 变体只有 `sku_id` → 经 uploaded_products 的 {sku_id: product_id} 映射转一手；
+    - 对齐不到 → 变体原样保留（不编造）。
+    返回新的 list（不改入参）；variants 非 list → []。
+    """
+    if not isinstance(variants, list):
+        return []
+    pr = profit_reality if isinstance(profit_reality, dict) else {}
+    per_product = pr.get("per_product") if isinstance(pr.get("per_product"), dict) else {}
+    sku_to_pid: Dict[str, str] = {}
+    if isinstance(uploaded_products, list):
+        for u in uploaded_products:
+            if isinstance(u, dict):
+                sku = str(u.get("sku_id") or "").strip()
+                pid = str(u.get("product_id") or "").strip()
+                if sku and pid:
+                    sku_to_pid[sku] = pid
+
+    out: list = []
+    for var in variants:
+        if not isinstance(var, dict):
+            out.append(var)
+            continue
+        entry = dict(var)
+        pid = str(entry.get("product_id") or "").strip()
+        if not pid:
+            sku = str(entry.get("sku_id") or "").strip()
+            pid = sku_to_pid.get(sku, "")
+        reality = per_product.get(pid) if pid else None
+        if isinstance(reality, dict):
+            entry["real_profit_cny"] = reality.get("real_profit_cny")
+            entry["gap_pct"] = reality.get("gap_pct")
+        out.append(entry)
+    return out
+
+
 # ============================================================
 # 写入口
 # ============================================================
-
 def write_listing_result_log(
     payload: dict,
     graph_result: dict,
@@ -240,6 +279,11 @@ def write_listing_result_log(
         error_message = str(gr.get("error_message") or "")[:2000]
         error_code = str(gr.get("error_code") or "")[:50]
 
+        # ✅ v0.83 批⑥ 回执真值化：实盘利润（learning approved 钩子写入 GlobalState →
+        # GraphOutput 透传；无/非 dict → 全列留空，不编造）
+        _pr = gr.get("profit_reality")
+        profit_reality = _pr if isinstance(_pr, dict) and _pr else None
+
         now = datetime.datetime.now(datetime.timezone.utc)
         values: Dict[str, Any] = {
             "task_db_id": task_db_id,
@@ -270,7 +314,8 @@ def write_listing_result_log(
             "currency_code": str(pi.get("currency_code") or "")[:10] or None,
             "weight_g": (_i(_g_weight) if _g_weight else None) or _i(draft.get("weight")),
             "dims_mm": _g_dims or (draft.get("dimensions") or None),
-            "variants": draft.get("variants") or [],
+            "variants": merge_variants_profit(
+                draft.get("variants") or [], profit_reality, gr.get("uploaded_products")),
             # 结果与归因
             "final_status": derive_final_status(gr),
             "moderation_status": str(gr.get("moderation_status") or "")[:30] or None,
@@ -288,6 +333,10 @@ def write_listing_result_log(
                                  if isinstance(_meta.get("confidence"), (int, float)) else None),
             "pipeline_source": pipeline_source(payload),
             "pricing_info": pi or None,
+            # ✅ v0.83 批⑥: 实盘利润三列（冗余数值列 + 完整审计块）
+            "real_profit_cny": _f((profit_reality or {}).get("real_profit_cny")),
+            "gap_pct": _f((profit_reality or {}).get("gap_pct")),
+            "profit_reality": profit_reality,
             "fetch_back_summary": gr.get("fetch_back_summary") or gr.get("fetch_back_result") or None,
         }
 
