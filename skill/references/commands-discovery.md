@@ -62,7 +62,8 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   2. **全量数据**：widget API（价格/标题/图/品牌/评分/评论数）+ 跟卖数/最低价 + **seller.ozon.ru 运营指标**（月销量/增长率/广告占比/上架天数——需卖家后台已登录，未登录自动降级，表格运营列显示 `—`）
   3. **表格分析挑选**：全量表格展示（含拒绝原因/状态）→ 人工按序号挑选 或 `--rules` 自动筛选 —— **此时不花 1688 配额**
   4. **批量货源**：只对选中的产品 1688 识图（CDP 图搜 → AK 图搜 → AK 关键词三级，含重试）→ 利润计算（真实重量/佣金）→ 蓝海评分 → 确认 → 提交
-- **输出**：候选产品列表（全量落盘 `data/discovery/`，CSV 可导出）；结束写 `data/logs/report_*.json` 运行报告（v0.78）
+- **输出**：候选产品列表；**v0.83 起 canonical session 落盘** `data/discovery/sessions/{run_id}.json`（自包含：entry/params/env/candidates/summary）+ `index.jsonl`（一行一 run）——run_id 形如 `disc_<yymmdd_hhmmss>_<6hex>`，随尾 JSON、信封 `extensions.discovery_meta.run_id`、worker 归档 `POST /api/v1/discovery/runs` 共享（幂等 upsert 键）；CSV 新增列 `session_run_id`。结束写 `data/logs/report_*.json` 运行报告（v0.78）；出口打印结构化尾 JSON（`run_id`/`candidates_count`/`summary`/`session_path`）
+- **分析文档默认不生成**（v0.83 批⑤）：`analysis_*.md/json` 改 `--report` 显式开关生成（canonical session 已自包含候选）；上报失败可 `sync-sessions` 补传（见 commands-ops.md）
 - **规则字段**（两段式，v0.69 起）：`monthly_sales / gmv / drr / seller_count / price / create_days / sales_growth / rating` 为**挑选期**字段（1688 匹配前判定）；`margin` 为**匹配期**字段（匹配后二次筛选——匹配前恒 0.0 无从判定）
 - **其他参数**：
   - `--rules`：自动筛选规则（跳过交互），逗号分隔，如 `"monthly_sales>=200,drr<=30,seller_count<=20"`；**两段式**：挑选期规则在前、匹配期规则在后（如 `"ai,margin>=20"`）；**`"ai"` = 上品帮 AI 预设**（上架≤365d/跟卖≤30/月动态>0/DRR≤15 + 价格分档月销下限），可作逗号项与其他规则混写
@@ -75,8 +76,9 @@ python3 scripts/cli.py discover --keyword "宠物用品" --local
   - `--notify`：提交时 GraphInput 顶层 `notify=True`，Worker 完成推 webhook
   - `--filter-profile off|ai`（漏斗 v2）：粗筛档位——`off`（缺省，行为同旧）；`ai` = 上品帮 AI 预设档。**完整判定需 seller 运营指标**（`--auto-submit` 未显式指定时默认 `ai`，交互流程缺省不变）；无指标候选降级只判跟卖数
   - `--base-filter "monthly_sales>=50,drr<=15"`（漏斗 v2）：自定义区间粗筛（仅挑选期字段——**`margin` 不支持，会显式报错**指向 `--rules`；含加购率/促销/退货等 22 个），与 `--filter-profile` 叠加；非法表达式报错退出
+  - `--report`（v0.83）：显式生成 `analysis_*.md/json` 结构性分析文档（默认不生成）
 - **表格符号**：`✅可挑` 待分析 · `⚠️夹带?` 标题不含关键词 · `⏭️价区间外` 超价格区间 · `💰有利` 符合条件 · `⚠️利润低` 利润不足 · `❌无货源` 1688 没匹配到 · `—` 运营列无数据（卖家后台未登录）
-- **执行后验证**：① 采集完成 → 检查 `data/discovery/` 落盘 + 候选数量非零；② 货源分析后 → 读 `data/discovery/analysis_*.md` 核对候选状态分布（profitable/rejected/no_match）；③ 表格挑选/`--rules` 筛选后 → 向用户展示候选清单等确认，确认后才提交
+- **执行后验证**：① 采集完成 → 检查 `data/discovery/sessions/` 落盘（`index.jsonl` 末行）+ 候选数量非零；② 货源分析后 → 读 session 文档 `summary.status_distribution` 或尾 JSON 核对候选状态分布（profitable/rejected/no_match）（旧 `analysis_*.md` 需加 `--report` 才生成）；③ 表格挑选/`--rules` 筛选后 → 向用户展示候选清单等确认，确认后才提交
 
 ## 管线 C 增强：裂变选品（discover --fission，v0.31）
 

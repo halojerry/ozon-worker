@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # v0.83 批①：唯一算价出口 = worker（skill 侧零公式）。顶层 import 保测试 patch 面
 # （tests 按 ``od.estimate_batch`` 模块属性注入替身）。
 from scripts.lib.estimate_client import build_batch_item, estimate_batch  # noqa: E402
+# v0.83 批⑤：canonical session 落盘（run_id/自包含文档/index/上报）唯一事实源。
+from scripts.lib import discovery_session as _session  # noqa: E402
 
 DISCOVERY_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "discovery"
 
@@ -262,6 +264,10 @@ class ProductCandidate:
     # cloud_probe._assemble_discovery_meta 整包并入 extensions.discovery_meta
     # （worker 零消费透传，采集箱可见可改）。缺键省略纪律；绝不存 cookie/凭证。
     discovery_meta: dict = field(default_factory=dict)
+
+    # v0.83 批⑤：本次选品 run 的 canonical session id（disc_*）——落盘/上报/CSV 列
+    # 与信封 extensions.discovery_meta.run_id 共用同一值。无 session（库直调）空串。
+    session_run_id: str = ""
 
     def __post_init__(self):
         if self.dimensions_mm is None:
@@ -2005,6 +2011,9 @@ _EXPORT_FIELDS: list[str] = [
     # 置 True 并把 match_confidence 封顶 0.5——此前死在候选对象上，导出/上报/信封
     # 三面均不可见）。列序契约只尾追加；行值非 True 落空串（见 _candidate_row）。
     'match_category_divergent',
+    # v0.83 批⑤ canonical：本次选品 run 的 session id（disc_*）——旧列全部保留原序，
+    # 仅尾追加本列（webui/drafts 消费 run_id 走 extensions.discovery_meta.run_id）。
+    'session_run_id',
 ]
 
 # Excel 四大区（P2，吸收上品帮选品簿的分区方法论）：(区名, [(字段键, 中文列名)])。
@@ -2022,6 +2031,8 @@ _EXPORT_XLSX_ZONES: list[tuple[str, list[tuple[str, str]]]] = [
         # fix/category-root-cause-v1：类目语义复核分歧（与 CSV 同名字段，四区
         # 列合计必须等于 CSV 字段数——test_discovery_export_xlsx 锁定）
         ('match_category_divergent', '类目分歧'),
+        # v0.83 批⑤ canonical session id（与 CSV 同名字段，四区合计 = CSV 字段数）
+        ('session_run_id', '选品批次'),
     ]),
     ("销售数据", [
         ('monthly_sales', '月销量'), ('monthly_revenue', '月销售额(RUB)'),
@@ -2119,6 +2130,8 @@ def _candidate_row(c: ProductCandidate) -> dict:
         # 不写」纪律；列本身已尾追加进 _EXPORT_FIELDS（列序契约）。
         'match_category_divergent': (
             True if getattr(c, 'match_category_divergent', False) else ''),
+        # v0.83 批⑤ canonical：session run_id（无 session 时空串）
+        'session_run_id': getattr(c, 'session_run_id', '') or '',
     }
 
 
@@ -4513,11 +4526,17 @@ REPORT_STATUSES: tuple[str, ...] = ("ok", "matched", "profitable")
 
 
 def _report_discovery_run(keyword: str, filters: dict | None,
-                          candidates: list[ProductCandidate]) -> None:
+                          candidates: list[ProductCandidate],
+                          session: dict | None = None) -> bool:
     """同步上报 discover run 到 Worker /api/v1/discovery/runs（fail-open）。
 
-    白名单裁剪 + 仅 ok/matched/profitable 候选，单次 POST。任何异常只 warning，
-    绝不影响调用方（由 _spawn_discovery_report 在 daemon 线程中触发）。
+    返回 True=HTTP <300 上报成功（供 daemon 重试循环判断）；任何异常/失败返回
+    False（绝不影响调用方——由 _spawn_discovery_report 在 daemon 线程中触发）。
+
+    白名单裁剪 + 仅 ok/matched/profitable 候选，单次 POST。v0.83 批⑤起请求体
+    带 canonical ``session_run_id``/``schema_version``/``session_json``（自包含，
+    session 非空时）——worker 侧按 session_run_id 幂等 upsert；旧字段 keyword/
+    filters/candidates 保持（向后兼容旧 worker）。
     """
     try:
         from scripts._const import CLOUD_API_BASE
@@ -4527,7 +4546,7 @@ def _report_discovery_run(keyword: str, filters: dict | None,
         token = get_mxou_token()
         if not token:
             logger.warning("discovery run 上报跳过：无 token（set_token 配置）")
-            return
+            return False
 
         rows = []
         for c in candidates:
@@ -4552,67 +4571,138 @@ def _report_discovery_run(keyword: str, filters: dict | None,
             "filters": filters or {},
             "candidates": rows,
         }
+        # v0.83 批⑤ canonical：自包含 session 文档（幂等键 session_run_id）
+        _rid = ""
+        if isinstance(session, dict) and session.get("session_run_id"):
+            _rid = str(session["session_run_id"])
+            payload["session_run_id"] = _rid
+            payload["schema_version"] = session.get("schema_version",
+                                                    _session.SCHEMA_VERSION)
+            payload["session_json"] = session
         resp = _req.post(
             f"{CLOUD_API_BASE}/api/v1/discovery/runs",
             json=payload,
-            timeout=8,
+            timeout=20,
         )
         if resp.status_code >= 300:
             logger.warning("discovery run 上报失败: HTTP %s", resp.status_code)
+            return False
+        if _rid:
+            _session.mark_reported(_rid)
+        return True
     except Exception as exc:
         logger.warning("discovery run 上报失败（本地落盘不受影响）: %s", exc)
+        return False
+
+
+# 上报重试（v0.83 批⑤）：daemon 线程内有限重试 + 退避——旧实现 8s 超时单发静默丢
+# （实锤 F：后台收割摘要恒 0）。最多 3 次，仍失败留给 `--sync-sessions` 补传。
+_REPORT_ATTEMPTS = 3
+_REPORT_RETRY_BACKOFF_S = 3.0
 
 
 def _spawn_discovery_report(keyword: str, filters: dict | None,
-                            candidates: list[ProductCandidate]) -> None:
-    """非阻塞触发上报（daemon 线程，fail-open）。"""
+                            candidates: list[ProductCandidate],
+                            session: dict | None = None) -> None:
+    """非阻塞触发上报（daemon 线程，可重试，fail-open）。"""
+    def _run() -> None:
+        for attempt in range(_REPORT_ATTEMPTS):
+            if _report_discovery_run(keyword, filters, candidates, session=session):
+                return
+            if attempt < _REPORT_ATTEMPTS - 1:
+                time.sleep(_REPORT_RETRY_BACKOFF_S * (attempt + 1))
+
     try:
-        threading.Thread(
-            target=_report_discovery_run,
-            args=(keyword, filters, candidates),
-            daemon=True,
-        ).start()
+        threading.Thread(target=_run, daemon=True).start()
     except Exception as exc:
         logger.warning("discovery run 上报线程启动失败: %s", exc)
 
 
+def _save_legacy_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
+                               filters: dict | None = None) -> Path | None:
+    """旧路径：无进程内 session 时写 ``discovery_{ts}.json``（兼容直调/测试）。"""
+    DISCOVERY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    path = DISCOVERY_CACHE_DIR / f"discovery_{ts}.json"
+
+    data = []
+    for c in candidates:
+        entry = asdict(c)
+        # 空 discovery_meta 不落 JSON（Fix Round 1 Minor #4）：off 路径产物
+        # 干净（无 "discovery_meta": {} 空壳）；快照只在比价发生时存在。
+        if not entry.get("discovery_meta"):
+            entry.pop("discovery_meta", None)
+        data.append(entry)
+
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    logger.info("Discovery log saved: %s (%d products)", path, len(data))
+    if keyword or filters:
+        _spawn_discovery_report(keyword, filters, candidates)
+    return path
+
+
+def _save_canonical_session(candidates: list[ProductCandidate], keyword: str = "",
+                            filters: dict | None = None) -> Path | None:
+    """canonical 落盘：自包含 session 文档 + index（替代 discovery_*.json）。
+
+    预匹配/后匹配两次调用写同一 ``{run_id}.json``（后写覆盖，index 同 run_id
+    只保留一行）。带 keyword/filters 时触发可重试上报（canonical 载荷）。
+    """
+    run_id = _session.current_run_id()
+    flat_rows: list[dict] = []
+    for c in candidates:
+        if not getattr(c, "session_run_id", ""):
+            try:
+                c.session_run_id = run_id
+            except Exception:
+                pass
+        entry = asdict(c)
+        if not entry.get("discovery_meta"):
+            entry.pop("discovery_meta", None)
+        # 保证扁平 dict 带 run_id（asdict 默认 ""；setattr 失败的非常规对象兜底）
+        entry["session_run_id"] = entry.get("session_run_id") or run_id
+        flat_rows.append(entry)
+
+    doc = _session.build_session_document(flat_rows)
+    if keyword and not (doc.get("entry") or {}).get("keyword"):
+        doc.setdefault("entry", {})["keyword"] = keyword
+    if filters and not doc.get("params"):
+        doc["params"] = dict(filters)
+    path = _session.save_session(doc)
+    if path is not None:
+        _session.set_session_path(str(path))
+        logger.info("Discovery session saved: %s (%d products, run_id=%s)",
+                    path, len(flat_rows), run_id)
+        if keyword or filters:
+            _spawn_discovery_report(keyword, filters, candidates, session=doc)
+    return path
+
+
 def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
                         filters: dict | None = None) -> Path | None:
-    """Save discovery results to a timestamped JSON cache file.
+    """落盘 discover 结果。
 
-    keyword/filters 非空时非阻塞上报 Worker /api/v1/discovery/runs
-    （白名单裁剪，fail-open，不影响本地落盘）。
+    v0.83 批⑤：进程内存在 canonical session（CLI discover 族启动时 begin_session）
+    → 写 ``data/discovery/sessions/{run_id}.json`` + index；否则走旧
+    ``discovery_*.json``（库直调/无 session 上下文的兼容路径）。
 
+    keyword/filters 非空时非阻塞上报 Worker /api/v1/discovery/runs（fail-open）。
     Returns the path to the saved file, or None on failure.
     """
     if not candidates:
         return None
 
     try:
-        DISCOVERY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        path = DISCOVERY_CACHE_DIR / f"discovery_{ts}.json"
-
-        data = []
-        for c in candidates:
-            entry = asdict(c)
-            # 空 discovery_meta 不落 JSON（Fix Round 1 Minor #4）：off 路径产物
-            # 干净（无 "discovery_meta": {} 空壳）；快照只在比价发生时存在。
-            if not entry.get("discovery_meta"):
-                entry.pop("discovery_meta", None)
-            data.append(entry)
-
-        path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        logger.info("Discovery log saved: %s (%d products)", path, len(data))
-        if keyword or filters:
-            _spawn_discovery_report(keyword, filters, candidates)
-        return path
+        if _session.current_run_id():
+            return _save_canonical_session(candidates, keyword=keyword, filters=filters)
+        return _save_legacy_discovery_log(candidates, keyword=keyword, filters=filters)
     except Exception as exc:
         logger.error("Failed to save discovery log: %s", exc)
         return None
+
 
 
 # ---------------------------------------------------------------------------
@@ -4621,21 +4711,40 @@ def _save_discovery_log(candidates: list[ProductCandidate], keyword: str = "",
 
 
 def load_latest_discovery() -> list[dict[str, Any]]:
-    """Load the most recent discovery cache file.
+    """Load the most recent discovery candidates (flat dicts)。
 
-    Returns list of product dicts, or empty list if no cache exists.
+    v0.83 批⑤：优先 canonical session（``data/discovery/sessions/``，候选按
+    provenance 还原为扁平 dict）；无 session 或有更新的旧 ``discovery_*.json``
+    → 兼容读旧文件。返回扁平产品 dict 列表（batch_test 复用 / 无 → 空列表）。
     """
-    if not DISCOVERY_CACHE_DIR.exists():
-        return []
+    legacy_files: list[Path] = []
+    if DISCOVERY_CACHE_DIR.exists():
+        legacy_files = sorted(DISCOVERY_CACHE_DIR.glob("discovery_*.json"),
+                              reverse=True)
+    legacy_mtime = 0.0
+    if legacy_files:
+        try:
+            legacy_mtime = legacy_files[0].stat().st_mtime
+        except OSError:
+            legacy_mtime = 0.0
+    try:
+        sess_mtime = _session.latest_session_mtime()
+    except Exception:
+        sess_mtime = 0.0
 
-    files = sorted(DISCOVERY_CACHE_DIR.glob("discovery_*.json"), reverse=True)
-    if not files:
+    if sess_mtime and sess_mtime >= legacy_mtime:
+        try:
+            return _session.load_latest_candidates()
+        except Exception as exc:
+            logger.warning("读取最新 session 失败（回落旧缓存）: %s", exc)
+
+    if not legacy_files:
         return []
 
     try:
-        return json.loads(files[0].read_text(encoding="utf-8"))
+        return json.loads(legacy_files[0].read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning("Failed to load discovery cache %s: %s", files[0], exc)
+        logger.warning("Failed to load discovery cache %s: %s", legacy_files[0], exc)
         return []
 
 

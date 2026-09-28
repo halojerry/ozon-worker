@@ -47,6 +47,7 @@ def _discover_args(**overrides):
         non_interactive=True, blue_ocean_source="", blue_ocean_csv="",
         china=False, local=False, filter_profile=None, base_filter="",
         review=False, compare_sources=None, notify=False, wait=False,
+        report=False,
         command="discover",
     )
     defaults.update(overrides)
@@ -207,36 +208,41 @@ def test_discover_task_run_report_written(tmp_path, monkeypatch):
     assert "📄 运行报告:" in out.getvalue()
 
 
-def test_analysis_report_untouched(tmp_path, monkeypatch):
-    """④既有 analysis report 通道不受影响：export_analysis_report 仍被调用。"""
+def test_analysis_report_gated_by_report_flag(tmp_path, monkeypatch):
+    """④ v0.83 批⑤：analysis report 改 --report 显式开关——默认不调用，显式才调用。"""
     monkeypatch.setattr("scripts._const.LOGS_DIR", tmp_path)
     cands = [_cand("p1", "profitable")]
-    called = []
-    with ExitStack() as stack:
-        for p in [
-            mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp",
-                       return_value=(True, "ok")),
-            mock.patch("scripts.lib.ozon_discovery.collect_and_analyze",
-                       return_value=cands),
-            mock.patch("scripts.lib.ozon_discovery.apply_selection_rules",
-                       side_effect=lambda cands, *a, **k: list(cands)),
-            mock.patch("scripts.lib.ozon_discovery.match_selected"),
-            mock.patch("scripts.lib.config_store.get_mxou_token", return_value=""),
-            mock.patch("scripts.lib.config_store.get_store_profile", return_value={}),
-            mock.patch("scripts.lib.config_store.get_store", return_value={}),
-            mock.patch("scripts.cloud_probe.submit_envelope",
-                       return_value={"ok": True, "task_id": "T-Z"}),
-            mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
-                       side_effect=lambda c, sc, store_id="": {"token": "t",
-                                                               "envelope": {}}),
-            mock.patch("scripts.lib.ozon_discovery.export_analysis_report",
-                       side_effect=lambda sel: called.append(len(sel)) or None),
-        ]:
-            stack.enter_context(p)
-        out = io.StringIO()
-        stack.enter_context(mock.patch("sys.stdout", out))
-        cli.cmd_discover(_discover_args(), )
-    assert called == [1], "export_analysis_report 仍被调用（不动）"
+
+    def _run(extra):
+        called = []
+        with ExitStack() as stack:
+            for p in [
+                mock.patch("scripts.lib.chrome_launcher.ensure_chrome_cdp",
+                           return_value=(True, "ok")),
+                mock.patch("scripts.lib.ozon_discovery.collect_and_analyze",
+                           return_value=cands),
+                mock.patch("scripts.lib.ozon_discovery.apply_selection_rules",
+                           side_effect=lambda cands, *a, **k: list(cands)),
+                mock.patch("scripts.lib.ozon_discovery.match_selected"),
+                mock.patch("scripts.lib.config_store.get_mxou_token", return_value=""),
+                mock.patch("scripts.lib.config_store.get_store_profile", return_value={}),
+                mock.patch("scripts.lib.config_store.get_store", return_value={}),
+                mock.patch("scripts.cloud_probe.submit_envelope",
+                           return_value={"ok": True, "task_id": "T-Z"}),
+                mock.patch("scripts.cloud_probe.build_envelope_from_discovery",
+                           side_effect=lambda c, sc, store_id="": {"token": "t",
+                                                                   "envelope": {}}),
+                mock.patch("scripts.lib.ozon_discovery.export_analysis_report",
+                           side_effect=lambda sel: called.append(len(sel)) or None),
+            ]:
+                stack.enter_context(p)
+            out = io.StringIO()
+            stack.enter_context(mock.patch("sys.stdout", out))
+            cli.cmd_discover(_discover_args(**extra))
+        return called
+
+    assert _run({}) == [], "默认不再生成 analysis report（canonical session 已自包含）"
+    assert _run({"report": True}) == [1], "--report 显式开启时仍调用（旧行为保留）"
 
 
 if __name__ == "__main__":

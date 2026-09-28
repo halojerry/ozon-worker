@@ -1,4 +1,4 @@
-# 运维类命令（check / query / report / session-sync / import-cookies / cleanup / update / 配置）
+# 运维类命令（check / query / report / session-sync / sync-sessions / import-cookies / cleanup / update / 配置）
 
 > v0.79 拆分自 command-reference.md（PLAN-agent-ergonomics-v1 D3）。选管线见 routing.md；
 > 上架类见 commands-listing.md；选品类见 commands-discovery.md。
@@ -8,6 +8,7 @@
 - [任务查询（query）](#任务查询query)
 - [问题上报（report）](#问题上报report)
 - [卖家会话代管（session-sync）](#卖家会话代管session-sync)
+- [discover session 补传（sync-sessions，v0.83）](#discover-session-补传sync-sessionsv083)
 - [跨浏览器 cookie 导入（import-cookies / probe-win-cookies）](#跨浏览器-cookie-导入import-cookies--probe-win-cookies)
 - [凭证配置（set_store / set_token / set_ak / list_stores / get_ak）](#凭证配置set_store--set_token--set_ak--list_stores--get_ak)
 - [自动更新（update）](#自动更新update)
@@ -78,6 +79,21 @@ python3 scripts/cli.py session-sync --credential-id 123 --status   # 只查状�
 
 - CDP 收割 seller cookie 上传 worker 加密代管（AES-GCM，不回显值）
 - 无 sc_company_id 拒传 exit 2；细则见 `session-sync.md`
+
+## discover session 补传（sync-sessions，v0.83）
+
+**触发**：discover/discover-multi/discover-task 跑完但上报失败（worker 不可达/超时/无 token），
+选品数据未进 worker 归档；或跨机同步历史 session。
+
+```bash
+python3 scripts/cli.py sync-sessions                # 补传全部未上报 session（默认 ≤50/次）
+python3 scripts/cli.py sync-sessions --limit 200    # 单次上限
+```
+
+- 扫描 `data/discovery/sessions/` 下无 `.reported` sidecar 的 session，逐个重传
+  `POST /api/v1/discovery/runs`——worker 按 `session_run_id` **幂等 upsert**，重复上报安全
+- 无 token → exit 1 并提示 `set_token`；部分失败 exit 1（可重跑，幂等）
+- discover 族每次运行也会在后台可重试上报（3 次退避），本命令是漏网补传兜底
 
 ## 跨浏览器 cookie 导入（import-cookies / probe-win-cookies）
 
