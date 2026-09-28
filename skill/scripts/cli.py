@@ -685,10 +685,9 @@ def cmd_probe(args: argparse.Namespace) -> int:
 
 from datetime import datetime, timezone  # noqa: E402
 
-from scripts._const import DATA_DIR  # noqa: E402
+from scripts._const import HEAVY_LOCK_PATH  # noqa: E402,F401
 from scripts.lib import lock_utils  # noqa: E402
 
-HEAVY_LOCK_PATH = DATA_DIR / "locks" / "heavy_cdp.lock"
 _HEAVY_WAIT_HEARTBEAT_SECONDS = 30  # --wait 排队心跳间隔
 
 # 模块级持有标志：flock 同进程异 fd 互斥（见 lock_utils 头注释），闸只在真实
@@ -840,6 +839,21 @@ def _add_heavy_gate_args(p: argparse.ArgumentParser) -> None:
                         "再退出（completed/failed 打一行，failed 时 exit 3）")
     p.add_argument("--force", action="store_true",
                    help="跳过重采集串行闸强制并行（多进程会互踩 Chrome/缓存，慎用）")
+    p.add_argument("--detach", action="store_true",
+                   help="后台运行：fork 脱离会话子进程后立即返回 job 句柄（job_id），"
+                        "用 `job-status <id>` 轮询、`job-result <id>` 取结果；"
+                        "与 --wait 互斥。锁与产出物与前台逐字一致（单事实源 skill/data/jobs/）")
+
+
+def _add_detach_arg(p: argparse.ArgumentParser) -> None:
+    """给**非重**命令（queries）挂 --detach（v0.83 批④：MCP 七工具 background 缺省 True）。
+
+    与 ``_add_heavy_gate_args`` 的 --detach 语义一致，但该命令不持重采集串行闸
+    （无 --wait/--force）——spawn 时不做闸占用探针（light 命令不该被重闸拦）。
+    """
+    p.add_argument("--detach", action="store_true",
+                   help="后台运行：fork 脱离会话子进程后立即返回 job 句柄（job_id），"
+                        "用 `job-status <id>` 轮询、`job-result <id>` 取结果")
 
 
 @_heavy_gate
@@ -3806,6 +3820,117 @@ def _capture_exception(exc: Exception, command: str) -> None:
         pass
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# 后台任务（--detach / jobs / job-status / job-result）— v0.83 批④
+# 唯一实现 scripts/lib/detach.py；本段只做 CLI 出口（_out + NEXT）。
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _handle_detach(args: argparse.Namespace) -> int:
+    """``--detach`` 父进程侧出口：fork 脱离会话子进程 → 打印句柄行 + 句柄 JSON + NEXT。
+
+    父进程**不持锁**（detach.spawn_detached 只做占用探针）；退出码语义：
+    0=已启动、2=与 --wait 互斥、4=闸被占、1=启动失败。
+    """
+    from scripts.lib import detach as _detach
+
+    # 重命令（带 --wait/--force）= 持重采集闸 → 启动前做闸占用探针；
+    # light 命令（queries）= 不持重闸 → 跳过探针。
+    res = _detach.spawn_detached(args, heavy=hasattr(args, "force"))
+    code = int(res.get("code", 1))
+    jid = str(res.get("job_id") or "")
+    if jid:
+        print(f"🚀 后台任务已启动 job_id={jid}（{args.command}）", flush=True)
+        _out({"job_id": jid, "status": "running", "kind": getattr(args, "command", ""),
+              "log": res.get("log", ""), "next_poll_s": 20})
+    if res.get("error") and code != 0:
+        print(f"❌ {res['error']}", file=sys.stderr, flush=True)
+    if code == 2:
+        _print_next("--detach 与 --wait 互斥——去掉其一后重跑（要后台轮询去掉 --wait；要同步等结果去掉 --detach）")
+    elif code == 4:
+        _print_next("串行闸被占——加 --wait 排队（同步）、--force 强制并行（慎用），或稍后重试 --detach")
+    elif jid:
+        _print_next(f"后台任务在跑——`python3 scripts/cli.py job-status {jid}` 查进度"
+                    f"（返回 next_poll_s，按其节奏轮询勿秒查）；完成后 "
+                    f"`job-result {jid}` 取结果。需要同步等结果则去掉 --detach 加 --wait")
+    else:
+        _print_next("启动失败——检查上方错误后重试；错误持续用 report 命令上报")
+    return code
+
+
+def cmd_jobs(args: argparse.Namespace) -> int:
+    """``jobs``：列出本机后台任务（--detach 启动；含孤儿收割）。"""
+    from scripts.lib import detach as _detach
+
+    limit = int(getattr(args, "limit", 20) or 20)
+    jobs = _detach.list_jobs(limit)
+    _out({"jobs": jobs, "total": len(jobs)})
+    if jobs:
+        _print_next("选一个 job_id 用 `python3 scripts/cli.py job-status <id>` 看进度与日志尾，"
+                    "或 `job-result <id>` 取完整结果")
+    else:
+        _print_next("无后台任务——重命令（discover/discover-multi/discover-task/follow/graph/seller）"
+                    "加 --detach 可后台启动")
+    return 0
+
+
+def cmd_job_status(args: argparse.Namespace) -> int:
+    """``job-status <id>``：单任务状态 + 日志尾 + run_id/session_path + 轮询节奏。"""
+    from scripts.lib import detach as _detach
+
+    jid = str(getattr(args, "job_id", "") or "")
+    job = _detach.read_job(jid)
+    if not job:
+        _out({"error": f"任务不存在: {jid}", "job_id": jid})
+        _print_next("`jobs` 列出全部后台任务；确认 job_id 未抄错后重试")
+        return 1
+    job = dict(job)
+    job["log_tail"] = _detach.log_tail(jid, int(getattr(args, "log_tail", 40) or 40))
+    if not job.get("run_id"):
+        _res = _detach.read_result(jid)[0] or {}
+        if _res.get("run_id"):
+            job["run_id"] = str(_res["run_id"])
+        if _res.get("session_path"):
+            job["session_path"] = str(_res["session_path"])
+    else:
+        job.setdefault("session_path", "")
+    _status = str(job.get("status") or "")
+    if _status == "running":
+        job["next_poll_s"] = 20
+        job["next_action"] = ("任务在跑——建议 ≥20s 后再 job-status（分钟级任务勿秒级轮询）；"
+                              "终态后 job-result 取完整结果")
+    elif _status in ("completed", "failed", "cancelled", "interrupted"):
+        job["next_action"] = ("任务已终态——job-result 取完整结果；failed 先看 error 与 log_tail，"
+                              "连续失败 2 次勿重试改 report 上报")
+    _out(job)
+    _print_next(job.get("next_action") or "按上方状态处理（jobs 可列全部后台任务）")
+    return 0
+
+
+def cmd_job_result(args: argparse.Namespace) -> int:
+    """``job-result <id>``：取后台任务完整结果（子进程尾 JSON 全文）。"""
+    from scripts.lib import detach as _detach
+
+    jid = str(getattr(args, "job_id", "") or "")
+    result, err = _detach.read_result(jid)
+    if not result:
+        job = _detach.read_job(jid)
+        if job is None:
+            _out({"error": f"任务不存在: {jid}", "job_id": jid})
+            _print_next("`jobs` 列出全部后台任务；确认 job_id 未抄错后重试")
+            return 1
+        _out({"job_id": jid, "status": job.get("status"),
+              "error": err or "尚无结构化结果（任务仍在跑或输出无尾 JSON）"})
+        if str(job.get("status") or "") == "running":
+            _print_next("任务未终态——`job-status <id>` 看进度，终态后重试 job-result")
+        else:
+            _print_next("任务已终态但无结构化结果——`job-status <id>` 看 error/log_tail 定位"
+                        "（失败在 preflight/提交前等无尾 JSON 分支）")
+        return 1
+    _out(result)
+    _print_next("结果已出——按 references/output-schema.md 汇报；需要后续上架用 graph/follow 或 query")
+    return 0
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """构建 CLI argparse 解析器（v0.69 T0.5 从 main() 提取）。
 
@@ -4227,6 +4352,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     qp.add_argument("--price-max", type=float, default=None, help="market-bestsellers: 价格上限 RUB")
     qp.add_argument("--export", choices=["csv", "json"], default="csv", help="导出格式(默认 csv)")
     qp.add_argument("--output", default="", help="输出文件路径(默认打印到 stdout)")
+    _add_detach_arg(qp)
     qp.set_defaults(func=cmd_queries)
 
     # ── 磁盘清理(N3 profile 缓存 + N7 垃圾文件清扫)──
@@ -4269,6 +4395,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
                      help="报告 JSON 输出路径（默认 data/probe/win_cookies_<ts>.json）")
     pwp.set_defaults(func=cmd_probe_win_cookies)
 
+    # ── 后台任务（v0.83 批④：--detach 启动，jobs 族轮询）──
+    jp = sub.add_parser("jobs", help="列出本机后台任务（--detach 启动）")
+    jp.add_argument("--limit", type=int, default=20, help="返回条目上限(默认 20)")
+    jp.set_defaults(func=cmd_jobs)
+
+    jsp = sub.add_parser("job-status", help="查单个后台任务：状态/阶段/日志尾/轮询节奏")
+    jsp.add_argument("job_id", help="job_id（--detach 返回的句柄 / jobs 列表）")
+    jsp.add_argument("--log-tail", type=int, default=40, help="日志尾部行数(默认 40)")
+    jsp.set_defaults(func=cmd_job_status)
+
+    jrp = sub.add_parser("job-result", help="取后台任务完整结果（子进程尾 JSON 全文）")
+    jrp.add_argument("job_id", help="job_id（--detach 返回的句柄 / jobs 列表）")
+    jrp.set_defaults(func=cmd_job_result)
+
     return parser
 
 
@@ -4292,6 +4432,11 @@ def main() -> int:
     if not args.command:
         parser.print_help()
         return 0
+
+    # ✅ v0.83 批④：--detach 父进程侧——fork 脱离会话子进程后立即返回 job 句柄。
+    # 必须先于运行日志/preflight（父进程不持锁、不做重活；子进程内自会走全流程）。
+    if getattr(args, "detach", False):
+        return _handle_detach(args)
 
     # ✅ v0.78 批B1: 统一运行日志——stderr(INFO) + 文件(DEBUG) 双通道，启动即打
     # 一行日志路径（data/logs/run_*.log），命令全程可追溯（黑盒抱怨根治第一半）。
@@ -4330,11 +4475,41 @@ def main() -> int:
     # close_tool_chrome() 保留(不自动调用), 需要时显式执行。
     # ⚠️ v0.35: Sentry 异常上报——捕获后 re-raise（保留 traceback + 退出码 1，不吞异常）。
     # KeyboardInterrupt/SystemExit 是 BaseException 子类，不会被 Exception 捕获 → 自然透传。
+    # v0.83 批④：detach 子进程出口回写 job 终态（非 detach 子进程恒 no-op）。
+    # 认领放在 preflight（可能 os.execve）之后、命令执行之前——嵌套 CLI 不误认领。
     try:
-        return args.func(args)
+        from scripts.lib import detach as _detach_claim
+        _detach_claim.claim_tracking_job_id()
+    except Exception:
+        pass
+    try:
+        _rc = args.func(args)
+    except SystemExit as _e:
+        _code = _e.code if isinstance(_e.code, int) else (0 if _e.code is None else 1)
+        _finish_job_tracking(_code)
+        raise
     except Exception as exc:
         _capture_exception(exc, getattr(args, "command", "unknown"))
+        _finish_job_tracking(1)
         raise
+    else:
+        _finish_job_tracking(_rc if isinstance(_rc, int) else 0)
+        return _rc
+
+
+def _finish_job_tracking(code: int) -> None:
+    """v0.83 批④：若本进程是 ``--detach`` 子进程（env 带 job_id），回写 job 终态。
+
+    非 detach 进程 / 注册表不可写 → 静默 no-op，绝不影响命令退出码。
+    """
+    try:
+        from scripts.lib import detach as _detach
+
+        _jid = _detach.tracking_job_id()
+        if _jid:
+            _detach.finish_job(_jid, code)
+    except Exception:
+        pass
 
 
 def _preflight_runtime() -> tuple[bool, str]:

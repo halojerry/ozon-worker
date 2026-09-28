@@ -67,6 +67,8 @@ class SkillError(RuntimeError):
 # 各子命令 add_argument 的**真实 flag 集**（下划线形式）逐 kind 声明白名单；
 # 键 = COLLECT_KINDS / MCP 工具的 kind 名（下划线），另含 /ask 直达的 check/category。
 # ⚠️ skill CLI 新增 flag 且网关/MCP 面要透出时，必须同步本表——白名单外的键会被丢弃。
+# ⚠️ v0.83 批④：七重命令（graph/follow/discover/discover_multi/discover_task/seller/
+# queries）补 `detach` 透传——skill `--detach` 后台化（MCP background 路径即经它）。
 # 放置本模块（而非 tasks.py）的原因：tasks.py import 本模块，反向引用会循环导入。
 ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
     "check": frozenset(),  # 无任何参数
@@ -79,7 +81,7 @@ ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
     "graph": frozenset({
         "item_id", "url", "category_query", "category_id", "type_id",
         "retries", "store", "no_submit", "min_density", "to_box",
-        "ozon_ref_url", "template_id", "notify", "wait", "force",
+        "ozon_ref_url", "template_id", "notify", "wait", "force", "detach",
     }),
     "image_search": frozenset({
         "image", "limit", "sort", "source", "ozon_product_id",
@@ -87,7 +89,7 @@ ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
     "get_ak": frozenset({"timeout"}),
     "follow": frozenset({
         "ozon_url", "auto_submit", "to_box", "store", "review", "notify",
-        "wait", "force",
+        "wait", "force", "detach",
     }),
     "discover": frozenset({
         "url", "keyword", "local", "china", "max_products", "min_margin",
@@ -97,14 +99,14 @@ ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
         "max_depth", "allow_depth_3", "max_total_products", "time_budget",
         "max_sellers_per_product", "max_products_per_seller",
         "non_interactive", "blue_ocean_source", "blue_ocean_csv", "review",
-        "compare_sources", "notify", "wait", "force",
+        "compare_sources", "notify", "wait", "force", "detach",
     }),
     "discover_multi": frozenset({
         "keywords", "max_each", "local", "china", "min_margin", "fx_rate",
         "store", "no_analytics", "min_price", "max_price", "brand_filter",
         "rules", "filter_profile", "base_filter", "export", "output",
         "auto_submit", "to_box", "blue_ocean_source", "blue_ocean_csv",
-        "review", "notify", "wait", "force",
+        "review", "notify", "wait", "force", "detach",
     }),
     "discover_task": frozenset({
         "url", "keyword", "target_count", "max_scan", "filter_profile",
@@ -113,14 +115,14 @@ ALLOWED_PARAM_KEYS: dict[str, frozenset[str]] = {
         "no_match_streak_stop", "store", "to_box", "auto_submit", "dry_run",
         "resume", "expend_shop", "max_depth", "allow_depth_3",
         "max_total_products", "time_budget", "no_analytics", "export",
-        "wait", "force",
+        "wait", "force", "detach",
     }),
     "seller": frozenset({
-        "seller_id", "max_products", "max_skus", "wait", "force",
+        "seller_id", "max_products", "max_skus", "wait", "force", "detach",
     }),
     "queries": frozenset({
         "type", "keyword", "sku", "category_id", "price_min", "price_max",
-        "export", "output",
+        "export", "output", "detach",
     }),
 }
 
@@ -261,6 +263,10 @@ def _parse_output(stdout: str, stderr: str) -> dict:
         pass
 
     lines = text.split("\n")
+    # v0.83 批④：出口末行固定为 `👉 NEXT: ...`（skill 人体工学纪律），非 JSON——
+    # 先剥尾部 NEXT/空行，否则 background 收割的 json.loads 永远失败（摘要恒 0）。
+    while lines and (not lines[-1].strip() or lines[-1].lstrip().startswith("👉 NEXT:")):
+        lines.pop()
     for i in range(len(lines) - 1, -1, -1):
         if lines[i].strip() == "{":
             candidate = "\n".join(lines[i:])
