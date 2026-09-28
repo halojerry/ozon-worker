@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""批B6: 预估打印共享入口 _estimate_and_print + graph/follow --min-margin 拦截（纯 mock）。
+"""批B6 + v0.83 批①: 预估打印共享入口 _estimate_and_print + graph/follow --min-margin 拦截（纯 mock）。
 
-- _estimate_and_print：与 graph 腿原内联公式同源（售价=总成本×(1+margin)/(1-commission)），
-  graph/follow 两腿共用；免责一行（预估非终价，worker 实算为准）
-- --min-margin（float 默认 0.0=不拦截零变化）：预估利润率 < 阈值 → print 拦截原因 + exit 3
-  （对齐 --min-density 语义）；discover 腿不加（已有 profitable 筛选）
-- follow 腿在 follow_sell_cloud 内部提交前拦截（提交后再打印就晚了）
+v0.83 批①：_estimate_and_print 退役本地公式 → 改打 worker ``POST /api/v1/estimate``
+（唯一算价出口）。本文件 mock ``scripts.lib.estimate_client.estimate_envelope``。
+
+- _estimate_and_print：worker 预估 → {estimated_retail_price_cny, estimated_logistics_cny,
+  estimated_profit_cny, estimated_profit_rate, estimate_source, currency}；免责一行。
+- worker 不可达 → estimate_source="unavailable"（无预估，绝不回落本地公式）。
+- --min-margin（float 默认 0.0=不拦截零变化）：预估利润率 < 阈值 → print 拦截原因 + exit 3；
+  **无预估不拦**（v0.83 降级纪律）。
+- follow 腿在 follow_sell_cloud 内部提交前拦截。
 
 运行：
     cd skill && .venv314/bin/python -m pytest tests/test_estimate_min_margin_v078.py -q
@@ -16,7 +20,6 @@ import io
 import os
 import sys
 from contextlib import ExitStack
-from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -24,9 +27,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import scripts.cli as cli  # noqa: E402
 from scripts import cloud_probe  # noqa: E402
 
+_EST_PATCH = "scripts.lib.estimate_client.estimate_envelope"
 
-def _quote(cost: float):
-    return SimpleNamespace(cost=cost, fallback_chain="worker")
+
+def _est_resp(price=28.12, logistics=5.0, profit=13.12, rate=0.467, currency="CNY"):
+    """worker /api/v1/estimate 响应替身（税率 46.7% 对齐用例文案）。"""
+    return {
+        "price": price,
+        "logistics_cost_cny": logistics,
+        "profit_cny": profit,
+        "profit_rate": rate,
+        "currency": currency,
+        "commission_rate": 0.2,
+        "commission_source": "segments:leq_5000",
+        "estimate_source": "worker",
+    }
 
 
 _DRAFT = {
@@ -38,20 +53,18 @@ _DRAFT = {
 }
 
 
-def test_estimate_and_print_formula_and_lines():
-    """①公式与 worker 同源 + 💰 行 + 免责行；返回四键。"""
-    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                    return_value=_quote(5.0)), \
-            mock.patch("scripts.lib.config_store.get_ozon_credentials",
-                       return_value={"margin_rate": 0.5, "commission_rate": 0.2}), \
+def test_estimate_and_print_worker_result_and_lines():
+    """①worker 预估回填 + 💰 行 + 免责行；返回六键。"""
+    with mock.patch(_EST_PATCH, return_value=_est_resp()), \
+            mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
             mock.patch("sys.stdout", io.StringIO()) as out:
         est = cli._estimate_and_print(dict(_DRAFT), store="")
     assert est is not None
-    # total = 10 + 5 = 15；price = 15×1.5/0.8 = 28.12；profit = 13.12；rate = 46.7%
     assert est["estimated_retail_price_cny"] == 28.12
     assert est["estimated_logistics_cny"] == 5.0
     assert est["estimated_profit_cny"] == 13.12
     assert est["estimated_profit_rate"] == 46.7
+    assert est["estimate_source"] == "worker"
     text = out.getvalue()
     assert "💰 预估:" in text
     assert "28.12" in text
@@ -59,8 +72,8 @@ def test_estimate_and_print_formula_and_lines():
 
 
 def test_estimate_and_print_insufficient_data_returns_none():
-    """②数据不足（无采购价）→ None、不打印、不查询物流。"""
-    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker") as q, \
+    """②数据不足（无采购价/无重量）→ None、不打印、不问 worker。"""
+    with mock.patch(_EST_PATCH) as q, \
             mock.patch("sys.stdout", io.StringIO()) as out:
         est = cli._estimate_and_print({"weight": 0, "purchase_cost": 0}, store="")
     assert est is None
@@ -68,17 +81,17 @@ def test_estimate_and_print_insufficient_data_returns_none():
     q.assert_not_called()
 
 
-def test_estimate_and_print_logistics_fallback_flat():
-    """③物流查询失败 → 1kg×15 元/kg 兜底（原 graph 腿同款兜底）。"""
-    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                    return_value=None), \
-            mock.patch("scripts.lib.config_store.get_ozon_credentials",
-                       return_value=None), \
+def test_estimate_and_print_worker_unavailable_no_local_fallback():
+    """③worker 不可达 → 无预估（estimate_source=unavailable），绝不回落本地公式。"""
+    with mock.patch(_EST_PATCH, return_value=None), \
+            mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
             mock.patch("sys.stdout", io.StringIO()) as out:
         est = cli._estimate_and_print(dict(_DRAFT), store="")
-    assert est is not None
-    assert est["estimated_logistics_cny"] == 15.0  # 1000g → 1kg × 15
-    assert "💰 预估:" in out.getvalue()
+    assert est == {"estimate_source": "unavailable"}
+    text = out.getvalue()
+    assert "无预估" in text and "未回落本地公式" in text
+    # 无预估不拦（min-margin 任意值）
+    assert cli._min_margin_block_reason(est, 50.0) == ""
 
 
 # ── graph 腿 --min-margin ───────────────────────────────────────────────────
@@ -90,7 +103,7 @@ _GRAPH_ENV = {
 
 
 def _run_graph(extra_args: list):
-    """跑 cmd_graph（预估走 mock 物流），返回 (rc, stdout, submit 调用数)。"""
+    """跑 cmd_graph（预估走 mock worker），返回 (rc, stdout, submit 调用数)。"""
     submitted = []
 
     def _fake_submit(graph):
@@ -109,12 +122,9 @@ def _run_graph(extra_args: list):
             "scripts.cloud_probe._check_min_density", return_value=(True, "")))
         stack.enter_context(mock.patch(
             "scripts.cloud_probe.submit_envelope", side_effect=_fake_submit))
+        stack.enter_context(mock.patch(_EST_PATCH, return_value=_est_resp()))
         stack.enter_context(mock.patch(
-            "scripts.lib.ozon_discovery._query_logistics_from_worker",
-            return_value=_quote(5.0)))
-        stack.enter_context(mock.patch(
-            "scripts.lib.config_store.get_ozon_credentials",
-            return_value={"margin_rate": 0.5, "commission_rate": 0.2}))
+            "scripts.lib.config_store.get_store_profile", return_value={}))
         out = io.StringIO()
         stack.enter_context(mock.patch("sys.stdout", out))
         args = cli.build_arg_parser().parse_args(
@@ -160,7 +170,7 @@ FOLLOW_ENV = {
 
 
 def _run_follow_cloud(min_margin: float, submit_res: dict | None = None):
-    """跑真 follow_sell_cloud（全 mock）+ 物流 mock，返回 (result, submit 调用数)。"""
+    """跑真 follow_sell_cloud（全 mock）+ worker 预估 mock，返回 (result, submit 调用数)。"""
     submit_res = submit_res or {"ok": True, "task_id": "T-F1"}
     submits = []
 
@@ -188,17 +198,14 @@ def _run_follow_cloud(min_margin: float, submit_res: dict | None = None):
                               return_value=FOLLOW_ENV), \
             mock.patch.object(cloud_probe, "submit_envelope", side_effect=_fake_submit), \
             mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
-            mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                       return_value=_quote(5.0)), \
-            mock.patch("scripts.lib.config_store.get_ozon_credentials",
-                       return_value={"margin_rate": 0.5, "commission_rate": 0.2}):
+            mock.patch(_EST_PATCH, return_value=_est_resp()):
         r = cloud_probe.follow_sell_cloud(URL, auto_submit=True, store_id="s1",
                                           min_margin=min_margin)
     return r, len(submits)
 
 
 def test_follow_submits_and_prints_estimate_when_min_margin_zero():
-    """⑦follow --min-margin 缺省 0：提交前预估打印（B6 补齐 follow 无预估的缺口），照常提交。"""
+    """⑦follow --min-margin 缺省 0：提交前预估打印，照常提交。"""
     r, n = _run_follow_cloud(0.0)
     assert r.get("success") is True
     assert n == 1
@@ -259,10 +266,7 @@ def _run_follow_cloud_cache_hit(min_margin: float):
             mock.patch("scripts.lib.config_store.get_mxou_token", return_value="sk"), \
             mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
             mock.patch.object(cloud_probe, "submit_envelope", side_effect=_fake_submit), \
-            mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                       return_value=_quote(5.0)), \
-            mock.patch("scripts.lib.config_store.get_ozon_credentials",
-                       return_value={"margin_rate": 0.5, "commission_rate": 0.2}):
+            mock.patch(_EST_PATCH, return_value=_est_resp()):
         r = cloud_probe.follow_sell_cloud(URL, auto_submit=True, store_id="s1",
                                           min_margin=min_margin)
     return r, len(submits)

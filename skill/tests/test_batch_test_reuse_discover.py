@@ -185,13 +185,13 @@ def test_estimate_shipping_cny_consistency():
     assert estimate_shipping_cny(5000) == 15.0
 
 
-def test_calculate_profit_missing_weight_uses_default_500g():
-    """_calculate_profit 无重量 → 按默认 500g 查费率表（不再跳过费率表落本地 ¥15）。
+def test_calculate_profit_sends_weight_to_batch():
+    """v0.83 批①：_calculate_profit 把候选重量透传进 worker batch item。
 
-    回归：此前 _query_logistics_from_worker 对 weight≤0 直接 return None →
-    discover 落 DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g 走费率表，
-    两条路径不一致，轻小件被误判利润不足。修复后无重量也按 500g 查表。
+    回归（原 P1-5 语义）：无重量候选也进 batch（worker 侧按缺省兜底），不再本地
+    跳过落 ¥15；worker 不可达 → estimate_source=unavailable（无预估），绝不假运费。
     """
+    import scripts.lib.ozon_discovery as od
     from scripts.lib.ozon_discovery import (
         ProductCandidate,
         _calculate_profit,
@@ -200,25 +200,30 @@ def test_calculate_profit_missing_weight_uses_default_500g():
     c = ProductCandidate(ozon_product_id="1", ozon_title="t", ozon_price=1000.0)
     c.match_1688_price = 20.0
     c.weight_g = 0
-    # 费率表命中：Worker 返回真实费率（假设 500g → ¥8.5）
-    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                    return_value=mock.Mock(cost=8.5, estimated=False, fallback_chain="q1_hit")) as m_q:
-        _calculate_profit(c)
-    # 必须调用费率表查询（传候选原始 weight_g=0，转换在 _query_logistics_from_worker 内部）
-    m_q.assert_called_once()
-    assert m_q.call_args[0][0] == 0, f"应传候选原始 weight_g, got {m_q.call_args[0][0]}"
-    assert c.estimated_logistics_cny == 8.5, "应使用费率表真实费率"
-    assert c.logistics_fallback_chain == "q1_hit"
+    seen = {}
 
-    # 费率表+last-good 均不可达（worker 离线）→ 本地兜底与上架管线同源（默认 500g → ¥6）
+    def _fake(items):
+        seen["items"] = items
+        return [{
+            "ok": True, "profit_rate": 0.2, "commission_rate": 0.1,
+            "commission_source": "cache:leq_5000", "profit_cny": 1.0,
+            "logistics_cost_cny": 8.5, "price": 100, "logistics_source": "store",
+        }]
+
+    with mock.patch.object(od, "estimate_batch", side_effect=_fake):
+        _calculate_profit(c)
+    assert c.estimated_logistics_cny == 8.5, "应使用 worker 回填的物流费"
+    assert c.logistics_fallback_chain == "store"
+    assert seen["items"][0].get("weight_g") is None, "无重量 → 省略键（worker 缺省兜底）"
+
+    # worker 不可达 → 无预估（不回落本地公式）
     c2 = ProductCandidate(ozon_product_id="2", ozon_title="t", ozon_price=1000.0)
     c2.match_1688_price = 20.0
     c2.weight_g = 0
-    with mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                    return_value=None):
+    with mock.patch.object(od, "estimate_batch", return_value=None):
         _calculate_profit(c2)
-    assert c2.estimated_logistics_cny == 6.0, f"兜底应按默认 500g 估 ¥6, got {c2.estimated_logistics_cny}"
-    assert c2.logistics_fallback_chain == "default_500g"
+    assert c2.estimate_source == "unavailable"
+    assert c2.estimated_logistics_cny == 0.0
 
 
 def test_query_logistics_from_worker_missing_weight_queries_default():

@@ -18,6 +18,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scripts.lib import ozon_discovery as od
 from scripts.lib.ozon_discovery import ProductCandidate
 
+# v0.83 批①：算价走 worker batch —— 离线替身 row（profit_rate 0.5 → profitable）
+_EST_ROW = {"ok": True, "profit_rate": 0.5, "commission_source": "segments:leq_5000",
+            "commission_rate": 0.1, "profit_cny": 1.0, "logistics_cost_cny": 1.0,
+            "price": 1, "logistics_source": "store"}
+
 
 def _mk(pid, status="ok"):
     c = ProductCandidate(ozon_product_id=pid, ozon_title=f"Товар {pid}",
@@ -64,7 +69,7 @@ def test_match_selected_parallel_concurrency_and_main_thread_callbacks():
 
     with mock.patch.object(od, "_discover_workers", return_value=2), \
          mock.patch.object(od, "_search_1688_source", side_effect=fake_search), \
-         mock.patch.object(od, "_query_logistics_from_worker", return_value=None), \
+         mock.patch.object(od, "estimate_batch", side_effect=lambda items: [dict(_EST_ROW) for _ in items]), \
          mock.patch.object(od, "_save_discovery_log"), \
          mock.patch.object(od, "_log_review_record"), \
          mock.patch.object(od, "_cross_source_compare"), \
