@@ -326,6 +326,59 @@ def extract_numbers(text: Any) -> List[str]:
     return _NUM_TOKEN_RE.findall(str(text or ""))
 
 
+# ✅ v0.83 gate B4: 重量 token 单位识别（kg/кг 与 g/г 双向归一，只归一不改数值）。
+_WEIGHT_UNIT_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(kg|кг|kilogram\w*|килограмм\w*|g|г|gram\w*|грамм\w*)",
+    re.IGNORECASE,
+)
+_KG_UNIT_PREFIXES = ("kg", "кг", "kilogram", "килограмм")
+
+
+def _collect_evidence_texts(value: Any) -> str:
+    """把嵌套 dict/list/标量摊平为空格分隔文本（1688 规格表/SKU 明细结构宽松）。
+
+    gate B4：packagingRows（规格表行）/skuDetails（SKU 明细）是结构化对象，逐层摊平
+    后抽数字——键名与值都进证据集（如 {"lengthText": "9.6"} → 9.6 可溯）。
+    """
+    parts: List[str] = []
+
+    def _walk(v: Any) -> None:
+        if v is None:
+            return
+        if isinstance(v, dict):
+            for k, sub in v.items():
+                parts.append(str(k))
+                _walk(sub)
+        elif isinstance(v, (list, tuple, set)):
+            for sub in v:
+                _walk(sub)
+        elif isinstance(v, str) and v.strip():
+            parts.append(v)
+        elif isinstance(v, (int, float)):
+            parts.append(str(v))
+
+    _walk(value)
+    return " ".join(parts)
+
+
+def _add_weight_unit_keys(text: Any, keys: set) -> None:
+    """重量 token 的单位归一：kg/кг ×1000 → 克，把归一值补进证据集。
+
+    「0.1 кг」与「100 г」等价（同 g）；撰写侧写 100 г 而证据侧只留 0.1 кг 时，
+    归一值 100 使锚定闸不误剥。**只做单位归一、不做数值容差**——120 ≠ 121，
+    仍按未锚定剥除（宁剥勿放）。非整数结果不补（避免引入精度假设）。
+    """
+    for m in _WEIGHT_UNIT_RE.finditer(str(text or "")):
+        try:
+            val = float(m.group(1).replace(",", "."))
+        except ValueError:
+            continue
+        unit = m.group(2).lower()
+        grams = val * 1000 if unit.startswith(_KG_UNIT_PREFIXES) else val
+        if grams > 0 and abs(grams - round(grams)) < 1e-6:
+            keys.add(str(round(grams)))
+
+
 def collect_evidence_keys(
     *,
     draft_attrs: Optional[Dict[str, Any]] = None,
@@ -334,13 +387,24 @@ def collect_evidence_keys(
     dims_mm: Optional[Dict[str, Any]] = None,
     description: str = "",
     extra_texts: Optional[List[Any]] = None,
+    packaging_rows: Optional[List[Any]] = None,
+    packaging_table_text: str = "",
+    sku_details: Optional[List[Any]] = None,
+    gross_weight_g: Any = 0,
 ) -> set:
     """数字事实锚定的证据集：draft 中文属性值 + 归一 RU 属性值 + 重量/尺寸 +
-    1688 详情原文 + 额外文本，全部抽数字归一成 key 集合。
+    1688 详情原文 + 1688 规格表/SKU 明细/毛重箱规 + 额外文本，全部抽数字归一成
+    key 集合。
+
+    ✅ v0.83 gate B4：补入 `packagingRows`/`packagingTableText`/`skuDetails`（信封
+    携带的 1688 规格表与 SKU 明细）与毛重/箱规数值——此前规格表真实值（如尺寸
+    9.6*7*4.5、箱规 500 件、毛重）不在证据集 → 撰写引用即被误剥/或漏锚。重量
+    token 做 kg/кг↔g 单位归一（只归一不改数值，无容差）。
 
     4191 出口的任何数字 token 必须命中本集合（否则剥除）——撰写 ≠ 编造规格。
     """
     keys: set = set()
+    texts: List[Any] = []
 
     def _add(value: Any) -> None:
         if value is None:
@@ -350,22 +414,44 @@ def collect_evidence_keys(
 
     for value in (draft_attrs or {}).values():
         _add(value)
+        texts.append(value)
     for attr in (final_attributes or []):
         if not isinstance(attr, dict):
             continue
         _add(attr.get("value"))
+        texts.append(attr.get("value"))
         values = attr.get("values")
         if isinstance(values, list):
             for item in values:
                 if isinstance(item, dict):
                     _add(item.get("value"))
+                    texts.append(item.get("value"))
+    # ✅ v0.83 gate B4: 1688 规格表/SKU 明细（结构化摊平）/毛重箱规进证据集
+    for _struct in (packaging_rows, sku_details):
+        if _struct:
+            _flat = _collect_evidence_texts(_struct)
+            _add(_flat)
+            texts.append(_flat)
+    if packaging_table_text:
+        _add(packaging_table_text)
+        texts.append(packaging_table_text)
+    if gross_weight_g:
+        _add(gross_weight_g)
+        texts.append(gross_weight_g)
     if weight_g:
         _add(weight_g)
+        texts.append(weight_g)
     for value in (dims_mm or {}).values():
         _add(value)
+        texts.append(value)
     _add(description)
+    texts.append(description)
     for text in (extra_texts or []):
         _add(text)
+        texts.append(text)
+    # 单位归一（kg/кг → g；只归一不改数值，无容差）
+    for text in texts:
+        _add_weight_unit_keys(text, keys)
     return keys
 
 
@@ -539,6 +625,10 @@ def author_annotation(
     image_urls: Optional[List[str]] = None,
     vision_source: str = VISION_SOURCE_NONE,
     box_reviewed: bool = False,
+    packaging_rows: Optional[List[Any]] = None,
+    packaging_table_text: str = "",
+    sku_details: Optional[List[Any]] = None,
+    gross_weight_g: Any = 0,
     llm: Optional[Callable[[str, str, Optional[List[str]]], Optional[str]]] = None,
     translate: Optional[Callable[[str], Optional[str]]] = None,
     sanitize: Optional[Callable[[str], str]] = None,
@@ -571,6 +661,10 @@ def author_annotation(
         weight_g=weight_g,
         dims_mm=dims_mm,
         description=draft_description,
+        packaging_rows=packaging_rows,
+        packaging_table_text=packaging_table_text,
+        sku_details=sku_details,
+        gross_weight_g=gross_weight_g,
     )
     user_text = str(draft_description or "").strip()
 
