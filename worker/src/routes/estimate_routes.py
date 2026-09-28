@@ -231,8 +231,27 @@ def _run_estimate_batch(body: EstimateBatchIn, tenant_id: str) -> Dict[str, Any]
                 "dimensions": _map_dims_mm(item.dims_mm),
                 "attributes": item.attributes or {},
             }
-            if item.dc not in (None, ""):
-                draft["ozon_category"] = {"description_category_id": str(item.dc)}
+            # ✅ v0.83.1: dc 缺席时经 1688 cid（scid）反查学习映射表——estimate 佣金
+            # 冷启动死锁解锁（discover 关键词候选无 Ozon dc 时佣金恒 fallback →
+            # v0.83 佣金闸恒拦）。lookup_mapping 自带 succ/conf 门槛，命中才用。
+            dc_val = str(item.dc) if item.dc not in (None, "") else ""
+            if not dc_val and getattr(item, "scid", None) not in (None, ""):
+                try:
+                    _cid = int(str(item.scid))
+                except (TypeError, ValueError):
+                    _cid = None
+                if _cid:
+                    try:
+                        from utils.category_mapping_learn import lookup_mapping
+                        _hit = lookup_mapping(source_category_id=_cid)
+                        if _hit:
+                            dc_val = str(_hit["dc"])
+                            logger.info(
+                                "estimate/batch scid=%s 反查映射命中 dc=%s", _cid, dc_val)
+                    except Exception as exc:  # 反查失败不阻断预估（降级无 dc 旧口径）
+                        logger.warning("estimate/batch scid 反查失败: %s", str(exc)[:120])
+            if dc_val:
+                draft["ozon_category"] = {"description_category_id": dc_val}
             extensions: Dict[str, Any] = {}
             if item.commission_segments:
                 extensions["commission_segments"] = item.commission_segments

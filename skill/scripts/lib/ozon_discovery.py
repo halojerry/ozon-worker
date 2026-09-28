@@ -4150,7 +4150,11 @@ def _candidate_commission_segments(candidate: ProductCandidate) -> dict | None:
 
 
 def _build_estimate_item(candidate: ProductCandidate) -> dict:
-    """候选 → worker batch item（唯一算价出口；currency 恒 RUB——ozon_price 是 RUB）。"""
+    """候选 → worker batch item（唯一算价出口；currency 恒 RUB——ozon_price 是 RUB）。
+
+    scid（v0.83.1）：aibuy 匹配回填的 1688 数字 cid——dc 缺席（highlight 关键词
+    候选常态）时 worker 经学习映射表反查，佣金冷启动解锁。
+    """
     dc = None
     if isinstance(candidate.ozon_category, dict):
         dc = candidate.ozon_category.get("description_category_id")
@@ -4161,6 +4165,7 @@ def _build_estimate_item(candidate: ProductCandidate) -> dict:
         currency_code="RUB",
         commission_segments=_candidate_commission_segments(candidate),
         dc=dc,
+        scid=getattr(candidate, "match_1688_category_id", None) or None,
     )
 
 

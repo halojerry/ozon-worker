@@ -250,8 +250,45 @@ def route_after_assemble(state):
         return "失败"
     return "成功"
 
+
+def category_conf_gate_node(state):
+    """✅ v0.83.1: assemble 后低置信终态归因修复（17 单节日批实锤三例）。
+
+    病根：低置信分支此前只发生在**路由层**（route_after_assemble 改路由不写
+    state）→ 图以无 error_code 终结 → task_processor T0.4 兜底文案劫持成
+    ``PRODUCT_NOT_CREATED``（「任务完成但未创建 Ozon 商品」）——诊断被带偏，
+    且与 assemble 内部阻断出口（入采集箱 + LOCAL_CATEGORY_MATCH_FAILED）不同构。
+
+    本节点把 catch-all 落到节点层：conf < MIN_CONF_BOX → 写 ``_blocked_exit``
+    同构失败字段（error_code/failed_stage=category_match + 尽力入采集箱），
+    路由按既有 failed_stage 分支判定（零改动）。conf 达标或缺失 → 空更新直通。
+    """
+    match_conf = getattr(state, 'match_confidence', None)
+    if match_conf is None or match_conf >= MIN_CONF_BOX:
+        return {}
+    try:
+        from graphs.nodes.assemble_ozon_product_node import _blocked_exit
+        envelope = getattr(state, "envelope", None)
+        draft = envelope.get("draft", {}) if isinstance(envelope, dict) else {}
+        return _blocked_exit(
+            state, draft, [],
+            f"类目匹配置信度过低({match_conf:.4g})，已拦截上架",
+            match_confidence=match_conf,
+        )
+    except Exception as exc:  # 入箱/构造失败不吞失败归因——手写最小失败字段
+        logger.warning("category_conf_gate 入箱失败(降级手写字段): %s", str(exc)[:160])
+        return {
+            "error_message": f"类目匹配置信度过低({match_conf:.4g})，已拦截上架",
+            "error_code": "LOCAL_CATEGORY_MATCH_FAILED",
+            "failed_stage": "category_match",
+            "match_confidence": match_conf,
+        }
+
+
+builder.add_node("category_conf_gate", category_conf_gate_node)
+builder.add_edge("assemble_ozon_product", "category_conf_gate")
 builder.add_conditional_edges(
-    source="assemble_ozon_product",
+    source="category_conf_gate",
     path=route_after_assemble,
     path_map={
         "成功": "scene_generation_llm",

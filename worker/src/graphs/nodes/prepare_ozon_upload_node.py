@@ -3587,12 +3587,12 @@ def prepare_ozon_upload_node(
                 
                 # 属性（包含变体绑定属性9048）
                 "attributes": ozon_attributes,
-                "complex_attributes": [],                       # 复杂属性（通常为空）
-                
-                # 其他字段
-                "barcode": "",                                  # 条形码（可选）
-                "images360": [],                                # 360度图片（可选）
-                "pdf_list": [],                                 # PDF文档（可选）
+
+                # ✅ v0.83.1: complex_attributes/images360/pdf_list/barcode 整键省略
+                # （#84「绝不发空数组」口径落到 CREATE 模板——此前只改了 UPDATE 回显
+                # 路径）。实锤：袜子类目 CREATE 带 pdf_list:[] 过初审后被复审拒
+                # 「Ссылка на pdf не может быть пустая」；空键对多数类目无害但
+                # schema 严格类目会判死。非空才发（当前构造器恒空 → 直接省略）。
                 "promotions": [                                 # 促销信息（Ozon要求）
                     {
                         "operation": "UNKNOWN",
