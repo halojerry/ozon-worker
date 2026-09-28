@@ -69,58 +69,81 @@ def _redact_keys(obj, keys: set, _depth: int = 0) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
-    """提交前预估售价（v0.39 需求1 引入；v0.78 批B6 从 cmd_graph 提取为共享入口）。
+_STORE_PRICING_EXT_KEYS = (
+    "margin_rate", "commission_rate", "fx_buffer",
+    "margin_floor", "margin_anchor", "variable_cost_rate", "promo_variable_cost_rate",
+)
 
-    复用 worker 定价公式（售价 = 总成本×(1+margin)/(1-commission)），参数与信封
-    extensions 同源。graph/follow 两腿共用本函数——**禁止再内联定价公式**。
+
+def _store_pricing_extensions(store: str = "") -> dict:
+    """店铺定价配置 → extensions（与信封注入同源键；空值/零值省略，worker 走默认）。"""
+    try:
+        from scripts.lib.config_store import get_store_profile
+        prof = get_store_profile(store or "") or {}
+    except Exception:
+        prof = {}
+    ext: dict = {}
+    for k in _STORE_PRICING_EXT_KEYS:
+        v = prof.get(k)
+        if v in (None, ""):
+            continue
+        try:
+            if float(v) == 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        ext[k] = v
+    return ext
+
+
+def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
+    """提交前预估售价（v0.39 引入；v0.78 批B6 提取共享入口；v0.83 批① 改打 worker）。
+
+    **v0.83 批①：删除本地定价公式**（旧 margin 0.25/commission 0.10 硬编码 + 内联
+    公式），改调 worker ``POST /api/v1/estimate``（唯一算价出口 compute_price 链）；
+    店铺 margin/commission/三档配置经 extensions 透传（与信封注入同源）。
+
+    **降级纪律**：worker 不可达/404 → 无预估（``estimate_source="unavailable"``）+
+    打「无预估」一行，**绝不回落 legacy 公式**；``--min-margin`` 对无预估不拦。
 
     返回 {estimated_retail_price_cny, estimated_logistics_cny, estimated_profit_cny,
-    estimated_profit_rate}；数据不足（无采购价/无重量）或异常 → None 不打印。
-    副作用：stdout 打印 💰 预估一行 + 免责一行（预估非终价，worker 实算为准）。
+    estimated_profit_rate, estimate_source, currency}；数据不足 → None。
+    副作用：stdout 打印 💰 预估/无预估一行 + 免责一行。
     """
     if not isinstance(draft, dict):
         return None
     try:
-        from scripts.lib.config_store import get_ozon_credentials as _get_oz_creds
-        from scripts.lib.ozon_discovery import _query_logistics_from_worker
         _w = draft.get("weight") or 0
         _cost = draft.get("purchase_cost") or 0
-        _dim = draft.get("dimensions") or {}
         try:
-            _cost_f = float(_cost)
-            _w_f = float(_w)
+            _cost_f, _w_f = float(_cost), float(_w)
         except (TypeError, ValueError):
             _cost_f, _w_f = 0.0, 0.0
         if _cost_f <= 0 or _w_f <= 0:
             return None
-        # 店铺定价参数（与信封 extensions 注入同源）
-        _margin = 0.25
-        _commission = 0.10
-        try:
-            _store_cfg = _get_oz_creds(store or "")
-            if _store_cfg:
-                _margin = float(_store_cfg.get("margin_rate") or _margin)
-                _commission = float(_store_cfg.get("commission_rate") or _commission)
-        except Exception:
-            pass
-        _quote = _query_logistics_from_worker(int(_w_f), dims_mm=_dim)
-        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w_f / 1000 * 15.0)
-        _total = _cost_f + _logistics
-        _divisor = (1.0 - _commission)
-        _est_price = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
-        _est_profit = round(_est_price - _total, 2)
-        _est_rate = round(_est_profit / _est_price * 100, 1) if _est_price > 0 else 0.0
-        est = {
-            "estimated_retail_price_cny": _est_price,
-            "estimated_logistics_cny": round(_logistics, 2),
-            "estimated_profit_cny": _est_profit,
-            "estimated_profit_rate": _est_rate,
-        }
+        ext = _store_pricing_extensions(store)
+        from scripts.lib.estimate_client import estimate_envelope
+        est = estimate_envelope({"draft": draft, "extensions": ext})
+        if not est:
+            print("💰 预估: 无预估（worker 不可达，未回落本地公式）", flush=True)
+            return {"estimate_source": "unavailable"}
+        _price = float(est.get("price") or 0)
+        _profit = float(est.get("profit_cny") or 0)
+        _rate = round(float(est.get("profit_rate") or 0) * 100, 1)
+        _logistics = float(est.get("logistics_cost_cny") or 0)
+        _unit = str(est.get("currency") or "CNY")
+        _sym = "¥" if _unit == "CNY" else f"{_unit} "
         print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
-              f"售价≈¥{_est_price:.2f} (利润¥{_est_profit:.2f}, 率{_est_rate}%)", flush=True)
+              f"售价≈{_sym}{_price:.2f} (利润¥{_profit:.2f}, 率{_rate}%)", flush=True)
         print("   （预估非终价，以 Worker 实算为准）", flush=True)
-        return est
+        return {
+            "estimated_retail_price_cny": round(_price, 2),
+            "estimated_logistics_cny": round(_logistics, 2),
+            "estimated_profit_cny": round(_profit, 2),
+            "estimated_profit_rate": _rate,
+            "estimate_source": "worker",
+            "currency": _unit,
+        }
     except Exception:
         return None
 
@@ -128,10 +151,14 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
 def _min_margin_block_reason(estimate: dict | None, min_margin: float) -> str:
     """--min-margin 拦截判定（graph/follow 同语义，对齐 --min-density）。
 
-    返回拦截原因文案；空串 = 不拦截（estimate 缺失或阈值 ≤0 或利润率达标）。
+    返回拦截原因文案；空串 = 不拦截（estimate 缺失 / 阈值 ≤0 / 无预估 / 利润率达标）。
+    v0.83 批①：worker 不可达（``estimate_source="unavailable"``）**不拦**——无预估时
+    无从判断利润率，拦截会误杀（对齐「无预估字段 + 不回落公式」降级纪律）。
     """
     _mm = float(min_margin or 0.0)
     if _mm <= 0 or not isinstance(estimate, dict):
+        return ""
+    if estimate.get("estimate_source") == "unavailable":
         return ""
     _rate = float(estimate.get("estimated_profit_rate") or 0.0)
     if _rate >= _mm:
@@ -340,53 +367,54 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     --sort     price_asc / price_desc / sold_desc（按销量）
     --export   CSV 导出路径（含利润估算）
-    定价复用 worker 同源公式（售价 = 总成本×(1+margin)/(1-commission)，
-    与 pricing_node.py 一致）——不做独立估算逻辑，避免两套公式漂移。
+    定价走 worker 唯一算价出口（v0.83 批①：POST /api/v1/estimate/batch），skill 零公式。
     """
     from scripts.lib.ak_1688_client import search_products
-    from scripts.lib.config_store import get_ozon_credentials
-
-    # 店铺定价参数（与信封 extensions 注入同源，worker 实际用同一份）
-    _margin = 0.25
-    _commission = 0.10
-    try:
-        _store = get_ozon_credentials(args.store)
-        if _store:
-            _margin = float(_store.get("margin_rate") or _margin)
-            _commission = float(_store.get("commission_rate") or _commission)
-    except Exception:
-        pass
 
     products = search_products(args.query, page_size=args.page_size)
 
-    # v0.39 Issue6: 利润估算复用 worker 定价公式——真实运费（worker quote）
-    # + 店铺 margin/commission，与 graph 提交后 worker 实算结果一致
-    from scripts.lib.ozon_discovery import _query_logistics_from_worker
-    estimated = []
+    # v0.83 批①: 利润估算退役本地公式 → 一次 worker batch（唯一算价出口）
+    from scripts.lib.estimate_client import build_batch_item, estimate_batch
+    _ext = _store_pricing_extensions(args.store)
+    _currency = str(_ext.get("currency_code") or "CNY")
+    _items = []
     for p in products:
         try:
             cost_cny = float(p.get("price") or 0)
         except (TypeError, ValueError):
             cost_cny = 0.0
         if cost_cny <= 0:
-            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
-                              "profit_margin": 0.0, "estimated_logistics_cny": 0})
+            _items.append(None)
             continue
-        _w = float(p.get("weight_grams") or p.get("moq_weight") or 0)
-        _quote = _query_logistics_from_worker(int(_w)) if _w > 0 else None
-        _logistics = float(_quote.cost) if _quote and _quote.cost else (_w / 1000 * 15.0 if _w > 0 else 0)
-        # 与 worker pricing_node 一致：售价 = (采购+物流+包装) × (1+margin) / (1-commission)
-        _total = cost_cny + _logistics
-        _divisor = (1.0 - _commission)
-        _retail = round(_total * (1 + _margin) / _divisor, 2) if _divisor > 0 else 0.0
-        _profit = round(_retail - _total, 2)
-        _margin_r = round(_profit / _retail, 4) if _retail > 0 else 0.0
+        try:
+            _w = float(p.get("weight_grams") or p.get("moq_weight") or 0)
+        except (TypeError, ValueError):
+            _w = 0.0
+        _items.append(build_batch_item(cost_cny, weight_g=_w or None, currency_code=_currency))
+    _valid = [it for it in _items if it is not None]
+    _rows = estimate_batch(_valid) if _valid else []
+    estimated = []
+    _ri = 0
+    for p, it in zip(products, _items):
+        if it is None or not _rows:
+            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
+                              "profit_margin": 0.0, "estimated_logistics_cny": 0,
+                              "estimate_source": "unavailable"})
+            continue
+        row = _rows[_ri] if _ri < len(_rows) else None
+        _ri += 1
+        if not row:
+            estimated.append({**p, "estimated_retail_cny": 0, "estimated_profit_cny": 0,
+                              "profit_margin": 0.0, "estimated_logistics_cny": 0,
+                              "estimate_source": "unavailable"})
+            continue
         estimated.append({
             **p,
-            "estimated_retail_cny": _retail,
-            "estimated_logistics_cny": round(_logistics, 2),
-            "estimated_profit_cny": _profit,
-            "profit_margin": _margin_r,
+            "estimated_retail_cny": row.get("price"),
+            "estimated_logistics_cny": row.get("logistics_cost_cny"),
+            "estimated_profit_cny": row.get("profit_cny"),
+            "profit_margin": row.get("profit_rate"),
+            "estimate_source": "worker",
         })
 
     # v0.39 Issue6: 排序（--sort）

@@ -23,6 +23,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# v0.83 批①：唯一算价出口 = worker（skill 侧零公式）。顶层 import 保测试 patch 面
+# （tests 按 ``od.estimate_batch`` 模块属性注入替身）。
+from scripts.lib.estimate_client import build_batch_item, estimate_batch  # noqa: E402
+
 DISCOVERY_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "discovery"
 
 # Ozon China goods highlight page
@@ -175,6 +179,10 @@ class ProductCandidate:
     estimated_commission: float = 0.0
     estimated_profit_cny: float = 0.0
     profit_margin: float = 0.0  # percentage
+    # v0.83 批①：预估来源（worker=唯一算价出口 / unavailable=worker 不可达无预估）
+    # 与佣金来源（explicit/cache:*/segments:*/fallback*）——fallback 不标 profitable。
+    estimate_source: str = ""
+    commission_source: str = ""
 
     # Logistics estimate provenance (P1-5): False=Worker 实时费率（权威）；
     # True=last-good 缓存 / 40/kg 兜底估算（非权威，仅供选品参考）。
@@ -1329,73 +1337,84 @@ def match_selected(
         selected = selected[:max_matches]
     stats = {"matched": 0, "rejected": 0, "no_match": 0, "error": 0}
 
-    def _process_match(candidate: ProductCandidate, match) -> None:
-        """1688 匹配结果写回 + 利润/蓝海评分 + 状态分配（主线程执行）。"""
-        if match:
-            candidate.match_1688_url = match.get("url", "")
-            candidate.match_1688_title = match.get("title", "")
-            candidate.match_1688_price = float(match.get("price", 0))
-            candidate.match_1688_freight_cny = float(
-                match.get("freightCny", 0) or 0) or None  # 国内运费单列（None=未抓到，未知≠真实 0；aibuy 补键即自动生效）
-            candidate.match_1688_images = match.get("images", [])
-            # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
-            # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；
-            # 此处保留 aibuy 原键（cate_level2_id 优先/无则 cate_level1_id）兜底，CDP/AK
-            # 无值给空串——不因任一通道缺类目字段报错或污染候选。
-            candidate.match_1688_category_id = str(
-                match.get("category_id") or match.get("cate_level2_id")
-                or match.get("cate_level1_id") or "")
-            candidate.match_1688_category_name = str(match.get("category_name") or "")
-            # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
-            candidate.match_confidence = float(match.get("confidence", 0) or 0)
-            candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
-            candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
-            candidate.status = "matched"
-
-            # ⚠️ 货源有效性门槛（统一出口，aibuy 官方排序放行也不例外）：标题相关性
-            # 低于 _MIN_SOURCE_CONFIDENCE 的匹配不作为有效货源——匹配证据（url/
-            # title/价格）保留供 review 流查看，但状态归无货源，auto-submit 只取
-            # profitable，低置信货源绝不进自动提交。
-            if candidate.match_confidence < _MIN_SOURCE_CONFIDENCE:
-                candidate.match_reject_reason = "low_confidence_source"
-                candidate.status = "no_match"
-                logger.warning(
-                    "货源置信度过低（conf=%.2f < %.2f），按无货源处理: %s → %s",
-                    candidate.match_confidence, _MIN_SOURCE_CONFIDENCE,
-                    candidate.ozon_title[:40], candidate.match_1688_title[:40])
-                _review_log_write(candidate, match, "no_match", "low_confidence_source")
-                return
-
-            # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
-            # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
-            _backfill_1688_category(candidate)
-            # 类目一致性二次复核：官方图搜判图像相似，类目暴露品类漂移时降权
-            _category_semantic_review(candidate, mxou_token)
-
-            _calculate_profit(
-                candidate,
-                fx_rate=fx_rate,
-                logistics_cny=logistics_cny,
-                commission_rate=commission_rate,
-            )
-            density = None
-            if blue_ocean_rows:
-                density = compute_competitor_keyword_density(
-                    blue_ocean_rows, candidate.ozon_title or "")
-            candidate.blue_ocean_score = calculate_blue_ocean_score(
-                candidate, competitor_keyword_density=density)
-
-            if candidate.profit_margin >= min_margin_pct:
-                candidate.status = "profitable"
-                _review_log_write(candidate, match, "auto_pass", "")
-            else:
-                candidate.status = "rejected"
-                candidate.error = (f"margin too low "
-                                   f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
-                _review_log_write(candidate, match, "auto_reject", candidate.error)
-        else:
+    def _prepare_match(candidate: ProductCandidate, match) -> bool:
+        """匹配结果写回 + 货源有效性门槛 + 类目复核（不触网算价）；True=进入算价。"""
+        if not match:
             candidate.status = "no_match"
             _review_log_write(candidate, None, "no_match", "")
+            return False
+        candidate.match_1688_url = match.get("url", "")
+        candidate.match_1688_title = match.get("title", "")
+        candidate.match_1688_price = float(match.get("price", 0))
+        candidate.match_1688_freight_cny = float(
+            match.get("freightCny", 0) or 0) or None  # 国内运费单列（None=未抓到，未知≠真实 0；aibuy 补键即自动生效）
+        candidate.match_1688_images = match.get("images", [])
+        # v0.66.2: 1688 类目透传（图搜候选 → match dict → 候选）。match dict 经
+        # _attach_match_meta/_search_1688_source 已带规范键 category_id/category_name；
+        # 此处保留 aibuy 原键（cate_level2_id 优先/无则 cate_level1_id）兜底，CDP/AK
+        # 无值给空串——不因任一通道缺类目字段报错或污染候选。
+        candidate.match_1688_category_id = str(
+            match.get("category_id") or match.get("cate_level2_id")
+            or match.get("cate_level1_id") or "")
+        candidate.match_1688_category_name = str(match.get("category_name") or "")
+        # D3 L1: 决策元数据透传（_pick_best_match → _search_1688_source → 候选）
+        candidate.match_confidence = float(match.get("confidence", 0) or 0)
+        candidate.match_badge_eff = float(match.get("badge_eff", 0) or 0)
+        candidate.match_reject_reason = str(match.get("reject_reason", "") or "")
+        candidate.status = "matched"
+
+        # ⚠️ 货源有效性门槛（统一出口，aibuy 官方排序放行也不例外）：标题相关性
+        # 低于 _MIN_SOURCE_CONFIDENCE 的匹配不作为有效货源——匹配证据（url/
+        # title/价格）保留供 review 流查看，但状态归无货源，auto-submit 只取
+        # profitable，低置信货源绝不进自动提交。
+        if candidate.match_confidence < _MIN_SOURCE_CONFIDENCE:
+            candidate.match_reject_reason = "low_confidence_source"
+            candidate.status = "no_match"
+            logger.warning(
+                "货源置信度过低（conf=%.2f < %.2f），按无货源处理: %s → %s",
+                candidate.match_confidence, _MIN_SOURCE_CONFIDENCE,
+                candidate.ozon_title[:40], candidate.match_1688_title[:40])
+            _review_log_write(candidate, None, "no_match", "low_confidence_source")
+            return False
+
+        # F-B02 延伸：有效匹配才花 AK 详情调用补 1688 类目（用户口径：
+        # 1688 类目信息要进匹配链——喂 worker L0/信封，不再结构性缺席）
+        _backfill_1688_category(candidate)
+        # 类目一致性二次复核：官方图搜判图像相似，类目暴露品类漂移时降权
+        _category_semantic_review(candidate, mxou_token)
+        return True
+
+    def _apply_and_score(candidate: ProductCandidate, row) -> None:
+        """回填 worker 预估 row + 蓝海评分 + 状态分配（主线程执行）。"""
+        _apply_estimate_row(candidate, row, fx_rate)
+        density = None
+        if blue_ocean_rows:
+            density = compute_competitor_keyword_density(
+                blue_ocean_rows, candidate.ozon_title or "")
+        candidate.blue_ocean_score = calculate_blue_ocean_score(
+            candidate, competitor_keyword_density=density)
+        _decide_status(candidate)
+
+    def _decide_status(candidate: ProductCandidate) -> None:
+        """状态分配（v0.83）：无预估 / fallback 佣金 → 一律不标 profitable（宁缺毋滥）。"""
+        if candidate.estimate_source == "unavailable":
+            candidate.status = "matched"
+            candidate.error = "estimate_unavailable"
+            _review_log_write(candidate, None, "no_estimate", "estimate_unavailable")
+            return
+        if (candidate.commission_source or "").startswith("fallback"):
+            candidate.status = "matched"
+            candidate.error = "commission_fallback_not_profitable"
+            _review_log_write(candidate, None, "no_estimate", "commission_fallback")
+            return
+        if candidate.profit_margin >= min_margin_pct:
+            candidate.status = "profitable"
+            _review_log_write(candidate, None, "auto_pass", "")
+        else:
+            candidate.status = "rejected"
+            candidate.error = (f"margin too low "
+                               f"({candidate.profit_margin:.1f}% < {min_margin_pct}%)")
+            _review_log_write(candidate, None, "auto_reject", candidate.error)
 
     def _review_log_write(candidate, match, decision: str, reason: str) -> None:
         """候选级决策写 review_log（D3 L2）——fail-open，审计失败不阻断主流程。"""
@@ -1456,17 +1475,22 @@ def match_selected(
         with contextlib.closing(CdpConnection(cdp_url)) as shared_cdp:
             streak = 0
             for i, candidate in enumerate(selected):
+                # v0.83 批①：串行块=单候选（早停语义逐字不变）；匹配后再一次 batch 回填
+                pending = False
                 try:
                     match = _search_1688_source(
                         cdp_url, candidate.ozon_images, candidate.ozon_title,
                         conn=shared_cdp, mxou_token=mxou_token,
                         ozon_category_path=candidate.page_category_path)
-                    _process_match(candidate, match)
+                    pending = _prepare_match(candidate, match)
                 except Exception as exc:
                     candidate.status = "error"
                     candidate.error = str(exc)
                     logger.warning("1688 match failed for %s: %s",
                                    candidate.ozon_product_id, exc)
+                if pending:
+                    rows = _estimate_candidates([candidate], fx_rate=fx_rate)
+                    _apply_and_score(candidate, rows[0] if rows else None)
                 _finalize(i, candidate)
                 if candidate.status == "profitable":
                     profitable_n += 1
@@ -1478,6 +1502,8 @@ def match_selected(
         # 内部对 conn=None 新建并自持），结果按候选顺序写回主线程。
         # Task 8a: 分块提交（块大小=workers）——块间检查 no_match 连击早停，
         # 未提交候选不再加码（已提交块内的 futures 不可撤，跑完即止）。
+        # v0.83 批①：块内匹配结果收集后**一次** batch 调用回填（每 chunk ≤ workers，
+        # ≤50 由 estimate_client 截断），不破坏块级早停/达标语义。
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -1489,15 +1515,22 @@ def match_selected(
                                        images=c.ozon_images, title=c.ozon_title,
                                        conn=None, mxou_token=mxou_token)
                            for c in chunk]
+                pending: list = []
                 for j, candidate in enumerate(chunk):
                     try:
                         match = futures[j].result()
-                        _process_match(candidate, match)
                     except Exception as exc:
                         candidate.status = "error"
                         candidate.error = str(exc)
                         logger.warning("1688 match failed for %s: %s",
                                        candidate.ozon_product_id, exc)
+                        continue
+                    if _prepare_match(candidate, match):
+                        pending.append(candidate)
+                rows = _estimate_candidates(pending, fx_rate=fx_rate) if pending else []
+                for k, candidate in enumerate(pending):
+                    _apply_and_score(candidate, rows[k] if k < len(rows) else None)
+                for j, candidate in enumerate(chunk):
                     _finalize(i + j, candidate)
                     if candidate.status == "profitable":
                         profitable_n += 1
@@ -4062,86 +4095,112 @@ def _worker_commission_rate_pct(candidate: ProductCandidate) -> float | None:
     return None
 
 
+def _candidate_commission_segments(candidate: ProductCandidate) -> dict | None:
+    """候选佣金分段（百分数）→ batch ``commission_segments`` ``{fbs,fbo}``；无 → None。
+
+    worker 侧 resolver 优先 explicit > 缓存表 > segments（fbs 缺失回退 fbo）> fallback。
+    """
+    segs: dict = {}
+    if candidate.commission_rfbs_segments:
+        segs["fbs"] = candidate.commission_rfbs_segments
+    if candidate.commission_fbp_segments:
+        segs["fbo"] = candidate.commission_fbp_segments
+    return segs or None
+
+
+def _build_estimate_item(candidate: ProductCandidate) -> dict:
+    """候选 → worker batch item（唯一算价出口；currency 恒 RUB——ozon_price 是 RUB）。"""
+    dc = None
+    if isinstance(candidate.ozon_category, dict):
+        dc = candidate.ozon_category.get("description_category_id")
+    return build_batch_item(
+        candidate.match_1688_price,
+        weight_g=candidate.weight_g or None,
+        dims_mm=candidate.dimensions_mm or None,
+        currency_code="RUB",
+        commission_segments=_candidate_commission_segments(candidate),
+        dc=dc,
+    )
+
+
+def _estimate_candidates(
+    cands: list[ProductCandidate], fx_rate: float = DEFAULT_FX_RATE
+) -> list:
+    """批量问 worker 要预估（v0.83 唯一算价出口）→ rows 与 cands 等长（失败项 None）。
+
+    **降级纪律**：worker 不可达/404/异常 → 全 None（调用方标
+    ``estimate_source="unavailable"``），**绝不回落本地公式**。
+    """
+    if not cands:
+        return []
+    items = [_build_estimate_item(c) for c in cands]
+    rows = estimate_batch(items)
+    if not rows:
+        return [None] * len(cands)
+    return rows
+
+
+def _compute_follow_profit(
+    candidate: ProductCandidate, fx_rate: float, commission_rate: float
+) -> None:
+    """跟卖利润空间（竞品价口径，PLAN 批①定案：保留 skill 本地算，与 batch 成本公式不同口径）。"""
+    if candidate.min_competing_price > 0:
+        follow_revenue = candidate.min_competing_price * fx_rate
+        if follow_revenue <= 0:
+            return
+        follow_cost = candidate.match_1688_price + candidate.estimated_logistics_cny \
+            + follow_revenue * commission_rate
+        follow_profit = follow_revenue - follow_cost
+        candidate.follow_profit_cny = round(follow_profit, 2)
+        candidate.follow_margin = round(follow_profit / follow_revenue * 100.0, 1)
+
+
+def _apply_estimate_row(
+    candidate: ProductCandidate, row: dict | None, fx_rate: float
+) -> None:
+    """worker 预估 row → 候选字段回填（row=None/未 ok → estimate_source=unavailable）。"""
+    if not isinstance(row, dict) or not row.get("ok"):
+        candidate.estimate_source = "unavailable"
+        return
+    try:
+        candidate.estimated_logistics_cny = float(row.get("logistics_cost_cny") or 0.0)
+    except (TypeError, ValueError):
+        candidate.estimated_logistics_cny = 0.0
+    # worker 已返回权威物流预估（logistics_source=store/default_rets）→ 非本地兜底
+    candidate.logistics_estimated = False
+    candidate.logistics_fallback_chain = str(row.get("logistics_source") or "")
+    try:
+        rate = float(row.get("commission_rate") or 0.0)
+    except (TypeError, ValueError):
+        rate = 0.0
+    candidate.estimated_commission = round(candidate.ozon_price * fx_rate * rate, 2)
+    try:
+        candidate.estimated_profit_cny = float(row.get("profit_cny") or 0.0)
+        candidate.profit_margin = round(float(row.get("profit_rate") or 0.0) * 100.0, 2)
+    except (TypeError, ValueError):
+        candidate.estimated_profit_cny, candidate.profit_margin = 0.0, 0.0
+    candidate.estimate_source = "worker"
+    candidate.commission_source = str(row.get("commission_source") or "")
+    _compute_follow_profit(candidate, fx_rate, rate)
+
+
 def _calculate_profit(
     candidate: ProductCandidate,
     fx_rate: float = DEFAULT_FX_RATE,
     logistics_cny: float = DEFAULT_LOGISTICS_CNY,
     commission_rate: float = 0,
 ) -> None:
-    """Calculate profit margin for a candidate.
-    Updates candidate fields in-place:
-      estimated_logistics_cny, estimated_commission,
-      estimated_profit_cny, profit_margin,
-      follow_profit_cny, follow_margin（B 批次：min_competing_price 同成本链收入口径）
+    """单候选利润（v0.83 批① 起 = worker batch 单条；函数名/签名向后兼容调用方）。
 
-    佣金优先级：commission_rate（小数）> worker 真实分段佣金（fbs/fbo，按售价选带）
-    > 本地候选分段（commission_rfbs_segments）> 标量 commission_fbp/rfbs（百分数）
-    > 默认分段 12/14/18。物流：有真实重量按 kg 估算，否则用固定值。
+    ⚠️ 本地定价公式已退役：worker 不可达 → ``estimate_source="unavailable"``（无预估
+    字段/无 profit_margin），**绝不回落 legacy 公式**。跟卖利润 ``follow_profit_cny``
+    仍本地算（竞品价口径，与 batch 成本公式不同口径，PLAN 批①定案）。
+    ``logistics_cny``/``commission_rate`` 参数保留签名兼容，批次口径由 worker 决定。
     """
     if not candidate.match_1688_price or not candidate.ozon_price:
         return
-
-    effective_commission = commission_rate
-    if effective_commission <= 0:
-        # 分段佣金（百分数）逐级兜底；最终必得 >0 的有效率
-        rate_pct = _worker_commission_rate_pct(candidate)
-        if rate_pct is None:
-            rate_pct = _commission_band_rate(
-                candidate.commission_rfbs_segments, candidate.ozon_price)
-        if rate_pct is None:
-            real_comm = (candidate.commission_fbp or candidate.commission_rfbs or 0)
-            if real_comm > 0:
-                rate_pct = float(real_comm)
-        if rate_pct is None:
-            rate_pct = _commission_band_rate(
-                DEFAULT_COMMISSION_SEGMENTS, candidate.ozon_price)
-        effective_commission = rate_pct / 100.0
-
-    cost_cny = candidate.match_1688_price
-    revenue_cny = candidate.ozon_price * fx_rate
-
-    if revenue_cny <= 0:
-        return
-
-    # 物流估算：优先查 Worker 费率表（精确, 按重量+体积重），失败降级本地估算
-    # ⚠️ v0.29.x: skill 端不再硬编码 40 CNY/kg —— 调 /api/v1/logistics/quote
-    # (worker 侧 PG logistics_rates 142 条真实费率), 无重量/离线时降级旧逻辑。
-    # ⚠️ P1-5: API 失败优先复用同重量带 last-good 费率（24h TTL）再谈 40/kg；
-    # 非实时费率一律标记 logistics_estimated=True（选品参考，非权威报价）。
-    quote = _query_logistics_from_worker(candidate.weight_g, dims_mm=candidate.dimensions_mm)
-    if quote is not None:
-        candidate.estimated_logistics_cny = quote.cost
-        candidate.logistics_estimated = quote.estimated
-        candidate.logistics_fallback_chain = quote.fallback_chain
-    else:
-        candidate.logistics_estimated = True
-        if candidate.weight_g > 0:
-            candidate.estimated_logistics_cny = max(
-                8.0, candidate.weight_g / 1000.0 * LOGISTICS_PER_KG_CNY)
-            candidate.logistics_fallback_chain = "flat_per_kg_40"
-        else:
-            # ⚠️ v0.58: 费率表+last-good 均不可达（worker 离线）时兜底——与上架
-            # 管线（cloud_probe price_estimate）同源分段（默认 500g → ¥6），
-            # 不再落到 DEFAULT_LOGISTICS_CNY=15（曾多估 ¥9/单误判利润不足）。
-            candidate.estimated_logistics_cny = estimate_shipping_cny(candidate.weight_g)
-            candidate.logistics_fallback_chain = f"default_{DEFAULT_WEIGHT_G}g"
-
-    # Commission
-    candidate.estimated_commission = revenue_cny * effective_commission
-
-    total_cost = cost_cny + candidate.estimated_logistics_cny + candidate.estimated_commission
-    candidate.estimated_profit_cny = revenue_cny - total_cost
-    candidate.profit_margin = (candidate.estimated_profit_cny / revenue_cny) * 100.0
-
-    # 跟卖利润空间：跟到跟卖最低价还能剩多少（同一成本链，仅换收入口径）
-    if candidate.min_competing_price > 0:
-        follow_revenue = candidate.min_competing_price * fx_rate
-        # 佣金沿用主价带（Ozon 佣金随价格分段，跟卖价带未单独取档——筛选级估算，已知简化）
-        follow_cost = cost_cny + candidate.estimated_logistics_cny \
-            + follow_revenue * effective_commission
-        follow_profit = follow_revenue - follow_cost
-        candidate.follow_profit_cny = round(follow_profit, 2)
-        candidate.follow_margin = round(follow_profit / follow_revenue * 100.0, 1)
+    rows = _estimate_candidates([candidate], fx_rate=fx_rate)
+    _apply_estimate_row(candidate, rows[0] if rows else None, fx_rate)
 
 
 def calculate_blue_ocean_score(

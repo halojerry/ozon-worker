@@ -37,6 +37,11 @@ from scripts.lib.cross_source_search import (  # noqa: E402
 )
 from scripts.lib.ozon_discovery import ProductCandidate, match_selected  # noqa: E402
 
+# v0.83 批①：算价走 worker batch —— 离线替身 row（profit_rate 0.5 → profitable）
+_EST_ROW = {"ok": True, "profit_rate": 0.5, "commission_source": "segments:leq_5000",
+            "commission_rate": 0.1, "profit_cny": 1.0, "logistics_cost_cny": 1.0,
+            "price": 1, "logistics_source": "store"}
+
 MATCH_1688 = {
     "url": "https://detail.1688.com/offer/1.html",
     "title": "保温杯500ml",
@@ -110,8 +115,8 @@ def _run(cands, *, workers=1, match=None, taobao=None, pdd=None,
         mock.patch("scripts.lib.cdp_client.CdpConnection"),
         mock.patch.object(od.time, "sleep", lambda s: None),
         mock.patch("scripts.lib.config_store.get_store_profile", return_value={}),
-        mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                   lambda *a, **k: None),
+        mock.patch.object(od, "estimate_batch",
+                          side_effect=lambda items: [dict(_EST_ROW) for _ in items]),
         mock.patch("scripts.lib.cross_source_search.search_taobao",
                    _fake_platform("taobao", taobao)),
         mock.patch("scripts.lib.cross_source_search.search_pdd",
@@ -380,8 +385,8 @@ class TestResolveCompareSources:
              mock.patch("scripts.lib.cdp_client.CdpConnection"), \
              mock.patch.object(od.time, "sleep", lambda s: None), \
              mock.patch("scripts.lib.config_store.get_store_profile", return_value={}), \
-             mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                        lambda *a, **k: None):
+             mock.patch.object(od, "estimate_batch",
+                               side_effect=lambda items: [dict(_EST_ROW) for _ in items]):
             result = match_selected(cands, "http://127.0.0.1:9222")
         assert calls["n"] == 1
         assert all(not c.discovery_meta for c in result)

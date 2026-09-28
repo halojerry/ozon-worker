@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import re
 import sys
@@ -162,8 +161,8 @@ def build_envelope(
         if store.get('shipping_provider'):
             resolved_extensions.setdefault("shipping_provider", store['shipping_provider'])
             resolved_extensions.setdefault("shipping_service", store.get('shipping_service', 'Standard'))
-            if store.get('currency'):
-                resolved_extensions.setdefault("ozon_currency", store['currency'])
+            # v0.83 批①：ozon_currency 死键清理（worker 零消费；币种由 worker /v1/seller/info
+            # 兜底解析，skill 不再透传一个无人读的键）。
         else:
             # Auto-detect from Ozon API (cached per-session, 1h TTL)
             _shipping_cache = getattr(build_envelope, '_shipping_cache', None)
@@ -3662,6 +3661,46 @@ def build_variant_envelope(
     return envelope
 
 
+def _worker_price_estimate(
+    cost_cny, weight_g, enriched: dict | None, store_id: str = ""
+) -> dict[str, Any]:
+    """worker 单信封预估（v0.83 批①）→ price_estimate dict。
+
+    退役旧本地魔数公式 ``ceil((cost+ship+2.0) * 1.44375)``——改打唯一算价出口
+    worker ``POST /api/v1/estimate``。worker 不可达/成本缺失 → estimate_source=
+    ``unavailable``（est_shipping/est_retail 为 None，**绝不回落本地公式**）。
+    """
+    base = {
+        "cost_cny": cost_cny,
+        "est_shipping": None,
+        "est_retail": None,
+        "estimate_source": "unavailable",
+    }
+    try:
+        if not cost_cny or float(cost_cny) <= 0:
+            return base
+        from scripts.cli import _store_pricing_extensions
+        from scripts.lib.estimate_client import estimate_envelope
+
+        draft: dict[str, Any] = {"purchase_cost": float(cost_cny), "weight": weight_g}
+        dims = (enriched or {}).get("dimensions_mm")
+        if isinstance(dims, dict) and dims:
+            draft["dimensions"] = dims
+        est = estimate_envelope(
+            {"draft": draft, "extensions": _store_pricing_extensions(store_id)}
+        )
+        if not est:
+            return base
+        return {
+            "cost_cny": cost_cny,
+            "est_shipping": est.get("logistics_cost_cny"),
+            "est_retail": est.get("price"),
+            "estimate_source": "worker",
+        }
+    except Exception:
+        return base
+
+
 def publish_product_new(
     *,
     item_id: str,
@@ -3929,17 +3968,12 @@ def publish_product_new(
 
     # 4. Price estimate
     cost_cny = _parse_price(result['enriched'].get('price', ''))
-    # ⚠️ v0.58: 默认重量/运费与 discover 选品分析同源（ozon_discovery.estimate_shipping_cny
-    # 分段 6/8/15）——此前默认 500g → ¥6，discover 无重量落 ¥15，差 ¥9/单误判利润不足。
-    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G, estimate_shipping_cny
+    # ⚠️ v0.83 批①：退役本地魔数公式 ceil((cost+ship+2)*1.44375) → worker /api/v1/estimate
+    # （唯一算价出口 compute_price 链）；无重量 → DEFAULT_WEIGHT_G（与上架管线同源缺省）。
+    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G
     weight_g = result['enriched'].get('weight_grams') or DEFAULT_WEIGHT_G
-    est_shipping = estimate_shipping_cny(weight_g)
-    est_retail = math.ceil((cost_cny + est_shipping + 2.0) * 1.44375)
-    result['price_estimate'] = {
-        'cost_cny': cost_cny,
-        'est_shipping': est_shipping,
-        'est_retail': est_retail,
-    }
+    result['price_estimate'] = _worker_price_estimate(
+        cost_cny, weight_g, result['enriched'], store_id)
 
     # 5. Run local pipeline（DAG；v0.79 起经 worker /submit_task 触发云端管线）
     if poll:

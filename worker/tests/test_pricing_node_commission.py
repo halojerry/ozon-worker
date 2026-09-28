@@ -100,9 +100,16 @@ def test_pricing_node_no_empty_filter():
 
 # ── 2. 引用共享佣金解析模块 ──
 def test_pricing_node_references_resolver():
-    """pricing_node 必须引用 commission_resolver.resolve_commission_rate（共享解析链）。"""
-    src = inspect.getsource(pn)
-    assert "resolve_commission_rate" in src, "pricing_node 必须调用 resolve_commission_rate"
+    """pricing_node 必须经共享定价核（pricing_core）调用 commission_resolver（共享解析链）。
+
+    v0.83 批①：定价主链抽到 utils/pricing_core，节点侧改为调用它；反漂移断言
+    改为「节点引用 core + core 引用 resolver」两段锁定。
+    """
+    from utils import pricing_core
+    assert "compute_pricing_core" in inspect.getsource(pn), \
+        "pricing_node 必须调用 utils.pricing_core.compute_pricing_core"
+    assert "resolve_commission_rate" in inspect.getsource(pricing_core), \
+        "pricing_core 必须调用 commission_resolver.resolve_commission_rate*"
 
 
 # ── 3. 无任何配置 → fallback 0.10 ──

@@ -297,6 +297,7 @@ submit_task → pending → running → completed / failed / cancelled
 | 文档修订（2026-09-11，对应 v0.74.0） | 本文新增「§7 超时与重试」「§8 幂等规则」两节（集成方对接建议）；文档地图修正 MCP 工具数口径（worker 远程 22 + pounding-mcp 本地 30）与 API-INTEGRATION-GUIDE 墓碑状态 | —（纯文档修订，无端点/信封变更；API-REFERENCE 头部计数改三口径，由生成脚本同步） |
 | 行为变更（2026-09-16，安全修复批） | — | ①`GET /task_statistics` 补鉴权+租户强制：无 Bearer 401，非 admin 恒查自身租户（`tenant_id` 参数跨租户 403）；②`POST /drafts/{id}/resubmit` 新增 **402**（低余额预检）/ **409**（并发重复提交）语义；③`GET /store/health` 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header 传递（query 传参仅为存量向后兼容保留），上游失败改 **502** 固定文案（200 体不再有 error 形态）；④`POST /logistics/quote` 补 Bearer+限流（无凭据 401、超限 429）；⑤`POST /cancel_task/{id}` 与 `GET /progress/{run_id}` 补 Bearer（无凭据 401；cancel 跨租户 404） |
 | 行为变更（2026-09-26，安全收尾批 fix/sec-closeout-v081） | — | ①`POST /async_run`（已弃用）补 T3 鉴权门：无/空/无效 token **401**（消费矩阵一直标需鉴权但实现漏挂，对齐同族 /run、/node_run）；②`GET /graph_parameter` 补 `_require_bearer`：无 Bearer **401**（消费矩阵标需鉴权但实现漏挂）；③`POST /logistics/quote` 的 tpl_provider/service_level 入口白名单归一（大小写不敏感到权威拼写，未知值原样透传走既有 fallback——报价语义不变，纯加固） |
+| v0.83.0 批①（预估统一，2026-09-28） | `POST /api/v1/estimate/batch`（批量预估 ≤50/批，逐项 ok/failed，Bearer + 独立限流桶 `estimate_batch:{token}`，契约见 CONTRACT-v4 §1.9） | 定价主链抽 `utils/pricing_core.compute_pricing_core`（pricing_node / `/api/v1/estimate` / batch 三处同源）；`/api/v1/estimate` 补 fx 三级链（RUB 无汇率）+ 店铺 3PL 探测（`credential_id`）+ 审计 marks；`commission_resolver` fbs 段缺失**回退 fbo**（source 带 `:fbo`）；skill 五处内联公式退役为消费方 |
 
 ## 13. 文档地图
 

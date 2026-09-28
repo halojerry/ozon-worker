@@ -34,6 +34,21 @@ def _isolate_cross_source_hook(monkeypatch):
         lambda *a, **k: None)
 
 
+@pytest.fixture(autouse=True)
+def _offline_estimate(monkeypatch):
+    """v0.83 批①：算价走 worker batch —— 默认离线替身（绝不回真 worker）。
+
+    替身 row：profit_rate 0.95（profit_margin=95%）、commission_rate 0.10、物流 40。
+    """
+    monkeypatch.setattr(
+        "scripts.lib.ozon_discovery.estimate_batch",
+        lambda items: [{
+            "ok": True, "profit_rate": 0.95, "commission_source": "segments:leq_5000",
+            "commission_rate": 0.10, "profit_cny": 1.0, "logistics_cost_cny": 40.0,
+            "price": 8000, "logistics_source": "store",
+        } for _ in items])
+
+
 def _cand(**kw):
     c = ProductCandidate(ozon_product_id="p1", ozon_title="t", ozon_price=953.0)
     c.match_1688_price = 60.0

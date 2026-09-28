@@ -1,30 +1,70 @@
 """M1.2: 草稿预估售价/利润服务 — 纯读派生数据（不落库、不调 Ozon 上架）。
 
-输入 envelope（三层结构），输出与 pricing_node 同源的预估价格：
-- 采购成本：draft.purchase_cost / draft.cost_cny（与 pricing_node Step 1 一致）
-- 尺寸/重量：utils.weight_dimension_normalizer（与 pricing_node 同源归一化）
-- 物流费：utils.logistics_quote.query_logistics_cost（同源 /api/v1/logistics/quote）
-- 佣金：utils.commission_resolver.resolve_commission_rate（任务 2.3，与 pricing_node
-  同源：explicit > 缓存表(band 选段) > extensions segments > 0.10，响应带来源）
-- 定价公式：utils.pricing_estimate.compute_price（唯一定义处）
+输入 envelope（三层结构），输出与 pricing_node 同源的预估价格。
 
-⚠️ 铁律：前端/skill 一律不写定价公式；本服务也只做「取数 + 调共享公式」。
+⚠️ v0.83 批①：单 SKU 主链已收敛到 ``utils/pricing_core.compute_pricing_core``
+（pricing_node / 本服务 / ``POST /api/v1/estimate/batch`` 三处同源）。本服务只做
+「取数 + 解析货币/汇率/3PL + 调共享核 + 投影响应」，不写定价公式。
+
+与 pricing_node 的差异（有意，均为「补全」方向）：
+- 重量链补 ``reconcile_weight_with_attrs`` + 体积重兜底 ``ensure_volume_weight_floor``
+  （与 prepare 上架链同序 normalize→reconcile→floor）；
+- 无传入汇率且币种为 RUB 时走 fx 三级链 ``resolve_cny_rub_rate``（pg_cache→live→兜底）；
+- 请求带 credential_id 时经 credential_service 解密取店铺 3PL（否则 default_rets）。
+
+⚠️ 铁律：前端/skill 一律不写定价公式；本服务也只做「取数 + 调共享核」。
 """
 from __future__ import annotations
 
 import logging
 from typing import Any, Optional
 
+# ⚠️ 保留这些模块级导入：既有测试族按 ``estimate_service.<name>`` 模块属性 patch
+# （core 经注入点消费本模块当前命名空间的值，patch 语义不变）。
 from utils.commission_resolver import get_category_commission, resolve_commission_rate
-from utils.logistics_quote import query_logistics_cost
+from utils.logistics_quote import get_store_logistics_config, query_logistics_cost
 from utils.pricing_estimate import compute_price, is_dual_margin
 from utils.weight_dimension_normalizer import normalize_weight_dimensions
 
 logger = logging.getLogger(__name__)
 
 # 与 pricing_node 逐字一致（Step 3 包装成本固定值 + Step 1 成本兜底）
+# ⚠️ v0.83：常量事实源在 utils/pricing_core（本处保留为历史引用，勿再新增消费方）。
 PACKAGING_COST_CNY = 2.0
 DEFAULT_COST_CNY = 10.0
+
+
+def _extract_dc_id(draft: dict) -> Optional[int]:
+    """从 draft.ozon_category.description_category_id 取类目 ID（digit 才认，否则 None）。"""
+    oz = draft.get("ozon_category") or {}
+    raw = oz.get("description_category_id") if isinstance(oz, dict) else None
+    if raw is None:
+        return None
+    s = str(raw)
+    return int(s) if s.isdigit() else None
+
+
+def _resolve_logistics_config(
+    credential_id: Optional[str], tenant_id: Optional[str]
+) -> tuple[str, str, str]:
+    """店铺 3PL/服务等级探测（v0.83）：无凭证 → 默认 RETS/Standard。
+
+    返回 (tpl_provider, service_level, logistics_source)；
+    logistics_source ∈ {"store"（经凭证解密探测到）, "default_rets"}。
+    任何异常（凭证 404/解密失败/上游 5xx）→ 回落 default_rets，绝不 raise
+    （预估是只读派生数据，不能因探测失败而整体失败）。
+    """
+    if credential_id and tenant_id:
+        try:
+            from services import credential_service
+
+            cid, key = credential_service.get_decrypted(str(tenant_id), str(credential_id))
+            if cid and key:
+                tpl, svc = get_store_logistics_config(cid, key)
+                return tpl, svc, "store"
+        except Exception as exc:
+            logger.warning("estimate 3PL 探测失败（回落 default_rets）: %s", str(exc)[:160])
+    return "RETS", "Standard", "default_rets"
 
 
 def estimate_from_envelope(
@@ -39,170 +79,93 @@ def estimate_from_envelope(
     margin_floor: Optional[float] = None,
     variable_cost_rate: Optional[float] = None,
     promo_variable_cost_rate: Optional[float] = None,
+    credential_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> dict:
-    """根据信封草稿计算预估售价/利润（与 pricing_node 同源公式）。
+    """根据信封草稿计算预估售价/利润（与 pricing_node 同源公式，走共享 pricing_core）。
 
-    - 纯读：不落库、不调 Ozon 上架 API。
-    - exchange_rate 传 None → 按 CNY 处理（与 skill 估算一致，端点不接汇率实时源）。
-    - 物流费无 Ozon 凭证 → 默认 RETS/Standard（query_logistics_cost 默认参数）。
+    - 纯读：不落库、不调 Ozon 上架 API（credential_id 在场时仅做 3PL 只读探测）。
+    - exchange_rate 传 None：
+        * 币种解析为 CNY → 按 CNY 处理（与 skill 估算一致）；
+        * 币种解析为 RUB → 走 fx 三级链 resolve_cny_rub_rate（v0.83）。
     - currency_code 解析顺序：请求覆盖 → extensions.currency_code → exchange_rate
       有值则 RUB → 否则 CNY。
+    - 物流费：credential_id 在场 → 解密探测店铺 3PL；否则默认 RETS/Standard
+      （logistics_source=default_rets）。
     - v0.60 三档：margin_anchor/margin_floor/variable_cost_rate/promo_variable_cost_rate
       可选（请求覆盖优先，其次 extensions，最后默认 2.0/0.6/0.155/0.245）。
-      三档判定（v0.80 起唯一口径 utils.pricing_estimate.is_dual_margin，与 pricing_node
-      同源）：请求级显式 margin_floor 在场，或 extensions 带 margin_floor/margin_anchor
-      键，或 margin 键全缺 → 三档（margin_rate 默认 1.5）；仅显式 margin_rate 且无
-      floor/anchor → 单档旧行为（向后兼容，全部新参置 None 不透传）。
+      三档判定唯一口径 utils.pricing_estimate.is_dual_margin（与 pricing_node 同源）。
     """
     draft = (envelope.get("draft") or {}) if isinstance(envelope, dict) else {}
     extensions = (envelope.get("extensions") or {}) if isinstance(envelope, dict) else {}
 
-    # Step 1: 采购成本（兼容 purchase_cost/cost_cny，与 pricing_node 逐字一致）
-    cost_cny: float = float(draft.get("cost_cny", 0) or draft.get("purchase_cost", 0) or 0)
-    if cost_cny <= 0:
-        cost_cny = DEFAULT_COST_CNY
-        logger.warning("⚠️ 预估：purchase_cost 为 0 或空，使用默认值: 10 CNY")
-
-    # Step 2: 重量/尺寸归一化（与 pricing_node 同源 weight_dimension_normalizer）
-    dims_obj = draft.get("dimensions") or {}
-    if not (isinstance(dims_obj, dict) and dims_obj):
-        dims_obj = {
-            "length": draft.get("depth", 0) or draft.get("length", 0),
-            "width": draft.get("width", 0),
-            "height": draft.get("height", 0),
-        }
-    weight, dims_mm, _marks = normalize_weight_dimensions(
-        draft.get("weight", 0), dims_obj, extensions
-    )
-    # mm → cm（物流费率表按 cm 匹配；逐维度补默认值，与 pricing_node 一致）
-    depth: float = dims_mm["length"] / 10.0
-    width: float = dims_mm["width"] / 10.0
-    height: float = dims_mm["height"] / 10.0
-    if depth <= 0:
-        depth = 3.0
-    if width <= 0:
-        width = 2.0
-    if height <= 0:
-        height = 0.5
-
-    # Step 3: 物流费（同源 query_logistics_cost；无凭证 → RETS/Standard 默认）
-    logistics_cost, _channel, _detail = query_logistics_cost(weight, depth, width, height)
-
-    # Step 4: 配置（请求覆盖优先，其次 extensions，最后默认值，与 pricing_node 一致）
-    # v0.60 三档判定：请求级显式 margin_floor 参数在场 → 三档（请求级优先语义保持不变）；
-    # 否则走 is_dual_margin 唯一口径（✅ v0.80 对齐 09-findings Top10 #10：键存在语义，
-    # 与 pricing_node 同源——此前此处认「floor 值非 None」，extensions 同时带
-    # margin_rate+margin_anchor 无 floor 的信封会 /estimate 单档、graph 三档分叉）。
-    ext_margin = extensions.get("margin_rate")
-    ext_floor = extensions.get("margin_floor")  # 三档取值用（请求级 margin_floor 优先，见 _pick）
-    three_tier = (
-        margin_floor is not None
-        or is_dual_margin(
-            margin_floor_present="margin_floor" in extensions,
-            margin_anchor_present="margin_anchor" in extensions,
-            has_margin_rate=(margin_rate is not None or ext_margin is not None),
-        )
-    )
-
-    if margin_rate is not None:
-        eff_margin = float(margin_rate)
-    elif ext_margin is not None:
-        eff_margin = float(ext_margin)
-    elif three_tier:
-        eff_margin = 1.5  # v0.60 三档日常价默认
-    else:
-        eff_margin = 0.25
-
-    def _pick(request_val, ext_val, default):
-        if request_val is not None:
-            return float(request_val)
-        if ext_val is not None:
-            return float(ext_val)
-        return default
-
-    if three_tier:
-        eff_anchor = _pick(margin_anchor, extensions.get("margin_anchor"), 2.0)
-        eff_floor = _pick(margin_floor, ext_floor, 0.6)
-        eff_vcr = _pick(variable_cost_rate, extensions.get("variable_cost_rate"), 0.155)
-        eff_pvcr = _pick(promo_variable_cost_rate, extensions.get("promo_variable_cost_rate"), 0.245)
-    else:
-        # 单档旧行为：全部三档参数不透传（compute_price 缺省 → 旧公式逐字一致）
-        eff_anchor = eff_floor = eff_vcr = eff_pvcr = None
-    eff_fx = float(fx_buffer if fx_buffer is not None else extensions.get("fx_buffer", 0.05))
-
-    tier_kwargs = {
-        "margin_anchor": eff_anchor,
-        "margin_floor": eff_floor,
-        "variable_cost_rate": eff_vcr,
-        "promo_variable_cost_rate": eff_pvcr,
-    }
-
-    # Step 5: 货币判定（请求覆盖 → extensions → exchange_rate 有值则 RUB → CNY）
+    # 货币判定（请求覆盖 → extensions → exchange_rate 有值则 RUB → CNY）
     eff_currency = (currency_code or str(extensions.get("currency_code", "") or "")).upper()
     if eff_currency not in ("CNY", "RUB"):
         eff_currency = "RUB" if exchange_rate is not None else "CNY"
 
-    total_cost_cny: float = cost_cny + logistics_cost + PACKAGING_COST_CNY
+    # v0.83: 无传入汇率且币种 RUB → fx 三级链（pg_cache→live→兜底 12）
+    _fx_rate = exchange_rate
+    _fx_source = ""
+    if eff_currency == "RUB" and _fx_rate is None:
+        from utils.fx_rate_service import resolve_cny_rub_rate
 
-    # Step 5b: 佣金解析（任务 2.3）— 与 pricing_node 同源优先级链：
-    # explicit（请求/信封 commission_rate）> 类目佣金缓存表(按售价选段) > 信封 segments > 0.10。
-    # 档位依赖售价、售价依赖佣金（鸡生蛋）→ 先用 0.10 算临时价仅选档，再解析真实佣金重算。
-    explicit_commission = commission_rate if commission_rate is not None else extensions.get("commission_rate")
-    _est_provisional = compute_price(
-        total_cost_cny=total_cost_cny,
-        margin_rate=eff_margin,
-        commission_rate=0.10,
-        fx_buffer=eff_fx,
+        _fx_rate, _fx_source = resolve_cny_rub_rate()
+
+    # 店铺 3PL 探测（credential_id 在场才探测；否则 default_rets）
+    tpl, svc, logistics_source = _resolve_logistics_config(credential_id, tenant_id)
+
+    # ── 共享定价核（与 pricing_node / batch 同源）──
+    from utils.pricing_core import compute_pricing_core
+
+    audit: dict[str, Any] = {}
+    info = compute_pricing_core(
+        draft,
+        extensions,
         currency_code=eff_currency,
-        exchange_rate=exchange_rate,
-        **tier_kwargs,
-    )
-    _provisional_price = float(_est_provisional["price"])
-    if eff_currency == "RUB":
-        _price_rub = _provisional_price
-    elif exchange_rate is not None and exchange_rate > 1:
-        _price_rub = _provisional_price * exchange_rate
-    else:
-        _price_rub = None
-    _ozon_category = draft.get("ozon_category") or {}
-    _dc_id_raw = _ozon_category.get("description_category_id") if isinstance(_ozon_category, dict) else None
-    _dc_id_int = int(_dc_id_raw) if _dc_id_raw is not None and str(_dc_id_raw).isdigit() else None
-    eff_commission, commission_source = resolve_commission_rate(
-        description_category_id=_dc_id_int,
-        price_rub=_price_rub,
-        explicit_commission=explicit_commission,
-        extensions_commission_segments=extensions.get("commission_segments"),
+        exchange_rate=_fx_rate if _fx_rate is not None else 1.0,
+        fx_source=_fx_source,
+        description_category_id=_extract_dc_id(draft),
+        tpl_provider=tpl,
+        service_level=svc,
+        logistics_source=logistics_source,
+        # v0.83: 与 prepare 上架链同序（normalize→reconcile→体积重兜底）
+        apply_volume_floor=True,
+        margin_rate=margin_rate,
+        commission_rate=commission_rate,
+        fx_buffer=fx_buffer,
+        margin_anchor=margin_anchor,
+        margin_floor=margin_floor,
+        variable_cost_rate=variable_cost_rate,
+        promo_variable_cost_rate=promo_variable_cost_rate,
+        query_logistics_cost_fn=query_logistics_cost,
         get_category_commission_fn=get_category_commission,
+        audit_out=audit,
     )
-    eff_commission = float(eff_commission)
 
-    # Step 6: 定价公式（用解析出的真实佣金）
-    result = compute_price(
-        total_cost_cny=total_cost_cny,
-        margin_rate=eff_margin,
-        commission_rate=eff_commission,
-        fx_buffer=eff_fx,
-        currency_code=eff_currency,
-        exchange_rate=exchange_rate,
-        **tier_kwargs,
-    )
-    response = {
-        "price": result["price"],
-        "old_price": result["old_price"],
-        "profit_cny": result["profit_cny"],
-        "profit_rate": result["profit_rate"],
-        "logistics_cost_cny": round(logistics_cost, 2),
-        "currency": "CNY" if (exchange_rate is None or eff_currency == "CNY") else "RUB",
-        "commission_rate": round(eff_commission, 4),
-        "commission_source": commission_source,
+    profit_est = info.get("profit_estimation") or {}
+    response: dict[str, Any] = {
+        "price": info["price"],
+        "old_price": info["old_price"],
+        "profit_cny": profit_est.get("profit_cny"),
+        "profit_rate": profit_est.get("profit_rate"),
+        "logistics_cost_cny": round(float(info.get("logistics_cost_cny") or 0.0), 2),
+        # 币种：按最终生效币种如实回报（fx 链已解析时 RUB 路径为真 RUB）
+        "currency": "CNY" if eff_currency == "CNY" else "RUB",
+        "commission_rate": round(float(info.get("commission_rate") or 0.0), 4),
+        "commission_source": audit.get("commission_source", "fallback"),
+        # v0.83 审计 marks（回吐）
+        "weight_suspect": audit.get("weight_suspect", ""),
+        "exchange_rate_source": audit.get("exchange_rate_source", ""),
+        "logistics_source": logistics_source,
     }
-    if three_tier:
+    if audit.get("dual_margin"):
         response.update(
             {
-                "promo_price": result["promo_price"],
-                "margin_anchor": eff_anchor,
-                "margin_floor": eff_floor,
-                "variable_cost_rate": eff_vcr,
+                "promo_price": info.get("promo_price"),
+                "margin_anchor": audit.get("margin_anchor"),
+                "margin_floor": audit.get("margin_floor"),
+                "variable_cost_rate": audit.get("variable_cost_rate"),
             }
         )
     return response
