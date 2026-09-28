@@ -10,7 +10,7 @@
 - [管线 C 增强：裂变选品（--fission）](#管线-c-增强裂变选品discover---fissionv031)
 - [管线 C 增强：任务式全自动选品（discover-task）](#管线-c-增强任务式全自动选品discover-task漏斗-v2)
 - [管线 C 增强：多关键词批量选品（discover-multi）](#管线-c-增强多关键词批量选品discover-multi)
-- [长任务后台化（MCP background + job_*）](#长任务后台化mcp-background--job_v070)
+- [长任务后台化（默认即后台：--detach / background / job_*）](#长任务后台化v083-批④默认即后台)
 - [管线 D2：Ozon 选品上架](#管线-d2ozon-选品上架discover)
 - [管线 E：趋势选品](#管线-e趋势选品agent-自主分析--discover-执行v031-起)
 - [卖家店铺分析（seller）](#卖家店铺分析seller)
@@ -129,25 +129,32 @@ python3 scripts/cli.py discover-multi --keywords "宠物饮水机,猫爬架,逗�
 ```
 
 - 逐词跑 discover 漏斗（`--max-each` 每词采集上限），结果合并展示；`--auto-submit`/`--to-box` 语义与 discover 一致；`--min-margin`（匹配期筛选门槛，与 graph/follow 的预估拦截语义不同）
-- MCP 侧 `discover_multi` 工具同参；minutes 级任务建议 `background=true`
+- MCP 侧 `discover_multi` 工具同参；分钟级任务默认即后台（`background` 缺省 True）
 
-## 长任务后台化（MCP background + job_*，v0.70）
+## 长任务后台化（v0.83 批④：默认即后台）
 
-MCP 工具 `discover`/`discover_multi`/`discover_task`/`follow`/`seller`/`queries`/`graph` 均有 `background`（默认 false）与 `force` 参数：
+**默认**：MCP 工具 `discover`/`discover_multi`/`discover_task`/`follow`/`seller`/`queries`/`graph`
+的 `background` **缺省 True**——调用立即返回 job 句柄，agent 不再全程干等；需要同步结果显式
+`background=false`。
 
 ```json
-discover_task({"keyword": "手套", "target_count": 30, "background": true})
-→ {"id": "a1b2c3", "status": "running", ...}          // <1s 返回
-job_status({"task_id": "a1b2c3"})                      // 进度/阶段/日志尾/worker_task_ids
-                                                       // + next_poll_s/next_action（v0.79 轮询节奏）
-job_result({"task_id": "a1b2c3"})                      // 完成后取完整结果
-job_cancel({"task_id": "a1b2c3"})                      // 需要时取消
+discover_task({"keyword": "手套", "target_count": 30})
+→ {"job_id": "20260928_120000_abcdef", "status": "running", "next_poll_s": 20, ...}   // <1s 返回
+job_status({"task_id": "20260928_120000_abcdef"})   // 进度/阶段/日志尾/run_id/session_path/worker_task_ids
+                                                    // + next_poll_s/next_action
+job_result({"task_id": "20260928_120000_abcdef"})   // 完成后取完整结果（恒含 run_id）
+job_cancel({"task_id": "20260928_120000_abcdef"})   // 需要时取消
 ```
 
-- **会话关闭任务照跑**（CLI 进程脱离会话、输出落盘）；重开会话 `job_list` 找回
-- **单飞闸**：同一时刻 1 个 heavy 任务（discover 族/follow/seller/graph），再提交返回 error dict，`force=true` 强制并行
-- **轮询节奏（v0.79）**：`job_status` 返回 `next_poll_s`（20s）——分钟级任务按此间隔查，勿秒级轮询；终态即停
-- 纪律：agent 跑分钟级任务**必用** background=true，别阻塞对话；期间可答复用户/干别的
+- **单一事实源**：后台任务落 `skill/data/jobs/{job_id}.json`（skill `--detach` spawn；
+  MCP background 即经它）；旧 pounding `data/tasks/` 仅回退读历史任务。
+- **CLI 侧等价**：六重命令加 `--detach` 立即返回句柄行 + 句柄 JSON + NEXT；`jobs` 列全部、
+  `job-status <id>` 看进度、`job-result <id>` 取结果。`--detach` 与 `--wait` 互斥（同给 exit 2）。
+- **会话关闭任务照跑**（CLI 进程脱离会话、输出落盘）；重开会话 `jobs` / `job_list` 找回
+- **串行闸**：六命令跨进程互斥（父进程 `--detach` 前先探闸，闸不空即 exit 4 不启动）；
+  MCP 侧闸冲突返回 error dict，`force=true` 强制并行
+- **轮询节奏**：`job_status` 返回 `next_poll_s`（20s）——分钟级任务按此间隔查，勿秒级轮询；终态即停
+- 纪律：agent 跑分钟级任务默认即后台，别阻塞对话；期间可答复用户/干别的
 
 ## 管线 D2：Ozon 选品上架（discover）
 
