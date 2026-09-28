@@ -377,11 +377,12 @@ def test_envelope_unknown_client_id_falls_back_default(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 6. v0.83 gate 批① 第二轮：重量链逐字对齐 → 实测物流项相等（+5.9% 真根因）
-#    gate 第三轮 key-box（743614284287：100g / 96×70×45mm / 店铺 4718259 / margin 0.25
-#    / commission 0.10）卡价 17、预估 18（+5.9%）。真根因不在 3PL 来源（该店 3PL==RETS，
-#    store 与 default 同价），而在 estimate 单方做体积重兜底 100g→121g（¥6.76→¥7.52）。
-#    本组用**重量相关**物流 mock 锁死：预估与 pricing_node 同用「未抬重」链，物流项逐字相等。
+# 6. v0.83.2 终态：重量链含体积重兜底 → 卡面/物流/定价三者同口径
+#    PR #99（批①第二轮）曾把 estimate 向下对齐 pricing_node 的「未抬重」链（100g→价 17）；
+#    但 prepare 上架链对低密度件按兜底后重量（121g）声明卡面并计费，定价按 100g 算 →
+#    低密度单系统性少收运费差。用户拍板「价格按公式来」：三处统一开启体积兜底。
+#    gate key-box（743614284287：100g / 96×70×45mm / margin 0.25 / commission 0.10）：
+#    100g→121g（密度 0.331<0.40）→ 物流 3.12+0.0364×121=7.5244 → 价 18（修复前向下对齐 17）。
 # ═══════════════════════════════════════════════════════════════════════════
 
 _GATE_DRAFT = {
@@ -407,7 +408,7 @@ def _mock_weight_rate_logistics(monkeypatch):
 
 
 def test_envelope_weight_chain_matches_pricing_node(monkeypatch):
-    """预估 == pricing_node：同一未抬重重量链，物流项与价格逐字段相等（gate key-box）。"""
+    """预估 == pricing_node：同一含体积兜底的重量链，物流项与价格逐字段相等（gate key-box）。"""
     _mock_heavy(monkeypatch)
     _mock_weight_rate_logistics(monkeypatch)
 
@@ -422,18 +423,20 @@ def test_envelope_weight_chain_matches_pricing_node(monkeypatch):
         currency_code="CNY", tenant_id="tenant-A",
     )
 
-    # 100g（非兜底 121g）→ 6.76；两处逐字相等（修复前 estimate 会 7.52）
-    assert pi["logistics_cost_cny"] == pytest.approx(6.76), pi["logistics_cost_cny"]
-    assert est["logistics_cost_cny"] == pi["logistics_cost_cny"], (
-        f"estimate({est['logistics_cost_cny']}) vs graph({pi['logistics_cost_cny']})"
-    )
-    assert est["price"] == pi["price"] == 17, (est["price"], pi["price"])
+    # 100g→121g 兜底后计费 → 7.5244；两处逐字相等（estimate 响应物流费四舍五入到分）
+    assert pi["logistics_cost_cny"] == pytest.approx(7.5244), pi["logistics_cost_cny"]
+    assert est["logistics_cost_cny"] == round(pi["logistics_cost_cny"], 2)
+    assert est["price"] == pi["price"] == 18, (est["price"], pi["price"])
     assert est["old_price"] == pi["old_price"]
     assert est["profit_cny"] == pi["profit_estimation"]["profit_cny"]
 
 
-def test_envelope_no_volume_floor_marker(monkeypatch):
-    """回归锁：预估响应不再出现 weight_adjusted_for_volume 标疑（不做体积重兜底）。"""
+def test_envelope_volume_floor_applied_on_low_density(monkeypatch):
+    """v0.83.2：低密度件兜底已触发（此前 PR #99 锁「不触发」，语义翻转）→ 按 121g 计费。
+
+    本组 extensions 无 margin 键 → 三档默认（margin 1.5）+ 缓存佣金 25%：
+    total = 3.37+7.5244+2 = 12.8944 → ceil(12.8944×2.5/0.595) = 55。
+    """
     _mock_heavy(monkeypatch)
     _mock_weight_rate_logistics(monkeypatch)
 
@@ -441,6 +444,6 @@ def test_envelope_no_volume_floor_marker(monkeypatch):
         {"draft": dict(_GATE_DRAFT), "extensions": {"ozon_client_id": "4718259"}},
         currency_code="CNY", tenant_id="tenant-A",
     )
-    assert est["logistics_cost_cny"] == pytest.approx(6.76)
-    assert est.get("weight_suspect", "") != "weight_adjusted_for_volume"
+    assert est["logistics_cost_cny"] == pytest.approx(7.52)
+    assert est["price"] == 55, est["price"]
 
