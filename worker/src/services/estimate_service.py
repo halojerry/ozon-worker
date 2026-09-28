@@ -7,9 +7,9 @@
 「取数 + 解析货币/汇率/3PL + 调共享核 + 投影响应」，不写定价公式。
 
 与 pricing_node 的差异（有意，均为「补全」方向）：
-- 重量链做 ``reconcile_weight_with_attrs``（与定价节点同源）；**不做**体积重兜底
-  ``ensure_volume_weight_floor``——卡价由 pricing_node 设定且其 ``apply_volume_floor=False``，
-  预估单方兜底会抬重 → 预估↔卡价漂移（v0.83 gate 批① 第二轮修正，见下方注释）；
+- 重量链做 ``reconcile_weight_with_attrs`` + 体积重兜底 ``ensure_volume_weight_floor``
+  （v0.83.2 起与 pricing_node / prepare 三处同一条链）——卡面由 prepare 按兜底后重量
+  声明并据此计费，定价必须同口径，否则低密度件少收运费差；
 - 无传入汇率且币种为 RUB 时走 fx 三级链 ``resolve_cny_rub_rate``（pg_cache→live→兜底）；
 - 请求带 credential_id / ``extensions.credential_id`` / ``extensions.ozon_client_id`` 时
   经 credential_service 解密取店铺 3PL（否则 default_rets）。
@@ -169,13 +169,11 @@ def estimate_from_envelope(
         tpl_provider=tpl,
         service_level=svc,
         logistics_source=logistics_source,
-        # v0.83 gate 批① 第二轮：**与 pricing_node 逐字对齐 apply_volume_floor=False**。
-        # 卡价由 pricing_node 设定且其不做体积重兜底（pricing_node 的 compute_pricing_core
-        # 调用传 apply_volume_floor=False）；预估若在此额外兜底，低密度件会被抬重
-        # （钥匙盒 100g→121g）→ 物流 ¥6.76→¥7.52 → 预估↔卡价 +5.9%（gate 第三轮实锤，
-        # 验收线 ±3%）。预估的职责是预测上架价，故必须复用定价节点的同一重量链，不得
-        # 单方面「补全」。
-        apply_volume_floor=False,
+        # v0.83.2：**与 pricing_node / prepare 三处同一条重量链**（含体积重兜底）。
+        # 终态收敛：prepare 上传链对低密度件按兜底后重量声明卡面/计费（100g→121g），
+        # pricing_node 与预估必须同口径，否则低密度单系统性少收运费差（gate key-box：
+        # 100g/96×70×45mm 兜底 121g → 物流 7.52 → 价 18，三者一致）。
+        apply_volume_floor=True,
         margin_rate=margin_rate,
         commission_rate=commission_rate,
         fx_buffer=fx_buffer,
