@@ -100,7 +100,10 @@ class TestGloveRegression:
 
 
 class TestFishingRegression:
-    def test_all_divergent_returns_none_with_cap(self, monkeypatch):
+    def test_all_divergent_passes_with_evidence(self, monkeypatch):
+        """v083 三值统一：全候选与竞品类目不一致（divergent 实锤）→ **出证放行**
+        （match_category_divergent=True，conf 封顶 0.5），交 worker 阶梯裁决；
+        LLM 费用封顶 cap 6 不变。"""
         cands = [
             _cand(i, f"宽檐渔夫帽遮阳帽款式{i}", cat="帽子")
             for i in range(8)
@@ -120,7 +123,9 @@ class TestFishingRegression:
             ozon_category_path="Спорт и отдых > Рыболовные сумки",
             require_category_consistency=True)
 
-        assert best is None
+        assert best is not None, "v083: 分歧不再静默拒单，出证放行交 worker"
+        assert best.get("match_category_divergent") is True
+        assert best["confidence"] <= 0.5, "divergent 必须降权封顶 0.5"
         assert len(n_calls) == 6  # cap 6 防 LLM 费用失控（8 候选只判前 6）
         assert blocked and blocked[0]["reject_reason"] == "category_divergent"
 
@@ -191,9 +196,10 @@ class TestDataIncompleteNoOp:
         assert best.get("match_semantic_unknown") is True
         assert calls and calls[0][2] == "category"
 
-    def test_no_breadcrumb_llm_cannot_conclude_rejected(self, monkeypatch):
-        """面包屑缺失 + LLM 拿不出结论（NO/失败/无 token 均返回 False）→
-        按 no_relevant_match 语义拦截（fail-closed，宁缺毋滥）。"""
+    def test_no_breadcrumb_llm_cannot_conclude_passes_with_evidence(self, monkeypatch):
+        """v083 三值统一：面包屑缺失 + LLM 拿不出结论（NO/失败/无 token 均 False）
+        → **出证放行**（match_semantic_unknown=True），交 worker 阶梯裁决
+        （不再 skill fail-closed 拒单）。"""
 
         def _fake_llm(*a, **k):
             return False
@@ -205,7 +211,8 @@ class TestDataIncompleteNoOp:
         best = od._pick_best_match(
             [cand0], _GLOVE_RU, token="tok", trusted_source=True,
             require_category_consistency=True)
-        assert best is None
+        assert best is not None
+        assert best.get("match_semantic_unknown") is True
         assert blocked and blocked[0]["reject_reason"] == "category_semantic_unknown"
 
     def test_no_token_wordpair_fallback_hits_candidate(self, monkeypatch):
@@ -224,14 +231,14 @@ class TestDataIncompleteNoOp:
         assert best["title"].startswith("月季修剪")  # 含「手套」→ 快筛放行 idx0
         assert "match_semantic_unknown" not in best  # 真实判定通过不带 unknown 键
 
-    def test_no_token_unmappable_breadcrumb_rejected(self, monkeypatch):
-        """无 token 且词典无法映射面包屑（v082 语义翻转：v081 是 fail-open no-op
-        直通）→ semantic_unknown 且 LLM 无 token 拿不出结论 → 拦截（fail-closed）。"""
+    def test_no_token_unmappable_breadcrumb_passes_with_evidence(self, monkeypatch):
+        """无 token 且词典无法映射面包屑 → semantic_unknown 出证放行（v083 三值
+        统一；不再 fail-closed 拒单，交 worker 阶梯）。"""
         breadcrumb = "Тестовый раздел каталога"
         assert od._breadcrumb_zh_words(breadcrumb) is None  # 夹具自证不可映射
 
         def _no_llm(*a, **k):
-            raise AssertionError("无 token 不得调 LLM（短路拦截）")
+            raise AssertionError("无 token 不得调 LLM（短路）")
 
         monkeypatch.setattr(od, "_llm_semantic_match", _no_llm)
         blocked: list[dict] = []
@@ -240,7 +247,8 @@ class TestDataIncompleteNoOp:
         best = od._pick_best_match(
             [cand0], "Детский дождевик", token="", trusted_source=True,
             ozon_category_path=breadcrumb, require_category_consistency=True)
-        assert best is None
+        assert best is not None
+        assert best.get("match_semantic_unknown") is True
         assert blocked and blocked[0]["reject_reason"] == "category_semantic_unknown"
 
 

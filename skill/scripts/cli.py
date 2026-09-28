@@ -868,6 +868,55 @@ def cmd_graph(args: argparse.Namespace) -> int:
                     if str(_oz_cat).isdigit():
                         graph["envelope"]["draft"]["ozon_attributes_category"] = int(_oz_cat)
                     print(f"✅ 竞品属性透传: {len(_attrs_all)} 个(ozon-ref-url)")
+                # ✅ fix/category-authority-v1 v083: --ozon-ref-url 顺带增强——保留
+                # 竞品面包屑类目路径 + 出证 match_evidence。graph 直传链**无类目语义
+                # 闸**（无 Ozon 竞品语料，见 CONTRACT-v4），本入口是唯一有 Ozon 语料
+                # 的场景。抓取数据 `_oz` 已带 category_path/web_category_id/
+                # breadcrumb_language（ozon_scraper 产出）——有才注入，无则只保留声明。
+                _oz_path = str(_oz.get("category_path") or "").strip()
+                if _oz_path:
+                    _env_ref = graph["envelope"]
+                    _dr_ref = _env_ref.setdefault("draft", {})
+                    _oc = _dr_ref.get("ozon_category")
+                    _oc = dict(_oc) if isinstance(_oc, dict) else {}
+                    _oc.setdefault("source", "page")
+                    _oc.setdefault("namespace", "widget")
+                    _oc["category_path"] = _oz_path
+                    if _oz.get("web_category_id"):
+                        _oc["web_category_id"] = str(_oz["web_category_id"])
+                    if _oz.get("breadcrumb_language"):
+                        _oc["breadcrumb_language"] = str(_oz["breadcrumb_language"])
+                    _dr_ref["ozon_category"] = _oc
+                    # 出证：1688 源类目 vs 竞品面包屑语义复核（复用 discover 同源
+                    # 复核器；前提缺失/LLM 失败 → semantic_unknown，不一致 → divergent）
+                    _zh_ref = ""
+                    _src_ref = _env_ref.get("source")
+                    if isinstance(_src_ref, dict):
+                        _zh_ref = str(_src_ref.get("source_category_path")
+                                      or _src_ref.get("match_category_name") or "")
+                    if not _zh_ref:
+                        _zh_ref = str(_dr_ref.get("source_category") or "")
+                    try:
+                        from types import SimpleNamespace as _NS
+
+                        from scripts.lib.ozon_discovery import _category_semantic_review
+                        from scripts.cloud_probe import _assemble_match_evidence
+                        _rev = _NS(match_1688_category_name=_zh_ref,
+                                   page_category_path=_oz_path, match_confidence=1.0,
+                                   ozon_title=str(_dr_ref.get("title") or ""),
+                                   match_category_divergent=False,
+                                   match_semantic_unknown=False)
+                        _category_semantic_review(_rev, graph.get("token") or "")
+                        _mev_ref = _assemble_match_evidence(
+                            divergent=bool(_rev.match_category_divergent),
+                            semantic_unknown=bool(_rev.match_semantic_unknown))
+                        if _mev_ref:
+                            _env_ref.setdefault("extensions", {})["match_evidence"] = _mev_ref
+                            print(f"✅ 竞品类目出证: path={_oz_path[:50]} "
+                                  f"divergent={_rev.match_category_divergent} "
+                                  f"unknown={_rev.match_semantic_unknown}")
+                    except Exception as _rev_e:
+                        print(f"⚠️ 竞品类目语义复核跳过(继续): {_rev_e}")
             except Exception as _oz_e:
                 print(f"⚠️ 竞品属性抓取失败(继续): {_oz_e}")
     except ProductValidationError as e:

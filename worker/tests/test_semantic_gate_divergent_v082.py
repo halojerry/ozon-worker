@@ -79,17 +79,19 @@ class TestDivergentBlockReason:
             {"source": "page", "namespace": "widget"})
         assert "语义分歧" in reason
 
-    def test_divergent_what_to_sell_passes(self):
+    def test_divergent_what_to_sell_no_block(self):
+        """v083: 权威来源不再硬拦（降级阶梯在 _divergent_match_verdict 层表达）。"""
         assert asm._divergent_match_block_reason(
             {"match_evidence": _mev(divergent=True)},
             {"source": "what_to_sell", "namespace": "seller"}) == ""
 
-    def test_divergent_manual_passes(self):
+    def test_divergent_manual_no_block(self):
         assert asm._divergent_match_block_reason(
             {"match_evidence": _mev(divergent=True)},
-            {"source": "manual", "namespace": "seller"}) == ""
+            {"source": "manual", "namespace": "seller",
+             "description_category_id": "17027907", "type_id": "92359"}) == ""
 
-    def test_divergent_mapping_passes(self):
+    def test_divergent_mapping_no_block(self):
         assert asm._divergent_match_block_reason(
             {"match_evidence": _mev(divergent=True)},
             {"source": "mapping", "namespace": "seller"}) == ""
@@ -99,6 +101,80 @@ class TestDivergentBlockReason:
         assert asm._divergent_match_block_reason(
             {"match_evidence": _mev(semantic_unknown=True)},
             {"source": "search_kw"}) == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ①b v083 降级阶梯 _divergent_match_verdict → (reason, downgrade)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDivergentLadder:
+    @staticmethod
+    def _cat(source: str, **kw) -> dict:
+        d = {"source": source, "namespace": "seller"}
+        d.update(kw)
+        return d
+
+    def test_authoritative_both_corpora_downgrades(self):
+        """权威 + 1688 类目名 + 竞品面包屑齐备 → 降级（走全闸链，不拦不直通）。"""
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("what_to_sell", category_path="Дом > Перчатки"),
+            {"match_category_name": "家务手套"})
+        assert reason == "" and downgrade is True
+
+    def test_authoritative_source_path_corpus_downgrades(self):
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("mapping", category_path="Дом > Перчатки"),
+            {"source_category_path": "家居 > 家务手套"})
+        assert reason == "" and downgrade is True
+
+    def test_authoritative_1688_corpus_missing_no_downgrade(self):
+        """权威 + 1688 类目名缺 → 留证不拦（不降级）。"""
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("what_to_sell", category_path="Дом > Перчатки"),
+            {})
+        assert reason == "" and downgrade is False
+
+    def test_authoritative_breadcrumb_missing_no_downgrade(self):
+        """权威 + 竞品面包屑缺 → 留证不拦（不降级）。"""
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("what_to_sell"),
+            {"match_category_name": "家务手套"})
+        assert reason == "" and downgrade is False
+
+    def test_manual_with_digits_exempt(self):
+        """manual + dc/tp 数字 → 恒豁免（R1 veto 仍由下游硬）。"""
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("manual", description_category_id="17027907",
+                      type_id="92359", category_path="任何路径"),
+            {"match_category_name": "手套"})
+        assert reason == "" and downgrade is False
+
+    def test_manual_without_digits_blocks(self):
+        """裸 manual（无 dc/tp 数字）不豁免——防绕树校验。"""
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("manual"),
+            {"match_category_name": "手套"})
+        assert "语义分歧" in reason and downgrade is False
+
+    def test_non_authoritative_blocks(self):
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev(divergent=True)},
+            self._cat("search_kw", category_path="Дом > Перчатки"),
+            {"match_category_name": "手套"})
+        assert "语义分歧" in reason and downgrade is False
+
+    def test_no_divergent_no_downgrade(self):
+        reason, downgrade = asm._divergent_match_verdict(
+            {"match_evidence": _mev()},
+            self._cat("what_to_sell", category_path="Дом"),
+            {"match_category_name": "手套"})
+        assert reason == "" and downgrade is False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -220,7 +296,7 @@ if __name__ == "__main__":
             except Exception:
                 failed += 1
                 traceback.print_exc()
-    for _cls in (TestDivergentBlockReason,):
+    for _cls in (TestDivergentBlockReason, TestDivergentLadder):
         for _n, _f in sorted(vars(_cls).items()):
             if _n.startswith("test_") and callable(_f):
                 total += 1

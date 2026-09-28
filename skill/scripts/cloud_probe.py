@@ -2821,6 +2821,52 @@ def build_graph_envelope(
     }
 
 
+# ── v083 语义闸/权威来源占比埋点（logger，**不打点表/不落库**）──
+# 批③口径：semantic_unknown 与权威来源占比目前零量化，先埋点一周再决定是否升级
+# semantic_unknown 硬拦口径。进程级计数，跑完即弃。
+_MATCH_EVIDENCE_STATS: dict[str, int] = {"total": 0, "unknown": 0, "divergent": 0}
+_CAT_AUTHORITY_STATS: dict[str, int] = {
+    "total": 0, "authoritative": 0,
+    "page": 0, "what_to_sell": 0, "search_kw": 0, "manual": 0, "mapping": 0,
+}
+_AUTHORITATIVE_CAT_SOURCES = ("page", "what_to_sell", "mapping", "manual")
+
+
+def _bump_match_evidence_stat(*, unknown: bool = False, divergent: bool = False,
+                              ready: bool = False) -> None:
+    """match_evidence 组装计数（每 25 次打一行 INFO 占比；unknown/divergent 口径）。"""
+    s = _MATCH_EVIDENCE_STATS
+    s["total"] += 1
+    if unknown:
+        s["unknown"] += 1
+    if divergent:
+        s["divergent"] += 1
+    n = s["total"]
+    if ready and n % 25 == 0:
+        logger.info(
+            "match_evidence 统计(n=%d): unknown=%d(%.1f%%) divergent=%d(%.1f%%)",
+            n, s["unknown"], 100.0 * s["unknown"] / n,
+            s["divergent"], 100.0 * s["divergent"] / n)
+
+
+def _bump_cat_authority_stat(source: str) -> None:
+    """draft.ozon_category 采纳来源计数（每 25 次打一行 INFO 占比；权威来源占比）。"""
+    s = _CAT_AUTHORITY_STATS
+    s["total"] += 1
+    src = str(source or "")
+    if src in s:
+        s[src] += 1
+    if src in _AUTHORITATIVE_CAT_SOURCES:
+        s["authoritative"] += 1
+    n = s["total"]
+    if n % 25 == 0:
+        logger.info(
+            "类目来源统计(n=%d): 权威=%d(%.1f%%) page=%d what_to_sell=%d "
+            "search_kw=%d manual=%d mapping=%d",
+            n, s["authoritative"], 100.0 * s["authoritative"] / n,
+            s["page"], s["what_to_sell"], s["search_kw"], s["manual"], s["mapping"])
+
+
 def _assemble_match_evidence(
     *,
     method: str = "",
@@ -2868,10 +2914,13 @@ def _assemble_match_evidence(
     if semantic_unknown:
         mev["semantic_unknown"] = True
     if not mev:
+        _bump_match_evidence_stat(ready=True)
         return {}
     if method:
         mev["method"] = str(method)
     mev["trusted"] = bool(method == "aibuy" or badge >= 1.0)
+    _bump_match_evidence_stat(unknown=bool(mev.get("semantic_unknown")),
+                              divergent=bool(mev.get("divergent")), ready=True)
     return mev
 
 
@@ -3110,6 +3159,12 @@ def _apply_discover_page_truth(draft: dict, extensions: dict, candidate, page_tr
         cat.setdefault("namespace", "seller")
         draft["ozon_category"] = cat
 
+    # ✅ v083 埋点：采纳来源占比（page/what_to_sell/manual/mapping/search_kw），
+    # 每 25 次打一行 INFO——量化权威来源占比后再议语义闸升级口径（不打点表）。
+    try:
+        _bump_cat_authority_stat(str((draft.get("ozon_category") or {}).get("source") or ""))
+    except Exception:
+        pass
     # 特征属性（来自页面，归属页面面包屑——web_category_id 仅排查线索，
     # worker 属性校验以 dc/tp 为准）
     if page_attrs:
@@ -4726,11 +4781,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
             # 园艺手套、钓鱼腰包→宽檐渔夫帽）。discover 链不传（默认 False 零变化）。
             _ozon_cat_path = str(
                 (result.get("ozon_category") or {}).get("category_path", "") or "")
-            best = _pick_best_match(
-                matches, ozon_title, token=mxou_token, trusted_source=_trusted,
-                ozon_category_path=_ozon_cat_path,
-                require_category_consistency=True,
-            ) if ozon_title else matches[0]
+            if ozon_title:
+                best = _pick_best_match(
+                    matches, ozon_title, token=mxou_token, trusted_source=_trusted,
+                    ozon_category_path=_ozon_cat_path,
+                    require_category_consistency=True,
+                )
+            else:
+                # ✅ fix/category-authority-v1 v083 堵后门③: 竞品标题为空时**不得**
+                # 走 matches[0] 直通（此前绕过整道语义闸）——语义闸前提缺失，改标
+                # match_semantic_unknown=True 出证（worker 阶梯裁决；非权威来源会
+                # 被 worker 硬拦入箱，不产生错配卡）。
+                best = dict(matches[0]) if matches else None
+                if best is not None:
+                    best["match_semantic_unknown"] = True
+                    logger.warning(
+                        "follow: 竞品标题为空，类目语义闸前提缺失 → matches[0] "
+                        "semantic_unknown 出证（交 worker 阶梯裁决）")
             if best:
                 result["best_match"] = best
                 # ── D3 L3: 人工评审暂停（--review）──

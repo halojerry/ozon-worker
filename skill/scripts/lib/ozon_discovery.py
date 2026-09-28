@@ -2954,9 +2954,11 @@ def _pick_best_match(
             专用类目一致性闸（竞品面包屑 vs 候选 1688 类目语义一致才放行，
             插在 badge/trusted 直通之前）。**默认 False，discover 链行为零变化**。
             fix/semantic-gate-coverage v082: True 时前提数据缺失（面包屑缺席 /
-            无 token 且词典无法映射面包屑）不再 fail-open 直通——降级 LLM 语义
-            确认，拿不出结论按 no_relevant_match 拦截；确认放行带
-            match_semantic_unknown=True 出闸（真实判定通过的候选不带该键）。
+            无 token 且词典无法映射面包屑）标记 semantic_unknown。
+            fix/category-authority-v1 v083: **三值统一（拒/出证放行/放行）**——
+            divergent（全候选不一致）与 semantic_unknown（前提缺失拿不出结论）
+            均**出证放行**（分别带 match_category_divergent / match_semantic_unknown
+            =True），最终裁决交 worker 类目权威阶梯；仅基础相关性护栏仍可返回 None。
     """
 
     is_ru_title = bool(re.search(r"[а-яёА-ЯЁ]", ozon_title or ""))
@@ -3109,10 +3111,16 @@ def _pick_best_match(
     # 牛皮园艺手套、钓鱼腰包→宽檐渔夫帽——图搜视觉相近但品类不同）。
     # ✅ fix/semantic-gate-coverage v082: 闸前提数据缺失（面包屑缺席 / 无 token 且
     # 词典无法映射面包屑）不再 fail-open 静默直通——标记 semantic_unknown 并降级
-    # 走 LLM 语义确认（mode="category"）；LLM 也拿不出结论 → 按 no_relevant_match
-    # 语义拦截（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。确认放行的候选
-    # 带 match_semantic_unknown=True 出闸（消费方 `_assemble_match_evidence` 写进
-    # extensions.match_evidence 留证；worker 对该标志不拦）。
+    # 走 LLM 语义确认（mode="category"）。
+    # ✅ fix/category-authority-v1 v083 **follow 三值判定统一**：拒 / 出证放行 /
+    # 放行——闸只区分「有证据的不一致（divergent）」「前提缺失（semantic_unknown）」
+    # 与「一致」三种信号，**不再由 skill fail-closed 静默拒单**（拒只剩基础相关性
+    # 护栏口径）。divergent 与 unknown 均**出证放行**（conf 封顶 0.5 / 原 conf），
+    # 最终裁决交 worker 类目权威阶梯（authoritative→降级走 R2b/Step6.5 全闸 /
+    # 非权威→blocked_draft_box 入采集箱）。与 discover `_category_semantic_review`
+    # 「降权不拦截」政策对齐——skill 出证、worker 是最后一道网。确认放行的候选带
+    # match_semantic_unknown=True / match_category_divergent=True 出闸（消费方
+    # `_assemble_match_evidence` 写进 extensions.match_evidence 留证）。
     _sem_unknown = False
     if require_category_consistency:
         _GATE_CAP = 6  # LLM 费用封顶：沿排序列表最多判 6 个候选
@@ -3131,14 +3139,21 @@ def _pick_best_match(
                         _picked = (_sc, _idx, _r)
                         break
                 if _picked is None:
-                    # 全部候选不一致 → 拒绝（follow 通道 no_relevant_match，不组装信封）。
-                    # ⚠️ token 在场时 LLM 调用失败与真 NO 不可区分（均返回 False）→
-                    # fail-closed（宁缺毋滥：无信封可人工重试，错卡上架不可逆）。
+                    # ✅ v083 follow 三值判定统一: 全候选与竞品类目不一致（LLM 实锤分歧，
+                    # 或 token 在场时 LLM 调用失败与真 NO 不可区分）→ **出证放行**
+                    # （match_category_divergent=True，conf 封顶 0.5），最终裁决交 worker
+                    # 类目权威阶梯（authoritative→降级走闸 / 非权威→入采集箱）。不再
+                    # fail-closed 静默拒单：与 discover `_category_semantic_review`
+                    # 「降权不拦截」政策对齐（worker 是最后一道网）。
                     logger.warning(
-                        "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，拒绝（不组装信封）",
+                        "类目一致性闸: 前 %d 候选与竞品类目「%s」全部不一致，出证放行"
+                        "（divergent，conf 封顶 0.5，交 worker 阶梯裁决）",
                         min(len(scored), _GATE_CAP), ozon_category_path[:60])
                     _log_review_record(_block_record("category_divergent", best, _conf_of_best))
-                    return None
+                    return _attach_match_meta(
+                        best, min(_conf_of_best, 0.5),
+                        _badge_effectiveness(best.get("badge", "") or ""), _best_score,
+                        divergent=True)
             else:
                 # 无 token → 降级词对快筛：面包屑经词典映射的中文词在候选
                 # category_name/title 命中则放行该候选；词典完全无法映射面包屑
@@ -3157,11 +3172,17 @@ def _pick_best_match(
                             _picked = (_sc, _idx, _r)
                             break
                     if _picked is None:
+                        # ✅ v083: 词对快筛零命中（无 token 环境的窄词典判定）→ 出证
+                        # 放行（divergent），交 worker 阶梯（词典覆盖窄，miss 不足以
+                        # 判死；worker 对非权威来源硬拦入箱，不产生错配卡）。
                         logger.warning(
-                            "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，拒绝",
-                            _zh_words[:4])
+                            "类目一致性闸(词对快筛): 候选均未命中面包屑中文词 %s，"
+                            "出证放行（divergent）", _zh_words[:4])
                         _log_review_record(_block_record("category_divergent", best, _conf_of_best))
-                        return None
+                        return _attach_match_meta(
+                            best, min(_conf_of_best, 0.5),
+                            _badge_effectiveness(best.get("badge", "") or ""), _best_score,
+                            divergent=True)
         else:
             # v082: 面包屑缺席（CDP 抓取失败/缓存空壳）→ 闸没跑成，不再静默 no-op。
             _sem_unknown = True
@@ -3193,10 +3214,17 @@ def _pick_best_match(
                     semantic_unknown=True)
             logger.warning(
                 "类目一致性闸: 语义前提缺失（面包屑在场=%s, token 在场=%s）且 LLM 拿不出结论，"
-                "拦截（no_relevant_match，不组装信封）",
+                "出证放行（semantic_unknown，交 worker 阶梯裁决，不再 fail-closed）",
                 bool(ozon_category_path), bool(token))
             _log_review_record(_block_record("category_semantic_unknown", best, _conf_of_best))
-            return None
+            _conf_u = _conf_of_best
+            if trusted_source:
+                # 对齐 trusted 放行基准（aibuy 候选 conf 恒 0，原样透传会被下游
+                # 硬门误杀语义——见 trusted 直通注释）
+                _conf_u = max(_conf_u, 0.5)
+            return _attach_match_meta(
+                best, _conf_u, _badge_effectiveness(best.get("badge", "") or ""),
+                _best_score, semantic_unknown=True)
         if _picked is not None:
             _sc, _idx, _r = _picked
             _conf_r = _title_conf(ozon_title, _r, is_ru_title)
