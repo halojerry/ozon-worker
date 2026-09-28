@@ -162,7 +162,8 @@ def resolve_commission_rate_detail(
 
     Returns:
         dict: ``{"rate": float, "source": str, "stale": bool}``；
-        source ∈ "explicit" / "cache:{band}" / "segments:{band}" / "fallback" /
+        source ∈ "explicit" / "cache:{band}"（fbs）/ "cache:{band}:fbo"（fbo 回退）/
+        "segments:{band}"（fbs）/ "segments:{band}:fbo"（fbo 回退）/ "fallback" /
         "fallback:stale"。
     """
     band = pick_price_band(price_rub)
@@ -172,7 +173,14 @@ def resolve_commission_rate_detail(
     if get_category_commission_fn is not None:
         row = get_category_commission_fn(description_category_id)
         if row:
+            # ✅ v0.83 批①（实锤 C）：fbs 段缺失时回退 fbo 段——此前只读 fbs 前缀，
+            # fbo-only 候选（what_to_sell 仅给 FBO 分段）会从真实 fbo 段掉到 fallback。
             pct = select_segment(row, DEFAULT_PREFIX, band)
+            _cache_prefix = ""
+            if pct is None:
+                pct = select_segment(row, "fbo", band)
+                if pct is not None:
+                    _cache_prefix = ":fbo"
             # ✅ v0.67 wave 修复：段值 <=0（历史污染行/响应缺块写出的 0）视同未命中，
             # 继续走 segments/fallback——0% 佣金采信会让定价利润虚高（A6 实证）。
             # 污染行不标 stale（stale 专指超龄降信，非段值缺失）。
@@ -181,14 +189,22 @@ def resolve_commission_rate_detail(
                 now = time.time() if now_fn is None else now_fn()
                 age_seconds = None if ts is None else now - ts
                 if age_seconds is not None and age_seconds <= stale_after_days * 86400:
-                    return {"rate": pct / 100.0, "source": f"cache:{band}", "stale": False}
+                    return {"rate": pct / 100.0, "source": f"cache:{band}{_cache_prefix}", "stale": False}
                 stale_hit = True
     if extensions_commission_segments:
+        # ✅ v0.83 批①（实锤 C）：fbs 段缺失时回退 fbo 段（与缓存路径同口径）。
+        # fbs_segments 为空 / 段值缺失 → 试 fbo；命中时 source 带 ":fbo" 后缀便于审计。
         fbs_segments = extensions_commission_segments.get(DEFAULT_PREFIX)
-        if fbs_segments:
-            pct = select_segment(fbs_segments, "", band)
-            if pct is not None:
-                return {"rate": pct / 100.0, "source": f"segments:{band}", "stale": stale_hit}
+        _seg_prefix = ""
+        pct = select_segment(fbs_segments, "", band) if fbs_segments else None
+        if pct is None:
+            fbo_segments = extensions_commission_segments.get("fbo")
+            if fbo_segments:
+                pct = select_segment(fbo_segments, "", band)
+                if pct is not None:
+                    _seg_prefix = ":fbo"
+        if pct is not None:
+            return {"rate": pct / 100.0, "source": f"segments:{band}{_seg_prefix}", "stale": stale_hit}
     if stale_hit:
         return {"rate": FALLBACK_RATE, "source": STALE_FALLBACK_SOURCE, "stale": True}
     return {"rate": FALLBACK_RATE, "source": "fallback", "stale": False}
