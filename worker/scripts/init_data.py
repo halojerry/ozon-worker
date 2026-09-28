@@ -440,6 +440,8 @@ def create_tables(engine):
     # ✅ v0.81 card_audit 域（PLAN-card-audit-sweep-v1）: card_audit_finding 部分唯一
     # 索引兜底 + ozon_products_cache.moderate_status 加列（幂等）。
     migrate_card_audit_v081(engine)
+    # ✅ v0.83 批⑥ 回执真值化: listing_result_log 补实盘利润三列（幂等）。
+    migrate_profit_reality_v083(engine)
     logger.info("✅ 表结构已就绪")
 
 
@@ -806,6 +808,38 @@ def migrate_card_audit_v081(engine):
     register_schema_migration(
         engine, "v081_card_audit",
         "v0.81 card_audit_finding open 部分唯一索引 + ozon_products_cache.moderate_status 加列",
+    )
+
+
+def migrate_profit_reality_v083(engine):
+    """v0.83 批⑥ 回执真值化（feat/profit-reality-v1）: listing_result_log 补实盘利润
+    三列（幂等，二次运行 no-op）。
+
+    新建库 create_all 已带列（model.py ListingResultLog.real_profit_cny/gap_pct/
+    profit_reality）；此处兜底存量库 ADD COLUMN IF NOT EXISTS。
+    - real_profit_cny / gap_pct：便于 SQL 聚合的冗余数值列；可空，旧行保持 NULL。
+    - profit_reality：完整审计块 JSONB（real_*/commission_mode/fx_rate/
+      unmodeled_fees/per_product 多 SKU 逐 product_id 对齐）。
+    纯 DDL 无绑定参数（text() 裸 cast 坑不适用，见 AGENTS 记忆
+    sqlalchemy-jsonb-cast-trap）。结构性 DDL **响失败**（对齐 migrate_ledger_model_v0772）。
+    """
+    from sqlalchemy import text as sql_text
+
+    _TABLE = "listing_result_log"
+    with engine.connect() as conn:
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS real_profit_cny DOUBLE PRECISION"
+        ))
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS gap_pct DOUBLE PRECISION"
+        ))
+        conn.execute(sql_text(
+            f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS profit_reality JSONB"
+        ))
+        conn.commit()
+    register_schema_migration(
+        engine, "v083_profit_reality",
+        "v0.83 批⑥ listing_result_log 补 real_profit_cny/gap_pct/profit_reality（实盘利润回执）",
     )
 
 

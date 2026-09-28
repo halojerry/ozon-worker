@@ -1218,6 +1218,16 @@ class ListingResultLog(Base):
     match_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     pipeline_source: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, comment="graph/discover/follow")
     pricing_info: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # ✅ v0.83 批⑥ 回执真值化（feat/profit-reality-v1）：实盘利润（learning approved
+    # 钩子复用 /v5 响应算出，utils/profit_reality 唯一入口）。real_profit_cny/gap_pct
+    # 为便于 SQL 聚合的冗余列；profit_reality 存完整审计块（含 per_product 多 SKU
+    # 逐 product_id 对齐 + unmodeled_fees 未建模费项）。可空——存量行/未回填任务 NULL。
+    real_profit_cny: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gap_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    profit_reality: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True,
+        comment="实盘 vs 预估利润审计块（real_*/commission_mode/fx_rate/unmodeled_fees/per_product）",
+    )
     fetch_back_summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
