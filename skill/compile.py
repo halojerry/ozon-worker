@@ -115,12 +115,29 @@ AUX_FILES = [
     # v0.83 批①（预估统一）：worker 预估客户端（/estimate + /estimate/batch 唯一算价
     # 出口消费方，明文——与 metrics_pool_client 同类，无源码保护诉求且改动面小）。
     "scripts/lib/estimate_client.py",
+    # ⚠️ v0.83.1 补登记（二进制包遗漏实锤，2026-09-29 全量 diff 审计）：以下四个
+    # 运行时模块此前不在任何清单——v0.74 起的包里 session-sync/report 等命令
+    # 运行时 No module（函数级 import 使 CLI 能启动、崩溃点后置，实机更隐蔽）；
+    # v0.83 新增的 discovery_session/detach 更是 discover 主链/jobs 直接崩。
+    # 防回归：tests/test_compile_lists.py::test_all_lib_modules_are_packaged。
+    "scripts/lib/ozon_session.py",       # v0.74 会话代管（cloud_probe 会话备份链）
+    "scripts/lib/vault_writer.py",       # cli report 导出（stores markdown 渲染）
+    "scripts/lib/discovery_session.py",  # v0.83 批⑥ discover session 落盘（discover 主链）
+    "scripts/lib/detach.py",             # v0.83 批⑥ 后台任务注册表（jobs/--detach/jobs 收割）
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代
     # 与可调试性；历史 1e98bcd 曾踩 stub 变量名冲突，已修复
     "scripts/capabilities/browser_probe/service.py",
 ]
+
+# 有意不打包的源码文件（防回归测试豁免白名单——新增 lib 模块默认必须登记，
+# 进此表需要注释理由）：
+LIB_FILES_INTENTIONALLY_UNPACKAGED = {
+    # Electron 宿主操作客户端（2026-08-20）：harness 侧集成未接线（零 import 方），
+    # 退役候选——接线时随包补登记。
+    "electron_ops.py",
+}
 
 # 参考文件（客户端文档 + 依赖）
 DOC_FILES = [

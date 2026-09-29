@@ -112,6 +112,28 @@ def test_pack_lists_no_dead_entries():
         assert not missing, f"{list_name} 死条目（文件不存在）: {missing}"
 
 
+def test_all_lib_modules_are_packaged():
+    """⑦ v0.83.1 实锤回归：scripts/lib 新增模块漏登记 → 二进制包运行时 No module。
+
+    2026-09-29 全量 diff 审计：discovery_session/detach/ozon_session/vault_writer
+    四个运行时模块自加入起不在任何清单（v0.74 起的包 session-sync/report 崩、
+    v0.83 包 discover 主链崩）。本测试扫源码树 scripts/lib/*.py，每个文件必须
+    出现在 COMPILE/COPY/AUX 任一清单，或显式进豁免白名单（带注释理由）。
+    """
+    lib_dir = _COMPILE_PATH.parent / "scripts" / "lib"
+    listed = set(compile_mod.COMPILE_FILES) | set(compile_mod.COPY_FILES) | set(compile_mod.AUX_FILES)
+    exempt = set(getattr(compile_mod, "LIB_FILES_INTENTIONALLY_UNPACKAGED", set()))
+    missing = sorted(
+        f"scripts/lib/{p.name}"
+        for p in lib_dir.glob("*.py")
+        if f"scripts/lib/{p.name}" not in listed and p.name not in exempt
+    )
+    assert not missing, (
+        f"scripts/lib 存在未登记模块（二进制包将缺文件，运行时 No module）：{missing}。"
+        "登记进 compile.py 任一清单，或在 LIB_FILES_INTENTIONALLY_UNPACKAGED 豁免并注释理由。"
+    )
+
+
 def _main() -> int:
     fns = [(k, v) for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

@@ -51,6 +51,21 @@
   `PRODUCT_NOT_CREATED`（17 单批三例实锤，诊断被带偏成「无商品」）。
   gate 异常路径手写最小失败字段，归因永不丢。
 
+### 二进制包补登记（skill compile.py，2026-09-29 全量 diff 审计）
+
+- **四个运行时模块漏打包实锤补齐**：`lib/ozon_session.py`（v0.74 起）、
+  `lib/vault_writer.py`（v0.74 起）、`lib/discovery_session.py`、`lib/detach.py`
+  （均 v0.83）此前不在任何清单——历史包 session-sync/report 命令运行时
+  No module，v0.83 包 discover 主链/jobs 直接崩（函数级 import 使 CLI 可启动、
+  崩溃点后置，实机隐蔽）。补进 AUX_FILES 明文随包。
+- **防回归测试**：`test_all_lib_modules_are_packaged`——源码树 `scripts/lib/*.py`
+  每个文件必须在 COMPILE/COPY/AUX 任一清单或显式豁免白名单
+  （`LIB_FILES_INTENTIONALLY_UNPACKAGED`，当前仅 electron_ops——零 import 方，
+  退役候选）。
+- **判定不打包**：诊断/运维脚本（audit_products/diag_store_cards/
+  check_doc_sync/probe_what_to_sell_fields/migrate_profile——dev-only，updater
+  零调用）、README.md/SKILL-DEV.md（开发文档）。`dist/` 进 skill/.gitignore。
+
 ### safe_fetch fake-ip 逃生门（worker）
 
 - `SAFE_FETCH_ALLOW_FAKE_IP=1` **仅放行 198.18.0.0/15**（宿主代理 fake-ip DNS 环境如
