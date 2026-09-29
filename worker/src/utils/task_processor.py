@@ -365,6 +365,8 @@ _NODE_STAGE_MAP = {
     "check_quota": "check_quota",
     "follow_sell_import": "ingest",
     "assemble_ozon_product": "category_match",
+    # ✅ v0.83.1: assemble 后低置信归因闸（写失败字段 + 入箱，见 graphs.graph）
+    "category_conf_gate": "category_match",
     "scene_generation_llm": "description", "visual_vars_llm": "description",
     "main_image_gen": "image_generation", "white_bg_gen": "image_generation",
     "detail_gen": "image_generation", "scene_1_gen": "image_generation",

@@ -211,3 +211,25 @@ python3 scripts/cli.py probe --url "https://detail.1688.com/offer/xxx.html" --ti
 | `sentry_dsn` | 内置默认 | Sentry 错误上报 DSN 覆盖（可选） |
 
 修改后即时生效（读取时加载，无需重启）。
+
+## 采集箱改配重提（agent 循环，v0.83.1 实弹验证）
+
+被拦草稿（类目置信不足/一致性拦截）无需人工进 WebUI——agent 四步闭环，走 worker
+远程 MCP 或 REST 同链：
+
+```
+1. GET  /api/v1/drafts?...          拉采集箱（MCP: get_draft / 列表）
+2. 判类目                            search_categories（MCP）或查卖家树；⚠️ 别信
+                                    blocked 推荐里的 Top1（R2b garbage 已实锤），
+                                    按 1688 标题语义查树叶子节点；注意 Аптека 等
+                                    需资质子树会被受限闸拦（这是正确防御不是 bug）
+3. PATCH /api/v1/drafts/{id}        payload.draft.ozon_category =
+                                    {description_category_id, type_id, source: "manual"}
+                                    （全量信封 + version 乐观锁；manual = worker
+                                    权威直通 conf 0.95 免 R2b，box_reviewed 保内容）
+4. POST /api/v1/drafts/{id}/submit  {token, credential_id} → 入队全管线
+```
+
+实弹口径（2026-09-28，店铺 4718259）：13 张被拦 → 7 approved + 1 pending；
+医疗子树错配被受限闸正确拦截（换非医疗类目后建卡）。提交前镜像闸会转存 1688
+外链图（COS）；镜像全失败 = 图片源不可用，诚实 422 换货源。

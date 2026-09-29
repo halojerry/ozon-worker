@@ -3295,6 +3295,23 @@ def build_envelope_from_discovery(candidate, store_config: dict, store_id: str =
         draft = result["envelope"].get("draft", {})
         extensions = result["envelope"].get("extensions", {})
 
+        # ✅ v0.83.1: 信封 1688 cid 兜底注入——AK 详情 categories 无数字 id 时
+        # （17 单批实锤 748320109280：source.category_id=null 而 path 在场），
+        # 用 aibuy 匹配回填的真 1688 数字 cid（match_1688_category_id）补上。
+        # 消费方：worker L0 学习/lookup（学习行丢 cid 实锤）+ estimate/batch scid
+        # 佣金反查。同 1688 数字空间非伪造，不破跨平台 cid 纪律（淘宝/pdd 仍不写）。
+        _env_src = result["envelope"].get("source") or {}
+        if not _env_src.get("category_id"):
+            try:
+                _mcid = int(str(getattr(candidate, "match_1688_category_id", "") or ""))
+            except (TypeError, ValueError):
+                _mcid = None
+            if _mcid:
+                _env_src["category_id"] = _mcid
+                result["envelope"]["source"] = _env_src  # 回写：防 source 键缺失时注入落在孤儿 dict
+                draft["source_category_id"] = _mcid
+                logger.info("信封 cid 兜底注入: item=%s cid=%s (aibuy match)", best_id, _mcid)
+
         # 跟卖标记：如果 Ozon 有竞品则标记为跟卖
         if candidate.competing_sellers > 0:
             draft["ozon_product_id"] = candidate.ozon_product_id

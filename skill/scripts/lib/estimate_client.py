@@ -128,8 +128,13 @@ def build_batch_item(
     currency_code=None,
     commission_segments=None,
     dc=None,
+    scid=None,
 ) -> dict:
-    """组装单条 batch item（键与 worker EstimateBatchItem 对齐；空值省略纪律）。"""
+    """组装单条 batch item（键与 worker EstimateBatchItem 对齐；空值省略纪律）。
+
+    scid（v0.83.1）：1688 source_category_id——dc 缺席时 worker 经学习映射表
+    反查 dc（佣金冷启动解锁：discover 关键词候选无 Ozon dc 时佣金恒 fallback）。
+    """
     item: dict = {"purchase_cost": float(purchase_cost or 0)}
     if weight_g:
         try:
@@ -155,4 +160,6 @@ def build_batch_item(
         item["commission_segments"] = commission_segments
     if dc not in (None, ""):
         item["dc"] = str(dc)
+    if scid not in (None, ""):
+        item["scid"] = str(scid)
     return item

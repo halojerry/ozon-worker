@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import socket
 from typing import Iterable, Optional
 from urllib.parse import urlparse
@@ -34,6 +35,18 @@ _BLOCKED_NETS = tuple(ipaddress.ip_network(n) for n in (
     "::1/128", "fc00::/7", "fe80::/10", "::ffff:0:0/96",
 ))
 
+# ✅ v0.83.1: fake-ip 代理环境显式放行（本地开发/Docker 经 Clash/Surge 等代理
+# 出网时，所有外网域名被 fake-ip DNS 解析进 198.18.0.0/15——2026-09-28 本地
+# 采集箱重提全 422 实锤）。**生产保持默认拦截**（该段是 IANA 基准测试保留段，
+# 生产直接 DNS 下解析到它=异常）。显式 env opt-in，不猜环境。
+_FAKE_IP_NET = ipaddress.ip_network("198.18.0.0/15")
+
+
+def _effective_blocked_nets() -> tuple:
+    if os.environ.get("SAFE_FETCH_ALLOW_FAKE_IP", "").strip().lower() in ("1", "true", "yes"):
+        return tuple(n for n in _BLOCKED_NETS if n != _FAKE_IP_NET)
+    return _BLOCKED_NETS
+
 
 class UnsafeUrlError(ValueError):
     """URL 未通过安全校验（内网地址/非法 scheme/白名单外域名）。"""
@@ -44,7 +57,7 @@ def _ip_is_blocked(ip_text: str) -> bool:
         ip = ipaddress.ip_address(ip_text)
     except ValueError:
         return True  # 解析不出合法 IP = 不放行
-    return any(ip in net for net in _BLOCKED_NETS) or ip.is_reserved or ip.is_multicast
+    return any(ip in net for net in _effective_blocked_nets()) or ip.is_reserved or ip.is_multicast
 
 
 def _host_is_safe(host: str) -> bool:

@@ -1,5 +1,77 @@
 # Changelog
 
+## [0.83.1] — 2026-09-29（类目真值链修复批：信封 1688 cid 兜底 + estimate scid 佣金反查 + CREATE 空键省略 + 低置信归因闸 + safe_fetch fake-ip 逃生门）
+
+> 动因（2026-09-28 店铺 4718259 节日 17 单批量：2 approved / 1 pending / 14 failed）：
+> 三路实测判明竞品类目真值无 API 通道（卖家 key `info` 店铺域可见 / 站点面包屑消费端
+> 分类法 ≠ 卖家树 / 页面 composer JSON 零卖家 id），断点全在「采到没消费」——
+> aibuy 匹配的 1688 数字 cid（`match_1688_category_id`）从未进信封。
+> 同日 agent 采集箱循环实弹验证（13 张被拦草稿 → 7 approved，manual 权威直通生效，
+> Аптека 医疗子树受限闸正确防御错配）。
+
+### 信封 1688 cid 兜底注入（skill，改信封链前必读）
+
+- **batch_test `process_1688_url`（17 单实走路径）**：信封构建后
+  `_inject_discover_cid`——按 offer URL 从 discover 缓存反查 aibuy cid，
+  **三键齐写**（`source.category_id` / `source.match_category_id` /
+  `draft.source_category_id`，worker 三源版 resolve 无论读哪个都命中）；
+  已有值零改动、失败零阻断。病根实锤：网灯串 748320109280 信封
+  `category_id: null` 而 path 在场 → L0 lookup/学习回填双断 → 冷文本匹配
+  子类翻车（970887478 配件 vs 91672 本体，conf 0.18 拦截）。
+- **`build_envelope_from_discovery`（ozon 复用路径）**：同款兜底（候选
+  `match_1688_category_id`），含 source 键缺失孤儿 dict 回写防护。
+- 不破跨平台 cid 纪律：淘宝/淘宝/拼多多适配器仍不写（cid 数字空间=1688 专属）。
+
+### estimate scid 佣金冷启动解锁（worker + skill）
+
+- **`EstimateBatchItem` 新可选键 `scid`**（1688 source_category_id）：dc 缺席时
+  worker 经 `category_mapping_learn.lookup_mapping` 反查 dc（自带 succ/conf
+  门槛，命中才用；异常/非数字/未命中一律降级旧口径不阻断）。病根：discover
+  关键词候选无 Ozon dc → 佣金恒 fallback → v0.83 佣金闸恒拦 → 关键词选品
+  **0 达标**（本地缓存 27 类目全不命中因 estimate 请求 dc=N/A）。
+- skill `build_batch_item` 支持 `scid`（空值省略纪律不变）；
+  `_build_estimate_item` 透传 `match_1688_category_id`。
+- ⚠️ 兼容窗口：新 skill + 旧 worker（0.83.0）→ scid 触发 extra=forbid 422，
+  estimate 降级 unavailable（不崩，discover 达标降级）——worker 先部署即消。
+
+### prepare CREATE 模板空键省略（worker）
+
+- `complex_attributes/images360/pdf_list/barcode` **整键省略**（#84「绝不发空
+  数组」口径落到 CREATE——此前只改了 UPDATE 回显路径）。实锤：袜子类目 CREATE
+  带 `pdf_list:[]` 过初审后被复审拒「Ссылка на pdf не может быть пустая」
+  （卡 6474134917）；`promotions` 是 Ozon 要求字段保留。
+
+### assemble 后低置信终态归因（worker，改 graph 拓扑前必读）
+
+- **新节点 `category_conf_gate`**（assemble → gate → route_after_assemble）：
+  conf < `MIN_CONF_BOX` 时写 `_blocked_exit` 同构失败字段
+  （`error_code=LOCAL_CATEGORY_MATCH_FAILED` + `failed_stage=category_match`
+  + 尽力入采集箱），路由按既有 failed_stage 分支判定。病根：低置信此前只在
+  **路由层**改路由不写 state → 终态被 T0.4 兜底文案劫持成
+  `PRODUCT_NOT_CREATED`（17 单批三例实锤，诊断被带偏成「无商品」）。
+  gate 异常路径手写最小失败字段，归因永不丢。
+
+### safe_fetch fake-ip 逃生门（worker）
+
+- `SAFE_FETCH_ALLOW_FAKE_IP=1` **仅放行 198.18.0.0/15**（宿主代理 fake-ip DNS 环境如
+  Clash/Surge：所有外网域名解析进该段导致镜像/抓取全拦，2026-09-28 本地采集箱重提
+  全 422 实锤）。**生产默认拦截不变**（该段为 IANA 基准测试保留段，生产直接 DNS
+  命中=异常）；其余内网/环回/组播段恒拦。+3 测试锁定。
+
+### 测试
+
+- worker `test_category_truth_chain_v0831.py`（10）：scid 反查五例（命中/
+  未命中/dc 优先/非数字/异常）+ CREATE 空键 + 置信闸三例 + 路由回归。
+- skill `test_category_truth_chain_v0831.py`（8）：scid 透传 + 信封注入四例
+  （命中/不覆盖/未命中/URL 尾斜杠）+ discover 复用路径两例。
+- gen_api_docs 重生成（EstimateBatchItem +scid）；ruff CI 口径双绿。
+
+### defer（登记下批）
+
+- 类目子类甄别精度（R2b「配件 vs 本体」打分，970887478 实锤）——cid 兜底
+  只救有 L0 映射的类目，子类精度是独立问题。
+- 站点 RU 面包屑 vs 卖家 RU 树的逐字兼容性（未验证；EN 已实锤不兼容）。
+
 ## [0.83.0] — 2026-09-28（上架质量战役 v0.83：预估统一 + 4191 撰写链 + 类目权威边界 + agent 后台化 + discover session 落盘 + 回执真值化，七批 + 四修复批）
 
 > dev 自 v0.82.0 共 10 个 PR（#91-#100）。方案 `docs/PLAN-v083-quality-campaign-v1.md`
