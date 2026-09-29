@@ -1521,7 +1521,10 @@ def match_selected(
                                        images=c.ozon_images, title=c.ozon_title,
                                        conn=None, mxou_token=mxou_token)
                            for c in chunk]
-                pending: list = []
+                # ⚠️ 命名隔离（v0.83.1）：串行支路同函数域已有 bool 型 ``pending``
+                # ——重声明为 list 触发 Cython 'pending' redeclared（CPython 容忍），
+                # 2026-09-29 v0.83.1 tag skill 包构建三平台全败实锤。改名消除冲突。
+                to_estimate: list = []
                 for j, candidate in enumerate(chunk):
                     try:
                         match = futures[j].result()
@@ -1532,9 +1535,9 @@ def match_selected(
                                        candidate.ozon_product_id, exc)
                         continue
                     if _prepare_match(candidate, match):
-                        pending.append(candidate)
-                rows = _estimate_candidates(pending, fx_rate=fx_rate) if pending else []
-                for k, candidate in enumerate(pending):
+                        to_estimate.append(candidate)
+                rows = _estimate_candidates(to_estimate, fx_rate=fx_rate) if to_estimate else []
+                for k, candidate in enumerate(to_estimate):
                     _apply_and_score(candidate, rows[k] if k < len(rows) else None)
                 for j, candidate in enumerate(chunk):
                     _finalize(i + j, candidate)
