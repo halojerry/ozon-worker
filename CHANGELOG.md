@@ -4135,3 +4135,5 @@ C1 单飞锁（含调用方接线）/ C4 bounds 学习 / C5 aspect 收窄 / C6 �
 - Multi-SKU variant support
 - Self-repair retry loop
 - Category/attribute learning
+
+<!-- ci-retrigger: 54b63250 API 提交未触发 push 事件，经 PR 通道补跑（占位行，合并后随下次重生成消除） -->
