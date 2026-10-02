@@ -1,5 +1,43 @@
 # Changelog
 
+## [开发中] fix/card-audit-declined-v1 — B 不变量升级：declined 卡分级终态处置（自动修 / 自动归档 / 保守报告）
+
+> 动因（2026-10-02 生产 4718259 店实盘对账，67 张问题卡）：v0.82 拍板 B 不变量
+> 「declined 只报告」（修复=归档+重上破坏性→人工）——**半年人工未至**：declined
+> 卡零处置累积（41→67 张），店铺后台被死卡淹没成为用户新困惑源。根因不是
+> 「报告不够响」而是「declined 没有终态出路」；本批给它一条（用户 2026-10-02
+> 拍板），存量 67 张即首批工作量。
+
+### 分级处置（唯一决策源 `utils/declined_disposition.py`，纯函数）
+
+- **可修拒因族 + 标题健康 → 自动修**：VALUE_MUST_DECIMAL/INTEGER、MIN/MAX_LIMIT、
+  out_of_range、ML_INCORRECT_VOLUME_WEIGHT、INCORRECT_DIMENSION、
+  DESCRIPTION_DECLINE、attribute_values_empty。回显先过
+  `patch_echo_for_declines` **定向补丁**（按错误点名的 attribute_id 数值清洗 /
+  重量密度兜底 / 维度 clamp / 空值剔除——只修点名问题，其余字节不动，A6 精神），
+  再经唯一构造器 `build_enrich_update_body` 全量回显 UPDATE
+  （DESCRIPTION_DECLINE 走 `allow_annotation_replace` 重建 4191）。
+- **标题残壳 / 资质族（BR_ASSORTMENT/BR_hazard_class1/image_not_upload）→ 自动归档**
+  （/v1/product/archive ≤100/批，可逆 unarchive，逐卡 finding 留痕）；
+  kill-switch `CARD_AUDIT_DECLINED_AUTO_ARCHIVE=0` 降级 archive_suggested 报告。
+- **无错误码 / 未知混码 → 只报告**（保守人工，对齐 v081 语义）；
+  `erased_attribute_value` 为噪音码不计入判级。
+- 触发面扩 `validation_status=fail`（校验失败卡同死卡，4718259 实盘 11 张）；
+  跟卖卡零写入（含归档）。
+- 修复失败 → finding open 留痕，finding 幂等挡下轮重试（设计内熔断，同 A 闸）。
+
+### 纪律红线修订
+
+- 模块头部「B 绝不 archive/重上」废除，替换为上述分级（废除依据：67 张零处置
+  累积实证 + 归档可逆 + kill-switch + 全程 finding 留痕）；「自动修只经
+  content_enrich 家族构造器」红线不变（回显补丁只修点名问题，不改写其余卡面）。
+
+### 行为变更
+
+- 首轮巡检起，各店 declined/validation-fail 死卡按分级自动处置：可修的重传、
+  救不活的归档（可 unarchive 恢复）、判不动的报告。finding 表可全程审计。
+- 部署即清存量：4718259 的 67 张（54 declined + 11 fail + 2 无状态）首轮消化。
+
 ## [开发中] fix/category-doc-gate-v1 — 类目文档硬要求闸 + decline 学习（PDF_SRC_URL_IS_EMPTY 根治）+ 采集箱提交空 token 边界闸
 
 > 动因（2026-10-02 生产 Sentry burst，release 0.83.1，task da284d0e 实锤）：
