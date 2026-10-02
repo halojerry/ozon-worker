@@ -1,5 +1,17 @@
 # Changelog
 
+## [开发中] fix(tier-b-0832) — admin 面两处修复 + skill 测试遥测隔离补洞
+
+- **`/admin/users/{id}` ResponseValidationError 500 修复**（生产实锤
+  Sentry 0b623dff，2026-10-02）：`get_user_detail` stores 出参缺
+  `tenant_id`（AdminStoreOut 必填）→ SELECT 补列。
+- **`/admin/tasks?tenant_id=` 接通**：task_processor.get_task_statistics
+  本就支持租户过滤，路由层此前静默忽略该参数（事故排查时发现）。
+- **skill `_is_sentry_test_process` 补洞**：CI 以 `python -m pytest` 跑时
+  argv[0]=`pytest/__main__.py`，旧三条件 collection 阶段全不中 → 测试假
+  错误直灌生产 Sentry（POUDING_OZON-DM 等，Phoenix/Azure 指纹）。补
+  basename 含 pytest / pytest in sys.modules 两分支。
+
 ## [开发中] fix/card-audit-declined-v1 — B 不变量升级：declined 卡分级终态处置（自动修 / 自动归档 / 保守报告）
 
 > 动因（2026-10-02 生产 4718259 店实盘对账，67 张问题卡）：v0.82 拍板 B 不变量

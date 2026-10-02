@@ -3771,12 +3771,25 @@ def _read_skill_version() -> str:
 
 
 def _is_sentry_test_process() -> bool:
-    """测试进程（sys.argv[0] 含 test_ / pytest / PYTEST_CURRENT_TEST）跳过上报，避免测试噪音污染监测。"""
-    script = sys.argv[0] if sys.argv else ""
+    """测试进程跳过上报，避免测试噪音污染生产监测。
+
+    判定（2026-10-02 CI 实锤补洞：GitHub Actions 的 Skill Tests job 以
+    `python -m pytest` 跑，argv[0] = .../site-packages/pytest/__main__.py ——
+    旧三条件（test_ 子串 / endswith pytest / PYTEST_CURRENT_TEST）在
+    collection 阶段全不中（环境变量仅执行期设置），测试假错误直灌生产
+    Sentry（POUDING_OZON-DM 等，指纹 Phoenix/Azure + docker 容器名））：
+    1. basename(argv[0]) 是 test_*.py / 含 pytest（含 `pytest/__main__.py`）；
+    2. PYTEST_CURRENT_TEST 在环境（执行期兜底）；
+    3. pytest 已 import（collection 阶段强信号——真实用户运行 skill 时
+       pytest 不可能在 sys.modules）。
+    """
+    script = os.path.basename(sys.argv[0]) if sys.argv else ""
     return (
-        "test_" in script
-        or script.endswith(("pytest", "py.test"))
+        script.startswith("test_")
+        or "pytest" in script
+        or script.endswith("py.test")
         or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        or ("pytest" in sys.modules)
     )
 
 

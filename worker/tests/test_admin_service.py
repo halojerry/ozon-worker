@@ -303,3 +303,51 @@ async def test_get_task_stats_awaitable_returns_dict():
         result = await admin_service.get_task_stats()
     assert result == {"total": 5, "completed": 3}
     assert not asyncio.iscoroutine(result)
+
+
+@pytest.mark.asyncio
+async def test_get_task_stats_tenant_passthrough_v0832():
+    """✅ v0.83.2：?tenant_id= 透传到 task_processor；空串 → None（全租户）。
+
+    生产实锤（2026-10-02 事故排查）：路由层此前忽略 tenant_id 参数，
+    ?tenant_id=28 静默返回全租户聚合。
+    """
+    seen: list = []
+
+    class _FakeProcessor:
+        async def get_task_statistics(self, tenant):
+            seen.append(tenant)
+            return {"total": 1}
+
+    with patch("main.task_processor", _FakeProcessor()):
+        await admin_service.get_task_stats(tenant_id="28")
+        await admin_service.get_task_stats(tenant_id="  ")
+        await admin_service.get_task_stats()
+    assert seen == ["28", None, None]
+
+
+def test_get_user_detail_stores_shape_validates_v0832():
+    """✅ v0.83.2：stores 出参含 tenant_id——AdminUserDetailOut 可序列化。
+
+    生产实锤（2026-10-02，Sentry 0b623dff）：stores 缺 tenant_id →
+    ResponseValidationError 500（AdminStoreOut 必填字段）。
+    """
+    import datetime
+
+    from api.schemas import AdminUserDetailOut
+
+    def _rows(sql, args):
+        assert args == {"t": "28"}
+        return [(
+            "5949571e-5fe4-4762-8fac-6d9e79eb49f7",  # id
+            "28",                                       # tenant_id（本批补列）
+            "4718259", "", "CNY", False, "active", None,
+        )]
+
+    with patch.object(admin_service, "_pg_rows", side_effect=_rows), \
+         patch.object(admin_service, "_pg_count", return_value=0):
+        detail = admin_service.get_user_detail("28")
+    # 响应模型可序列化（原 bug 在此抛 ResponseValidationError）
+    out = AdminUserDetailOut.model_validate(detail)
+    assert out.stores[0].tenant_id == "28"
+    assert out.stores[0].ozon_client_id == "4718259"

@@ -87,9 +87,10 @@ _USER_PATCH_OK_EXTRA = {"responses": {"200": {"content": {"application/json": {"
 
 @router.get("/tasks", openapi_extra=_TASKS_OK_EXTRA)
 async def admin_tasks(request: Request):
-    """任务统计（全租户）——get_task_stats 是 async，必须 await。"""
+    """任务统计（缺省全租户；?tenant_id= 指定 → 单租户，v0.83.2 接通）。"""
     await _authenticate_admin(request)
-    return await admin_service.get_task_stats()
+    tenant_id = request.query_params.get("tenant_id") or ""
+    return await admin_service.get_task_stats(tenant_id=tenant_id)
 
 
 class AdminUserCreateIn(BaseModel):
