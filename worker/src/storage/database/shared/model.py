@@ -350,6 +350,40 @@ class CategoryCommission(Base):
     )
 
 
+class CategoryDocRequirement(Base):
+    """v0.83.2: 类目文档硬要求学习表 — 部分 Ozon 类目（如袜子/内衣等轻工业品）
+    在 validation 阶段强制要求商品文档（pdf_list 非空，错误码
+    PDF_SRC_URL_IS_EMPTY / «Ссылка на pdf не может быть пустая»），发 [] 与整键
+    省略均过不了（2026-10-02 生产 task da284d0e 实锤：v0.83.1 已省键仍被拒）。
+
+    全局共享无 tenant_id（对齐 category_commission/attr_bounds_learned W11 先例）。
+    读写唯一入口 utils/category_doc_gate.py；读侧 config/requires_doc_categories.json
+    （curated，热加载）恒赢本表。**拒单学习表**：evidence 留拒单原文供人工复核，
+    人工确认后可 promoted 进 curated 配置。
+    """
+    __tablename__ = "category_doc_requirements"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    description_category_id: Mapped[int] = mapped_column(BigInteger, nullable=False)  # Ozon 类目 ID
+    type_id: Mapped[int] = mapped_column(BigInteger, nullable=False)  # Ozon 类型 ID
+    source: Mapped[str] = mapped_column(String(32), default="decline_learned")  # decline_learned / curated_backfill
+    evidence: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)  # 拒单原文/任务溯源（cap，人工复核面）
+    times_seen: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"))
+    first_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()")
+    )
+    last_seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("NOW()")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "description_category_id", "type_id",
+            name="uq_category_doc_requirements_dc_tp",
+        ),
+    )
+
+
 class AttributeSynonym(Base):
     """v4: 1688→Ozon 属性名同义词表"""
     __tablename__ = "attribute_synonym"

@@ -124,11 +124,18 @@ def test_profit_amount_session_timezone_consistent(monkeypatch):
     (order_created_at AT TIME ZONE 'UTC')::date 落 08-31, 与 INSERT 侧 snapshot_at::date
     的 09-01 永不匹配 → profit_amount 恒 NULL。修复后两侧都 ::date(会话时区) → 09-01。
 
+    ⚠️ 时间腐烂根治（2026-10-02 实锤：硬编码 09-01 滑出 METRICS_RETENTION_DAYS=30
+    聚合窗，基线同红）——本用例显式放宽聚合窗到 3650 天，字面量日期恒在窗内
+    （与上方 prune 用例 monkeypatch 保留天数同一惯例；日期字面量刻意保留——
+    跨界语义（00:30+08 = 前一日 UTC）依赖具体日期的可读叙述）。
     ⚠️ 会话时区用命名区 'Asia/Shanghai' 而非 '+08:00' —— PG 把数字时区串按 POSIX 解析
     (符号反转), SET timezone='+08:00' 实为 UTC-8, 会测出相反语义。
     """
     tenant = f"user_{uuid.uuid4().hex[:12]}"
     cred = uuid.uuid4()
+    # 聚合窗放宽：run_aggregation 的 INSERT 只扫窗口内快照（本用例日期固定在
+    # 2026-09-01，默认 30 天窗会在 2026-10-01 后把它排除 → 聚合行为空 → 假红）。
+    monkeypatch.setattr(ma, "METRICS_RETENTION_DAYS", 3650)
 
     # run_aggregation 内部自建连接, 用隔离 engine 保证其每条连接会话时区 +08
     # (connect 事件等效于"同一 connection SET 后再跑聚合"), 不污染共享单例 engine。

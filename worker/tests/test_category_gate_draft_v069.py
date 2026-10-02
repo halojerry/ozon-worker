@@ -339,10 +339,13 @@ def test_19_r1_veto_and_title_empty_exits_do_not_box():
     # fix/semantic-gate-coverage v082 新增图搜语义分歧硬闸出口——match_evidence
     # .divergent 且采纳来源非权威 → 入采集箱待人工确认，类目查询前止损；
     # fix/category-authority-v1 v083 新增 Step6.5 类目重配无解出口——RU 标题重搜/
-    # LLM fallback 均未找到与货源重叠的候选 → 入采集箱，不再静默保留旧类目）
+    # LLM fallback 均未找到与货源重叠的候选 → 入采集箱，不再静默保留旧类目；
+    # fix/category-doc-gate-v1 v0.83.2 新增类目文档硬要求出口——(dc,tp) 命中
+    # curated/decline 学习（PDF_SRC_URL_IS_EMPTY 拒单，2026-10-02 da284d0e 实锤）
+    # → 入采集箱零白烧，豁免 manual/page/what_to_sell/widget/box_reviewed/update）
     assert src.count("asm._blocked_exit(") == 0  # 模块内不带前缀调用
-    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 11, \
-        "阻断出口入箱接线数应为 11（v082 语义分歧硬闸 + v083 Step6.5 无解出口）"
+    assert src.count("_blocked_exit(") - src.count("def _blocked_exit(") == 12, \
+        "阻断出口入箱接线数应为 12（v083 Step6.5 无解出口 + v0.83.2 文档硬要求出口）"
 
 
 def test_20_follow_layer_never_creates_draft():
