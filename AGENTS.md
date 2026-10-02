@@ -38,6 +38,11 @@
 - 发版：VERSION 四源一致（根 `VERSION`/`skill/VERSION`/`deploy/skill/VERSION`/`SKILL.md` frontmatter）+ CHANGELOG + 本文顶部块 + 实机 ≥3 单 gate；发版动作 = dev→main PR 合入后**在 main 上打 tag**（cd.yml 按 tag `v*` 触发不分分支，历史 tag ≤v0.72.0 留在 dev 历史不动）。**⚠️ VERSION bump 后必跑 `gen_api_docs.py` 重生成并提交**——API-REFERENCE.md 头部嵌版本号，漏跑 = CI 漂移闸红 + cd.yml tag CI 闸拦截（v0.79.0 首打实录，修复循环：重生成→dev→main→删 tag 重打）。
 - 写 Ozon API 调用前先用本机 MCP `mcp__ozon__search_methods`/`describe_method` 核对契约（零凭证只读），禁手 grep swagger。
 - `worker/config/*.json` bind mount 热加载，改 prompt 无需重建镜像。
+- **Mimosa 安全插件共处纪律（2026-10-02 调优实录，所有会话必读）**：
+  ① **DB 代码唯一放行形态 = 静态 SQL + `%s` 占位 + 参数元组经 `exec_driver_sql`**——SQLAlchemy `text()` 命名绑定、ORM `select().where()`/`pg_insert()` 会被其 SQL 规则误报拦截（`# nosemgrep` 无效、加密规则不可改；`category_doc_gate.py`/`declined_disposition.py` 是放行形态范本）。
+  ② **生成类步骤绝不与 `git commit` 同一条 Bash 命令**——commit 被 git-gate 拦时整条命令蒸发（gen 从未执行但工作树已旧，曾造成 CI 连红两轮；gen 单独跑→验证 diff→单独提交）。
+  ③ **经 GitHub API（`gh api git/...`）创建的 commit 不触发 push 事件**（gho_ token 组合实测）——dev/main 上的 CI run 不会生成，cd.yml tag 门禁会找不到绿 run；**提交一律本地 `git push` 或 PR 合并**。
+  ④ 插件加密不可改（hooks/rules AES），可调面只有：根 `.gitignore`（其枚举器读它——`.venv314` 这类命名 venv 与 `.mimosa/` 必须显式收口，否则枚举爆 5000 上限 → coverage 永远 partial → `ledger validate` 拒跑 → 误报无法平反）、`mimosa policy init`（项目策略文件）、`mimosa ledger/validate/backlog`（finding 官方平反通道，前置条件=coverage complete）。
 
 **先读什么**：集成/端点 → `docs/API-OVERVIEW.md` + `docs/API-REFERENCE.md`；节点流/错误映射 → `docs/WORKER-TOPOLOGY.md`；
 MCP 面 → `docs/MCP-SERVER.md`；操作 skill → `skill/SKILL.md`（agent 硬约束见下方「Agent 使用 Skill 时的硬约束」）；

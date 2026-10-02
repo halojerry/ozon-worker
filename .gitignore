@@ -46,6 +46,17 @@ Desktop.ini
 .agents/
 .playwright-mcp/
 
+# ─── Mimosa 安全扫描：本仓枚举瘦身（2026-10-02 调优）───
+# 根 .gitignore 的 `.venv/` 匹配不到 .venv314 这类命名 venv；此前 hook 的
+# bash-discovery/baseline 枚举被 venv 撑爆 5000 文件上限 → coverage 永远
+# partial → finding validate 拒跑（误报无法官方平反）+ L3 commit 门禁被存量
+# high 劫持。以下显式收口（枚举器读根 .gitignore）：
+.mimosa/
+.v2c/
+skill/.venv*/
+worker/.venv/
+pounding-mcp/.venv/
+
 # ─── 浏览器数据（CDP 探针缓存）───
 skill/data/browser/profiles/
 skill/data/browser/sessions/
@@ -137,7 +148,10 @@ skill/references/.bok/
 docs/ozon-probe/
 
 # ─── 竞品解包产物（155MB 二进制，本地保留不入库；高价值调研 md 由 docs/competitor 收编）───
-docs/参考项目/
+# ⚠️ 2026-10-02 目录由 docs/参考项目 改名 ASCII：Mimosa 枚举器的 gitignore 匹配
+# 不支持 unicode 目录名（实测嵌套 `*` 也失效），导致 4 个 >2MB vendor 文件
+# 恒挂 source_file_too_large → coverage 永远 partial → finding validate 拒跑。
+docs/competitor-unpacked/
 
 # ─── worker 运行时快照（类目树刷新备份等）───
 worker/data/
