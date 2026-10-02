@@ -53,6 +53,13 @@
   属性同时「无法获取任何字典值」，回源异常被 debug 吞掉无法定位限流/凭证/
   负缓存；搜索 no-hit 属正常业务仍 debug）。
 
+### 存量测试时间腐烂修复（顺车）
+
+- `test_metrics_aggregation::test_profit_amount_session_timezone_consistent`：
+  硬编码 `snapshot_at=2026-09-01` 滑出 `METRICS_RETENTION_DAYS=30` 聚合窗
+  （2026-10-02 起基线必红）——显式放宽本用例聚合窗到 3650 天（与 prune 用例
+  monkeypatch 保留天数同一惯例），日期字面量保留（跨界语义依赖具体日期可读性）。
+
 ### 升级必读
 
 - 需跑 `init_data.py`（新表幂等创建；cos-update 自带）。首次部署后学习表为
