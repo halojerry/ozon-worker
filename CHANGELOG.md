@@ -1,5 +1,67 @@
 # Changelog
 
+## [开发中] fix/category-doc-gate-v1 — 类目文档硬要求闸 + decline 学习（PDF_SRC_URL_IS_EMPTY 根治）+ 采集箱提交空 token 边界闸
+
+> 动因（2026-10-02 生产 Sentry burst，release 0.83.1，task da284d0e 实锤）：
+> 袜子类目 CREATE 在 v0.83.1 整键省略 pdf_list（7e4d095d）之后，卡建到 Ozon
+> 仍被 validation 拒 `PDF_SRC_URL_IS_EMPTY`（«Ссылка на pdf не может быть
+> пустая»）——证明该类目的商品文档要求是**平台侧硬要求**，发 `[]` 与不发都
+> 过不了。载荷层补丁（0.83.1）治标不治本；根因是「类目硬性要求」我们用
+> **试错**（上传→拒→3 分钟看 failed→白烧 import+生图配额）发现，而不是
+> **预检**。本批把已经付过学费的事实固化成预检闸 + 拒单自动学习闭环。
+
+### 类目文档硬要求闸（worker，改类目闸/assemble 前必读）
+
+- **新表 `category_doc_requirements`**（`storage/database/shared/model.py`，
+  全局共享无 tenant，对齐 category_commission/attr_bounds_learned W11）：
+  `(description_category_id, type_id)` 唯一，decline 学习自动积累，
+  evidence 留拒单原文供人工复核，人工确认后可晋升 curated 配置。
+- **唯一读写入口 `utils/category_doc_gate.py`**：
+  `requires_document(dc,tp)`（curated 恒赢——精确 (dc,tp) > (dc,0) 类目级
+  通配——> 学习表；任何 DB 异常 fail-open 返回 None，闸失能不制造新阻断）
+  + `record_doc_requirement(dc,tp,evidence)`（幂等 upsert，times_seen 累加，
+  **非致命**——学习写失败只告警）。curated 配置
+  `config/requires_doc_categories.json` 热加载（语义对齐 restricted_keywords）。
+- **assemble 预检闸**（`_doc_gate_exempt` + `_doc_required_exit`，插在
+  Step6.5 无解出口之后、Step 7 汇出之前）：类目定稿后判定，命中即入采集箱
+  终态（error_code=`LOCAL_CATEGORY_REQUIRES_DOCUMENT`，failed_stage=
+  category_match），省掉属性补全后的生图/上传全程。**豁免阶梯**（与受限
+  品类闸 v0.69 拍板同一哲学——闸只保护自动链路）：manual/page/what_to_sell/
+  widget 可信来源（**刻意不含 mapping**——那是我们自己学习表的自动化结论，
+  恰是本闸要兜的反复撞墙面）+ box_reviewed（采集箱即权威）+ update_product_id
+  （编辑更新）。刻意不写 category_match_log/不触发 mapping 负反馈：类目匹配
+  本身是对的，阻断的是类目适配事实。
+- **ozon_status decline 学习**（`_learn_doc_requirement`）：validation 失败
+  fatal errors 含 `PDF_SRC_URL_IS_EMPTY`（DOC_REQUIREMENT_DECLINE_CODES 唯一
+  信号源，新码在此追加）→ 自动 upsert 学习表 → **下一个同类目任务在
+  assemble 预检直接入箱，同类拒单只烧一次**。`OzonStatusInput` 补声明
+  description_category_id/type_id（langgraph channel 过滤纪律，v0.27 教训）。
+
+### 采集箱提交空 token 边界闸（worker）
+
+- **`draft_service.submit_draft` 空 token → 401 "Token is required"**：四条
+  消费方（submit/resubmit/batch-submit/定时上架）的单一咽点。主链
+  `/submit_task` 早有同款闸（main.py http_submit_task），采集箱链此前直插
+  队列 → auth 节点才失败（生产 0ae38a84 实锤：Bearer 鉴权过、body 无 token
+  → 白排队 + failed 噪音 + Sentry 噪音）。`schedule_listing` 同款（调度时
+  拒，不放行「到点才 401」的定时炸弹）。语义对齐 v0.76 终审 Fix-1：拒绝，
+  不静默代填。
+
+### 可观测性补口
+
+- assemble 必填字典回源失败 debug→warning（2026-10-02 生产：4 个必填字典
+  属性同时「无法获取任何字典值」，回源异常被 debug 吞掉无法定位限流/凭证/
+  负缓存；搜索 no-hit 属正常业务仍 debug）。
+
+### 升级必读
+
+- 需跑 `init_data.py`（新表幂等创建；cos-update 自带）。首次部署后学习表为
+  空 → 已知需文档类目（如袜子/内衣）**还会再撞一次**拒单完成自学习；运营
+  可提前人工登记 `config/requires_doc_categories.json`（type_id=0 类目级通配）。
+- 行为变更：自动链路（L0/L1/R2b/search_kw 匹配）命中已学习/已登记的需文档
+  类目 → 不再上传，直接 failed 入采集箱（notice 带「需合规文档」文案与
+  处理建议）；manual/page/采集箱复核/编辑更新路径不受影响。
+
 ## [0.83.1] — 2026-09-29（类目真值链修复批：信封 1688 cid 兜底 + estimate scid 佣金反查 + CREATE 空键省略 + 低置信归因闸 + safe_fetch fake-ip 逃生门）
 
 > 动因（2026-09-28 店铺 4718259 节日 17 单批量：2 approved / 1 pending / 14 failed）：

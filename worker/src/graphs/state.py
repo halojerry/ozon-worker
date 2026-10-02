@@ -715,6 +715,10 @@ class OzonStatusInput(BaseModel):
     # ✅ fix/upload-image-assertion-v1: 收尾卡片图断言要读上传载荷 items[0].images
     # （同 v0.27 教训——不声明进 Input 会被 langgraph channel 过滤静默剥掉，断言恒 skipped）。
     ozon_payload: Dict[str, Any] = Field(default_factory=dict, description="上传载荷（收尾卡片图断言读取 items[0].images）")
+    # ✅ v0.83.2: 类目文档硬要求 decline 学习要读定稿类目（同 v0.27 教训——不声明
+    # 进 Input 会被 langgraph channel 过滤剥掉，学习钩子恒拿不到 dc/tp）。
+    description_category_id: str = Field(default="", description="定稿类目 ID（assemble 产出，decline 学习读取）")
+    type_id: str = Field(default="", description="定稿类型 ID（assemble 产出，decline 学习读取）")
 
 
 class OzonStatusOutput(BaseModel):

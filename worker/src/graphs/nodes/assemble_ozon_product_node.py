@@ -995,6 +995,54 @@ def _restricted_category_exit(state, draft: dict, candidates: list,
     return out
 
 
+def _doc_gate_exempt(state, draft: dict, extensions: dict | None = None) -> bool:
+    """✅ v0.83.2: 类目文档硬要求闸豁免判定（纯函数，可单测）。
+
+    豁免三类（与受限品类闸 v0.69 拍板同一豁免哲学——闸只保护自动链路）：
+    1. 可信类目来源 manual/page/what_to_sell/widget：人工指定或 Ozon 在售竞品
+       事实（店铺可能已配置合规文件，人工路径放行；R1 成人闸独立不松动）。
+       注意 **不含 mapping**——mapping 是我们自己学习表的自动化结论，恰是
+       本闸要兜的「自动化反复撞墙」面。
+    2. 采集箱已复核（extensions.box_reviewed）：采集箱即权威（v0.70 拍板），
+       所见即所得，不重复拦；拒单后 decline 学习照常积累。
+    3. 编辑更新（extensions.update_product_id）：卡已在 Ozon 存在（原卡建卡
+       路径已过文档要求），编辑更新不重复拦。跟卖走 _assemble_follow_sell
+       早退，不经本闸。
+    """
+    ext = extensions if isinstance(extensions, dict) else {}
+    src = str(((draft or {}).get("ozon_category") or {}).get("source") or "")
+    if src in ("manual", "page", "what_to_sell", "widget"):
+        return True
+    if ext.get("box_reviewed"):
+        return True
+    return bool(str(ext.get("update_product_id") or "").strip())
+
+
+def _doc_required_exit(state, draft: dict, candidates: list, dc: int, tp: int,
+                       req_info: dict) -> dict:
+    """✅ v0.83.2: 类目文档硬要求出口——failed 终态 + 入采集箱（零白烧）。
+
+    与 _restricted_category_exit 同构；error_code=LOCAL_CATEGORY_REQUIRES_DOCUMENT
+    （graph 层 LOCAL_* 字符串口径，非 REST 错误码枚举）。刻意**不写
+    category_match_log / 不触发 mapping 负反馈**：类目匹配本身是对的，阻断
+    的是「该类目我们供不出合规文档」这一类目适配事实（写负反馈会把正确
+    mapping 错误降权）。
+    """
+    from utils.category_doc_gate import doc_gate_notice
+
+    _notice = doc_gate_notice(req_info)
+    _reason = (f"类目 [{dc}/{tp}] 需商品合规文档（PDF）：Ozon 对该类目强制要求"
+               f"商品文档（来源：{req_info.get('source')}），自动上架无法提供，"
+               f"已阻断避免白烧配额；{_notice}")
+    logger.error(f"   🛑 类目文档硬要求闸: dc/tp={dc}/{tp} "
+                 f"source={req_info.get('source')} times_seen={req_info.get('times_seen')}")
+    out = _blocked_exit(state, draft, candidates, _reason,
+                        match_confidence=None,
+                        error_code="LOCAL_CATEGORY_REQUIRES_DOCUMENT")
+    out["notice"] = f"{_notice}；{out['notice']}" if out.get("notice") else _notice
+    return out
+
+
 logger = logging.getLogger(__name__)
 
 # ==================== 常量 ====================
@@ -3052,6 +3100,26 @@ def assemble_ozon_product_node(
             return _blocked_exit(state, draft, candidates, _s65_reason,
                                  match_confidence=0.0)
 
+    # ✅ v0.83.2: 类目文档硬要求闸（第一性原理：预检代替试错）。dc/tp 定稿后、
+    # Step 7 汇出前判定——命中即入采集箱终态，省掉属性补全后的生图/上传全程
+    # （2026-10-02 生产实锤：袜子类目省略 pdf_list 仍被 Ozon 拒
+    # PDF_SRC_URL_IS_EMPTY，白烧一轮 import+生图）。豁免见 _doc_gate_exempt
+    # （人工指定/采集箱复核/编辑更新放行——闸只保护自动链路）；decline 学习
+    # 见 ozon_status_node（拒单自动 upsert category_doc_requirements）。
+    if not _doc_gate_exempt(state, draft, extensions):
+        try:
+            from utils.category_doc_gate import requires_document
+
+            _doc_req = requires_document(int(description_category_id or 0),
+                                         int(type_id or 0))
+        except Exception as _doc_gate_e:
+            logger.warning("类目文档硬要求闸判定异常（fail-open 放行）: %s", _doc_gate_e)
+            _doc_req = None
+        if _doc_req:
+            return _doc_required_exit(state, draft, candidates,
+                                      int(description_category_id or 0),
+                                      int(type_id or 0), _doc_req)
+
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
     # =====================================================
@@ -4102,7 +4170,11 @@ def _validate_and_enrich_items(
                             dict_vals = _fetched
                             logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
                     except Exception as _fe:
-                        logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
+                        # ✅ v0.83.2: debug→warning——必填字典回源失败此前完全不可见
+                        # （2026-10-02 生产：4 个必填字典属性同时"无法获取任何字典值"，
+                        # 回源异常被 debug 吞掉无法定位是限流/凭证/负缓存）。搜索
+                        # no-hit 属正常业务（下方仍 debug），回源异常才是故障信号。
+                        logger.warning(f"   ⚠️ API 获取字典值失败 attr={missing_id}: {_fe}")
 
                 # 尝试用产品标题搜索字典值（比取第一个更准确）
                 if draft_title and isinstance(dict_vals, list) and dict_vals:

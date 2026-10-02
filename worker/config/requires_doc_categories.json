@@ -1,0 +1,4 @@
+{
+  "_comment": "v0.83.2 类目文档硬要求 curated 种子（热加载：改文件下一次 assemble 生效）。type_id=0 表示类目级通配（该 dc 下所有 type）。decline 学习（PDF_SRC_URL_IS_EMPTY 拒单自动 upsert category_doc_requirements 表）会自动积累，本文件用于人工确认后的晋升登记/提前防护。",
+  "categories": []
+}
