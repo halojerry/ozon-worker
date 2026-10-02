@@ -781,7 +781,7 @@ Admin Sync Health — 全部 active 店同步健康总览(仅 admin)。
 | 200 | Successful Response | — |
 
 ### `GET /api/v1/admin/tasks`
-Admin Tasks — 任务统计（全租户）——get_task_stats 是 async，必须 await。
+Admin Tasks — 任务统计（缺省全租户；?tenant_id= 指定 → 单租户，v0.83.2 接通）。
 
 **响应**
 
