@@ -26,11 +26,12 @@
 
 **边界（改代码前的硬规则）**
 - skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`；**键集合唯一权威 = `worker/src/utils/envelope_contract.py`**（EnvelopeExtensions extra="forbid"；2026-10 W2 起「改字段三处同步」废止）——改键 = 改模型字段+来源表 → 跑 `worker/scripts/gen_contract_docs.py`（CI `--check` 漂移即红；未知键提交层/ingest fail-closed，`ENVELOPE_STRICT=0` 降级 warn）。
-- 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（数量以文件为准）；鉴权族（token 校验/余额/Bearer 守卫）`api/security.py`、任务进度/当前任务上下文/优雅关闭 `runtime/progress.py`、API 限流 `runtime/rate_limit.py`、图执行 `runtime/graph_service.py`（W3b 归位；main 保留 re-export 兼容面，新代码直接 from 新模块）；task_processor 单例经 `orchestrator.task_processor.get_task_processor`（lifespan 注入，**低层禁 `from main import`**）。
+- 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（数量以文件为准）；鉴权族（token 校验/余额/Bearer 守卫）`api/security.py`、任务进度/当前任务上下文/优雅关闭 `runtime/progress.py`、API 限流 `runtime/rate_limit.py`、图执行 `runtime/graph_service.py`（W3b 归位；main 保留 re-export 兼容面，新代码直接 from 新模块）；task_processor 单例经 `orchestrator.task_processor.get_task_processor`、async_graph 经 `runtime.graph_service` holder（lifespan 注入，**低层禁 `from main import`**）。
+- **main.py 是 181 行 composition root（2026-10 W3c 拆解终态，勿再长回去）**：HTTP 端点按族住 `routes/`（task 队列 `task_queue_routes` / analytics 上报读取 `analytics_ingest_routes` / 类目属性佣金 `catalog_routes` / 健康鉴权进度物流 `ops_routes`）；清扫器与周期任务 `runtime/maintenance.py`；启动校验/僵尸恢复 `runtime/startup_checks.py`；lifespan 本体 `runtime/lifespan.py`；app 构造/MCP 挂载/路由注册顺序 `app_factory.py`（⚠️ 路由注册顺序契约：newapi catch-all `/api/*` 必须最后；`python -m src.main -m http` 是 Dockerfile 启动契约）。新端点进对应族文件，禁止写回 main。
 - `worker/src/mcp_server.py` 零业务逻辑，工具只回调本进程 REST——**改路由路径必须同步其 `_call`**。
 - langgraph 按节点 Input model 过滤 state：**节点/路由要读的字段必须声明进该节点 Input**，否则静默拿不到。
 - 类目链、余额判定、重量/尺寸、图片 URL 链路各有「改前必读」注释块（见下方「不变量速查表」），勿凭记忆改。
-- **God file 冻结增长（2026-10 W0 起）**：`skill/scripts/cli.py`、`skill/scripts/cloud_probe.py`、worker 的 `assemble_ozon_product_node.py`/`validation_retry_loop.py`/`main.py` **只减不增**——新逻辑进 lib/新域文件/新模块，禁止续写。
+- **God file 冻结增长（2026-10 W0 起）**：`skill/scripts/cli.py`、`skill/scripts/cloud_probe.py`、worker 的 `assemble_ozon_product_node.py`/`validation_retry_loop.py` **只减不增**——新逻辑进 lib/新域文件/新模块，禁止续写（main.py 已拆解至 181 行，见上条）。
 
 **纪律**
 - 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。**v0.75 起有技术闸**：生产库由 deploy/cos-update 写入 `prod_marker` 哨兵，worker 测试 conftest（`scripts/prod_db_guard.py`）探测到即拒跑 exit 2；生产 PG 宿主直连端口是 **15433**（不是 5433——5433 是本地开发惯例端口，撞车曾致测试套件连产 18h，见 `docs/audit/2026-09-11-io-avalanche.md`）。
