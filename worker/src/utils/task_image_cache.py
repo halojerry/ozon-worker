@@ -258,7 +258,7 @@ def save_image(task_id: str, slot: str, url: str, version: Optional[int] = None,
 
 
 def cleanup_old(older_than_days: int = 7) -> int:
-    """清理超过 N 天的缓存行（由 main._periodic_task_cleanup 定期调用）。"""
+    """清理超过 N 天的缓存行（由 runtime.maintenance._periodic_task_cleanup 定期调用）。"""
     try:
         from storage.database.db import get_engine
         from sqlalchemy import text

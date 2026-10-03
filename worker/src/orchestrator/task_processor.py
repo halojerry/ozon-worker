@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 
 
 # ── ✅ W3b 单例 holder ──
-# 实例由 main.lifespan 创建后 set_task_processor 注入；services 层
+# 实例由 runtime.lifespan 创建后 set_task_processor 注入；services 层
 # （draft_service/admin_service）经 get_task_processor() 取用——此前它们只能
 # 函数内 `from main import task_processor`（下层 → God module 反向依赖，W3b 清退）。
 _task_processor: Optional["SupabaseTaskProcessor"] = None
@@ -1042,7 +1042,7 @@ class SupabaseTaskProcessor:
 
     async def _heartbeat(self, task_id: str) -> None:
         """每 60s 刷新任务 updated_at —— 健康但慢的任务（生图轮询 180s/LLM 长耗时）不再被
-        main._periodic_task_cleanup 的「30 分钟未更新 → stale」误判卡死重置（v0.26 保活）。"""
+        runtime.maintenance._periodic_task_cleanup 的「30 分钟未更新 → stale」误判卡死重置（v0.26 保活）。"""
         if not task_id or task_id == "unknown":
             return
         try:

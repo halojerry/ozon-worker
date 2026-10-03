@@ -188,23 +188,23 @@ def test_shelf_bulk_endpoints_removed_list_endpoints_kept():
 # ============================================================
 
 def test_multi_worker_env_triggers_warning(monkeypatch, caplog):
-    main_mod = _import_main()
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
     import logging
     monkeypatch.setenv("WEB_CONCURRENCY", "4")
     monkeypatch.delenv("WORKERS", raising=False)
-    with caplog.at_level(logging.WARNING, logger="main"):
-        main_mod._warn_if_multi_worker()
+    with caplog.at_level(logging.WARNING, logger="runtime.startup_checks"):
+        startup_checks._warn_if_multi_worker()
     assert any("WEB_CONCURRENCY=4" in r.message and "workers=1" in r.message
                for r in caplog.records), "WEB_CONCURRENCY>1 应触发 workers=1 告警"
 
 
 def test_single_worker_env_no_warning(monkeypatch, caplog):
-    main_mod = _import_main()
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
     import logging
     monkeypatch.setenv("WEB_CONCURRENCY", "1")
     monkeypatch.delenv("WORKERS", raising=False)
-    with caplog.at_level(logging.WARNING, logger="main"):
-        main_mod._warn_if_multi_worker()
+    with caplog.at_level(logging.WARNING, logger="runtime.startup_checks"):
+        startup_checks._warn_if_multi_worker()
     assert not any("workers=1" in r.message for r in caplog.records), (
         "workers=1 部署不应告警"
     )

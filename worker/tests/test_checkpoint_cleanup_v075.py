@@ -1,8 +1,11 @@
 """v0.75 C2: memory.checkpoint 三表清理（BL-25 Phase 1-2 漏项，纯 mock 无 PG 依赖）。
 
-背景：A9 S9-06 任务表 30 天归档删除（main._periodic_task_cleanup）此前不清理
-langgraph checkpoint——thread_id == ozon_product_tasks.id（task_processor.py:970
-``configurable={"thread_id": task_id}`` 实证），任务行删除后三表行永久孤儿。
+W3c: 定期清理族自 main.py 迁出 → runtime.maintenance（本测试靶点跟迁）。
+
+背景：A9 S9-06 任务表 30 天归档删除（runtime.maintenance._periodic_task_cleanup）
+此前不清理 langgraph checkpoint——thread_id == ozon_product_tasks.id
+（task_processor.py:970 ``configurable={"thread_id": task_id}`` 实证），任务行删除后
+三表行永久孤儿。
 
 覆盖：
 1. `_purge_checkpoints`：三表各一次 ``DELETE FROM memory.<t> WHERE thread_id = ANY(:ids)``，
@@ -23,7 +26,7 @@ import pytest  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import main  # noqa: E402
+import runtime.maintenance as maintenance  # noqa: E402 — W3c: 清理族自 main 迁出（靶点跟迁）
 
 _TABLE_ORDER = ("memory.checkpoints", "memory.checkpoint_blobs", "memory.checkpoint_writes")
 
@@ -75,7 +78,7 @@ def test_purge_deletes_three_tables_in_order_with_any_ids():
     """三表各一次 ANY(:ids) DELETE；父表 checkpoints 先删；返回总行数。"""
     conn = mock.MagicMock()
     conn.execute.side_effect = [_Res(rowcount=2), _Res(rowcount=5), _Res(rowcount=3)]
-    total = main._purge_checkpoints(conn, ["id-a", "id-b"])
+    total = maintenance._purge_checkpoints(conn, ["id-a", "id-b"])
     assert total == 10
     stmts = [str(c.args[0]) for c in conn.execute.call_args_list]
     assert len(stmts) == 3
@@ -94,14 +97,14 @@ def test_purge_migrations_table_never_touched():
     """checkpoint_migrations 是 langgraph 自有版本表——绝不出现清理 SQL。"""
     conn = mock.MagicMock()
     conn.execute.side_effect = [_Res(rowcount=1)] * 3
-    main._purge_checkpoints(conn, ["id-a"])
+    maintenance._purge_checkpoints(conn, ["id-a"])
     assert not any("checkpoint_migrations" in str(c.args[0]) for c in conn.execute.call_args_list)
 
 
 def test_purge_empty_ids_skips_execute():
     """空列表零 execute、返回 0（删除谓词与收集谓词同 WHERE，空集是常态）。"""
     conn = mock.MagicMock()
-    assert main._purge_checkpoints(conn, []) == 0
+    assert maintenance._purge_checkpoints(conn, []) == 0
     conn.execute.assert_not_called()
 
 
@@ -111,8 +114,8 @@ def test_purge_debug_log_records_rowcount(caplog):
 
     conn = mock.MagicMock()
     conn.execute.side_effect = [_Res(rowcount=7), _Res(rowcount=0), _Res(rowcount=2)]
-    with caplog.at_level(logging.DEBUG, logger="main"):
-        total = main._purge_checkpoints(conn, ["id-a"])
+    with caplog.at_level(logging.DEBUG, logger="runtime.maintenance"):
+        total = maintenance._purge_checkpoints(conn, ["id-a"])
     assert total == 9
     debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
     assert any("9" in m and "checkpoint" in m.lower() for m in debug_msgs), debug_msgs
@@ -135,8 +138,8 @@ def _run_one_cleanup_round(due_ids, monkeypatch):
     engine.connect.return_value = conn
     monkeypatch.setattr(db_mod, "get_engine", lambda: engine)
     # 24h 节流钩子直接跳过（本轮聚焦任务/checkpoint 清理序）
-    monkeypatch.setattr(main, "_LAST_CACHE_SWEEP", time.time())
-    monkeypatch.setattr(main, "_LAST_FX_REFRESH", time.time())
+    monkeypatch.setattr(maintenance, "_LAST_CACHE_SWEEP", time.time())
+    monkeypatch.setattr(maintenance, "_LAST_FX_REFRESH", time.time())
     # 任务生图缓存清理 mock（避免其内部 get_engine 混入 execute 序列——本测试用独立假 conn）
     import utils.task_image_cache as tic
     monkeypatch.setattr(tic, "cleanup_old", lambda older_than_days=7: 0)
@@ -148,9 +151,9 @@ def _run_one_cleanup_round(due_ids, monkeypatch):
         if calls["n"] >= 2:
             raise _StopLoop
 
-    with mock.patch.object(main.asyncio, "sleep", _fake_sleep), \
+    with mock.patch.object(maintenance.asyncio, "sleep", _fake_sleep), \
             pytest.raises(_StopLoop):
-        asyncio.run(main._periodic_task_cleanup(interval_seconds=60))
+        asyncio.run(maintenance._periodic_task_cleanup(interval_seconds=60))
     return conn
 
 

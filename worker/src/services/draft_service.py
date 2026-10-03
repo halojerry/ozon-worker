@@ -751,7 +751,7 @@ def _cross_store_scan(tenant_id: str, draft_id: str, current_client_id: str) -> 
 
 async def _submit_task(tenant_id: str, graph_payload: dict, sku_key: str) -> str:
     """入队（✅ W3b: 经 orchestrator holder 取单例，不再 from main 反向依赖；
-    实例由 main.lifespan 创建后 set_task_processor 注入）。"""
+    实例由 runtime.lifespan 创建后 set_task_processor 注入）。"""
     from orchestrator.task_processor import get_task_processor
     task_processor = get_task_processor()
     if task_processor is None:

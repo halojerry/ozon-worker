@@ -141,8 +141,8 @@ services:
       # ✅ 0.78.0 批D（config 挂空事故三层防线之第三层）：追加 config 存在性哨兵
       # `test -f /app/config/imagegen.json`——bind mount 源路径被删时 Docker 会
       # 静默创建空目录盖住镜像内 /app/config，worker 对 /health 依旧 200「健康地
-      # 空跑」。哨兵文件取自 main.py `_CRITICAL_CONFIG_FILES`（与启动守卫同源），
-      # 缺失即 unhealthy 可见化。**故意不配 autoheal/自动重启**：repair = 人工修
+      # 空跑」。哨兵文件取自 runtime/startup_checks.py `_CRITICAL_CONFIG_FILES`
+      # （与启动守卫同源；W3c 前在 main.py），缺失即 unhealthy 可见化。**故意不配 autoheal/自动重启**：repair = 人工修
       # bind 源路径/重新部署，重启只会再次静默挂同一个空目录、掩盖事故。
       # timeout 5s→10s / start_period 15s→60s：双检查 + 慢启动（PG 就绪等待）留余量。
       test: ["CMD-SHELL", "curl -f http://localhost:5000/api/v1/health && test -f /app/config/imagegen.json"]
