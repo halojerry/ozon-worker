@@ -16,7 +16,7 @@ import requests
 
 from graphs.nodes.auth_node import auth_node
 from graphs.state import AuthInput
-from utils.task_processor import _is_permanent_task_error
+from orchestrator.task_processor import _is_permanent_task_error
 
 
 # ────────────────────────────────────────────────

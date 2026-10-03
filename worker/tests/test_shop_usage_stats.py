@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
 
-from utils.task_processor import SupabaseTaskProcessor, _moderation_status_deltas, _upsert_shop_usage
+from orchestrator.task_processor import SupabaseTaskProcessor, _moderation_status_deltas, _upsert_shop_usage
 
 
 class FakeRowResult:
@@ -73,7 +73,7 @@ def _spy_upsert(monkeypatch, target):
 
 
 def _make_processor(monkeypatch, pending_rows=None, graph_result=None):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     engine = FakeEngine(pending_rows)
     monkeypatch.setattr(tp, "get_engine", lambda: engine)
@@ -179,7 +179,7 @@ def test_moderation_status_deltas():
 
 # ── 6. process_next_task 成功/失败终态钩子 ──
 def test_process_next_task_success_hook(monkeypatch):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     payload = {"ozon_client_id": "5371047", "envelope": {"draft": {}}}
     row = ("t1", "tenant1", 0, payload, 1800, 0)
@@ -200,7 +200,7 @@ def test_process_next_task_success_hook(monkeypatch):
 
 
 def test_process_next_task_failed_hook(monkeypatch):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     payload = {"ozon_client_id": "5371047", "envelope": {"draft": {}}}
     row = ("t2", "tenant1", 0, payload, 1800, 0)
@@ -225,7 +225,7 @@ def test_process_next_task_failed_hook(monkeypatch):
 
 # ── 7. handle_task_failure 重试耗尽钩子 + 重试分支不写埋点 ──
 def test_handle_task_failure_hook(monkeypatch):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     payload = {"ozon_client_id": "5371047"}
     processor, engine = _make_processor(monkeypatch, [(2, 2, payload)])
@@ -240,7 +240,7 @@ def test_handle_task_failure_hook(monkeypatch):
 
 
 def test_handle_task_failure_payload_as_json_string(monkeypatch):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     processor, _ = _make_processor(
         monkeypatch, [(2, 2, json.dumps({"ozon_client_id": "5371047"}))])
@@ -250,7 +250,7 @@ def test_handle_task_failure_payload_as_json_string(monkeypatch):
 
 
 def test_handle_task_failure_retry_no_hook(monkeypatch):
-    import utils.task_processor as tp
+    import orchestrator.task_processor as tp
 
     processor, _ = _make_processor(monkeypatch, [(1, 3, {"ozon_client_id": "5371047"})])
     calls = _spy_upsert(monkeypatch, tp)

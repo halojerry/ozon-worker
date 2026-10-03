@@ -213,7 +213,7 @@ def test_subgraph_end_to_end_blocks_without_repair():
 
 def test_graph_result_is_failed_covers_blocked():
     """upload_status=blocked 必须判 failed（假成功第二窗口收口）。"""
-    from utils.task_processor import _graph_result_is_failed
+    from orchestrator.task_processor import _graph_result_is_failed
     assert _graph_result_is_failed({"upload_status": "blocked",
                                     "notice": "已拦截入采集箱"}) is True
     # 回归：原判定语义不变

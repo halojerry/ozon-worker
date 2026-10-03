@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 WORKER_ROOT = Path(__file__).resolve().parents[1]
 
-from utils.task_processor import _send_task_notify, _validate_notify_url  # noqa: E402
+from orchestrator.task_processor import _send_task_notify, _validate_notify_url  # noqa: E402
 
 
 # ══════════════ 1. webhook SSRF 校验（task_processor._validate_notify_url） ══════════════
@@ -94,8 +94,8 @@ def test_validate_never_raises():
 
 
 def test_send_notify_blocked_skips_post(caplog):
-    """内网目标默认跳过发送：requests.post 不被调用、函数不抛出（非致命旁路语义保持）。"""
-    with mock.patch("utils.task_processor.requests.post") as post:
+    """内网目标默认跳过发送：safe_fetch 不被调用、函数不抛出（非致命旁路语义保持）。"""
+    with mock.patch("orchestrator.task_processor.safe_fetch") as post:
         with mock.patch.dict(os.environ, {"TASK_NOTIFY_URL": "http://169.254.169.254/latest/"}):
             os.environ.pop("TASK_NOTIFY_ALLOW_PRIVATE", None)
             # 不抛异常即通过（函数自身吞掉一切）
@@ -104,28 +104,27 @@ def test_send_notify_blocked_skips_post(caplog):
 
 
 def test_send_notify_private_allowed_with_env():
-    """TASK_NOTIFY_ALLOW_PRIVATE=1 → 内网目标放行（逃生门），且保持 allow_redirects=False。"""
+    """TASK_NOTIFY_ALLOW_PRIVATE=1 → 内网目标放行（逃生门），且保持防重定向语义。
+
+    ✅ W3a spy 换靶：webhook 出口已收编 safe_fetch（requests.post 退役），
+    防重定向由 max_redirects=0 表达（等价旧 allow_redirects=False）。"""
     captured = {}
 
     def _fake_post(url, **kwargs):
         captured["url"] = url
         captured.update(kwargs)
+        return None  # safe_fetch 返回值被 _send_task_notify 丢弃（fire-and-forget）
 
-        class _R:
-            def raise_for_status(self):
-                return None
-
-        return _R()
-
-    with mock.patch("utils.task_processor.requests.post", side_effect=_fake_post):
+    with mock.patch("orchestrator.task_processor.safe_fetch", side_effect=_fake_post):
         with mock.patch.dict(os.environ, {
             "TASK_NOTIFY_URL": "http://10.0.0.5:8080/hook",
             "TASK_NOTIFY_ALLOW_PRIVATE": "1",
         }):
             _send_task_notify("t-2", "completed", {"product_id": "p2"}, {"notify": True})
     assert captured.get("url") == "http://10.0.0.5:8080/hook"
-    assert captured.get("allow_redirects") is False  # v0.38.1 防重定向语义不得回退
+    assert captured.get("max_redirects") == 0  # v0.38.1 防重定向语义不得回退
     assert captured.get("timeout") == 5
+    assert captured.get("method") == "post"
 
 
 def test_send_notify_public_url_sends():
@@ -135,14 +134,9 @@ def test_send_notify_public_url_sends():
     def _fake_post(url, **kwargs):
         captured["url"] = url
         captured.update(kwargs)
+        return None
 
-        class _R:
-            def raise_for_status(self):
-                return None
-
-        return _R()
-
-    with mock.patch("utils.task_processor.requests.post", side_effect=_fake_post):
+    with mock.patch("orchestrator.task_processor.safe_fetch", side_effect=_fake_post):
         with mock.patch.dict(os.environ, {"TASK_NOTIFY_URL": "https://sctapi.ftqq.com/KEY.send"}):
             os.environ.pop("TASK_NOTIFY_ALLOW_PRIVATE", None)
             _send_task_notify("t-3", "failed", {"error_message": "x"}, {"notify": True})
@@ -151,7 +145,7 @@ def test_send_notify_public_url_sends():
 
 def test_send_notify_unparseable_url_no_raise():
     """env 配了垃圾 URL（scheme 非法）：跳过发送、不炸（try/except 语义保持）。"""
-    with mock.patch("utils.task_processor.requests.post") as post:
+    with mock.patch("orchestrator.task_processor.safe_fetch") as post:
         with mock.patch.dict(os.environ, {"TASK_NOTIFY_URL": "file:///etc/passwd"}):
             os.environ.pop("TASK_NOTIFY_ALLOW_PRIVATE", None)
             _send_task_notify("t-4", "completed", {}, {"notify": True})
@@ -167,7 +161,7 @@ def test_escape_hatch_allows_internal_but_not_bad_scheme():
         "scheme 校验不得被 TASK_NOTIFY_ALLOW_PRIVATE 绕过"
     )
 
-    with mock.patch("utils.task_processor.requests.post") as post:
+    with mock.patch("orchestrator.task_processor.safe_fetch") as post:
         with mock.patch.dict(os.environ, {
             "TASK_NOTIFY_URL": "file:///etc/passwd",
             "TASK_NOTIFY_ALLOW_PRIVATE": "1",

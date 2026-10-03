@@ -82,8 +82,8 @@ def _run_process_next(graph_result):
     engine.connect() 被调用 2 次：conns[0]=认领任务(SELECT+UPDATE running)，
     conns[1]=终态分支(UPDATE terminal + shop_usage)。
     """
-    from utils.task_processor import SupabaseTaskProcessor
-    import utils.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
 
     engine = _FakeEngine(_make_task_row())
 

@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ["APP_WORKSPACE_PATH"] = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.task_processor import _should_report_task_rerun
+from orchestrator.task_processor import _should_report_task_rerun
 
 
 # ═══ 判定函数 ═══

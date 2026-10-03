@@ -348,7 +348,7 @@ class TestImageGenAllFailedNonPermanent:
     def test_not_classified_permanent_by_task_processor(self):
         """非永久锁定：task_processor._is_permanent_task_error 判 False
         → 整任务重试一轮（生图抖动值得重试），重试仍全败才终态 failed。"""
-        from utils.task_processor import _is_permanent_task_error
+        from orchestrator.task_processor import _is_permanent_task_error
         from utils.image_source import ImageGenAllFailedError
         assert _is_permanent_task_error(
             ImageGenAllFailedError("IMAGE_GEN_ALL_FAILED: 生图全部失败")) is False

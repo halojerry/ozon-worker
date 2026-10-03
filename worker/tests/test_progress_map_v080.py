@@ -86,7 +86,7 @@ def test_node_stage_map_covers_all_graph_nodes():
     同名阶段节点（auth/pricing 等）可走回落，其余必须显式登记。
     """
     from graphs.graph import builder
-    from utils.task_processor import _NODE_STAGE_MAP
+    from orchestrator.task_processor import _NODE_STAGE_MAP
 
     import main as main_mod
 
@@ -105,7 +105,7 @@ def test_node_stage_map_covers_all_graph_nodes():
 
 
 def test_node_stage_map_previously_missing_nodes_pinned():
-    from utils.task_processor import _NODE_STAGE_MAP
+    from orchestrator.task_processor import _NODE_STAGE_MAP
 
     for name in _PREVIOUSLY_MISSING:
         assert name in _NODE_STAGE_MAP, f"回归：{name} 曾因漏映射致进度跳 0%"
@@ -127,7 +127,7 @@ def test_node_stage_map_previously_missing_nodes_pinned():
 def test_unknown_node_does_not_regress_percent(progress_env):
     """核心修复断言：未知节点名回调不把百分比打回 0%（旧行为必现倒退）。"""
     main_mod, emitted = progress_env
-    from utils.task_processor import ProgressCallback
+    from orchestrator.task_processor import ProgressCallback
 
     task = "t-unknown-node"
     cb = ProgressCallback(task, main_mod.update_progress)
@@ -149,7 +149,7 @@ def test_unknown_node_does_not_regress_percent(progress_env):
 def test_known_stage_display_regression_clamped(progress_env):
     """展示序与真实拓扑局部错位（pricing 后 assemble→category_match）不降百分比。"""
     main_mod, _ = progress_env
-    from utils.task_processor import ProgressCallback
+    from orchestrator.task_processor import ProgressCallback
 
     task = "t-clamp"
     cb = ProgressCallback(task, main_mod.update_progress)
@@ -173,7 +173,7 @@ def test_known_stage_display_regression_clamped(progress_env):
 def test_auth_resets_baseline_for_retry(progress_env):
     """auth 是图唯一入口=重试重跑哨兵：允许基线归零，否则重试整轮钉在旧高位。"""
     main_mod, _ = progress_env
-    from utils.task_processor import ProgressCallback
+    from orchestrator.task_processor import ProgressCallback
 
     task = "t-retry"
     cb = ProgressCallback(task, main_mod.update_progress)
@@ -189,7 +189,7 @@ def test_auth_resets_baseline_for_retry(progress_env):
 def test_on_chain_error_keeps_progress(progress_env):
     """on_chain_error 旁路 stage="error" 同样不归零（旧行为会把进度打回 0%）。"""
     main_mod, _ = progress_env
-    from utils.task_processor import ProgressCallback
+    from orchestrator.task_processor import ProgressCallback
 
     task = "t-error"
     cb = ProgressCallback(task, main_mod.update_progress)

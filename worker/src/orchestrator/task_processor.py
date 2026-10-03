@@ -1,3 +1,10 @@
+"""任务编排器（orchestrator 层）——拉任务、跑图、终态、webhook、重试策略。
+
+✅ W3a 治理：自 utils/task_processor.py 迁入 orchestrator 包——本模块模块级
+import graphs.graph，是全 src 唯一合法的「高层 import graphs」居民（依赖 DAG
+顶端，见 orchestrator/__init__.py 与 tests/test_import_direction.py 立法）。
+留在 utils 会把「杂项包」变成依赖方向的法外之地。
+"""
 import os
 import json
 import asyncio
@@ -14,11 +21,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import DataError
 from utils.sentry_setup import capture_task_error  # v0.23 Sentry 任务异常上报
 from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.63.1 R1/R4 闭环
+from utils.secure_fetch import safe_fetch  # ✅ W3a: webhook 出口收编（SSRF 每跳复核唯一入口）
 
 from storage.database.supabase_client import get_supabase_client
 from storage.database.db import get_engine
 from utils.task_statistics import statistics_payload
-from graphs.graph import main_graph  # 导入LangGraph主图
+from graphs.graph import main_graph  # 导入LangGraph主图（orchestrator = 唯一合法居民）
 from utils.draft_status_writeback import writeback_submission_status, map_worker_status  # M0.3
 
 logger = get_logger(__name__)
@@ -330,8 +338,11 @@ def _send_task_notify(task_id, status, graph_result, payload) -> None:
             or draft.get("product_id") or draft.get("item_id") or "",
             "ozon_client_id": str((payload or {}).get("ozon_client_id") or ""),
         }
-        # allow_redirects=False：重定向可能把通知 payload 转发到意外主机（v0.38.1）
-        requests.post(env_url, json=body, timeout=5, allow_redirects=False)
+        # ✅ W3a: 出口收编 safe_fetch（每跳 SSRF 复核唯一入口）；max_redirects=0
+        # 等价 allow_redirects=False——重定向可能把通知 payload 转发到意外主机
+        # （v0.38.1）。_validate_notify_url 保留为 env 配置面双保险
+        # （TASK_NOTIFY_ALLOW_PRIVATE 语义在此层）。
+        safe_fetch(env_url, method="post", json=body, timeout=5, max_redirects=0)
         logger.info("任务终态通知已发送 task_id=%s status=%s", task_id, status)
     except Exception as e:
         logger.warning("任务终态 webhook 通知失败（不影响主流程）: %s", e)
@@ -443,7 +454,7 @@ class ProgressCallback:
 class SupabaseTaskProcessor:
     """
     Supabase云端任务处理器
-    
+
     功能：
     - 任务提交：将任务提交到Supabase云端队列
     - 任务处理：从Supabase获取pending任务并执行
@@ -452,31 +463,31 @@ class SupabaseTaskProcessor:
     - 任务超时：每个任务最多30分钟超时
     - 多租户支持：支持租户隔离和租户级别并发控制
     """
-    
+
     def __init__(self, max_concurrent: int = 10):
         """
         初始化任务处理器
-        
+
         Args:
             max_concurrent: 最大并发任务数（默认10个）
         """
         self.max_concurrent = max_concurrent
         self.semaphore = asyncio.Semaphore(max_concurrent)
-        
+
         # ✅ 处理supabase_client为None的情况（环境变量未配置）
         self.supabase: Optional[Client] = get_supabase_client()
         if self.supabase is None:
             logger.warning("Supabase客户端未初始化（环境变量未配置），将只使用PostgreSQL")
-        
+
         self.engine = get_engine()  # 使用SQLAlchemy engine直接操作PostgreSQL
         self.running_tasks: Dict[str, asyncio.Task] = {}
-        
+
         logger.info(f"SupabaseTaskProcessor初始化完成（最大并发: {max_concurrent}, 使用SQL直接操作）")
-    
+
     async def submit_task(
-        self, 
-        tenant_id: str, 
-        payload: Dict[str, Any], 
+        self,
+        tenant_id: str,
+        payload: Dict[str, Any],
         priority: int = 0,
         timeout_seconds: int = 1800,
         max_retries: int = 3,
@@ -484,17 +495,17 @@ class SupabaseTaskProcessor:
     ) -> str:
         """
         提交任务到Supabase队列
-        
+
         Args:
             tenant_id: 用户ID（从token中提取，用于用户隔离和进度查询）
             payload: 任务数据（LangGraph输入参数，包含user_id、token、ozon_client_id等）
             priority: 任务优先级（0-100，VIP用户使用更高优先级）
             timeout_seconds: 任务超时时间（默认30分钟）
             max_retries: 最大重试次数（默认3次）
-        
+
         Returns:
             task_id: 任务UUID
-        
+
         Example:
             >>> processor = SupabaseTaskProcessor()
             >>> task_id = await processor.submit_task(
@@ -513,7 +524,7 @@ class SupabaseTaskProcessor:
             "max_retries": max_retries,
             "sku_key": sku_key or None,
         }
-        
+
         try:
             # 使用SQL INSERT直接操作PostgreSQL（绕过PostgREST schema cache）
             insert_sql = text("""
@@ -523,7 +534,7 @@ class SupabaseTaskProcessor:
                     :tenant_id, 'pending', :priority, :payload_json, :timeout_seconds, :max_retries, 0, :sku_key
                 ) RETURNING id
             """)
-            
+
             with self.engine.connect() as conn:
                 result = conn.execute(insert_sql, {
                     "tenant_id": tenant_id,
@@ -535,10 +546,10 @@ class SupabaseTaskProcessor:
                 })
                 task_id = str(result.fetchone()[0])
                 conn.commit()
-            
+
             logger.info(f"任务{task_id}已提交到Supabase队列（租户: {tenant_id}, 优先级: {priority})")
             return task_id
-            
+
         except Exception as e:
             logger.error(f"任务提交失败: {e}")
             raise e
@@ -600,14 +611,14 @@ class SupabaseTaskProcessor:
     async def process_next_task(self) -> Optional[Dict[str, Any]]:
         """
         处理下一个优先级最高的任务
-        
+
         流程：
         1. 从Supabase获取优先级最高的pending任务
         2. 使用asyncio.Semaphore控制并发
         3. 更新任务状态为running
         4. 执行LangGraph流程（带超时控制）
         5. 更新任务状态为completed或failed
-        
+
         Returns:
             任务结果或None（无待处理任务）
         """
@@ -662,7 +673,7 @@ class SupabaseTaskProcessor:
                     user_id=tenant_id,
                 )
                 log_task_event("started", task_id=task_id, user_id=tenant_id, priority=priority)
-                
+
                 # ✅ Step3: 执行任务（LangGraph流程）
                 try:
                     # v0.63.1 架构优化: configure_scope 在 sentry-sdk 2.x 操作共享
@@ -694,7 +705,7 @@ class SupabaseTaskProcessor:
                             graph_result["purchase_cost"] = str(draft.get("purchase_cost", ""))
                     except Exception as _ps_err:
                         logger.warning("product_summary 组装失败（不影响任务结果）: %s", _ps_err)
-                    
+
                     # ✅ v0.26 假成功修复：图执行完成 ≠ 上架成功。wave2 实证：
                     # created=False 的卡（ML_INCORRECT_VOLUME_WEIGHT 等）此前
                     # 无条件 completed，final_error 全空——用户无法感知失败。
@@ -854,7 +865,7 @@ class SupabaseTaskProcessor:
                         task_id, f"任务超时（{timeout_seconds}秒）", permanent=True)
                     clear_trace_context()
                     return None
-                    
+
                 except Exception as e:
                     permanent = _is_permanent_task_error(e)
                     # 已由 handle_task_failure 管理的「已处理」失败 → 不 ERROR 级自动上报
@@ -871,20 +882,20 @@ class SupabaseTaskProcessor:
                     await self.handle_task_failure(task_id, str(e), permanent=permanent)
                     clear_trace_context()
                     return None
-                    
+
             except Exception as e:
                 logger.error(f"任务处理失败: {e}")
                 return None
-    
+
     async def handle_task_failure(self, task_id: str, error_message: str, permanent: bool = False):
         """
         处理任务失败（自动重试机制）
-        
+
         Args:
             task_id: 任务UUID
             error_message: 错误信息
             permanent: 永久性错误（余额/鉴权/内容违规）→ 跳过重试直接终态 failed
-        
+
         流程：
         1. 检查重试次数
         2. 如果未达到最大重试次数，更新状态为pending并增加retry_count
@@ -1110,18 +1121,18 @@ class SupabaseTaskProcessor:
                 set_current_task_id(None)
             except Exception:
                 pass
-    
+
     async def worker_loop(self):
         """
         Worker持续处理任务
-        
+
         流程：
         1. 持续循环处理任务
         2. 每次处理完成后等待1秒
         3. 异常情况下等待5秒
         """
         logger.info("Worker开始运行")
-        
+
         while True:
             # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 不再接收新任务
             try:
@@ -1133,23 +1144,23 @@ class SupabaseTaskProcessor:
                 pass
             try:
                 result = await self.process_next_task()
-                
+
                 if result is None:
                     # 无待处理任务，等待5秒
                     await asyncio.sleep(5)
                 else:
                     # 任务处理完成，等待1秒
                     await asyncio.sleep(1)
-                    
+
             except Exception as e:
                 logger.error(f"Worker异常: {e}")
                 # 异常后等待5秒
                 await asyncio.sleep(5)
-    
+
     async def start_workers(self, num_workers: int = 10):
         """
         启动多个Worker处理任务
-        
+
         Args:
             num_workers: Worker数量（默认10个）
         """
@@ -1157,19 +1168,19 @@ class SupabaseTaskProcessor:
         for i in range(num_workers):
             worker = asyncio.create_task(self.worker_loop())
             workers.append(worker)
-        
+
         logger.info(f"启动{num_workers}个Worker处理任务")
-        
+
         # 持续运行所有Worker
         await asyncio.gather(*workers)
-    
+
     async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """
         查询任务状态
-        
+
         Args:
             task_id: 任务UUID
-        
+
         Returns:
             任务详情或None
         """
@@ -1183,14 +1194,14 @@ class SupabaseTaskProcessor:
             FROM ozon_product_tasks
             WHERE id = :task_id
         """)
-            
+
             with self.engine.connect() as conn:
                 result = conn.execute(select_sql, {"task_id": task_id})
                 task_row = result.fetchone()
-            
+
             if not task_row:
                 return None
-            
+
             # 将结果转换为字典
             task_dict = {
                 "id": str(task_row[0]),
@@ -1209,13 +1220,13 @@ class SupabaseTaskProcessor:
                 "timeout_seconds": task_row[13],
                 "progress": task_row[14] if isinstance(task_row[14], dict) else json.loads(task_row[14]) if task_row[14] else None,
             }
-            
+
             return task_dict
-            
+
         except Exception as e:
             logger.error(f"查询任务状态失败: {e}")
             return None
-    
+
     async def fetch_task_owner(self, task_id: str) -> Optional[dict]:
         """T6(api-H2): 取任务归属供取消前鉴权（tenant_id + status）。
 
@@ -1246,10 +1257,10 @@ class SupabaseTaskProcessor:
     async def cancel_task(self, task_id: str) -> bool:
         """
         取消任务
-        
+
         Args:
             task_id: 任务UUID
-        
+
         Returns:
             是否成功取消
         """
@@ -1260,11 +1271,11 @@ class SupabaseTaskProcessor:
                 SET status = 'cancelled', completed_at = NOW()
                 WHERE id = :task_id AND status = 'pending'
             """)
-            
+
             with self.engine.connect() as conn:
                 result = conn.execute(update_cancel_sql, {"task_id": task_id})
                 conn.commit()
-                
+
                 # 检查是否有实际更新
                 if result.rowcount > 0:
                     logger.info(f"任务{task_id}已取消")
@@ -1272,18 +1283,18 @@ class SupabaseTaskProcessor:
                 else:
                     logger.info(f"任务{task_id}无法取消（可能不是pending状态）")
                     return False
-            
+
         except Exception as e:
             logger.error(f"取消任务失败: {e}")
             return False
-    
+
     async def get_task_statistics(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
         """
         获取任务统计信息
-        
+
         Args:
             tenant_id: 租户ID（可选，不传则查询所有租户）
-        
+
         Returns:
             任务统计信息（总数、成功率、平均耗时等）
         """
@@ -1292,42 +1303,42 @@ class SupabaseTaskProcessor:
             if tenant_id:
                 # 查询特定租户的统计信息
                 stats_sql = text("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_tasks,
                         COUNT(*) FILTER (WHERE status = 'completed') as completed_tasks,
                         COUNT(*) FILTER (WHERE status = 'failed') as failed_tasks,
                         COUNT(*) FILTER (WHERE status = 'running') as running_tasks,
                         COUNT(*) FILTER (WHERE status = 'pending') as pending_tasks,
-                        AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) 
+                        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))
                             FILTER (WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL) as avg_duration_seconds
                     FROM ozon_product_tasks
                     WHERE tenant_id = :tenant_id
                 """)
-                
+
                 with self.engine.connect() as conn:
                     result = conn.execute(stats_sql, {"tenant_id": tenant_id})
                     stats_row = result.fetchone()
             else:
                 # 查询所有租户的统计信息
                 stats_sql = text("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_tasks,
                         COUNT(*) FILTER (WHERE status = 'completed') as completed_tasks,
                         COUNT(*) FILTER (WHERE status = 'failed') as failed_tasks,
                         COUNT(*) FILTER (WHERE status = 'running') as running_tasks,
                         COUNT(*) FILTER (WHERE status = 'pending') as pending_tasks,
-                        AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) 
+                        AVG(EXTRACT(EPOCH FROM (completed_at - started_at)))
                             FILTER (WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL) as avg_duration_seconds
                     FROM ozon_product_tasks
                 """)
-                
+
                 with self.engine.connect() as conn:
                     result = conn.execute(stats_sql)
                     stats_row = result.fetchone()
-            
+
             if not stats_row:
                 return {}
-            
+
             # ✅ v0.19: 字段名对齐 TaskStatisticsResponse（此前 total_tasks 等
             # 与模型 total/completed 对不上 → 统计接口恒返回全 0）
             return statistics_payload(
@@ -1338,7 +1349,7 @@ class SupabaseTaskProcessor:
                 pending=stats_row[4],
                 avg_duration_seconds=stats_row[5],
             )
-            
+
         except Exception as e:
             logger.error(f"获取任务统计失败: {e}")
             return {}

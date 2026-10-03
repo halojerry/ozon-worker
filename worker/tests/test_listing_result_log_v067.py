@@ -425,8 +425,8 @@ def test_log_match_attempt_fallback_to_state_task_id():
 def test_task_processor_terminal_calls_listing_writer():
     """三终态分支经 _write_listing_result_log（非致命）。驱动 failed 分支断言调用。"""
     import asyncio
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     class _FakeResult:
         rowcount = 1  # F-C01 终态守卫：行在 running，写落成功
@@ -482,8 +482,8 @@ def test_task_processor_terminal_calls_listing_writer():
 def test_task_processor_writer_exception_non_fatal():
     """writer 抛异常（PG 不可用等）→ 终态不 raise、任务照常返回。"""
     import asyncio
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     class _FakeResult:
         rowcount = 1  # F-C01 终态守卫：行在 running，写落成功

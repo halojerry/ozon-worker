@@ -68,14 +68,25 @@ def _spawn_holder(lock_path: Path, hold_seconds: float, holder: str = "pytest-ho
     )
 
 
-def _wait_lock_taken(lock_path: Path, proc: subprocess.Popen, timeout: float = 10.0) -> None:
-    """轮询等待持锁子进程真正拿到锁（写出了占用方信息）。"""
+def _wait_lock_taken(lock_path: Path, proc: subprocess.Popen, timeout: float = 10.0,
+                     expect_holder: str | None = None) -> None:
+    """轮询等待持锁子进程真正拿到锁（写出了占用方信息）。
+
+    ⚠️ expect_holder（2026-10-03 CI 假失败根治）：真锁测试的锁文件跨测试不复位
+    （lock_utils.release 有意不清内容，见其模块头注释「释放后不清属已知 defer」）
+    ——前一个真锁测试的占用方信息会残留在文件里。旧实现只判「内容非空」，本测试
+    的等待会在自家 holder 子进程还在冷启动时就被陈旧信息放行，victim 稍后读到
+    的占用方与本测试无关（CI 实录：exit 4 断言过了、stderr 却是「未知占用者」）。
+    传 expect_holder 后只认**本 holder 自己的标记串**出现在锁文件里才算就绪；
+    若 holder 写入前锁被占（陈旧活进程），proc.poll() 提前退出检查会如实报错。
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             raise AssertionError(f"持锁子进程提前退出 rc={proc.returncode}")
         try:
-            if lock_utils.read_holder_info(lock_path) is not None:
+            raw = lock_utils.read_holder_info(lock_path)
+            if raw is not None and (expect_holder is None or expect_holder in raw):
                 return
         except Exception:
             pass
@@ -414,7 +425,7 @@ class TestSubprocessIntegration:
         real_lock.parent.mkdir(parents=True, exist_ok=True)
         holder = _spawn_holder(real_lock, hold_seconds=10, holder="integration-holder")
         try:
-            _wait_lock_taken(real_lock, holder)
+            _wait_lock_taken(real_lock, holder, expect_holder="integration-holder")
             victim = subprocess.run(
                 [
                     sys.executable, "-c",
@@ -454,7 +465,7 @@ class TestSubprocessIntegration:
         real_lock.parent.mkdir(parents=True, exist_ok=True)
         holder = _spawn_holder(real_lock, hold_seconds=10, holder="main-path-holder")
         try:
-            _wait_lock_taken(real_lock, holder)
+            _wait_lock_taken(real_lock, holder, expect_holder="main-path-holder")
             victim = subprocess.run(
                 [
                     sys.executable, "-c",
@@ -476,7 +487,8 @@ class TestSubprocessIntegration:
                 f"经 cli.main() 的受闸命令须 exit 4，实际 {victim.returncode}；" \
                 f"stderr={victim.stderr!r}"
             assert "main-path-holder" in victim.stderr, \
-                f"报错须含占用方信息；stderr={victim.stderr!r}"
+                f"报错须含占用方信息；stderr={victim.stderr!r}；" \
+                f"锁文件现状={lock_utils.read_holder_info(real_lock)!r}"
             assert "--wait" in victim.stderr and "--force" in victim.stderr
         finally:
             holder.terminate()

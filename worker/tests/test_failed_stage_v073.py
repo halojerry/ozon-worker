@@ -47,7 +47,7 @@ from graphs.nodes import scene_generation_llm_node as sg  # noqa: E402
 from graphs.nodes.ozon_status_node import ozon_status_node  # noqa: E402
 from graphs.nodes.ozon_upload_node import ozon_upload_node  # noqa: E402
 from utils.ozon_errors import OzonError, OzonNotFoundError  # noqa: E402
-from utils.task_processor import _graph_result_is_failed  # noqa: E402
+from orchestrator.task_processor import _graph_result_is_failed  # noqa: E402
 
 TASK_ID = "7312849091234"
 _OFFER = "offer-failed-stage-v073"
