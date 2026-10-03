@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
 
-from graphs.state import OzonUploadOutput
+from graphs.state import CheckQuotaInput, OzonUploadOutput
 from utils.ozon_client import ozon_check_quota
 from utils.logger import get_logger
 
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 def check_quota_node(
-    state,
+    state: CheckQuotaInput,
     config: RunnableConfig,
     runtime: Runtime[Context],
 ) -> OzonUploadOutput:

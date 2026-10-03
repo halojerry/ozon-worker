@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 # 导入全局状态和图输入输出
 from graphs.state import (
+    CategoryConfGateInput,
     GlobalState,
     GraphInput,
     GraphOutput
@@ -251,7 +252,7 @@ def route_after_assemble(state):
     return "成功"
 
 
-def category_conf_gate_node(state):
+def category_conf_gate_node(state: CategoryConfGateInput):
     """✅ v0.83.1: assemble 后低置信终态归因修复（17 单节日批实锤三例）。
 
     病根：低置信分支此前只发生在**路由层**（route_after_assemble 改路由不写
@@ -385,15 +386,13 @@ def should_handle_error(state):
         ozon_status_result = state.status if hasattr(state, 'status') else ""
     
     # ✅ 检查errors数组（Ozon API返回的结构化错误）
-    errors = state.errors if hasattr(state, 'errors') else []
-    if not isinstance(errors, list):
-        errors = []
-    
-    # ✅ v0.11: 三状态路由 — 审核中(pending) / 错误(error) / 批准(approved)
-    product_id = state.product_id if hasattr(state, 'product_id') else None
+    # W1 治理：此处曾有两条等价赋值（hasattr 形 + getattr 形），后者覆盖前者——删前者。
     errors: list = getattr(state, 'errors', []) or []
     if not isinstance(errors, list):
         errors = []
+
+    # ✅ v0.11: 三状态路由 — 审核中(pending) / 错误(error) / 批准(approved)
+    product_id = state.product_id if hasattr(state, 'product_id') else None
     
     # 1. 批准：明确 approved → 成功
     if ozon_status_result == "approved" or "approved" in str(ozon_status_result):
