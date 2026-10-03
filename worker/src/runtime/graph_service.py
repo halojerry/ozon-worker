@@ -8,7 +8,8 @@ monkeypatch 兼容面不变）。
 生命周期约定（改 lifespan 前必读）：
 - lifespan 启动时以 **no-checkpointer** 构建 sync 图注入 ``service.set_graph()``
   ——/run /stream_run /node_run 永不碰 checkpoint DB；带 checkpointer 的
-  async 图另存 main.async_graph（异步任务通道专用）。
+  async 图走本模块 ``set_async_graph`` holder（异步任务通道专用，唯一消费者
+  = routes/ops_routes.py 的 GET /progress/{run_id}；main 仅保留 None 占位别名）。
 - running_tasks 是 asyncio.Task 注册表（http_run 写入 / cancel_run 取消 /
   run finally 清理），非多副本安全（_warn_if_multi_worker 兜底）。
 """
@@ -231,3 +232,21 @@ class GraphService:
 
 
 service = GraphService()
+
+# ── async graph holder（R3a 前置：main.async_graph 全局迁出）──
+# 与 orchestrator.task_processor 的 get/set holder 同形态：唯一写入方是
+# main.lifespan（带 checkpointer 的 async 图构建后 set 注入）；唯一消费者是
+# routes/ops_routes.py 的 GET /progress/{run_id}（经 get_async_graph() 取）。
+# 测试如需注入可 set_async_graph(fake) / 打本模块 holder 全局。
+_async_graph: Optional[CompiledStateGraph] = None
+
+
+def set_async_graph(graph: Optional[CompiledStateGraph]) -> None:
+    """注入带 checkpointer 的 async 图（main.lifespan 调用，进程生命周期一次）。"""
+    global _async_graph
+    _async_graph = graph
+
+
+def get_async_graph() -> Optional[CompiledStateGraph]:
+    """取 async 图单例；未注入（测试/文档生成等未跑 lifespan 场景）返回 None。"""
+    return _async_graph
