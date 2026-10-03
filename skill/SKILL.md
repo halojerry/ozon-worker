@@ -90,6 +90,7 @@ description: >
 | `queries` | what-to-sell 蓝海/榜单查询 | [可调] |
 | `category` | Ozon 类目查询（只读） | [可调] |
 | `query` | 查 Worker 任务状态 | [照抄] |
+| `jobs` / `job-status` / `job-result` | 本机后台任务：列表 / 单任务进度 / 完整结果 | [照抄] |
 | `check` | 环境诊断 / `--logs` 看运行轨迹 | [可调] |
 | `report` | 上报问题到 worker | [照抄] |
 | `session-sync` | 收割 seller 会话上传 worker | [照抄] |
