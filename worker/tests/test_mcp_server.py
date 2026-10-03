@@ -235,7 +235,7 @@ async def test_middleware_passes_valid_token_to_mcp_app(monkeypatch):
 
     monkeypatch.setattr(_main, "_authenticate_token", fake_auth)
     # 直打 wrapper：真实挂载时 Mount 已剥掉 /mcp 前缀（root_path=/mcp, path=/），故 POST /；
-    # fastmcp session manager 需要 lifespan 在跑（真实挂载由 main._root_lifespan 提供）。
+    # fastmcp session manager 需要 lifespan 在跑（真实挂载由 app_factory._root_lifespan 提供）。
     init_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
                  "params": {"protocolVersion": "2025-03-26", "capabilities": {},
                             "clientInfo": {"name": "t", "version": "0"}}}

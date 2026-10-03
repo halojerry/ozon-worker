@@ -42,10 +42,10 @@ def test_rerun_first_run_not_reported():
 # ═══ stale_running 全零不报（main.py 守卫）═══
 
 def test_stale_running_zero_counts_no_capture():
-    """main.py 定期清理仅在 r1/r1f/r2 非零时调用 capture_task_event。"""
-    import main as main_mod
+    """定期清理（W3c 起在 runtime.maintenance）仅在 r1/r1f/r2 非零时调用 capture_task_event。"""
+    import runtime.maintenance as maintenance_mod
 
-    src = open(main_mod.__file__, encoding="utf-8").read()
+    src = open(maintenance_mod.__file__, encoding="utf-8").read()
     # 守卫：`if r1 or r1f or r2 or r3:` 之后才 capture_task_event
     assert "if r1 or r1f or r2 or r3:" in src
     # 找到 capture 调用位置，确认在守卫块内

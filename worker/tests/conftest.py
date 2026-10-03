@@ -83,7 +83,7 @@ def _restore_task_processor_holder():
     """✅ W3b：编排器 holder 跨测试快照恢复。
 
     holder（orchestrator.task_processor._task_processor）是进程级全局，由
-    main.lifespan 注入且无卸载钩子——任何用 ``with TestClient(app)`` 的测试
+    runtime.lifespan 注入且无卸载钩子——任何用 ``with TestClient(app)`` 的测试
     跑完 lifespan 后，真实 SupabaseTaskProcessor 会驻留 holder 污染后续全部
     用例（CI 实录：webui_e2e 的 fake 入队断言被真实接管）。本 fixture 逐用例
     快照/恢复，holder 泄漏归零。"""
