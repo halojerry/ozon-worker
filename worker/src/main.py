@@ -1633,7 +1633,7 @@ async def http_submit_task(request: Request):
             )
 
         # ✅ W2 信封契约硬化：未知顶层/未知 extensions 键 fail-closed（权威 =
-        # api/envelope_contract.py；ENVELOPE_STRICT=0 降级 warn，存量旧包逃生门）。
+        # utils/envelope_contract.py；ENVELOPE_STRICT=0 降级 warn，存量旧包逃生门）。
         # 只在边界校验——worker 在 ingest 后注入 box_reviewed/update_* 等键不受影响。
         envelope_errors = validate_envelope(envelope)
         if envelope_errors:

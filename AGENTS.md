@@ -25,8 +25,8 @@
 **测试基线（v0.83.0 终验）**：worker **3764 passed / 2 skipped** · skill **1828 passed** · pounding-mcp **144 passed**。
 
 **边界（改代码前的硬规则）**
-- skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`，改字段三处同步（skill/worker `state.py`/契约文档）。
-- 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（数量以文件为准）。
+- skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`；**键集合唯一权威 = `worker/src/utils/envelope_contract.py`**（EnvelopeExtensions extra="forbid"；2026-10 W2 起「改字段三处同步」废止）——改键 = 改模型字段+来源表 → 跑 `worker/scripts/gen_contract_docs.py`（CI `--check` 漂移即红；未知键提交层/ingest fail-closed，`ENVELOPE_STRICT=0` 降级 warn）。
+- 唯一入口不得内联复制：定价 `utils/pricing_estimate.compute_price`、标题公式 `utils/title_formula`、佣金 `utils/commission_resolver`、错误码 `api/errors.py`（数量以文件为准）；鉴权族（token 校验/余额/Bearer 守卫）`api/security.py`、任务进度/当前任务上下文/优雅关闭 `runtime/progress.py`、API 限流 `runtime/rate_limit.py`、图执行 `runtime/graph_service.py`（W3b 归位；main 保留 re-export 兼容面，新代码直接 from 新模块）；task_processor 单例经 `orchestrator.task_processor.get_task_processor`（lifespan 注入，**低层禁 `from main import`**）。
 - `worker/src/mcp_server.py` 零业务逻辑，工具只回调本进程 REST——**改路由路径必须同步其 `_call`**。
 - langgraph 按节点 Input model 过滤 state：**节点/路由要读的字段必须声明进该节点 Input**，否则静默拿不到。
 - 类目链、余额判定、重量/尺寸、图片 URL 链路各有「改前必读」注释块（见下方「不变量速查表」），勿凭记忆改。
@@ -34,6 +34,8 @@
 
 **纪律**
 - 功能测试只打本地 Docker，**禁止用生产 `worker.mxou.cn`**；本地 Supabase 未配置 = auth fail-open，验证鉴权用空 token。**v0.75 起有技术闸**：生产库由 deploy/cos-update 写入 `prod_marker` 哨兵，worker 测试 conftest（`scripts/prod_db_guard.py`）探测到即拒跑 exit 2；生产 PG 宿主直连端口是 **15433**（不是 5433——5433 是本地开发惯例端口，撞车曾致测试套件连产 18h，见 `docs/audit/2026-09-11-io-avalanche.md`）。
+- **依赖方向立法（W3a，`worker/tests/test_import_direction.py` 硬闸）**：utils↛graphs/api/routes/mcp_server/orchestrator；services↛graphs/routes/mcp_server/main；graphs↛routes/main/mcp_server；`import main` 消费方文件集冻结只减不增（R2 棘轮/R3 冻结，新增消费方即红）。
+- **单测默认断网（W3b，`worker/tests/conftest.py` 守卫）**：只许 loopback（本地 PG/本地 Docker 不受影响，`TEST_NET_ALLOWLIST` 可加白）；确需真外呼标 `@pytest.mark.external_network` 且 `RUN_EXTERNAL_TESTS=1` 才运行——套件正确性不得依赖机器网络状态。
 - Commit `<type>(<scope>): 中文描述`；工作树常有其他会话的 WIP，**逐文件 `git add`，不用 `-a`/stash**；动手改文件前先看 `git status` + 相关文件 mtime——多会话并行实施同一方案时会撞车（2026-09-09 实录：策略模块被两会话重复实现）。
 - **多会话协作（规范 `docs/WORKFLOW.md`）**：非平凡任务**一会话一分支一 worktree**（开工即 `git worktree add ../ozon-worker-<topic> -b <type>/<topic> origin/dev`，主 worktree 只做 Tier B 小改/发版/review）；分支拓扑 main=发布线（**tag 只打 main**）/dev=集成线/`<type>/<topic>`=工作流分支（合后即删）；两级门槛——Tier A（跨子系统/新 API/新表/发版/>3 文件）必须分支+PR（CI 绿才合，self-merge 合法，merge commit 保留流边界），Tier B（≤3 文件 docs/单点 fix）直提 dev 但**当日 push**。
 - 发版：VERSION 四源一致 + `CHANGELOG.md` 顶部新块 + 实机 ≥3 单 gate（本文已无版本块，发版不再改 AGENTS.md，除非行为变更影响 agent 操作需同步活文档节）；发版动作 = dev→main PR 合入后**在 main 上打 tag**。**⚠️ VERSION bump 后必跑 `gen_api_docs.py` 重生成并提交**——API-REFERENCE.md 头部嵌版本号，漏跑 = CI 漂移闸红 + cd.yml tag CI 闸拦截。
