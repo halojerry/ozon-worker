@@ -79,6 +79,21 @@ def _offline_network_by_default(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _restore_task_processor_holder():
+    """✅ W3b：编排器 holder 跨测试快照恢复。
+
+    holder（orchestrator.task_processor._task_processor）是进程级全局，由
+    main.lifespan 注入且无卸载钩子——任何用 ``with TestClient(app)`` 的测试
+    跑完 lifespan 后，真实 SupabaseTaskProcessor 会驻留 holder 污染后续全部
+    用例（CI 实录：webui_e2e 的 fake 入队断言被真实接管）。本 fixture 逐用例
+    快照/恢复，holder 泄漏归零。"""
+    from orchestrator import task_processor as _tp
+    prev = _tp._task_processor
+    yield
+    _tp._task_processor = prev
+
+
+@pytest.fixture(autouse=True)
 def _isolate_supabase_env(monkeypatch):
     """每个用例前清空 Supabase 环境变量并重置客户端单例。"""
     monkeypatch.delenv("SUPABASE_URL", raising=False)
