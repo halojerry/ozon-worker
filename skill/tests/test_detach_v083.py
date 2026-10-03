@@ -52,18 +52,6 @@ def _write_job(jid: str, **over) -> dict:
     return data
 
 
-# ── ① job_id 形态 ───────────────────────────────────────────────────
-
-def test_job_id_shape_and_validation():
-    jid = detach.new_job_id()
-    assert detach.is_valid_job_id(jid)
-    # 本地时间戳坑：裸 YYYYMMDD_HHMMSS 不是 job_id（先例 extract_worker_task_ids）
-    assert not detach.is_valid_job_id("20260928_120000")
-    assert not detach.is_valid_job_id("disc_260928_120000_ab12cd")
-    assert not detach.is_valid_job_id("../evil")
-    assert not detach.is_valid_job_id("")
-
-
 # ── ② 注册表读写 + 孤儿收割 ──────────────────────────────────────────
 
 def test_registry_roundtrip_and_list(jobs_tmp):
@@ -158,7 +146,11 @@ def test_spawn_detached_forks_and_registers(jobs_tmp, monkeypatch):
                         ["cli.py", "discover", "--keyword", "手套", "--detach", "--to-box"])
     res = detach.spawn_detached(_ns())
 
-    assert res["code"] == 0 and detach.is_valid_job_id(res["job_id"])
+    # job_id 形态内联校验（原 detach.is_valid_job_id 已随 2026-10 死代码清扫删除）：
+    # <8digits>_<6digits>_<6hex>
+    import re as _re
+    assert res["code"] == 0 and _re.fullmatch(
+        r"\d{8}_\d{6}_[0-9a-f]{6}", str(res["job_id"]))
     argv = captured["argv"]
     assert "--detach" not in argv                      # 子进程不含 --detach
     assert argv[2] == "discover" and "--keyword" in argv and "--to-box" in argv

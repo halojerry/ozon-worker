@@ -709,42 +709,6 @@ def capture_exception(exc: BaseException | None = None, **extra: Any) -> None:
 # Backward compatibility aliases (will be removed in future)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# These aliases exist to avoid breaking imports in files that haven't been updated yet.
-# They will be removed once all callers are migrated.
-
-def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    """Load config as a flat dict. Backward compatible with old API.
-
-    Returns a dict with keys like 'ALI_1688_AK', 'OZON_CLIENT_ID', etc.
-    Used by ak_1688_client._signature_headers().
-    """
-    result = {}
-    # From settings.json
-    settings = _load_settings_file()
-    for k, v in settings.items():
-        result[k.upper()] = v
-    # From stores.json (first store)
-    store = get_store()
-    if store:
-        result.setdefault("OZON_CLIENT_ID", store.get("client_id", ""))
-        result.setdefault("OZON_API_KEY", store.get("api_key", ""))
-    return result
-
-
-def load_env_file() -> None:
-    """No-op. Config is now in stores.json/settings.json."""
-
-
-def get_required_keys() -> dict[str, dict[str, str]]:
-    """Return credential metadata. Kept for backward compatibility."""
-    return {
-        'MXOU_TOKEN':        {'label': '平台 Token（云端认证）',       'tier': 'dist', 'source': 'settings.json'},
-        'ALI_1688_AK':       {'label': '1688 AK（本地搜索用）',       'tier': 'user', 'source': 'settings.json'},
-        'OZON_CLIENT_ID':    {'label': 'Ozon Client ID（上架用）',    'tier': 'user', 'source': 'stores.json'},
-        'OZON_API_KEY':      {'label': 'Ozon API Key（上架用）',      'tier': 'user', 'source': 'stores.json'},
-    }
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Auth framework — 核心函数级鉴权
 # ═══════════════════════════════════════════════════════════════════════════
@@ -894,36 +858,6 @@ def _require_auth() -> None:
     }
     msg = messages.get(reason, f"鉴权失败（{reason}）")
     raise AuthError(f"{msg}\n然后运行: python3.12 scripts/cli.py set_token --token <新token>")
-
-
-def get_auth_status() -> str:
-    """Get human-readable auth status for check command.
-
-    Returns:
-        "✅ MXOU_TOKEN（已验证，下次验证: 2026-07-25 19:30）"
-        "❌ MXOU_TOKEN（未配置）"
-        "❌ MXOU_TOKEN（已过期，请重新验证）"
-    """
-    token = get_mxou_token()
-    if not token:
-        return "❌ MXOU_TOKEN（未配置）"
-
-    cache = _load_auth_cache()
-    if not cache:
-        return "⚠️ MXOU_TOKEN（已配置，未验证）"
-
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    if token_hash != cache.get("token_hash"):
-        return "⚠️ MXOU_TOKEN（已变更，需重新验证）"
-
-    expires_at = cache.get("expires_at", 0)
-    if _time.time() >= expires_at:
-        return "⚠️ MXOU_TOKEN（已过期，请重新验证）"
-
-    # Format expiry time
-    from datetime import datetime
-    expiry_str = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
-    return f"✅ MXOU_TOKEN（已验证，下次验证: {expiry_str}）"
 
 
 def preflight_check(skip_store: bool = False) -> list[str]:

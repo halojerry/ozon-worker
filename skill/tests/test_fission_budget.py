@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.lib import ozon_fission as ozon_fission
 from scripts.lib.ozon_fission import (
-    FissionBudget,
     FissionState,
     normalize_seller_id,
 )
@@ -67,19 +66,6 @@ def test_seller_products_same_seller_dedup():
     state.mark_seller_seen("X")
     state.mark_seller_seen("X")
     assert len(state.visited_sellers) == 1
-
-
-def test_consensus_ranking_counts_distinct_sellers():
-    """共识排名 = 被不同一跳卖家售卖的数量，top-K 排序。"""
-    candidates = [
-        {"product_id": "p1", "sellers": {"X", "Y", "Z"}},
-        {"product_id": "p2", "sellers": {"X"}},
-        {"product_id": "p3", "sellers": {"X", "Y"}},
-    ]
-    ranked = ozon_fission.rank_by_consensus(candidates, top_k=2)
-    assert ranked[0]["product_id"] == "p1", "p1 有 3 卖家，应排第一"
-    assert ranked[1]["product_id"] == "p3", "p3 有 2 卖家，应排第二"
-    assert len(ranked) == 2, "top_k=2"
 
 
 def test_checkpoint_roundtrip():

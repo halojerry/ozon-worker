@@ -117,7 +117,8 @@ def test_query_commission_no_category_id():
     assert od._query_commission_from_worker(None) is None
 
 
-# ── ④ _calculate_profit：worker batch 回填（v0.83 批①）─────────────────
+# ── ④ worker batch 回填（v0.83 批①；原 _calculate_profit 壳已随 2026-10 清扫删除，
+#       改直调活路径 _estimate_candidates → _apply_estimate_row）─────────────────
 
 def _mk_candidate(price=2000.0, category_id="17028892"):
     c = ProductCandidate(ozon_product_id="p1", ozon_title="Товар", ozon_price=price)
@@ -128,8 +129,8 @@ def _mk_candidate(price=2000.0, category_id="17028892"):
     return c
 
 
-def test_calculate_profit_uses_worker_batch_commission():
-    """_calculate_profit 走 worker batch：commission_rate 回填 estimated_commission。"""
+def test_worker_batch_commission_backfilled():
+    """worker batch：commission_rate 回填 estimated_commission。"""
     cand = _mk_candidate(price=2000.0)
     captured = {}
 
@@ -142,7 +143,8 @@ def test_calculate_profit_uses_worker_batch_commission():
         }]
 
     with mock.patch.object(od, "estimate_batch", side_effect=_fake_batch):
-        od._calculate_profit(cand, fx_rate=0.08)
+        rows = od._estimate_candidates([cand], fx_rate=0.08)
+        od._apply_estimate_row(cand, rows[0] if rows else None, 0.08)
     assert cand.estimate_source == "worker"
     assert cand.commission_source == "segments:leq_5000"
     assert cand.estimated_commission == pytest.approx(cand.ozon_price * 0.08 * 0.14), \
@@ -153,9 +155,9 @@ def test_calculate_profit_uses_worker_batch_commission():
     assert item["currency_code"] == "RUB"
 
 
-# ── ⑤ _calculate_profit：候选本地分段落进 batch item ──────────────────
+# ── ⑤ 候选本地分段落进 batch item ─────────────────────────────────────
 
-def test_calculate_profit_carries_candidate_segments():
+def test_estimate_item_carries_candidate_segments():
     """候选本地分段 → batch item commission_segments（fbs/fbo）。"""
     cand = _mk_candidate(price=1200.0)
     cand.commission_rfbs_segments = {"leq_1500": 10.0, "leq_5000": 11.0, "gt_5000": 12.0}
@@ -171,7 +173,7 @@ def test_calculate_profit_carries_candidate_segments():
         }]
 
     with mock.patch.object(od, "estimate_batch", side_effect=_fake_batch):
-        od._calculate_profit(cand, fx_rate=0.08)
+        od._estimate_candidates([cand], fx_rate=0.08)
     segs = captured["items"][0]["commission_segments"]
     assert segs["fbs"]["leq_1500"] == 10.0
     assert segs["fbo"]["leq_1500"] == 9.0

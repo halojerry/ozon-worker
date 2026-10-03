@@ -127,13 +127,11 @@ def test_discover_task_exit_flags_mutually_exclusive():
 
 def _run_search(args, calls, products):
     from scripts.lib import ak_1688_client, config_store
-    from scripts.lib import ozon_discovery as od
 
     patches = [
         mock.patch.object(ak_1688_client, "search_products", return_value=products),
         mock.patch.object(config_store, "get_ozon_credentials",
                           return_value={"margin_rate": 0.25, "commission_rate": 0.10}),
-        mock.patch.object(od, "_query_logistics_from_worker", return_value=6.0),
         # arch-findings #5: 批量腿门禁接线后，信封须带可过闸的最小 draft
         # （purchase_cost>0 + 属性非空；否则 preflight 按源失效拦截——这正是闸的本意）
         mock.patch("scripts.cloud_probe.build_graph_envelope_with_retry",

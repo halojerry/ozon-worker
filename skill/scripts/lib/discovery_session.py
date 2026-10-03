@@ -28,7 +28,6 @@ import logging
 import os
 import secrets
 import time
-from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -106,11 +105,6 @@ def begin_session(*, kind: str, keyword: str = "", url: str = "",
     return _CURRENT["session_run_id"]
 
 
-def current_session() -> dict | None:
-    """当前进程 session 上下文副本（无 → None）。"""
-    return dict(_CURRENT) if _CURRENT else None
-
-
 def current_run_id() -> str:
     return str((_CURRENT or {}).get("session_run_id") or "")
 
@@ -167,16 +161,6 @@ _GROUP_PRICING = (
     "commission_rfbs_segments", "commission_fbp_segments",
     "weight_g", "dimensions_mm",
 )
-# raw 证据（provenance）——大列表/证据链，按 cap 裁剪。
-_PROV_IMAGES = ("ozon_images", "match_1688_images")
-_PROV_LISTS = ("competing_seller_list", "source_chain")
-
-_KNOWN_GROUPS = (
-    _GROUP_ID, _GROUP_OZON, _GROUP_METRICS, _GROUP_COMPETITION,
-    _GROUP_MATCH, _GROUP_PRICING,
-)
-_ALL_GROUPED_KEYS = frozenset(k for g in _KNOWN_GROUPS for k in g)
-
 
 def _truncate_text(v: Any) -> Any:
     if isinstance(v, str) and len(v) > _CAP_TEXT:
@@ -192,18 +176,6 @@ def _cap_list(v: Any, cap: int) -> list:
 
 def _flatten_value(v: Any) -> Any:
     return v
-
-
-def _flat_candidate(c: Any) -> dict:
-    """候选对象 → 扁平 dict（dataclass asdict 优先；已是 dict 原样浅拷贝）。"""
-    if isinstance(c, dict):
-        return dict(c)
-    if is_dataclass(c):
-        try:
-            return asdict(c)
-        except Exception:
-            pass
-    return dict(getattr(c, "__dict__", {}) or {})
 
 
 def group_candidate(flat: dict) -> dict:
@@ -457,9 +429,6 @@ def load_latest_candidates() -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────
 
 # 上报投影白名单（与 ozon_discovery.REPORT_FIELDS 同源；此处兜底防御）。
-_DEFAULT_REPORT_FIELDS: tuple[str, ...] = ()
-
-
 def _project_rows(flat_rows: list[dict], report_fields: tuple[str, ...]) -> list[dict]:
     """扁平候选 → 上报投影（白名单字段 + 派生 ozon_image 单键）。"""
     rows = []

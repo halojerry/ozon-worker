@@ -3,9 +3,8 @@
 
 覆盖:
 - 四平台识别（1688 / taobao / tmall / pdd）+ canonical_url 规范化
-- 1688 三种模式与 ak_1688_client.parse_product_url 逐字节兼容（同 item_id、
-  同 canonical 口径：offer 路径/纯数字规范化到 detail.1688.com，query 参数
-  形态 canonical 保留原值）
+- 1688 三种模式 canonical 口径（offer 路径/纯数字规范化到 detail.1688.com，
+  query 参数形态 canonical 保留原值）
 - 负例（非货源 URL / 缺 id / 空串）→ None
 
 运行:
@@ -63,37 +62,6 @@ class TestParse1688:
         t = parse_platform_url("https://detail.1688.COM/offer/980815374096.html")
         assert t is not None and t.platform == "1688"
         assert t.item_id == "980815374096"
-
-    def test_byte_compat_with_ak_1688_client(self):
-        """1688 结果与 ak_1688_client.parse_product_url 逐字段一致（权威回归）。"""
-        from scripts.lib.ak_1688_client import parse_product_url
-        samples = [
-            "https://detail.1688.com/offer/980815374096.html",
-            "https://detail.1688.com/offer/679001234567.html?spm=a26352.13672862.pushfrien.1",
-            "980815374096",
-            "1234567890",
-            "https://detail.m.1688.com/page/index.html?offerId=1234567890",
-            "https://www.1688.com/xxx.html?id=123456789&foo=bar",
-            "https://m.1688.com/page/index.html?offer_id=998877",
-            "https://sale.1688.com/factory/hot.html",   # 1688 域但无商品 id → None
-            "https://www.ozon.ru/product/1234567890",
-            "",
-            "not-a-url",
-        ]
-        for url in samples:
-            expected = parse_product_url(url)
-            got = parse_platform_url(url)
-            if expected is None:
-                # 1688 域无商品 id → parse_platform_url 也必须是 None（不得跨平台误判）
-                assert got is None, f"{url!r}: 期望 None，实际 {got}"
-            else:
-                assert got is not None, f"{url!r}: ak 解析成功但 parse_platform_url 返回 None"
-                assert got.platform == expected["platform"], url
-                assert got.item_id == expected["product_id"], url
-                assert got.canonical_url == expected["canonical_url"], (
-                    f"{url!r} canonical 不一致: {got.canonical_url!r} != "
-                    f"{expected['canonical_url']!r}")
-
 
 # ── taobao ──
 

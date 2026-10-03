@@ -196,11 +196,6 @@ def _cached_entry(probe: str) -> dict | None:
         return None
 
 
-def _cached_ok(probe: str) -> bool:
-    entry = _cached_entry(probe)
-    return bool(entry and entry.get("ok"))
-
-
 def _mark_ok(probe: str, ok: bool = True) -> None:
     from scripts.lib.cache import cache_set
     try:

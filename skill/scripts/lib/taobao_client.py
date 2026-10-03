@@ -49,9 +49,6 @@ TAOBAO_LOGIN_URL = "https://login.taobao.com/member/login.jhtml"
 MTOP_APP_KEY = "12574478"  # 必须与下方 _MTOP_FETCH_JS 内 appKey 一致
 MTOP_HOSTS = {"taobao": "h5api.m.taobao.com", "tmall": "h5api.m.tmall.com"}
 
-# 风控/滑块选择器：service.py:804-810 先例 + 淘宝系 baxia 风控容器
-_RISK_CONTROL_MARKERS = ("验证", "滑块", "风控", "安全")
-
 
 class TaobaoFetchError(RuntimeError):
     """淘宝/天猫抓取失败（人话消息，含 mtop ret 原文——失败出声）。"""

@@ -133,11 +133,9 @@ AUX_FILES = [
 
 # 有意不打包的源码文件（防回归测试豁免白名单——新增 lib 模块默认必须登记，
 # 进此表需要注释理由）：
-LIB_FILES_INTENTIONALLY_UNPACKAGED = {
-    # Electron 宿主操作客户端（2026-08-20）：harness 侧集成未接线（零 import 方），
-    # 退役候选——接线时随包补登记。
-    "electron_ops.py",
-}
+# 2026-10 死代码清扫：electron_ops.py（Electron 宿主操作客户端，harness 侧
+# 集成从未接线）整模块删除，豁免条目随之清空。
+LIB_FILES_INTENTIONALLY_UNPACKAGED: set[str] = set()
 
 # 参考文件（客户端文档 + 依赖）
 DOC_FILES = [

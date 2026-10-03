@@ -6,7 +6,6 @@ import json
 import random
 import re
 import shutil
-import socket as _socket
 import subprocess
 import sys
 import time
@@ -19,19 +18,6 @@ from urllib.request import urlopen
 
 from scripts._const import DATA_DIR, DEFAULT_CACHE_TTL_SECONDS, get_config_profile
 from scripts.lib.cdp_client import CdpConnection, CdpTab
-
-# Backward compat aliases for except blocks
-PlaywrightError = Exception
-PlaywrightTimeoutError = TimeoutError
-
-
-def _pick_free_port() -> int:
-    """Find a free TCP port on localhost."""
-    sock = _socket.socket()
-    sock.bind(('127.0.0.1', 0))
-    port = int(sock.getsockname()[1])
-    sock.close()
-    return port
 
 
 def sleep_random(min_ms: int, max_ms: int) -> None:
@@ -1315,24 +1301,6 @@ def _poll_probe(tab: CdpTab, timeout_seconds: int, poll_ms: int, *, headed: bool
 
 
 
-def _login_url() -> str:
-    return 'https://login.1688.com/member/signin.htm'
-
-
-def _maybe_open_login_first(tab: CdpTab, *, headed: bool, timeout_ms: int) -> None:
-    if not headed:
-        return
-    try:
-        tab.navigate(_login_url(), wait_until='domcontentloaded', timeout=max(timeout_ms // 1000, 1))
-        try:
-            tab.wait_for_load(timeout=5)
-        except Exception:
-            pass
-    except Exception:
-        return
-
-
-
 def _session_file(profile: str) -> Path:
     path = DATA_DIR / 'browser' / 'sessions'
     path.mkdir(parents=True, exist_ok=True)
@@ -1432,38 +1400,6 @@ def _cdp_available(cdp_url: str) -> bool:
             return True
     except Exception:
         return False
-
-
-def _chrome_user_data_dir_matches(cdp_url: str, expected_dir: str) -> bool:
-    """Verify that the Chrome at cdp_url uses the expected --user-data-dir profile.
-
-    Returns True if the Chrome's profile matches expected_dir, or if we can't
-    determine the profile (conservative: don't break existing sessions).
-    """
-    if not expected_dir:
-        return True  # No expectation → don't block
-    expected_resolved = str(Path(expected_dir).resolve())
-    commands = _list_browser_commands()
-    if not commands:
-        return True  # Can't check → don't block (conservative)
-
-    port_match = re.search(r':(\d+)/?', cdp_url)
-    if not port_match:
-        return True
-    port = port_match.group(1)
-
-    for line in commands:
-        if f'--remote-debugging-port={port}' not in line:
-            continue
-        dir_match = re.search(r'--user-data-dir=(\S+)', line)
-        if dir_match:
-            actual = str(Path(dir_match.group(1)).resolve())
-            return actual == expected_resolved
-        # Chrome launched without explicit --user-data-dir → can't verify
-        return True
-    # CDP is alive but no Chrome process with --remote-debugging-port found
-    # → likely Electron or another app, NOT our Chrome
-    return False
 
 
 def _find_live_cdp_session_for_profile(

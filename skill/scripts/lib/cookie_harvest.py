@@ -143,10 +143,6 @@ def _keychain_safe_storage(service: str) -> bytes | None:
     return pw.encode("utf-8") if pw else None
 
 
-def _derive_chromium_key(password: bytes) -> bytes:
-    return hashlib_pbkdf2_sha1(password)
-
-
 def hashlib_pbkdf2_sha1(password: bytes) -> bytes:
     """Chromium v10 派生：PBKDF2-HMAC-SHA1(pw, 'saltysalt', 1003, 16)。"""
     import hashlib

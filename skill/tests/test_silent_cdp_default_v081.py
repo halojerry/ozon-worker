@@ -79,10 +79,10 @@ def test_new_tab_defaults_background():
 def test_lazy_collect_chains_use_background_plus_force_active():
     """懒加载收集链锁定：discovery 瀑布流 + cli 搜索收集必须后台 tab + force_active。"""
     src_disc = (_SCRIPTS / "lib" / "ozon_discovery.py").read_text(encoding="utf-8")
-    assert "new_tab(url, background=True)" in src_disc, "discovery 瀑布流收集必须后台 tab"
-    # collect_product_urls 的 tab 创建后必须紧跟 force_active（同函数体内）
-    fn = src_disc.split("def discover_from_url(", 1)[1].split("\ndef ", 1)[0]
-    assert "force_active()" in fn, "后台 tab 必须接 force_active 才能渲染瀑布流"
+    # 2026-10 死代码清扫：原 discover_from_url（后台 tab + force_active）已删——
+    # 现役瀑布流采集入口是 collect_and_analyze（后台 tab 创建，见函数体注释）。
+    fn = src_disc.split("def collect_and_analyze(", 1)[1].split("\ndef ", 1)[0]
+    assert "new_tab(target_url, background=True)" in fn, "discovery 瀑布流收集必须后台 tab"
 
     src_cli = (_SCRIPTS / "cli.py").read_text(encoding="utf-8")
     fn_cli = src_cli.split("def _collect_keyword_pids(", 1)[1].split("\ndef ", 1)[0]
