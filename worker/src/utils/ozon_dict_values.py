@@ -13,9 +13,6 @@ from utils.ozon_client import ozon_post
 
 logger = logging.getLogger(__name__)
 
-SEARCH_URL = "https://api-seller.ozon.ru/v1/description-category/attribute/values/search"
-LIST_URL = "https://api-seller.ozon.ru/v1/description-category/attribute/values"
-
 
 def search_dictionary_values(
     client_id: str,

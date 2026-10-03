@@ -8,7 +8,7 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 from pydantic import BaseModel, Field
 
-from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, VariantPrimaryLoopOutput
+from graphs.state import VariantPrimaryLoopOutput
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.62 R4 / v0.63.1

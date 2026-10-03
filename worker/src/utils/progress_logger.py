@@ -102,17 +102,6 @@ class ProgressLogger:
         self.stages = self._config.get('stages', {})
         self.node_titles = self._config.get('node_titles', {})
     
-    def log_stage_start(self, stage_key: str):
-        """
-        记录阶段开始
-        
-        Args:
-            stage_key: 阶段键名（如"phase1_data_preparation"）
-        """
-        stage = self.stages.get(stage_key)
-        if stage:
-            logger.info(f"🚀 {stage['name']} 开始 - {stage['description']}")
-    
     def log_node_start(self, node_name: str, node_title: str = None) -> int:
         """
         记录节点开始（含进度百分比），并同步更新 _task_progress
@@ -187,17 +176,6 @@ class ProgressLogger:
             result_summary: 结果摘要（中文）
         """
         logger.info(f"✅ {result_summary}")
-    
-    def log_node_retry(self, retry_count: int, max_retries: int, reason: str):
-        """
-        记录节点重试
-        
-        Args:
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
-            reason: 重试原因（中文）
-        """
-        logger.warning(f"🔄 重试 {retry_count}/{max_retries} - 原因：{reason}")
     
     def log_node_error(self, error_msg: str, suggestion: str = "请检查日志详情"):
         """

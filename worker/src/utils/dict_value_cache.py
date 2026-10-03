@@ -255,14 +255,6 @@ def is_category_dependent(attr_row: Any) -> bool:
     return bool(attr_row.get("category_dependent", True))
 
 
-def classify_bucket(attr_row: Any, truncated: bool = False,
-                    value_count: int = 0) -> str:
-    """三桶分类（纯函数）。truncated=首页即 has_next（dicts >2000 值）。"""
-    if truncated or value_count > DICT_MATERIALIZE_MAX_VALUES:
-        return BUCKET_EPHEMERAL
-    return BUCKET_SCOPED if is_category_dependent(attr_row) else BUCKET_GLOBAL
-
-
 def routed_get(attr_id: int, dc: int, tp: int,
                language: str = "ZH_HANS") -> Optional[List[dict]]:
     """读缓存：scoped (attr,dc,tp) 优先，未命中回退 global (attr,0,0)。

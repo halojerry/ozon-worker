@@ -27,22 +27,6 @@ class AuditCreateIn(BaseModel):
     detail: Optional[Any] = None
 
 
-def create_audit_log(db_or_engine, user_id: str, action: str, resource: Optional[str], detail: Optional[Any]):
-    """Helper for other endpoints to log. Non-fatal: exceptions are swallowed."""
-    try:
-        import json as _json
-        detail_json = _json.dumps(detail, ensure_ascii=False) if detail is not None else None
-        eng = get_engine()
-        # db_or_engine may be engine or connection; just use get_engine()
-        with eng.begin() as conn:
-            conn.execute(text(
-                "INSERT INTO audit_logs (user_id, action, resource, detail) "
-                "VALUES (:uid, :action, :resource, CAST(:detail AS jsonb))"
-            ), {"uid": user_id, "action": action, "resource": resource, "detail": detail_json})
-    except Exception:
-        pass
-
-
 def _row_to_dict(r):
     return {"id": int(r[0]), "user_id": r[1], "action": r[2], "resource": r[3],
             "detail": r[4], "created_at": r[5].isoformat() if r[5] else None}

@@ -46,7 +46,6 @@ from graphs.nodes.ozon_validate_node import (  # noqa: E402
 )
 from utils.category_consistency_lexicon import (  # noqa: E402
     is_generic_word,
-    non_generic_words,
 )
 
 # ── gate 实况数据 ──
@@ -83,10 +82,6 @@ class TestGenericLexicon:
     def test_short_tokens_never_generic(self):
         for w in ("", "для", "и", "к"):
             assert is_generic_word(w) is False
-
-    def test_non_generic_words_filters(self):
-        got = non_generic_words({"портативный", "вентилятор", "декоративный"})
-        assert got == {"вентилятор"}
 
     def test_missing_config_degrades_to_empty(self, monkeypatch):
         """配置缺失/损坏 → 空泛词表 → is_generic_word 恒 False（不误收紧）。"""

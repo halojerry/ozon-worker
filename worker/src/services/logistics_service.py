@@ -30,12 +30,6 @@ _REQUIRED_COLUMNS = [
     "base_cost", "per_gram_rate", "sum_limit_cm", "longest_limit_cm", "charge_type",
 ]
 
-# upsert 时 UPDATE 的字段（键字段不变）
-_UPDATE_COLUMNS = [
-    "base_cost", "per_gram_rate", "sum_limit_cm", "longest_limit_cm",
-    "charge_type", "vol_weight_divisor", "delivery_method",
-]
-
 
 def _row_to_dict(row) -> dict[str, Any]:
     """SQLAlchemy Row → dict（None → None，不做空串替换，保持原始类型）。"""

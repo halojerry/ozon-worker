@@ -216,29 +216,6 @@ def unique_or_none(
     return res
 
 
-def resolve_cached(
-    attr_id: int,
-    attr_name: str,
-    product_value: str,
-    cached_values: List[dict],
-    *,
-    hazard_safe: bool = True,
-    aspect_skip: bool = False,
-) -> AttrResolution:
-    """完整确定性解析（L1 主干）：match_dict_value → unique_or_none。
-
-    无 1688 源值 → no_source。这是三处（assemble/prepare/retry）共用的
-    「缓存值 → 决议」路径；API 搜索链（L2）在 Phase 2 接入。
-    """
-    if not product_value:
-        return AttrResolution(
-            status="no_source", attr_id=attr_id, attr_name=attr_name,
-            reason="empty_product_value",
-        )
-    hits = match_dict_value(attr_id, product_value, cached_values or [])
-    return unique_or_none(attr_id, attr_name, hits, hazard_safe=hazard_safe, aspect_skip=aspect_skip)
-
-
 # ══════════════════════════════════════════════════════════════════════
 # L2 编排层：LLM 消歧（Phase 4，安全三件套，默认关）
 # ══════════════════════════════════════════════════════════════════════

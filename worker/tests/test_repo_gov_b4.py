@@ -5,7 +5,8 @@
 - T1(D-03)：utils/error_classifier.py 整模块删除（ErrorClassifier 实为
   runtime/helpers.py 另一实现；本模块 fix_path 指向已不存在的旧拓扑节点）
 - T2(D-02)：graphs/state.py 旧 4 节点管线死模型 8 个删除
-  （⚠️ VariantLoopOutput/VariantLoopState 是活的，必须保留）
+  （VariantLoopState/VariantLoopOutput 当时判活，2026-10 死代码清扫复核为
+  测试专用构造 → 已删，见下 T2 断言）
 - T3(D-04)：死配置 2 个删除（category_match_llm_cfg / product_assembly_cfg）
 - T5(D-01)：TASK_NOT_CANCELLABLE 接线——cancel_task 对非 pending 任务
   由 200+{status:failed} 改返 409 统一错误信封（可编程处理）
@@ -77,9 +78,13 @@ def test_state_dead_models_removed_and_live_models_kept():
         "AttributesFetchInput", "AttributesFetchOutput",
         "AttributesLLMInput", "AttributesLLMOutput",
         "AttributesLearningInput", "AttributesLearningOutput",
-        "VariantLoopInput",  # variant_primary_loop 子图实际用 VariantLoopState
+        "VariantLoopInput",
+        # 2026-10 死代码清扫：VariantLoopState/VariantLoopOutput 仅被测试构造使用，
+        # 节点真实 Input/Output 是 VariantPrimaryLoopInput/VariantPrimaryLoopOutput
+        # （同文件内定义），随清扫删除。
+        "VariantLoopState", "VariantLoopOutput",
     ]
-    alive = ["VariantLoopState", "VariantLoopOutput", "VariantPrimaryLoopOutput"]
+    alive = ["VariantPrimaryLoopOutput"]
     for name in dead:
         assert not hasattr(gs, name), f"state.py 死模型未删: {name}"
     for name in alive:

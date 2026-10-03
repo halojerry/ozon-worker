@@ -164,14 +164,12 @@ def test_merge_skips_create_items_and_empty():
     assert merge_copied_card_attributes(items2, []) == items2
 
 
-# ── ③ channel 纪律：三处声明 ──────────────────────────────────
+# ── ③ channel 纪律：两处声明 ──────────────────────────────────
 
 def test_channel_declarations():
-    from graphs.state import FollowSellImportOutput, GlobalState, PrepareOzonUploadInput
-    for model in (GlobalState, FollowSellImportOutput, PrepareOzonUploadInput):
+    from graphs.state import GlobalState, PrepareOzonUploadInput
+    for model in (GlobalState, PrepareOzonUploadInput):
         assert "follow_copied_attributes" in model.model_fields, f"{model.__name__} 缺字段声明"
-    out = FollowSellImportOutput()
-    assert out.follow_copied_attributes == []
     inp = PrepareOzonUploadInput(follow_copied_attributes=[{"id": 1, "values": []}])
     assert len(inp.follow_copied_attributes) == 1
 

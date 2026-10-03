@@ -40,10 +40,6 @@ _ENVELOPE_EXAMPLE: dict[str, Any] = {
 # ──────────────────────────────────────────────
 
 
-class ApiVersion(str, Enum):
-    V1 = "v1"
-
-
 class ErrorBody(BaseModel):
     """统一错误响应体。"""
     model_config = _examples({"ok": False, "error_code": "TOKEN_INVALID", "message": "token_invalid or account_inactive", "detail": None})
@@ -205,14 +201,6 @@ class TaskStatisticsResponse(BaseModel):
     avg_duration_seconds: Optional[float] = Field(None, description="平均执行时长（秒）")
 
 
-class AuthVerifyRequest(BaseModel):
-    """Skill 鉴权请求。"""
-    model_config = _examples({"token": "__TOKEN_EXAMPLE__", "client_id": "5381204", "api_key": "mock-key-not-a-credential"})
-    token: str = Field(..., description="MXOU_TOKEN")
-    client_id: str = Field("", description="Ozon Client ID（可选）")
-    api_key: str = Field("", description="Ozon API Key（可选）")
-
-
 class AuthVerifyResponse(BaseModel):
     """Skill 鉴权响应。"""
     model_config = _examples({"valid": True, "reason": "ok", "expires_in": 86400, "ozon_valid": True})
@@ -239,12 +227,6 @@ class BlueOceanQueryItem(BaseModel):
     uniq_sellers: Optional[float] = Field(None, description="独立卖家数")
 
 
-class AnalyticsQueriesRequest(BaseModel):
-    """蓝海关键词上报请求。"""
-    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
-    queries: list[BlueOceanQueryItem] = Field(default_factory=list, description="蓝海关键词列表")
-
-
 class OzonBestsellerItem(BaseModel):
     """ozon-bestsellers 榜单数据单条。"""
     sku_or_id: str = Field(..., description="Ozon SKU 或商品 ID")
@@ -256,12 +238,6 @@ class OzonBestsellerItem(BaseModel):
     avg_price_rub: Optional[float] = Field(None, description="平均售价（卢布）")
 
 
-class AnalyticsOzonBestsellersRequest(BaseModel):
-    """Ozon 榜单上报请求。"""
-    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
-    items: list[OzonBestsellerItem] = Field(default_factory=list, description="榜单条目列表")
-
-
 class MarketBestsellerItem(BaseModel):
     """market-bestsellers 全平台榜单数据单条。"""
     product_name: str = Field(..., description="商品名称")
@@ -271,12 +247,6 @@ class MarketBestsellerItem(BaseModel):
     ordering_amount: Optional[float] = Field(None, description="订购金额")
     daily_avg: Optional[float] = Field(None, description="日均销量")
     other_platform_price: Optional[float] = Field(None, description="其他平台价格")
-
-
-class AnalyticsMarketBestsellersRequest(BaseModel):
-    """全平台榜单上报请求。"""
-    token: str = Field(..., description="MXOU API Key（带或不带 sk- 前缀）")
-    items: list[MarketBestsellerItem] = Field(default_factory=list, description="榜单条目列表")
 
 
 class DiscoveryRunItem(BaseModel):
@@ -1243,15 +1213,6 @@ class ProductEditResponse(BaseModel):
 # ──────────────────────────────────────────────
 # /api/v1/mxou/login — MXOU 账号密码登录（WebUI T2）
 # ──────────────────────────────────────────────
-
-
-class MxouLoginRequest(BaseModel):
-    """MXOU 账号密码登录请求。
-
-    登录入口无 token 鉴权（登录本身是入口）；防爆破在端点层按 username 限流。
-    """
-    username: str = Field(..., description="MXOU 平台账号（api.mxou.cn）")
-    password: str = Field(..., description="MXOU 平台密码（不落库不日志）")
 
 
 class MxouKeyItem(BaseModel):

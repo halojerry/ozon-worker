@@ -23,7 +23,6 @@ from jinja2.sandbox import SandboxedEnvironment
 
 sys.path.insert(0, "src")
 
-from graphs.nodes import assemble_ozon_product_node
 from graphs.nodes import scene_generation_llm_node
 from graphs.nodes import visual_vars_llm_node
 from graphs import validation_retry_loop
@@ -205,35 +204,6 @@ def _write_llm_cfg(tmp_path: Path, name: str, cfg: dict) -> Path:
     cfg_file = cfg_dir / name
     cfg_file.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     return cfg_file
-
-
-def test_assemble_llm_match_malicious_cfg_returns_none(monkeypatch, tmp_path):
-    """assemble._llm_match_category：恶意 category_match_v2_cfg.json →
-    SecurityError 被既有 except Exception 接住 → 返回 None（回落下一匹配层，不炸任务）。"""
-    _write_llm_cfg(tmp_path, "category_match_v2_cfg.json",
-                   {"config": {"model": "m"}, "sp": "sp", "up": "{{ title }} {{ ''.__class__.__mro__ }}"})
-    monkeypatch.setenv("APP_WORKSPACE_PATH", str(tmp_path))
-    assert assemble_ozon_product_node._llm_match_category("标题", "描述", {}, [], "tok") is None
-
-
-def test_assemble_llm_match_benign_cfg_renders_and_parses(monkeypatch, tmp_path):
-    """assemble._llm_match_category：良性模板渲染进 LLM 调用并解析回 dict（回归）。"""
-    _write_llm_cfg(tmp_path, "category_match_v2_cfg.json",
-                   {"config": {"model": "m"}, "sp": "系统提示",
-                    "up": "标题:{{title}} 候选数:{{candidates|length}}"})
-    monkeypatch.setenv("APP_WORKSPACE_PATH", str(tmp_path))
-    captured = {}
-
-    def fake_llm(**kwargs):
-        captured.update(kwargs)
-        return '{"description_category_id": 123, "type_id": 456, "category_path": "收纳", "confidence": 0.9}'
-
-    monkeypatch.setattr(assemble_ozon_product_node, "call_mxou_chat_api", fake_llm)
-    result = assemble_ozon_product_node._llm_match_category(
-        "标题", "描述", {"颜色": "白"}, [{"description_category_id": 1}], "tok")
-    assert result["description_category_id"] == 123
-    assert captured["system_prompt"] == "系统提示"
-    assert captured["user_prompt"] == "标题:标题 候选数:1"
 
 
 def test_retry_llm_malicious_cfg_fails_closed(monkeypatch, tmp_path):

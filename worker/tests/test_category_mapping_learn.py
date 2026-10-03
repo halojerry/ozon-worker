@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from utils.category_mapping_learn import lookup_mapping, record_mapping
+from utils.category_mapping_learn import lookup_mapping
 from utils.local_db_manager import LocalDBManager
 
 
@@ -45,17 +45,6 @@ def test_lookup_skips_low_confidence():
     with mock.patch.object(LocalDBManager, "get_category_mapping_by_source_id",
                            return_value=[_row(succ=0, conf=0.5)]):
         assert lookup_mapping(source_category_id=12345, leaf_name="女袜") is None
-
-
-def test_record_mapping_passes_source_category_id():
-    with mock.patch.object(LocalDBManager, "add_category_mapping") as m_add:
-        record_mapping(12345, "女袜", 17027918, 971311385, path_zh="袜子")
-    m_add.assert_called_once()
-    kwargs = m_add.call_args.kwargs
-    assert kwargs["source_category_id"] == 12345
-    assert kwargs["source_category_leaf"] == "女袜"
-    assert kwargs["description_category_id"] == 17027918
-    assert kwargs["type_id"] == 971311385
 
 
 if __name__ == "__main__":

@@ -53,15 +53,6 @@ class CredentialCipherError(ValueError):
     """凭证加密错误(配置错误/GCM 认证失败共用, 不携带任何密文)。"""
 
 
-def _load_key() -> bytes:
-    raw = os.environ.get(_ENV_KEY, "")
-    if not raw:
-        raise CredentialCipherError(
-            f"{_ENV_KEY} 环境变量未设置: 无法加密/解密凭证"
-        )
-    return derive_key(raw)
-
-
 def derive_key(raw: str) -> bytes:
     """(v1 legacy) 口令/32 字节 key → AES-256 key。
 

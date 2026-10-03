@@ -90,13 +90,6 @@ def test_message_templates():
     assert all(t["name"] and "[货件编号]" in t["text"] for t in tpls)
 
 
-def test_fill_template_placeholders():
-    filled = order_service._fill_template(
-        "Здравствуйте [货件编号] ([商品名称])", "PN-001", "Товар X")
-    assert "PN-001" in filled
-    assert "Товар X" in filled
-
-
 # ============================================================
 # 2. 发送闭环
 # ============================================================

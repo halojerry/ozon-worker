@@ -1,110 +1,18 @@
-"""P0-4: 订单服务测试（mock ozon_post + 状态映射 + 提取 + 错误路径）。
+"""P0-4: 订单服务状态映射测试。
 
 验收门（archive/docs/legacy/PRD-orders-v0.47.md §五）：
 1. 状态映射全枚举（Ozon raw status → 统一 7 态）
-2. products/financial/warehouse 标准化提取
-3. 无默认店铺 → 400；Ozon API 失败 → 502
-4. 租户隔离（credential 归属校验走 get_decrypted）
-"""
-import json
-import os
-import sys
-import uuid
-from contextlib import ExitStack
-from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import patch
 
-import pytest
-from fastapi import HTTPException
-from sqlalchemy import create_engine, text
+注（2026-10 死代码清扫）：list_orders（实时拉取，无生产调用方）已随清扫删除，
+其 mock 提取/错误路径/租户隔离用例一并退役；本文件保留 map_status 用例（该函数
+仍在 order_service 内，未列入删除清单）。
+"""
+import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from services import order_service
-
-DB_URL = os.environ.get(
-    "PGDATABASE_URL",
-    "postgresql://postgres:localdev123@localhost:5433/ozon",
-)
-MASTER_KEY = "0123456789abcdef0123456789abcdef"
-TENANT = "tenant-A"
-
-
-@pytest.fixture(scope="module")
-def _pg():
-    try:
-        eng = create_engine(DB_URL)
-        with eng.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        eng.dispose()
-    except Exception as exc:  # pragma: no cover
-        pytest.skip(f"PG 不可用（{exc}），跳过订单服务测试")
-
-
-@pytest.fixture(autouse=True)
-def _env(monkeypatch):
-    monkeypatch.setenv("CREDENTIAL_MASTER_KEY", MASTER_KEY)
-    monkeypatch.setenv("PGDATABASE_URL", DB_URL)
-
-
-@pytest.fixture(autouse=True)
-def _cleanup(_pg):
-    yield
-    eng = create_engine(DB_URL)
-    with eng.begin() as conn:
-        conn.execute(text("DELETE FROM credentials WHERE tenant_id=:t"), {"t": TENANT})
-    eng.dispose()
-
-
-def _store_credential(tenant: str, client_id: str, api_key: str, is_default=False) -> str:
-    from services import credential_service
-    return credential_service.store_credential(tenant, client_id, api_key)
-
-
-def _fake_ozon(payload: dict, error: Exception | None = None):
-    """mock ozon_post：记录调用，返回固定 payload 或抛错。"""
-    def _fake(client_id, api_key, endpoint, body, timeout=60, language="ZH_HANS"):
-        calls = getattr(_fake, "calls", [])
-        calls.append({"client_id": client_id, "endpoint": endpoint, "body": body})
-        _fake.calls = calls
-        if error is not None:
-            raise error
-        if endpoint == "/v3/product/info/list":
-            # 订单商品图批量拉取（T4.3）：sku=123 → 主图
-            return {"result": {"items": [
-                {"product_id": 123, "name": "测试商品", "images": ["http://img/order.jpg"]},
-            ]}}
-        return {"result": payload}
-    _fake.calls = []
-    return _fake
-
-
-def _patch_ozon(fake):
-    """同时 patch 两个命名空间：order_service 模块级 + utils.ozon_client（store_sync 延迟导入）。"""
-    stack = ExitStack()
-    stack.enter_context(patch("services.order_service.ozon_post", fake))
-    stack.enter_context(patch("utils.ozon_client.ozon_post", fake))
-    return stack
-
-
-def _posting(status: str, **kw) -> dict:
-    p = {
-        "posting_number": f"PN-{status}",
-        "status": status,
-        "in_process_at": "2026-08-15T10:00:00Z",
-        # v4：products[].price 对象 {amount, currency}；financial commission 对象 + product_id
-        "products": [{"name": "测试商品", "sku": 123, "quantity": 2,
-                      "price": {"amount": "99.5", "currency": "RUB"}, "offer_id": "16880001"}],
-        "financial_data": {
-            "products": [{"price": 99.5, "product_id": 123,
-                          "commission": {"amount": 9.95, "currency": "RUB", "percent": 10}}],
-        },
-        "delivery_method": {"name": "Стандарт", "warehouse": "Москва"},
-        "analytics_data": {"warehouse": "Москва"},
-    }
-    p.update(kw)
-    return p
 
 
 # ============================================================
@@ -127,108 +35,3 @@ def test_status_map_full():
     assert order_service.map_status("cancelled_by_ozon") == "cancelled"
     assert order_service.map_status("cancelled_arbitrary") == "cancelled"
     assert order_service.map_status("unknown_future_status") == "other"
-
-
-# ============================================================
-# 2. 标准化提取
-# ============================================================
-
-def test_extract_products_and_financial(_pg):
-    cred = _store_credential(TENANT, "222222", "key-2")
-    fake = _fake_ozon({"postings": [_posting("delivering")], "total": 1})
-    with _patch_ozon(fake):
-        result = order_service.list_orders(TENANT, credential_id=cred)
-    item = result["items"][0]
-    assert item["status"] == "delivering"
-    assert item["raw_status"] == "delivering"
-    assert item["posting_number"] == "PN-delivering"
-    assert item["total_amount"] == 99.5
-    assert item["commission_amount"] == 9.95  # v4 commission 对象 amount 适配
-    assert item["profit"] == 89.55
-    assert item["product_count"] == 2
-    assert item["warehouse"] == "Москва"
-    assert item["delivery_method"] == "Стандарт"
-    # T4.3：v4 price 对象金额提取 + product_id + 主图
-    assert item["products"][0]["name"] == "测试商品"
-    assert item["products"][0]["price"] == 99.5
-    assert item["products"][0]["product_id"] == 123
-    assert item["products"][0]["image"] == "http://img/order.jpg"
-    assert result["total"] == 1
-    assert result["store"]["ozon_client_id"] == "222222"
-    # 请求体：v4 游标分页 + with.financial_data 打开 + since 默认 30 天
-    body = fake.calls[0]["body"]
-    assert body["with"]["financial_data"] is True
-    assert body["limit"] <= 100  # v4 单页上限 100
-    assert "cursor" in body
-    assert fake.calls[0]["endpoint"] == "/v4/posting/fbs/list"
-
-
-def test_cancelled_posting_extracts_reason(_pg):
-    cred = _store_credential(TENANT, "222222", "key-2")
-    posting = _posting(
-        "cancelled_by_customer",
-        cancel_reason="buyer refused",
-        cancellation={"reason": "buyer refused", "cancellation_type": "client"},
-    )
-    fake = _fake_ozon({"postings": [posting]})
-    with _patch_ozon(fake):
-        result = order_service.list_orders(TENANT, credential_id=cred)
-    item = result["items"][0]
-    assert item["status"] == "cancelled"
-    assert item["cancel_reason"] == "buyer refused"
-    assert item["cancellation"] == "client"
-
-
-def test_status_filter_passed_to_api(_pg):
-    """v4 状态过滤用 statuses 数组（v3 的 status 字符串已废弃）。"""
-    cred = _store_credential(TENANT, "222222", "key-2")
-    fake = _fake_ozon({"postings": [], "has_next": False})
-    with _patch_ozon(fake):
-        order_service.list_orders(TENANT, credential_id=cred, status="delivered")
-    assert fake.calls[0]["body"]["filter"]["statuses"] == ["delivered"]
-
-
-def test_since_format_ozon_compliant(_pg):
-    """Ozon 要求 since/to 严格 YYYY-MM-DDTHH:MM:SSZ，且 filter 必须同时含 since+to。"""
-    import re
-    cred = _store_credential(TENANT, "222222", "key-2")
-    fake = _fake_ozon({"postings": [], "total": 0})
-    with _patch_ozon(fake):
-        order_service.list_orders(TENANT, credential_id=cred)
-    filt = fake.calls[0]["body"]["filter"]
-    for key in ("since", "to"):
-        val = filt[key]
-        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", val), f"{key} 格式不符: {val}"
-    assert "to" in filt  # 缺 to → Ozon 400 processed_at_to must be set
-
-
-# ============================================================
-# 3. 错误路径
-# ============================================================
-
-def test_no_default_store_400(_pg):
-    with pytest.raises(HTTPException) as ei:
-        order_service.list_orders(TENANT)
-    assert ei.value.status_code == 400
-    assert "默认店铺" in ei.value.detail
-
-
-def test_ozon_api_error_502(_pg):
-    cred = _store_credential(TENANT, "222222", "key-2")
-    fake = _fake_ozon({}, error=RuntimeError("boom"))
-    with _patch_ozon(fake):
-        with pytest.raises(HTTPException) as ei:
-            order_service.list_orders(TENANT, credential_id=cred)
-    assert ei.value.status_code == 502
-    assert "Ozon" in ei.value.detail
-
-
-# ============================================================
-# 4. 租户隔离（凭证归属）
-# ============================================================
-
-def test_foreign_tenant_credential_404(_pg):
-    _store_credential("tenant-B", "333333", "key-3")  # B 的凭证
-    with pytest.raises(HTTPException) as ei:
-        order_service.list_orders(TENANT, credential_id=str(uuid.uuid4()))
-    assert ei.value.status_code == 404

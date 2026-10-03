@@ -255,70 +255,6 @@ def apply_product_images(products: list, images: dict) -> None:
             prod["image"] = url
 
 
-def list_orders(
-    tenant_id: str,
-    credential_id: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
-    since_days: int = 30,
-) -> dict[str, Any]:
-    """实时拉取 Ozon FBS 订单（租户隔离 + 凭证归属校验）。
-
-    Returns: {items: [OrderOut], total, limit, offset, store: {ozon_client_id}}
-    """
-    if credential_id:
-        client_id, api_key = get_decrypted(tenant_id, str(credential_id))
-        store_id = str(credential_id)
-    else:
-        default = get_default_credential(tenant_id)
-        if default is None:
-            raise HTTPException(
-                status_code=400,
-                detail="未配置默认店铺：请传 credential_id 或先在店铺管理设置默认店铺",
-            )
-        client_id, api_key = default["ozon_client_id"], default["api_key"]
-        store_id = default["id"]
-
-    limit = max(1, min(int(limit), 100))  # v4 limit 上限 100（v3 为 1000）
-    offset = max(0, int(offset))
-
-    body = {
-        "sort_dir": "ASC",
-        "filter": _build_filter(status, since_days),
-        "limit": limit,
-        "cursor": "",
-        "with": {"analytics_data": True, "financial_data": True},
-    }
-    try:
-        postings = paginate(
-            client_id, api_key, "/v4/posting/fbs/list", body,
-            cursor_style="last", post_fn=ozon_post, timeout=30, language="RU",
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning("Ozon FBS 订单拉取失败 client=%s: %s", client_id, str(exc)[:200])
-        raise HTTPException(status_code=502, detail=f"Ozon 订单接口请求失败：{str(exc)[:120]}")
-
-    items = [_normalize_posting(p) for p in postings if isinstance(p, dict)]
-
-    # T4.3：按 product_id 批量拉订单商品主图（fail-open，不阻断列表）
-    images = fetch_order_images(client_id, api_key, postings)
-    for item in items:
-        apply_product_images(item.get("products") or [], images)
-
-    total = len(items)
-
-    return {
-        "items": items,
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-        "store": {"id": store_id, "ozon_client_id": client_id},
-    }
-
-
 # ──────────────────────────────────────────────
 # P1-1 订单操作：货源/采购信息标注（本地）+ 面单代理
 # ──────────────────────────────────────────────
@@ -603,12 +539,6 @@ MESSAGE_TEMPLATES = [
 def get_message_templates() -> list[dict]:
     """内置消息模板（静态，纯读）。"""
     return MESSAGE_TEMPLATES
-
-
-def _fill_template(template_text: str, posting_number: str, product_name: str = "") -> str:
-    """占位符替换：[货件编号]→posting_number，[商品名称]→product_name（截断 60）。"""
-    name = (product_name or "")[:60]
-    return template_text.replace("[货件编号]", posting_number).replace("[商品名称]", name or posting_number)
 
 
 def list_order_messages(tenant_id: str, limit: int = 50, offset: int = 0) -> dict:

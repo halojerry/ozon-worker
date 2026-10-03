@@ -368,48 +368,6 @@ class IngestOutput(BaseModel):
     failed_stage: str = Field(default="", description="失败节点名（空标题闸=ingest，成功恒空）")
 
 
-# ==================== 跟卖导入节点 ====================
-# 注（2026-09-11 仓库治理 B4）：旧 4 节点管线遗骸 CategoryLookupInput/Output 已删
-# （assemble_ozon_product 替代后全仓零引用，见 docs/audit/2026-09-11-repo-gov/A5 §2 D-02）。
-class FollowSellImportOutput(BaseModel):
-    """v4: 跟卖导入节点输出 — 替代直接修改 GlobalState"""
-    progress_counter: int = Field(default=3, description="节点计数器")
-    
-    # 跟卖结果
-    product_id: Optional[str] = Field(default=None, description="import-by-sku 获得的 Ozon product_id")
-    competitor_price: str = Field(default="", description="竞品 Ozon 售价")
-    competitor_name: str = Field(default="", description="竞品俄语标题")
-    
-    # 类目解析
-    description_category_id: str = Field(default="", description="解析后的 description_category_id")
-    type_id: str = Field(default="", description="解析后的 type_id")
-    
-    # 数据传递
-    original_images: List[str] = Field(default_factory=list, description="原始产品图片URL列表（1688 货源图；跟卖参考线另见 extensions.competitor_ref_images）")
-    variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体列表（空=单产品）")
-    item_id: str = Field(default="", description="1688 item_id")
-    
-    # 属性
-    final_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="硬化属性（品牌/国家/制造商）")
-    attributes_schema: List[Dict[str, Any]] = Field(default_factory=list, description="Ozon 属性 schema")
-
-    # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/follow_type/
-    # competitor_ref_images）——跟卖线不走 ingest，无此字段 GlobalState.extensions
-    # 断链，prepare 跟卖判定与生图参考分线读不到 follow_sell。
-    extensions: Optional[Dict[str, Any]] = Field(default=None, description="信封 extensions 透传（跟卖标记与竞品参考图）")
-
-    # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表（复制完成点 /v4 反查）
-    follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="复制卡原带特征（竞品已过审，prepare 合并防 import 洗卡）")
-
-    # 状态
-    upload_status: str = Field(default="pending", description="上传状态")
-    # ✅ v0.22 P2a: import-by-sku 已提交但未完成标记（防超时 fallback CREATE 双卡）
-    import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
-    import_task_id: str = Field(default="", description="import-by-sku 任务ID（用于后续轮询）")
-    error_message: str = Field(default="", description="错误信息")
-    failed_stage: str = Field(default="", description="失败阶段名")
-
-
 # ==================== 价格计算节点 ====================
 class PricingInput(BaseModel):
     """价格计算节点输入
@@ -782,37 +740,6 @@ class OzonStatusOutput(BaseModel):
 
 
 # ==================== 变体循环节点 ====================
-# 注（2026-09-11 仓库治理 B4）：VariantLoopInput 死模型已删（variant_primary_loop 子图
-# 实际用 VariantLoopState 承载输入形态，VariantLoopInput 全仓零引用；
-# 见 docs/audit/2026-09-11-repo-gov/A5 §2 D-02）。VariantLoopState/VariantLoopOutput 活。
-
-
-class VariantLoopState(BaseModel):
-    """变体循环状态（用于variant_primary_loop子图）"""
-    variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表")
-    variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
-    current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-
-    # Phase1生成的图片（作为辅助参考）
-    white_bg_image: str = Field(default="", description="白底图")
-    multi_angle_image: str = Field(default="", description="多角度展示图")
-    draft: Dict[str, Any] = Field(default_factory=dict, description="产品数据")
-    # fix/handover-batch-v1: 补 token（VariantPrimaryLoopInput 同名同义）。生产无影响
-    # （langgraph 按 variant_primary_loop_node 的 Input model 过滤 channel，该节点真实
-    # 输入是 VariantPrimaryLoopInput）；此前测试以本模型构造 state 时 _gen_one 读
-    # state.token 抛 AttributeError → 被宽 except 吞成「生图失败」分支——mock 断言
-    # 靠异常路径凑绿，属测试保真度陷阱（09-findings worker 骨架移交项）。
-    token: str = Field(default="", description="api.mxou.cn API Key（生图调用用）")
-
-
-class VariantLoopOutput(BaseModel):
-    """变体循环输出（用于variant_primary_loop子图）"""
-    variant_primary_images: List[str] = Field(default_factory=list, description="已生成的变体主图列表")
-    current_variant_index: int = Field(default=0, description="当前循环到的variant索引")
-    stages: Dict[str, str] = Field(default_factory=dict, description="节点执行状态")
-    error_message: str = Field(default="", description="错误信息")
-
-
 class VariantPrimaryLoopOutput(BaseModel):
     """变体主图循环节点输出（用于variant_primary_loop_node）"""
     variant_primary_images: List[str] = Field(default_factory=list, description="已生成的所有变体主图列表")

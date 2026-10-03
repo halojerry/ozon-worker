@@ -25,7 +25,6 @@ CATEGORIES = {
     "upload_failed", "category_wrong", "attribute_error", "image_error",
     "pricing", "cli_bug", "other",
 }
-STATUSES = {"new", "triaging", "fixed", "wontfix"}
 
 
 def _clip_decline_texts(texts: Any) -> list:

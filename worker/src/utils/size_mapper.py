@@ -10,19 +10,6 @@ logger = logging.getLogger(__name__)
 _size_tables: Dict[str, List[Dict[str, str]]] = {}
 _loaded: bool = False
 
-# 服装类目关键词（用于判断产品是否需要尺码）
-CLOTHING_KEYWORDS = [
-    "одежда", "куртка", "рубашка", "брюки", "штаны", "платье",
-    "футболка", "свитер", "пиджак", "жилет", "комбинезон",
-    "обувь", "ботинки", "сапоги", "кроссовки", "туфли",
-    "перчатки", "варежки", "носки", "колготки",
-    "шапка", "кепка", "шляпа", "балаклава",
-    "каска", "шлем",  # 安全帽类
-]
-
-# 需要尺码属性的Ozon类目属性名
-SIZE_ATTR_NAMES = ["Российский размер", "Размер", "Размер РФ"]
-
 
 def _load_size_tables() -> None:
     """加载尺码表：PG size_mappings 优先，DB 不可用/为空时回退 assets CSV。"""
@@ -81,16 +68,6 @@ def _load_size_tables() -> None:
         except Exception as e:
             logger.error(f"加载尺码表 {file_path} 失败: {e}")
 
-
-
-def is_clothing_product(product_name_ru: str, category_name: str = "") -> bool:
-    """判断产品是否为服装类（需要尺码）"""
-    _load_size_tables()
-    combined: str = (product_name_ru + " " + category_name).lower()
-    for kw in CLOTHING_KEYWORDS:
-        if kw in combined:
-            return True
-    return False
 
 
 def _normalize_size_input(size_str: str) -> str:
