@@ -28,6 +28,8 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod
+import api.security as api_security  # noqa: E402
+import routes.ops_routes as ops_routes  # noqa: E402
 from main import app
 
 _WORKER_ROOT = Path(__file__).resolve().parent.parent
@@ -155,10 +157,10 @@ def test_logistics_quote_entry_canonicalizes_before_query(monkeypatch):
 
 
 def test_logistics_quote_sync_endpoint_comment_contract():
-    """main._logistics_quote_sync 的 tpl/svc 出口注释留痕存在（扫描器结构性证据）。"""
+    """routes/ops_routes._logistics_quote_sync 的 tpl/svc 出口注释留痕存在（扫描器结构性证据）。"""
     import inspect
 
-    src = inspect.getsource(main_mod._logistics_quote_sync)
+    src = inspect.getsource(ops_routes._logistics_quote_sync)
     assert "canonical_tpl_provider" in src
     assert "绑定参数" in src
 
@@ -268,7 +270,7 @@ def test_graph_parameter_no_token_401():
 
 def test_graph_parameter_with_token_200(monkeypatch):
     """带合法 Bearer → 200 + input_schema（只读语义不变，仅补鉴权）。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     r = TestClient(app).get(
         "/graph_parameter", headers={"Authorization": "Bearer sk-probe-token"})
     assert r.status_code == 200

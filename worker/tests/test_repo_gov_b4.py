@@ -34,6 +34,11 @@ os.environ["SKIP_ZOMBIE_RECOVERY"] = "1"
 os.environ["SKIP_FAILED_REVIVE"] = "1"
 os.environ["SKIP_STORE_SYNC"] = "1"
 
+# R3a: cancel_task 端点已迁 routes/task_queue_routes.py，task_processor 经
+# orchestrator holder 取（lifespan 注入形态）。
+import orchestrator.task_processor as _task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_cancel_task as _http_cancel_task  # noqa: E402
+
 
 # ============================================================
 # T1 (D-03)：error_classifier 整模块已删 + 零回潮引用
@@ -138,11 +143,10 @@ def _cancel_request():
 def test_cancel_task_not_cancellable_returns_409(monkeypatch):
     from fastapi.responses import JSONResponse
 
-    main_mod = _import_main()
     fake = _FakeProcessor(outcome=False)  # 非 pending（终态/运行中）
-    monkeypatch.setattr(main_mod, "task_processor", fake)
+    monkeypatch.setattr(_task_processor_mod, "_task_processor", fake)
     monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # T6(api-H2) 起端点带鉴权闸，本组只验取消业务逻辑
-    res = asyncio.run(main_mod.http_cancel_task("task-abc", _cancel_request()))
+    res = asyncio.run(_http_cancel_task("task-abc", _cancel_request()))
     assert isinstance(res, JSONResponse), "不可取消应返回 error_response(JSONResponse)"
     assert res.status_code == 409
     import json as _json
@@ -153,11 +157,10 @@ def test_cancel_task_not_cancellable_returns_409(monkeypatch):
 
 
 def test_cancel_task_pending_still_succeeds(monkeypatch):
-    main_mod = _import_main()
     fake = _FakeProcessor(outcome=True)
-    monkeypatch.setattr(main_mod, "task_processor", fake)
+    monkeypatch.setattr(_task_processor_mod, "_task_processor", fake)
     monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # 同上：鉴权语义由 test_cancel_auth_v076 锁定
-    res = asyncio.run(main_mod.http_cancel_task("task-xyz", _cancel_request()))
+    res = asyncio.run(_http_cancel_task("task-xyz", _cancel_request()))
     assert isinstance(res, dict), "可取消路径保持原 dict 契约"
     assert res["status"] == "success"
     assert res["task_id"] == "task-xyz"

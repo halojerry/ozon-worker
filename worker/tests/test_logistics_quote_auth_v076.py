@@ -8,10 +8,11 @@
 - ``logistics:{clean_token}`` 独立限流键（不与提交限流额度互挤）→ 超限 429
   "rate limited"。
 
-说明：``_verify_analytics_token`` / ``rate_limiter`` / ``_logistics_quote_sync``
-均为 main 模块级符号 → patch ``main`` 命名空间生效（同
-test_require_bearer_v076 / test_store_health_auth_v076 惯例）。报价实现打替身，
-测试不依赖 PG 费率表（hermetic）。不带 with 的 TestClient 不触发 lifespan。
+说明：R3a 起端点与 ``_logistics_quote_sync`` 迁 ``routes/ops_routes.py``——
+``_logistics_quote_sync`` / ``rate_limiter`` 为路由模块级符号 → patch 路由模块
+命名空间；``_verify_analytics_token`` 为 api.security 内部调用（``_require_bearer``）
+→ patch ``api.security``。报价实现打替身，测试不依赖 PG 费率表（hermetic）。
+不带 with 的 TestClient 不触发 lifespan。
 
 运行:
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_logistics_quote_auth_v076.py -q
@@ -23,7 +24,8 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import main as main_mod  # noqa: E402
+import api.security as api_security  # noqa: E402
+import routes.ops_routes as ops_routes  # noqa: E402
 from main import RateLimiter, app  # noqa: E402
 
 _URL = "/api/v1/logistics/quote"
@@ -48,9 +50,9 @@ def test_no_token_401():
 
 def test_with_token_200(monkeypatch):
     """Bearer 合法 → 200，body 原样透传报价实现（鉴权不改变请求语义）。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     captured: dict = {}
-    monkeypatch.setattr(main_mod, "_logistics_quote_sync", _fake_quote(captured))
+    monkeypatch.setattr(ops_routes, "_logistics_quote_sync", _fake_quote(captured))
     r = TestClient(app).post(_URL, json=_BODY, headers=_HEADERS)
     assert r.status_code == 200
     assert r.json()["logistics_cost_cny"] == 8.0
@@ -59,11 +61,12 @@ def test_with_token_200(monkeypatch):
 
 def test_rate_limit_429(monkeypatch):
     """同 token 超过 max_per_minute → 429；限流键带 ``logistics:`` 前缀。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     captured: dict = {}
-    monkeypatch.setattr(main_mod, "_logistics_quote_sync", _fake_quote(captured))
+    monkeypatch.setattr(ops_routes, "_logistics_quote_sync", _fake_quote(captured))
     limiter = RateLimiter(max_per_minute=2)
-    monkeypatch.setattr(main_mod, "rate_limiter", limiter)
+    # R3a: 路由模块级 rate_limiter 绑定 → 换路由模块命名空间（换 main 引用会失靶）
+    monkeypatch.setattr(ops_routes, "rate_limiter", limiter)
     c = TestClient(app)
     assert c.post(_URL, json=_BODY, headers=_HEADERS).status_code == 200
     assert c.post(_URL, json=_BODY, headers=_HEADERS).status_code == 200

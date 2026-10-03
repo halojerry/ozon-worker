@@ -19,6 +19,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_resubmit_task, http_task_status  # noqa: E402
+
 
 # ============================================================
 # process_next_task 用 fake engine（驱动终态分支）
@@ -247,11 +250,11 @@ def test_resubmit_rejected_creates_new_pending():
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
     # race-L1: 端点补余额预检（对齐 submit_task）——到达入队的用例统一 mock 余额充足
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp["ok"] is True
@@ -270,11 +273,11 @@ def test_resubmit_failed_creates_new_pending():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("failed", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp["ok"] is True
@@ -288,11 +291,11 @@ def test_resubmit_completed_rejected_with_409():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("completed", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
     ):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 409
@@ -307,11 +310,11 @@ def test_resubmit_not_found_404():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(None)
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
     ):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("ghost", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("ghost", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 404
@@ -325,11 +328,11 @@ def test_resubmit_cross_tenant_blocked():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload(), tenant_id="victim"))
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="attacker"
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="attacker"
     ):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 404
@@ -344,11 +347,11 @@ def test_resubmit_missing_token_401():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", side_effect=main_mod.HTTPException(401, "Token is required")
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", side_effect=main_mod.HTTPException(401, "Token is required")
     ), pytest.raises(main_mod.HTTPException) as exc_info:
         asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest({}))
+            http_resubmit_task("task-old", _ResubmitRequest({}))
         )
 
     assert exc_info.value.status_code == 401
@@ -360,11 +363,11 @@ def test_resubmit_sku_key_includes_store_dimension():
     import main as main_mod
 
     proc = _FakeTaskStatusProcessor(_task_status("rejected", _original_payload()))
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp["ok"] is True
@@ -381,11 +384,11 @@ def test_resubmit_error_does_not_leak_internal_detail():
         raise RuntimeError("psycopg2 detail: /secret/db/path: relation does not exist")
 
     proc.submit_task = _boom
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 500
@@ -411,8 +414,8 @@ def test_task_status_endpoint_rejected_progress():
     os.environ["TASK_STATUS_AUTH"] = "0"
     try:
         proc = _FakeTaskStatusProcessor(_task_status("rejected"))
-        with patch.object(main_mod, "task_processor", proc):
-            resp = asyncio.run(main_mod.http_task_status(
+        with patch.object(task_processor_mod, "_task_processor", proc):
+            resp = asyncio.run(http_task_status(
                 "task-old",
                 Request({"type": "http", "method": "GET",
                          "path": "/task_status/task-old",

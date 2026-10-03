@@ -11,11 +11,13 @@
   failed"，原文只进 logger，响应绝不回显。
 - 成功 / 缺凭证（unknown）响应体结构不变。
 
-说明：真实内部符号是 ``main.ozon_check_quota``（brief 里 ``_check_store_health``
-为示意名）——``ozon_check_quota`` 自吞异常回 ``{"error": ...}`` dict，故
-``quota["error"]`` 分支才是常态上游错误路径、raise 分支兜意外故障，两路都须
-固定文案。``_verify_analytics_token`` 为 main 模块级函数 → patch ``main``
-命名空间生效（同 test_require_bearer_v076 惯例）。不带 with 的 TestClient
+说明：真实内部符号是 ``routes.ops_routes.ozon_check_quota``（brief 里
+``_check_store_health`` 为示意名）——``ozon_check_quota`` 自吞异常回
+``{"error": ...}`` dict，故 ``quota["error"]`` 分支才是常态上游错误路径、raise
+分支兜意外故障，两路都须固定文案。R3a 起 store/health 端点迁
+``routes/ops_routes.py``：``_verify_analytics_token`` 为 api.security 内部
+调用（``_require_bearer``）→ patch ``api.security``；``ozon_check_quota`` 为
+路由模块级 from-import → patch ``routes.ops_routes``。不带 with 的 TestClient
 不触发 lifespan（不连 PG / 不启动 worker）。
 
 运行:
@@ -29,6 +31,8 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod  # noqa: E402
+import api.security as api_security  # noqa: E402
+import routes.ops_routes as ops_routes  # noqa: E402
 from main import app  # noqa: E402
 
 _LEAK_MARKER = "positive integer"  # Ozon 原文里的可断言标记词
@@ -47,14 +51,14 @@ def test_no_bearer_401():
 
 
 def test_credentials_from_header(monkeypatch):
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     seen = {}
 
     def fake_check(client_id, api_key, timeout=10):
         seen.update(cid=client_id, ak=api_key)
         return _ok_quota()
 
-    monkeypatch.setattr(main_mod, "ozon_check_quota", fake_check)
+    monkeypatch.setattr(ops_routes, "ozon_check_quota", fake_check)
     r = TestClient(app).get("/api/v1/store/health", headers={
         "Authorization": "Bearer sk-x",
         "X-Ozon-Client-Id": "123", "X-Ozon-Api-Key": "AK-secret"})
@@ -69,14 +73,14 @@ def test_credentials_from_header(monkeypatch):
 
 def test_query_fallback_still_works(monkeypatch):
     """向后兼容锁：不带 header、凭证走 query 仍工作（T9 后 query 已弃用但不断供）。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     seen = {}
 
     def fake_check(client_id, api_key, timeout=10):
         seen.update(cid=client_id, ak=api_key)
         return _ok_quota()
 
-    monkeypatch.setattr(main_mod, "ozon_check_quota", fake_check)
+    monkeypatch.setattr(ops_routes, "ozon_check_quota", fake_check)
     r = TestClient(app).get(
         "/api/v1/store/health?client_id=qcid&api_key=qkey",
         headers={"Authorization": "Bearer sk-x"})
@@ -86,7 +90,7 @@ def test_query_fallback_still_works(monkeypatch):
 
 def test_missing_credentials_unknown_body(monkeypatch):
     """有 Bearer 缺凭证 → 200 unknown 结构保持不变（文案不回显凭证细节）。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     r = TestClient(app).get("/api/v1/store/health",
                             headers={"Authorization": "Bearer sk-x"})
     assert r.status_code == 200
@@ -95,13 +99,13 @@ def test_missing_credentials_unknown_body(monkeypatch):
 
 def test_raised_error_not_echoed(monkeypatch):
     """意外异常 → 502 固定文案，原文只进日志。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
 
     def boom(client_id, api_key, timeout=10):
         raise RuntimeError("Ozon API error: Client-Id header value should be "
                            + _LEAK_MARKER)
 
-    monkeypatch.setattr(main_mod, "ozon_check_quota", boom)
+    monkeypatch.setattr(ops_routes, "ozon_check_quota", boom)
     r = TestClient(app, raise_server_exceptions=False).get(
         "/api/v1/store/health",
         headers={"Authorization": "Bearer sk-x",
@@ -113,12 +117,12 @@ def test_raised_error_not_echoed(monkeypatch):
 
 def test_quota_error_body_not_echoed(monkeypatch):
     """ozon_check_quota 自吞异常回 {"error": ...} dict——常态上游错误路径同样不回原文。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
 
     def fake_check(client_id, api_key, timeout=10):
         return {"error": "Client-Id header value should be " + _LEAK_MARKER}
 
-    monkeypatch.setattr(main_mod, "ozon_check_quota", fake_check)
+    monkeypatch.setattr(ops_routes, "ozon_check_quota", fake_check)
     r = TestClient(app, raise_server_exceptions=False).get(
         "/api/v1/store/health",
         headers={"Authorization": "Bearer sk-x",

@@ -71,9 +71,10 @@ def _mock_resolver(monkeypatch, result):
 
 
 def _call(token, query, monkeypatch):
-    import main
+    # R3a: 端点已迁 routes/catalog_routes.py（鉴权经 api/deps_tenant 惰性读 main 兼容面）
+    from routes.catalog_routes import http_commissions_lookup
 
-    return asyncio.run(main.http_commissions_lookup(FakeGetRequest(token, query)))
+    return asyncio.run(http_commissions_lookup(FakeGetRequest(token, query)))
 
 
 # ── 1. 命中：200 + found:true + fbs/fbo 嵌套结构 ──

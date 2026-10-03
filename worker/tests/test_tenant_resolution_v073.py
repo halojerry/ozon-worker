@@ -27,6 +27,7 @@ os.environ.setdefault("SKIP_STORE_SYNC", "1")
 
 import main as main_mod  # noqa: E402
 import services.tenant_service as tenant_service  # noqa: E402
+from routes.catalog_routes import v1_categories_attributes  # noqa: E402  (R3a: 端点已迁 routes/catalog_routes.py)
 
 TOKEN = "v073tenantTok"
 SK_TOKEN = "sk-v073skTok"
@@ -178,7 +179,7 @@ def test_categories_attributes_uses_real_tenant(monkeypatch):
     monkeypatch.setattr(cs, "list_credentials", fake_list)
     monkeypatch.setattr(css, "get_attributes_with_lazy_fetch",
                         lambda *a, **k: {"found": False})
-    resp = asyncio.run(main_mod.v1_categories_attributes(
+    resp = asyncio.run(v1_categories_attributes(
         _FakeRequest(TOKEN, query={"dc": "98765432", "tp": "12345678"})))
     assert resp.get("found") is False
     assert cap.get("default") == EXPECTED_USER_ID and cap.get("list") == EXPECTED_USER_ID, (
@@ -217,7 +218,7 @@ def test_categories_attributes_fail_closed_not_swallowed(monkeypatch):
     monkeypatch.setattr(tenant_service, "get_supabase", lambda: _BoomSupabase())
     tenant_service.clear_cache()
     with pytest.raises(fastapi.HTTPException) as ei:
-        asyncio.run(main_mod.v1_categories_attributes(
+        asyncio.run(v1_categories_attributes(
             _FakeRequest(TOKEN, query={"dc": "98765432", "tp": "12345678"})))
     assert ei.value.status_code == 503, (
         f"resolve_tenant fail-closed 被吞：期望 503 传播，实际 {ei.value.status_code}")
