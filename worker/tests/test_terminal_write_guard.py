@@ -87,7 +87,7 @@ def _get_status(eng, task_id: str) -> str:
 
 
 def _processor():
-    from utils.task_processor import SupabaseTaskProcessor
+    from orchestrator.task_processor import SupabaseTaskProcessor
     return SupabaseTaskProcessor(max_concurrent=1)
 
 
@@ -130,7 +130,7 @@ def test_claim_sql_refreshes_updated_at():
     30min stale 条件被清理器误判（F-C02 触发源）。源码绊线锁定。"""
     import inspect
 
-    from utils.task_processor import SupabaseTaskProcessor
+    from orchestrator.task_processor import SupabaseTaskProcessor
     src = inspect.getsource(SupabaseTaskProcessor._claim_next_task)
     assert "updated_at = NOW()" in src, "认领应同步刷 updated_at"
 

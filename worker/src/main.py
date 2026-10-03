@@ -33,7 +33,7 @@ from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import (
     Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
 )
-from utils.task_processor import SupabaseTaskProcessor
+from orchestrator.task_processor import SupabaseTaskProcessor  # ✅ W3a: 编排器归位 orchestrator 包
 from utils.ozon_client import ozon_check_quota, ozon_post  # 配额检查 + F-F01 auth_verify Ozon 校验
 from utils.instance_lock import (  # E-4: 后台循环单实例锁（多副本防重复跑）
     METRICS_AGGREGATION,

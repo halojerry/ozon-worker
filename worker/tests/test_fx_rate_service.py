@@ -64,14 +64,14 @@ def _reset_throttle():
 
 def test_fetch_live_success(monkeypatch):
     monkeypatch.setattr(
-        fx.requests, "get", lambda *a, **k: _FakeResp({"rates": {"RUB": 11.55}}),
+        fx, "safe_fetch", lambda *a, **k: _FakeResp({"rates": {"RUB": 11.55}}),
     )
     assert fx.fetch_cny_rub_live() == 11.55
 
 
 def test_fetch_live_missing_rub_key_returns_none(monkeypatch):
     monkeypatch.setattr(
-        fx.requests, "get", lambda *a, **k: _FakeResp({"rates": {}}),
+        fx, "safe_fetch", lambda *a, **k: _FakeResp({"rates": {}}),
     )
     assert fx.fetch_cny_rub_live() is None, "缺键返回 None（绝不 raise）"
 
@@ -79,7 +79,7 @@ def test_fetch_live_missing_rub_key_returns_none(monkeypatch):
 def test_fetch_live_non_positive_returns_none(monkeypatch):
     for bad in (0, -3.2):
         monkeypatch.setattr(
-            fx.requests, "get", lambda *a, **k: _FakeResp({"rates": {"RUB": bad}}),
+            fx, "safe_fetch", lambda *a, **k: _FakeResp({"rates": {"RUB": bad}}),
         )
         assert fx.fetch_cny_rub_live() is None, f"非正数 {bad} 必须返回 None"
 
@@ -88,13 +88,13 @@ def test_fetch_live_http_error_returns_none(monkeypatch):
     def _boom(*a, **k):
         raise TimeoutError("er-api 超时")
 
-    monkeypatch.setattr(fx.requests, "get", _boom)
+    monkeypatch.setattr(fx, "safe_fetch", _boom)
     assert fx.fetch_cny_rub_live() is None, "网络异常绝不 raise"
 
 
 def test_fetch_live_bad_json_returns_none(monkeypatch):
     monkeypatch.setattr(
-        fx.requests, "get", lambda *a, **k: _FakeResp(ValueError("not json")),
+        fx, "safe_fetch", lambda *a, **k: _FakeResp(ValueError("not json")),
     )
     assert fx.fetch_cny_rub_live() is None
 

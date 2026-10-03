@@ -1282,7 +1282,7 @@ def _notify_summary(tenant_id: str, credential_id: str, summary: dict) -> None:
     if not found and not summary.get("error"):
         return
     try:
-        from utils.task_processor import _send_task_notify
+        from orchestrator.task_processor import _send_task_notify  # ✅ W3a: 编排器归位
         _send_task_notify(
             task_id=f"card_audit:{credential_id}",
             status="card_audit_sweep",

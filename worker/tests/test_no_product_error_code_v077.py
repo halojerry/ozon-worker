@@ -33,7 +33,7 @@ import test_task_processor_writeback as tb  # noqa: E402
 def _marker():
     """延迟导入：RED 阶段函数不存在 → 测试内 ImportError 即「特性缺失」失败信号，
     不阻塞同文件行为级用例（①）与其他文件的收集。"""
-    from utils.task_processor import _mark_no_real_product_failure
+    from orchestrator.task_processor import _mark_no_real_product_failure
     return _mark_no_real_product_failure
 
 

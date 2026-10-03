@@ -202,7 +202,7 @@ def test_collection_path_does_not_double_write():
     - main 模块定义 _write_direct_submission_row（端点层辅助）
     """
     import main as main_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     assert hasattr(main_mod, "_write_direct_submission_row"), "写行辅助必须定义在 main 模块"
 

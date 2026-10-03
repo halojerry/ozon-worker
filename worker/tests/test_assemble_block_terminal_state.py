@@ -84,8 +84,8 @@ def _run_process_next(graph_result):
 
     返回 (engine, writeback_calls)：writeback_calls 捕获 _writeback_status 调用。
     """
-    from utils.task_processor import SupabaseTaskProcessor
-    import utils.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
 
     engine = _FakeEngine(_make_task_row())
     writeback_calls = []
@@ -237,7 +237,7 @@ def test_warning_error_without_stage_not_failed():
 
 def test_is_failed_helper_semantics():
     """判定收口为 _graph_result_is_failed（逻辑逐字保持，可单测）。"""
-    from utils.task_processor import _graph_result_is_failed
+    from orchestrator.task_processor import _graph_result_is_failed
     # assemble 阻断新形状 → failed
     assert _graph_result_is_failed({
         "error_message": "类目匹配失败：无候选类目",
@@ -284,7 +284,7 @@ def test_real_product_evidence_helper_semantics():
     """商品佐证判定（纯函数）：pid 缺失/0/None → False；pid==import 任务 ID →
     False（upload 向后兼容 product_id=str(task_id) + phase1 超时残留）；
     uploaded_products 对上其他真实 pid → True（多 SKU 佐证通道）。"""
-    from utils.task_processor import _has_real_product_evidence as ev
+    from orchestrator.task_processor import _has_real_product_evidence as ev
     assert ev({}) is False
     assert ev({"product_id": ""}) is False
     assert ev({"product_id": "0"}) is False
@@ -337,7 +337,7 @@ def test_import_task_id_with_real_uploaded_product_completed():
 def test_auth_failure_shape_classified_failed():
     """④auth 失败形状（error_message 非空 + failed_stage=auth）→ failed。
     修复前 AuthOutput 无 failed_stage，三项失败判定全不命中 → 假 completed。"""
-    from utils.task_processor import _graph_result_is_failed
+    from orchestrator.task_processor import _graph_result_is_failed
     assert _graph_result_is_failed({
         "error_message": "Token not found",
         "error_code": "AUTH_INVALID",
