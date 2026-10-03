@@ -1731,7 +1731,7 @@ Expected: 全绿；基线对比开工冒烟无回归（worker 新增约 25 个�
 - 明文 token 列 DB 侧退役与存量轮换审计（api-C1 的存储根；读侧已断）
 - `payload` 列级加密（crypto-H2 存储根；出口已脱敏）
 - race-M2：priority 用户可控 + 认领无 per-tenant 公平性——单租户可满级 priority 饿死全平台（priority 开放是 v0.75 有意设计 BL-25；解法=per-tenant running/pending 计数上限，涉认领 SQL 改造，单独立项）
-- race-M3：`/run` `/stream_run` 同步端点游离在 MAX_CONCURRENT 信号量与 SKU 去重之外（端点已标 DEPRECATED；退役排期，勿再接新调用方）
+- race-M3：`/run` `/stream_run` 同步端点游离在 MAX_CONCURRENT 信号量与 SKU 去重之外（端点已标 DEPRECATED；退役排期，勿再接新调用方）——**已随 2026-10 platform-compat 退役 PR 整体删除（含 /async_run、/cancel/{run_id}、/node_run、/v1/chat/completions），本条关闭**
 - race-L4：`_handle_failure_sync` retry_count 读-改-写非原子（仅在 stale 双跑场景可达，L-4 理论级；与 race-M5 场景关联，观察）
 - store/health 凭证 query 传参彻底移除（T9 已 header 化，query 回落待客户端全量迁移后删）
 - api-L5：限流键 raw/clean token 不一致（跨端点族 2 倍名义配额）——T21 已核调用点次序，键归一随限流器重构一并做

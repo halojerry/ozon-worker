@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.83.1 · 145 个 path / 181 个操作（156 含兼容别名）/ 64 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.83.1 · 139 个 path / 175 个操作（150 含兼容别名）/ 64 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -10,9 +10,7 @@
 - [admin](#admin) （47）
 - [analytics](#analytics) （11）
 - [api](#api) （5）
-- [async_run](#async-run) （1）
 - [auth](#auth) （1）
-- [cancel](#cancel) （1）
 - [cancel_task](#cancel-task) （1）
 - [categories](#categories) （2）
 - [commissions](#commissions) （1）
@@ -29,26 +27,22 @@
 - [logistics](#logistics) （1）
 - [mappings](#mappings) （1）
 - [mxou](#mxou) （9）
-- [node_run](#node-run) （1）
 - [orders](#orders) （12）
 - [products](#products) （7）
 - [progress](#progress) （2）
 - [resubmit_task](#resubmit-task) （1）
-- [run](#run) （1）
 - [seo](#seo) （2）
 - [settings](#settings) （2）
 - [site](#site) （2）
 - [source-candidates](#source-candidates) （1）
 - [store](#store) （1）
 - [stores](#stores) （12）
-- [stream_run](#stream-run) （1）
 - [submit_task](#submit-task) （1）
 - [sync-jobs](#sync-jobs) （1）
 - [task_statistics](#task-statistics) （1）
 - [task_status](#task-status) （1）
 - [tasks](#tasks) （5）
 - [templates](#templates) （5）
-- [v1](#v1) （1）
 
 ## admin
 
@@ -1098,17 +1092,6 @@ Newapi Proxy — catch-all：命中 New API 前缀 → 转发 api.mxou.cn；否�
 | 200 | Successful Response | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
-## async_run
-
-### `POST /async_run`
-Http Async Run — [DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | dict[str, any] |
-
 ## auth
 
 ### `POST /api/v1/auth/verify`
@@ -1131,24 +1114,6 @@ Auth Verify — Skill 鉴权端点。
   "valid": true
 }
 ```
-
-## cancel
-
-### `POST /cancel/{run_id}`
-Http Cancel — 取消指定run_id的执行
-
-**参数**
-
-| 名称 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `run_id` | path | string | ✓ |  |
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
-| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
 ## cancel_task
 
@@ -2490,24 +2455,6 @@ Get My Key — WebUI 登录后自动获取该用户已有的 enabled key（免�
 | 200 | Successful Response | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
 
-## node_run
-
-### `POST /node_run/{node_id}`
-Http Node Run
-
-**参数**
-
-| 名称 | 位置 | 类型 | 必填 | 说明 |
-|---|---|---|---|---|
-| `node_id` | path | string | ✓ |  |
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
-| 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
-
 ## orders
 
 ### `GET /api/v1/orders`
@@ -3084,17 +3031,6 @@ V1 Resubmit Task — 重新提交被拒(rejected)/失败(failed)的任务（P0-2
 }
 ```
 
-## run
-
-### `POST /run`
-Http Run
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | dict[str, any] |
-
 ## seo
 
 ### `GET /api/v1/seo/keywords`
@@ -3382,17 +3318,6 @@ Sync Status — 同步状态：最后同步时间 + 错误（webui 展示「上�
 |---|---|---|
 | 200 | Successful Response | — |
 | 422 | Validation Error | [HTTPValidationError](#schema-httpvalidationerror) |
-
-## stream_run
-
-### `POST /stream_run`
-Http Stream Run
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
 
 ## submit_task
 
@@ -3864,17 +3789,6 @@ Set Default
   "updated_at": "2026-09-08T10:00:00Z"
 }
 ```
-
-## v1
-
-### `POST /v1/chat/completions`
-Openai Chat Completions — OpenAI Chat Completions API 兼容接口
-
-**响应**
-
-| 状态码 | 说明 | Schema |
-|---|---|---|
-| 200 | Successful Response | — |
 
 ## Schemas
 

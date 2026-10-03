@@ -71,7 +71,7 @@
 
 ## 5. checkpoint 与恢复
 
-- checkpointer 工厂 memory_saver.py:88-126（AsyncPostgresSaver 优先，退化 MemorySaver）；lifespan 挂给 **sync/async `/run` 族图**（main.py:563-576）——⚠️ `set_graph` docstring 宣称 "never hit checkpoint DB" 与代码相反（09-#2-doc）。
+- checkpointer 工厂 memory_saver.py:88-126（AsyncPostgresSaver 优先，退化 MemorySaver）；lifespan 挂给 **sync/async `/run` 族图**（main.py:563-576）——⚠️ `set_graph` docstring 宣称 "never hit checkpoint DB" 与代码相反（09-#2-doc）。（`/run` 族已随 2026-10 platform-compat 退役删除；async 图现仅由 `/progress` checkpointer 读取，本条前半存档。）
 - 队列主路径无 checkpointer；无 langgraph interrupt（全仓 0 处）。
 - checkpoint 归档 `_purge_checkpoints:1403`（30 天 completed 删行前，序 checkpoints→blobs→writes）。
 - stale 清理：运行期 30 分钟未更新重置（:1440）；重启恢复 running→pending+retry+1 有界（:601-658）。
@@ -104,14 +104,14 @@ ASGI Bearer 中间件(56-90) → 22 工具全部经进程内 httpx ASGITransport
 
 ## 8. HTTP API 面与鉴权矩阵
 
-- **main.py 直挂**：执行族 /run /stream_run /node_run（`_authenticate_token`+限流）、/progress（`_require_bearer`）、/graph_parameter（无鉴权，仅 JSON Schema）；任务族 submit_task/task_status/cancel/resubmit/task_statistics（statistics 走 `_require_bearer`+admin 判定，非 admin 跨租户 403）；/health 无鉴权；/api/v1/store/health（`_require_bearer`，上游失败 502）；分析直读 analytics/*（`_verify_analytics_token`+限流）；/logistics/quote（`_require_bearer`+专属限流键）。
+- **main.py 直挂**：~~执行族 /run /stream_run /node_run（`_authenticate_token`+限流）~~（**已移除**，2026-10 platform-compat 退役——连同 /async_run、/cancel/{run_id}、/v1/chat/completions；`GET /task/{task_id}` 410 墓碑保留）、/progress（`_require_bearer`）、/graph_parameter（无鉴权，仅 JSON Schema）；任务族 submit_task/task_status/cancel/resubmit/task_statistics（statistics 走 `_require_bearer`+admin 判定，非 admin 跨租户 403）；/health 无鉴权；/api/v1/store/health（`_require_bearer`，上游失败 502）；分析直读 analytics/*（`_verify_analytics_token`+限流）；/logistics/quote（`_require_bearer`+专属限流键）。
 - **routes/**：credentials/dashboard/drafts/estimate/images/orders/products/settings/shelf/source_candidates/store_actions/store_sync/tasks/templates/admin_* 全走 `_authenticate_token`（admin_* 再过 require_admin）；error_reports 走 `get_tenant` Depends；site_public/newapi_proxy/静态无鉴权。
 - 鉴权唯一入口纪律：`_require_bearer`（main.py）；v0.79 收口后 cancel/statistics/progress/store/health/logistics-quote 无 Bearer 一律 401。
 
 ## 9. 疑点 / 坏味道（详情并入 09-findings）
 
 1. **进度条倒退**：`_NODE_STAGE_MAP` 缺 assemble_ozon_product/scene_generation_llm/visual_vars_llm/check_quota/fetch_back/validation_retry_wrapper/follow_sell_import/variant_primary_loop → `update_progress` stage_idx=0 → **percent 归 0**（assemble 每单必现一次）。
-2. **set_graph docstring 与代码相反**（main.py:280-282 vs :566-572）：/run 族实际写 checkpoint，靠清理器兜底。
+2. **set_graph docstring 与代码相反**（main.py:280-282 vs :566-572）：/run 族实际写 checkpoint，靠清理器兜底。（/run 族已随 2026-10 platform-compat 退役删除，本条存档。）
 3. `should_handle_error` 内 errors/product_id 变量重复声明（graph.py:351-359，v0.11 残留）。
 4. follow_sell_import 无专用 Input（吃整个 GlobalState）——GlobalState 改名不会被 channel 机制暴露。
 5. **image_gen_plan 通道断链**：生图 Input 都声明了，GlobalState 无此字段，队列路径恒 DEFAULT_PLAN——「预留接口」而非活通道。
