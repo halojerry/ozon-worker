@@ -23,6 +23,76 @@ from scripts.prod_db_guard import enforce_not_production  # noqa: E402
 enforce_not_production()
 
 
+# ── ✅ W3b 外呼立法：单测默认断网（loopback 白名单） ──
+# 事故链（2026-09 W3a 全量验证）：本机代理 fake-IP DNS 破坏 Ozon TLS →
+# test_attribute_fill_v013 经 assemble 节点 _validate_and_enrich_items 的
+# /values/search 真网兜底在 C 层 SSL read 卡死，pytest-timeout 无法中断，
+# 全量套件假死 >13 分钟。根因：出网许可让套件正确性依赖机器网络状态。
+# 规则：
+# - 默认只许 loopback（本地 PG 5433 / 本地 Docker 8080 不受影响）；
+#   TEST_NET_ALLOWLIST="host1,host2" 可加白（逗号分隔，慎用）。
+# - 确需真外呼的用例标 @pytest.mark.external_network，且仅当
+#   RUN_EXTERNAL_TESTS=1 才运行（缺省 skip）——CI 永远不该跑到它们。
+import socket as _socket
+
+
+class _ExternalNetworkBlocked(RuntimeError):
+    """单测外呼被断网守卫拦截（W3b 立法）。mock 出口，或标 external_network。"""
+
+
+@pytest.fixture(autouse=True)
+def _offline_network_by_default(request, monkeypatch):
+    if request.node.get_closest_marker("external_network"):
+        if os.environ.get("RUN_EXTERNAL_TESTS", "").strip() != "1":
+            pytest.skip("external_network 用例默认跳过（RUN_EXTERNAL_TESTS=1 显式开启）")
+        return  # 显式开闸：不装守卫
+    allow = {"127.0.0.1", "::1", "localhost"}
+    allow |= {
+        h.strip() for h in os.environ.get("TEST_NET_ALLOWLIST", "").split(",") if h.strip()
+    }
+
+    def _blocked(host):
+        return _ExternalNetworkBlocked(
+            f"单测外呼被断网守卫拦截：{host!r}（W3b 外呼立法）。"
+            "mock 出口，或 @pytest.mark.external_network + RUN_EXTERNAL_TESTS=1"
+        )
+
+    real_create_connection = _socket.create_connection
+
+    def _guarded_create_connection(address, *a, **kw):
+        host = address[0] if isinstance(address, tuple) else None
+        if host is None or host in allow:
+            return real_create_connection(address, *a, **kw)
+        raise _blocked(host)
+
+    monkeypatch.setattr(_socket, "create_connection", _guarded_create_connection)
+
+    real_connect = _socket.socket.connect
+
+    def _guarded_connect(self, address):
+        host = address[0] if isinstance(address, tuple) else None
+        if host is None or host in allow:
+            return real_connect(self, address)
+        raise _blocked(host)
+
+    monkeypatch.setattr(_socket.socket, "connect", _guarded_connect)
+
+
+@pytest.fixture(autouse=True)
+def _restore_task_processor_holder():
+    """✅ W3b：编排器 holder 跨测试快照恢复。
+
+    holder（orchestrator.task_processor._task_processor）是进程级全局，由
+    main.lifespan 注入且无卸载钩子——任何用 ``with TestClient(app)`` 的测试
+    跑完 lifespan 后，真实 SupabaseTaskProcessor 会驻留 holder 污染后续全部
+    用例（CI 实录：webui_e2e 的 fake 入队断言被真实接管）。本 fixture 逐用例
+    快照/恢复，holder 泄漏归零。"""
+    from orchestrator import task_processor as _tp
+    prev = _tp._task_processor
+    yield
+    _tp._task_processor = prev
+
+
 @pytest.fixture(autouse=True)
 def _isolate_supabase_env(monkeypatch):
     """每个用例前清空 Supabase 环境变量并重置客户端单例。"""

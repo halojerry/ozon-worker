@@ -109,7 +109,10 @@ def _env(monkeypatch):
     monkeypatch.setenv("CREDENTIAL_MASTER_KEY", "0123456789abcdef0123456789abcdef")
     monkeypatch.setenv("PGDATABASE_URL", DB_URL)
     with patch.object(main_mod.rate_limiter, "check", return_value=(True, 10)), \
-         patch("main.get_supabase_client", return_value=FakeSupabase(USERS, TOKENS)):
+         patch("main.get_supabase_client", return_value=FakeSupabase(USERS, TOKENS)), \
+         patch("api.security.get_supabase_client", return_value=FakeSupabase(USERS, TOKENS)), \
+         patch("storage.database.supabase_client.get_supabase_client", return_value=FakeSupabase(USERS, TOKENS)):
+        # ✅ W3b 三靶：security 早绑定（_authenticate_token 链）+ storage 源头（admin_service 懒导入）+ main 自用
         yield
 
 

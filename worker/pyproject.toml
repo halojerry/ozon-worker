@@ -65,3 +65,6 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+markers = [
+    "external_network: 用例真实出网（W3b 外呼立法：默认 skip，RUN_EXTERNAL_TESTS=1 才运行，CI 不应包含）",
+]

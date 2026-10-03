@@ -34,7 +34,7 @@ from storage.memory.memory_saver import get_memory_saver
 from storage.database.shared.model import (
     Base, BlueOceanQuery, OzonBestseller, MarketBestseller, DiscoveryRun,
 )
-from orchestrator.task_processor import SupabaseTaskProcessor  # ✅ W3a: 编排器归位 orchestrator 包
+from orchestrator.task_processor import SupabaseTaskProcessor, set_task_processor  # ✅ W3a: 编排器归位 orchestrator 包；W3b: lifespan 注入单例 holder
 from utils.ozon_client import ozon_check_quota, ozon_post  # 配额检查 + F-F01 auth_verify Ozon 校验
 from utils.instance_lock import (  # E-4: 后台循环单实例锁（多副本防重复跑）
     METRICS_AGGREGATION,
@@ -52,175 +52,49 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 # ✅ v0.23: Sentry 错误监测（SENTRY_DSN 为空则 no-op；HTTP 与 CLI 入口共用）
 init_sentry()
 
-# ── 进度追踪（内存存储，重启清空） ──
-# 格式: {task_id: {stage, stage_index, total_stages, percent, message, updated_at}}
-_task_progress: Dict[str, Dict[str, Any]] = {}
-# ✅ v0.29 P0(PRD-cicd-stability): 模块级全局 → contextvars
-# 原实现是模块级 global, 注释谎称 "thread-local" —— asyncio 多任务并发时
-# set/get 之间被其他协程 set 覆盖 → 日志/进度/Sentry 串号(PRD 复现路径)。
-# ContextVar 按任务协程隔离, 子任务自动继承。
-_current_task_id: "contextvars.ContextVar[str | None]" = contextvars.ContextVar(
-    "current_task_id", default=None
+# ✅ W3b composition root 拆解：四族共享设施归位新模块（唯一权威）：
+#   进度/任务上下文/优雅关闭 → runtime/progress.py
+#   限流器 → runtime/rate_limit.py
+#   GraphService → runtime/graph_service.py
+#   鉴权族（token 校验/限流接线/余额判定/Bearer 守卫） → api/security.py
+# 此处同名 re-export 是**兼容面**：路由裸名调用与存量测试的 monkeypatch
+# main.X 不迁移即继续工作（main 的名字绑定同一函数对象，patch main.X 对
+# main 内裸名调用照常生效）。新代码一律直接 from 新模块 import，勿再经
+# main 转手；routes→main 懒导入清退已登记 follow-up。
+from runtime.progress import (
+    STAGE_ORDER,
+    SHUTDOWN_FLAG,
+    _current_task_id,
+    _last_persist_ts,
+    _persist_progress,
+    _purge_stale_progress,
+    _task_progress,
+    get_current_task_id,
+    get_progress,
+    is_shutting_down,
+    request_shutdown,
+    set_current_task_id,
+    update_progress,
 )
-
-# ✅ v0.29(PRD-cicd-stability): 优雅关闭标志
-# 收到 SIGTERM/docker stop 后: worker_loop 不再拉新任务 → drain 运行中任务
-# (最多 5 分钟) → 超时才 cancel。避免 update.sh --force-recreate 强杀用户任务。
-SHUTDOWN_FLAG = False
-
-
-def request_shutdown() -> None:
-    """请求优雅关闭(停止接收新任务)。"""
-    global SHUTDOWN_FLAG
-    SHUTDOWN_FLAG = True
-
-
-def is_shutting_down() -> bool:
-    """是否正在优雅关闭。"""
-    return SHUTDOWN_FLAG
-
-
-def set_current_task_id(task_id: str | None):
-    """设置当前协程正在处理的 task_id（供 ProgressLogger 等模块使用）"""
-    _current_task_id.set(task_id)
-
-
-def get_current_task_id() -> str | None:
-    """获取当前协程正在处理的 task_id"""
-    return _current_task_id.get()
-
-# 节点执行顺序（用于计算进度百分比）。
-# ⚠️ v0.80 重排为拓扑序（arch-findings #2）：check_quota 实际是 auth 后第二跳
-# （graph.py route_after_auth → check_quota），旧序排第 10 位导致中段阶段百分比
-# 虚高、后续节点回调时进度回跳。本表是**展示序**（13 项不变，仅排序），
-# 与真实拓扑仍存在局部错位（如 pricing 先于 assemble 执行但 category_match
-# 展示在前）——由 update_progress 的单调不降钳制兜底。新测试
-# tests/test_progress_map_v080.py 锁定集合等价 + 本顺序。
-STAGE_ORDER = [
-    "auth", "check_quota", "ingest", "category_match", "pricing",
-    "attributes", "description", "image_generation", "prepare_ozon_upload",
-    "ozon_validate", "ozon_upload", "ozon_status", "learning_record"
-]
-
-# ✅ v0.9: 合并为单一 update_progress（内存 + PG 持久化），避免重复定义
-
-
-def get_progress(task_id: str) -> Optional[Dict[str, Any]]:
-    """获取任务进度（内存优先 → PG 回退）"""
-    if task_id in _task_progress:
-        return _task_progress[task_id]
-    # ✅ P1 修复：内存无数据时回退到 PG（重启后仍可读）
-    try:
-        from storage.database.db import get_session
-        from sqlalchemy import text
-        session = get_session()
-        try:
-            row = session.execute(
-                text("SELECT progress FROM ozon_product_tasks WHERE id = :tid"),
-                {"tid": task_id}
-            ).scalar()
-            if row:
-                return json.loads(row) if isinstance(row, str) else row
-        finally:
-            session.close()
-    except Exception:
-        pass
-    return None
-
-
-async def _persist_progress(task_id: str, data: dict):
-    """异步写入 PG progress 列"""
-    try:
-        from storage.database.db import get_session
-        from sqlalchemy import text
-        session = get_session()
-        try:
-            session.execute(
-                text("UPDATE ozon_product_tasks SET progress = :p, updated_at = NOW() "
-                     "WHERE id = :tid AND status = 'running'"),
-                {"p": json.dumps(data, ensure_ascii=False), "tid": task_id}
-            )
-            session.commit()
-        finally:
-            session.close()
-    except Exception as e:
-        logger.debug("progress persist failed for %s: %s", task_id, e)
-
-
-# ⚠️ v0.14 E1: 进度写 PG 节流 — 每任务 2s 合并窗口（旧代码每节点异步写一次 PG）
-_last_persist_ts: dict = {}
-_PERSIST_THROTTLE = 2.0
-
-
-def _purge_stale_progress():
-    """清理 _task_progress 中已完成超过 1 小时的条目（防内存泄漏）"""
-    now = time.time()
-    stale = [tid for tid, data in list(_task_progress.items())
-              if now - data.get("updated_at", 0) > 3600]
-    for tid in stale:
-        del _task_progress[tid]
-
-
-def update_progress(task_id: str, stage: str, message: str = ""):
-    """更新任务进度（内存 + 异步 PG）。
-
-    ✅ v0.80 防倒退（arch-findings #2）：进度对同一 task 单调不降——
-    - stage 不在 STAGE_ORDER（_NODE_STAGE_MAP 漏配 / 未知节点 / "error" 等
-      旁路调用）→ 保留上一阶段与百分比，只刷新 message（旧行为 stage_idx=0，
-      进度条从高位跳回 0%；首跳无历史时按 0 起步）。
-    - 已知阶段但展示序低于当前进度（展示序与真实拓扑局部错位，如 pricing
-      之后的 assemble→category_match）→ 钳到当前进度，stage 标签跟随钳后
-      下标保持 stage/stage_index/stages_* 自洽，节点明细在 message 里。
-    - auth（STAGE_ORDER 首位，图的唯一入口）是新一轮哨兵：重试重跑允许把
-      基线重置回 0，否则上一轮残留的高位会把整轮重试钉在旧百分比上。
-    终态归位（completed/failed/rejected）不走本函数，由 http_task_status
-    覆盖 progress，不受影响。
-    """
-    if not task_id:
-        return
-    prev = _task_progress.get(task_id) or {}
-    prev_idx = int(prev.get("stage_index") or 0)
-    if stage == STAGE_ORDER[0]:
-        stage_idx = 0
-        cur_stage = stage
-    elif stage in STAGE_ORDER:
-        stage_idx = max(STAGE_ORDER.index(stage), prev_idx)
-        cur_stage = STAGE_ORDER[stage_idx]
-    else:
-        stage_idx = prev_idx
-        cur_stage = str(prev.get("stage") or stage)
-    total = len(STAGE_ORDER)
-    percent = int((stage_idx / total) * 100)
-    data = {
-        "stage": cur_stage,
-        "stage_index": stage_idx,
-        "total_stages": total,
-        "percent": percent,
-        "message": message,
-        "updated_at": time.time(),
-        "stages_completed": STAGE_ORDER[:stage_idx],
-        "stages_remaining": STAGE_ORDER[stage_idx+1:],
-    }
-    _task_progress[task_id] = data
-    # PRD M4: 进度事件落 task_progress_events(时间线/SSE 数据源,静默降级)
-    try:
-        from services.task_progress_service import emit
-        emit(task_id, stage, "", "progress", message)
-    except Exception:
-        pass
-    # ✅ P1 修复：异步持久化到 PG（重启后仍可恢复进度）
-    # ⚠️ v0.14 E1: 节流 — 同一任务 2s 窗口内跳过 PG 写（内存进度始终最新，PG 低频落盘）
-    try:
-        now_ts = time.time()
-        if now_ts - _last_persist_ts.get(task_id, 0) >= _PERSIST_THROTTLE:
-            _last_persist_ts[task_id] = now_ts
-            # v0.63.1: 先确认有运行中事件循环再创建协程——直接 asyncio.create_task
-            # 在同步模式（pytest/CLI）会抛 RuntimeError，且协程对象已创建未 await，
-            # GC 时产生 RuntimeWarning: coroutine never awaited。
-            loop = asyncio.get_running_loop()
-            loop.create_task(_persist_progress(task_id, data))
-    except RuntimeError:
-        pass  # 无 event loop 时跳过（同步模式）
+from runtime.rate_limit import (
+    _RATE_LIMITER_MAX_KEYS,
+    RATE_LIMIT_PER_MINUTE,
+    RateLimiter,
+    rate_limiter,
+)
+from runtime.graph_service import GraphService, service
+from api.security import (
+    _authenticate_token,
+    _auth_verify_sync,
+    _balance_source_label,
+    _check_mxou_balance,
+    _extract_token_from_body,
+    _key_user_id,
+    _require_bearer,
+    _revoked_tokens,
+    _task_status_guard,
+    _verify_analytics_token,
+)
 
 # Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
@@ -254,242 +128,6 @@ logger = get_logger(__name__)
 
 # 超时配置常量
 TIMEOUT_SECONDS = 900  # 15分钟
-
-# API 限流配置
-RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "300"))  # 每 token 每分钟最大提交数（与 AGENTS.md/.env.example 一致）
-
-# T21(race-M5): 限流字典有界化阈值——RateLimiter._requests 键数超过该值时，
-# check() 先清扫「最后活跃已滑出 60s 窗口」的键，未认证/海量 token 洪水不再无界吃内存。
-_RATE_LIMITER_MAX_KEYS = 4096
-
-
-class RateLimiter:
-    """滑动窗口限流器：按 token 限制提交频率"""
-
-    def __init__(self, max_per_minute: int = RATE_LIMIT_PER_MINUTE):
-        self.max_per_minute = max_per_minute
-        self._requests: Dict[str, list] = {}  # token → [timestamp, ...]
-        self._lock = threading.Lock()
-
-    def check(self, token: str) -> tuple[bool, int]:
-        """检查是否允许请求。返回 (allowed, remaining)。"""
-        now = time.time()
-        window_start = now - 60
-        with self._lock:
-            # T21(race-M5): 字典有界化——_requests 此前永不清扫（每个新 token 一个键），
-            # 未认证洪水可无界吃内存。超阈值先清「最后活跃已滑出窗口」的键，活跃键不动。
-            if len(self._requests) > _RATE_LIMITER_MAX_KEYS:
-                stale = [k for k, ts in self._requests.items() if not ts or ts[-1] <= window_start]
-                for k in stale:
-                    del self._requests[k]
-            timestamps = self._requests.get(token, [])
-            # 清理过期记录
-            timestamps = [t for t in timestamps if t > window_start]
-            if len(timestamps) >= self.max_per_minute:
-                self._requests[token] = timestamps
-                return False, 0
-            timestamps.append(now)
-            self._requests[token] = timestamps
-            return True, self.max_per_minute - len(timestamps)
-
-
-rate_limiter = RateLimiter()
-
-class GraphService:
-    def __init__(self):
-        # 用于跟踪正在运行的任务（使用asyncio.Task）
-        self.running_tasks: Dict[str, asyncio.Task] = {}
-        # 错误分类器
-        self.error_classifier = ErrorClassifier()
-        # stream runner
-        self._agent_stream_runner = AgentStreamRunner()
-        self._workflow_stream_runner = WorkflowStreamRunner()
-        self._graph = None
-        self._graph_lock = threading.Lock()
-
-    def set_graph(self, graph) -> None:
-        """Inject the compiled graph used by sync endpoints. Called once from
-        lifespan with a no-checkpointer build, so /run /stream_run /node_run
-        never hit the checkpoint DB."""
-        self._graph = graph
-
-    def _get_graph(self, ctx=Context):
-        if self._graph is not None:
-            return self._graph
-        with self._graph_lock:
-            if self._graph is not None:
-                return self._graph
-            if graph_helper.is_agent_proj():
-                self._graph = graph_helper.get_agent_instance("agents.agent", ctx)
-            else:
-                self._graph = graph_helper.get_graph_instance("graphs.graph")
-            return self._graph
-
-    @staticmethod
-    def _sse_event(data: Any, event_id: Any = None) -> str:
-        id_line = f"id: {event_id}\n" if event_id else ""
-        return f"{id_line}event: message\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
-
-    def _get_stream_runner(self):
-        if graph_helper.is_agent_proj():
-            return self._agent_stream_runner
-        else:
-            return self._workflow_stream_runner
-
-    # 流式运行（原始迭代器）：本地调用使用
-    def stream(self, payload: Dict[str, Any], run_config: RunnableConfig, ctx=Context) -> Iterable[Any]:
-        graph = self._get_graph(ctx)
-        stream_runner = self._get_stream_runner()
-        for chunk in stream_runner.stream(payload, graph, run_config, ctx):
-            yield chunk
-
-    # 同步运行：本地/HTTP 通用
-    async def run(self, payload: Dict[str, Any], ctx=None) -> Dict[str, Any]:
-        if ctx is None:
-            ctx = new_context("run")
-
-        run_id = ctx.run_id
-        logger.info(f"Starting run with run_id: {run_id}")
-
-        try:
-            graph = self._get_graph(ctx)
-            run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
-
-            # 直接调用，LangGraph会在当前任务上下文中执行
-            # 如果当前任务被取消，LangGraph的执行也会被取消
-            return await graph.ainvoke(payload, config=run_config, context=ctx)
-
-        except asyncio.CancelledError:
-            logger.info(f"Run {run_id} was cancelled")
-            return {"status": "cancelled", "run_id": run_id, "message": "Execution was cancelled"}
-        except Exception as e:
-            # 使用错误分类器分类错误
-            err = self.error_classifier.classify(e, {"node_name": "run", "run_id": run_id})
-            # 记录详细的错误信息和堆栈跟踪
-            logger.error(
-                f"Error in GraphService.run: [{err.code}] {err.message}\n"
-                f"Category: {err.category.name}\n"
-                f"Traceback:\n{extract_core_stack()}"
-            )
-            # 保留原始异常堆栈，便于上层返回真正的报错位置
-            raise
-        finally:
-            # 清理任务记录
-            self.running_tasks.pop(run_id, None)
-
-    # 流式运行（SSE 格式化）：HTTP 路由使用
-    async def stream_sse(self, payload: Dict[str, Any], ctx=None, run_opt: Optional[RunOpt] = None) -> AsyncGenerator[str, None]:
-        if ctx is None:
-            ctx = new_context(method="stream_sse")
-        if run_opt is None:
-            run_opt = RunOpt()
-
-        run_id = ctx.run_id
-        logger.info(f"Starting stream with run_id: {run_id}")
-        graph = self._get_graph(ctx)
-        run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
-
-        is_workflow = not graph_helper.is_agent_proj()
-
-        try:
-            async for chunk in self.astream(payload, graph, run_config=run_config, ctx=ctx, run_opt=run_opt):
-                if is_workflow and isinstance(chunk, tuple):
-                    event_id, data = chunk
-                    yield self._sse_event(data, event_id)
-                else:
-                    yield self._sse_event(chunk)
-        finally:
-            # 清理任务记录
-            self.running_tasks.pop(run_id, None)
-
-    # 取消执行 - 使用asyncio的标准方式
-    def cancel_run(self, run_id: str, ctx: Optional[Context] = None) -> Dict[str, Any]:
-        """
-        取消指定run_id的执行
-
-        使用asyncio.Task.cancel()来取消任务,这是标准的Python异步取消机制。
-        LangGraph会在节点之间检查CancelledError,实现优雅的取消。
-        """
-        logger.info(f"Attempting to cancel run_id: {run_id}")
-
-        # 查找对应的任务
-        if run_id in self.running_tasks:
-            task = self.running_tasks[run_id]
-            if not task.done():
-                # 使用asyncio的标准取消机制
-                # 这会在下一个await点抛出CancelledError
-                task.cancel()
-                logger.info(f"Cancellation requested for run_id: {run_id}")
-                return {
-                    "status": "success",
-                    "run_id": run_id,
-                    "message": "Cancellation signal sent, task will be cancelled at next await point"
-                }
-            else:
-                logger.info(f"Task already completed for run_id: {run_id}")
-                return {
-                    "status": "already_completed",
-                    "run_id": run_id,
-                    "message": "Task has already completed"
-                }
-        else:
-            logger.warning(f"No active task found for run_id: {run_id}")
-            return {
-                "status": "not_found",
-                "run_id": run_id,
-                "message": "No active task found with this run_id. Task may have already completed or run_id is invalid."
-            }
-
-    # 运行指定节点：本地/HTTP 通用
-    async def run_node(self, node_id: str, payload: Dict[str, Any], ctx=None, extra_config=None) -> Any:
-        if ctx is None or Context.run_id == "":
-            ctx = new_context(method="node_run")
-
-        _graph = self._get_graph()
-        node_func, input_cls, output_cls = graph_helper.get_graph_node_func_with_inout(_graph.get_graph(), node_id)
-        if node_func is None or input_cls is None:
-            raise KeyError(f"node_id '{node_id}' not found")
-
-        parser = LangGraphParser(_graph)
-        metadata = parser.get_node_metadata(node_id) or {}
-
-        _g = StateGraph(input_cls, input_schema=input_cls, output_schema=output_cls)
-        _g.add_node("sn", node_func, metadata=metadata)
-        _g.set_entry_point("sn")
-        _g.add_edge("sn", END)
-        _graph = _g.compile()
-
-        run_config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
-        if extra_config:  # v0.41 T7a: regen 端点注入 force_regen/regen_version（合并到 configurable）
-            run_config["configurable"].update(extra_config or {})
-        return await _graph.ainvoke(payload, config=run_config)
-
-    def graph_inout_schema(self) -> Any:
-        if graph_helper.is_agent_proj():
-            return {"input_schema": {}, "output_schema": {}}
-        builder = getattr(self._get_graph(), 'builder', None)
-        if builder is not None:
-            input_cls = getattr(builder, 'input_schema', None) or self._get_graph().get_input_schema()
-            output_cls = getattr(builder, 'output_schema', None) or self._get_graph().get_output_schema()
-        else:
-            logger.warning(f"No builder input schema found for graph_inout_schema, using graph input schema instead")
-            input_cls = self._get_graph().get_input_schema()
-            output_cls = self._get_graph().get_output_schema()
-
-        return {
-            "input_schema": input_cls.model_json_schema(), 
-            "output_schema": output_cls.model_json_schema(),
-            "code":0,
-            "msg":""
-        }
-
-    async def astream(self, payload: Dict[str, Any], graph: CompiledStateGraph, run_config: RunnableConfig, ctx=Context, run_opt: Optional[RunOpt] = None) -> AsyncIterable[Any]:
-        stream_runner = self._get_stream_runner()
-        async for chunk in stream_runner.astream(payload, graph, run_config, ctx, run_opt):
-            yield chunk
-
-
-service = GraphService()
 
 async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
@@ -607,9 +245,13 @@ async def lifespan(app: FastAPI):
     )
     
     # 启动Supabase任务处理器（最多30个并发任务 — 4核4G 服务器 I/O 密集安全值，外部 API 由全局限流器兜底）
+    # ✅ W3b: 单例归 orchestrator holder（services 层经 get_task_processor 取，
+    # 不再 from main）；main.task_processor 保留为同名别名——路由裸名与
+    # 测试 monkeypatch main.task_processor 兼容面不变。
     global task_processor
     max_concurrent = int(os.getenv("MAX_CONCURRENT", "30"))
     task_processor = SupabaseTaskProcessor(max_concurrent=max_concurrent)
+    set_task_processor(task_processor)
 
     # v0.63.1 架构优化 R1: 扩容 asyncio 默认线程池——LangGraph 全部节点是 sync 函数,
     # ainvoke 下经 run_in_executor(None, ...) 跑在 asyncio 默认 ThreadPoolExecutor
@@ -1712,167 +1354,6 @@ def store_health(request: Request, client_id: str = None, api_key: str = None):
         raise HTTPException(status_code=502, detail="upstream store health check failed")
 
 
-def _extract_token_from_body(body_text: str) -> str:
-    """从请求体 JSON 提取 token（解析失败/非 dict → 视为无 token → 鉴权 401）。"""
-    try:
-        data = json.loads(body_text)
-    except (json.JSONDecodeError, TypeError):
-        return ""
-    if not isinstance(data, dict):
-        return ""
-    return str(data.get("token", "") or "")
-
-
-def _key_user_id(clean_token: str) -> str:
-    """回退租户:key 哈希派生(PRD M2 前行为;未配置 Supabase 时由 tenant_service 使用)。"""
-    from services.tenant_service import key_derived_tenant
-    return key_derived_tenant(clean_token)
-
-
-_revoked_tokens: set[str] = set()
-
-
-def _authenticate_token(token: str) -> str:
-    """鉴权 token → user_id(PRD M2:key 仅鉴权,租户 = Supabase tokens.user_id;
-    未配置 Supabase 回退 key 哈希)。失败抛 HTTPException(401/403/429/503)。"""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    if token in _revoked_tokens:
-        raise HTTPException(status_code=401, detail="Token is revoked")
-    clean_tmp = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    if clean_tmp in _revoked_tokens:
-        raise HTTPException(status_code=401, detail="Token is revoked")
-    from services.tenant_service import resolve_tenant
-    user_id = resolve_tenant(token)
-    # T21(race-M5): 限流后置——通过凭证校验(resolve_tenant 的 401/503)的 token 才写
-    # 限流键，未认证洪水不再消耗限流字典内存（键形态保持 raw token 含 sk- 前缀不变）。
-    allowed, _remaining = rate_limiter.check(token)
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: max {RATE_LIMIT_PER_MINUTE} requests per minute",
-        )
-    return user_id
-
-
-def _check_mxou_balance(token_record: dict) -> tuple[float, bool]:
-    """检查用户余额（v0.29.3 统一：优先查 MXOU 平台真实余额）。
-
-    背景（2026-08-07 Sentry 实证）：此前查 Supabase users.quota + unlimited_quota
-    放行 —— unlimited_quota=true 时永远放行, 但 MXOU 平台按真实余额扣费,
-    平台欠费(¥-0.068)仍放行 → 任务入队后 LLM/生图全 403 失败(253 次错误)。
-
-    修复原则（统一余额来源 = MXOU 平台）：
-    - 优先调 MXOU /v1/dashboard/billing/subscription 拿真实 balance
-      （balance > 0 放行; <= 0 拒绝"MXOU 余额不足, 请充值"）
-    - MXOU 查询失败(网络/接口) → 降级 Supabase users.quota（现有逻辑兜底）
-    - unlimited_quota 仅作 Supabase 兜底分支的放行标记, 不再跳过 MXOU 实查
-
-    Returns: (balance, ok) — ok=True 表示有额度
-    """
-    try:
-        # ⚠️ 1. MXOU 平台真实余额优先（统一来源）
-        raw_key = str(token_record.get("key", "") or "")
-        mxou_balance = None
-        if raw_key:
-            # v0.62 R1: 复用 _check_balance_cached（30s TTL 缓存 + 低余额用户告警），
-            # 避免 auth/verify 高频打余额接口；查询失败返回 inf（fail-open），
-            # 与旧 get_mxou_balance 返回 None 的降级语义对齐。
-            from utils.mxou_api import _check_balance_cached
-            _cached = _check_balance_cached(raw_key)
-            mxou_balance = None if _cached == float("inf") else _cached
-        if mxou_balance is not None:
-            return mxou_balance, mxou_balance > 0
-
-        # ⚠️ 2. MXOU 查询失败 → 降级 Supabase users.quota（原逻辑兜底）
-        user_id = token_record.get("user_id", "")
-        supabase = get_supabase_client()
-        # v0.62.4 修复：调用方（submit_task）可能只传 key 哈希租户(user_<hash>)而非真实
-        # Supabase users.id，导致真实用户查不到 → 误判「余额不足」。这里用 key 反查真实
-        # user_id 与 unlimited_quota（auth_verify 已传全量 record 则不重复查）。
-        raw_key = str(token_record.get("key", "") or "")
-        if supabase is not None and (
-            token_record.get("unlimited_quota") is None
-            or not user_id
-            or str(user_id).startswith("user_")
-        ):
-            try:
-                _trows = supabase.table("tokens").select(
-                    "user_id, unlimited_quota"
-                ).eq("key", raw_key).is_("deleted_at", "null").limit(1).execute()
-                if _trows.data:
-                    _row = _trows.data[0]
-                    user_id = str(_row.get("user_id") or user_id)
-                    if _row.get("unlimited_quota") is not None:
-                        token_record = {
-                            **token_record,
-                            "unlimited_quota": bool(_row.get("unlimited_quota")),
-                        }
-            except Exception as exc:
-                logger.warning("余额降级-反查 token 失败（user=%s）: %s", user_id, str(exc)[:200])
-        if supabase is None or not user_id:
-            # 本地开发模式：无 Supabase，不阻断
-            return 0.0, True
-
-        # 查 users 表剩余额度 quota（充值直接加 quota，调用扣 quota）
-        try:
-            user_rows = supabase.table("users").select(
-                "quota"
-            ).eq("id", user_id).limit(1).execute()
-        except Exception as exc:
-            # v0.22: 查询失败不再降级 key 级 remain_quota（僵尸字段会负数误判）。
-            # unlimited 放行；非 unlimited 拒绝（数据异常应暴露，宁缺毋滥）
-            logger.warning("余额查询失败（user=%s）: %s", user_id, exc)
-            return 0.0, bool(token_record.get("unlimited_quota"))
-
-        if user_rows.data:
-            u = user_rows.data[0]
-            balance = float(u.get("quota", 0) or 0)
-            if token_record.get("unlimited_quota"):
-                return balance, True
-            return balance, balance > 0
-
-        # users 表无记录：unlimited 放行；非 unlimited 拒绝（不降级僵尸字段）
-        return 0.0, bool(token_record.get("unlimited_quota"))
-    except Exception as e:
-        logger.warning(f"余额检查异常（不阻断）: {e}")
-        return 0.0, True
-
-
-def _balance_source_label(token_record: dict, balance: float) -> str:
-    """402 文案定位（B3, v0.64.1）：推断本次余额拒绝的数字来自哪条数据源。
-
-    source ∈ {mxou_real, mxou_session, supabase, unknown}
-    - mxou_real:  数字由 MXOU billing/subscription 实查给出（字面 balance；
-                  B1 后仅剩真欠费负数/无 limit 哨兵的 0.0 会走到拒绝）
-    - mxou_session: 无字面 balance 字段、经用户会话 /api/user/self quota 换算
-                  （旧响应形态；现 newapi 均带 balance 字段，罕见）
-    - supabase:   MXOU 实查降级(None→fail-open inf)后，数字来自 Supabase
-                  users.quota 兜底判定
-    - unknown:    缓存未被本次判定填充（如 _check_mxou_balance 被 mock）或异常
-
-    轻量实现：只读 _check_mxou_balance 刚写入的 30s 余额缓存判定 MXOU 实查是否
-    降级（fp 必须匹配本 token，避免读到别的用户）——**不**调 _check_balance_cached/
-    get_mxou_balance，绝不因此多发 HTTP。任何异常/信息不足 → unknown（不影响拒绝）。
-    """
-    try:
-        from utils.mxou_api import _BALANCE_CACHE, _token_fingerprint
-        token = str(token_record.get("key") or "")
-        if not token:
-            return "unknown"
-        cached = _BALANCE_CACHE.get("value")
-        if cached is None or _BALANCE_CACHE.get("fp") != _token_fingerprint(token):
-            return "unknown"
-        if cached == float("inf"):
-            # MXOU 实查返回 None → fail-open inf → 拒绝数字来自 Supabase users.quota 兜底
-            return "supabase"
-        if float(cached) == float(balance):
-            return "mxou_real"
-    except Exception:
-        pass
-    return "unknown"
-
-
 @app.post("/auth/verify", response_model=AuthVerifyResponse)
 @app.post("/api/v1/auth/verify", response_model=AuthVerifyResponse)
 async def auth_verify(request: Request):
@@ -1900,68 +1381,6 @@ async def auth_verify(request: Request):
     client_id = body.get("client_id", "")
     api_key = body.get("api_key", "")
     return await asyncio.to_thread(_auth_verify_sync, token, client_id, api_key)
-
-
-def _auth_verify_sync(token: str, client_id: str = "", api_key: str = "") -> dict:
-    """auth_verify 同步实现（纯阻塞 IO，供 asyncio.to_thread 调用）。"""
-    if not token:
-        return {"valid": False, "reason": "token_invalid", "expires_in": 0}
-
-    # 去掉 sk- 前缀（tokens 表 key 列存储的是不带前缀的值）
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-
-    # 1. 验证 token（查 Supabase tokens 表，和 submit_task 相同逻辑）
-    supabase = get_supabase_client()
-    if supabase is None:
-        logger.warning("auth_verify: Supabase未配置，跳过token鉴权（本地开发模式）")
-    else:
-        try:
-            token_records = supabase.table("tokens").select(
-                "user_id, key, remain_quota, status, expired_time, unlimited_quota"
-            ).eq("key", clean_token).is_("deleted_at", "null").execute()
-
-            if not token_records.data or len(token_records.data) == 0:
-                return {"valid": False, "reason": "token_invalid", "expires_in": 0}
-
-            token_record = token_records.data[0]
-            status = int(token_record.get("status", 0))
-
-            # 2. 检查 token 状态（1=active, 2=disabled, 3=expired, 4=quota exhausted/欠费）
-            #    status=4 明确映射 balance_insufficient（与 n8n AUTH_EXHAUSTED 一致）
-            if status == 4:
-                return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
-            if status != 1:
-                return {"valid": False, "reason": "account_inactive", "expires_in": 0}
-
-            # 3. 检查余额（查 users 表 quota-used_quota，无限额度放行；
-            #    原实现只查 remain_quota 会把无限额度 token 误判余额不足）
-            balance, has_quota = _check_mxou_balance(token_record)
-            if not has_quota:
-                return {"valid": False, "reason": "balance_insufficient", "expires_in": 0}
-
-        except Exception as e:
-            logger.warning(f"auth_verify DB error: {e}")
-            return {"valid": False, "reason": "service_unavailable", "expires_in": 0}
-
-    # 4. 可选：验证 Ozon API
-    ozon_valid = None
-    if client_id and api_key:
-        try:
-            # F-F01（2026-09-09 审计）：收敛 ozon_post——OzonError(4xx/5xx)=凭证/平台问题
-            # → False（保持原「非 200」语义），网络不可达 → None（未知，不冤枉凭证）
-            ozon_post(client_id, api_key, "/v1/seller/info", {}, timeout=10)
-            ozon_valid = True
-        except OzonError:
-            ozon_valid = False
-        except Exception:
-            ozon_valid = None
-
-    return {
-        "valid": True,
-        "reason": "ok",
-        "expires_in": 86400,
-        "ozon_valid": ozon_valid,
-    }
 
 
 @app.get("/progress/{run_id}", responses={
@@ -2214,7 +1633,7 @@ async def http_submit_task(request: Request):
             )
 
         # ✅ W2 信封契约硬化：未知顶层/未知 extensions 键 fail-closed（权威 =
-        # api/envelope_contract.py；ENVELOPE_STRICT=0 降级 warn，存量旧包逃生门）。
+        # utils/envelope_contract.py；ENVELOPE_STRICT=0 降级 warn，存量旧包逃生门）。
         # 只在边界校验——worker 在 ingest 后注入 box_reviewed/update_* 等键不受影响。
         envelope_errors = validate_envelope(envelope)
         if envelope_errors:
@@ -2424,67 +1843,6 @@ def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body:
         extra_part = " " + " ".join(f"{k}={v}" for k, v in extra.items())
     logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} "
                 f"body_bytes={len(raw_body)}{extra_part}")
-
-
-def _require_bearer(request: Request) -> str:
-    """T8(api-M2): Bearer 提取 + 有效性校验共享入口（/progress 已接入；
-    task_statistics 的内联已收敛至此；后续 read-only 端点同款复用）。
-
-    规则：
-    - 无 Authorization Bearer → 401 "Token is required"（与 forensics /
-      ``_task_status_guard`` 同文案）。
-    - Bearer 剥 ``sk-`` 前缀一层后走 ``_verify_analytics_token`` 有效性校验，
-      其 401/503 原样透传（本函数不吞不换）。
-    - 返回 clean token（无 sk- 前缀）。⚠️ 调用方后续若做租户解析可直传本返回值
-      ——``resolve_tenant`` 内部自剥 sk-（``_clean_token``），raw/clean 等价。
-
-    ⚠️ 应急门语义见 ``_task_status_guard``（env ``TASK_STATUS_AUTH``）——那是
-    task_status/cancel_task 专用的应急开关；本 helper **无独立开关**，接入端点
-    如需应急放行走端点级回退（镜像回滚或临时 try 包裹），勿混用 TASK_STATUS_AUTH。
-    """
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean)
-    return clean
-
-
-def _task_status_guard(request: Request, task_row: dict) -> None:
-    """鉴权 + 租户校验（v0.73 为 GET /task_status 收口；v0.76 T6(api-H2) 起
-    cancel_task 同源复用——语义完全一致，见下）。
-
-    此前该端点（旧路径 + /api/v1 别名）完全无鉴权——任何拿到 task uuid 的人
-    可读全量任务数据（tenant_id / 采购链接 / 定价成本）。规则：
-    - env ``TASK_STATUS_AUTH=0`` → 直接放行（应急开关，默认开；仅生产事故
-      回滚用，勿长期关闭）。
-    - 无 Authorization Bearer → 401 "Token is required"（与 forensics 同文案）。
-    - Bearer 无效 → ``_verify_analytics_token`` 的 401/503 原样透传。
-    - 租户比对：``resolve_tenant(token)``（与任务写入侧同源）≠ task_row 的
-      tenant_id → 404 "task not found"（等价不存在，不泄漏存在性，与
-      forensics 同语义）。
-    - task_row 无 tenant_id 键（历史老数据）→ 跳过比对放行（宽容读：老数据
-      无租户归属可校验，硬拒会让存量任务轮询全挂）。
-
-    ⚠️ 有意不加 rate_limiter：task_status 是前端 / skill / harness 轮询的
-    高频端点，逐 token 限流会误伤正常轮询；鉴权 + 租户校验足矣（与
-    analytics 读端点的区别在此）。
-    """
-    if os.environ.get("TASK_STATUS_AUTH", "").strip() == "0":
-        return
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    if not token:
-        raise HTTPException(status_code=401, detail="Token is required")
-    clean_token = token.replace("sk-", "", 1) if token.startswith("sk-") else token
-    _verify_analytics_token(clean_token)
-    task_tenant = str(task_row.get("tenant_id") or "")
-    if not task_tenant:
-        return  # 老数据无租户归属 → 宽容读（见 docstring）
-    from services.tenant_service import resolve_tenant
-    if resolve_tenant(token) != task_tenant:
-        raise HTTPException(status_code=404, detail="task not found")
 
 
 @app.get("/task_status/{task_id}", responses={
@@ -3071,23 +2429,6 @@ _ANALYTICS_KINDS = {
         "runs",
     ),
 }
-
-
-def _verify_analytics_token(clean_token: str) -> None:
-    """analytics 上报鉴权（与 logistics_quote 一致：Supabase 未配置 → 本地放行）。"""
-    supabase = get_supabase_client()
-    if supabase is None:
-        return
-    try:
-        token_records = supabase.table("tokens").select(
-            "status"
-        ).eq("key", clean_token).is_("deleted_at", "null").execute()
-        if not token_records.data or len(token_records.data) == 0 or int(token_records.data[0].get("status", 0)) != 1:
-            raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=503, detail="service_unavailable")
 
 
 def _upsert_analytics(

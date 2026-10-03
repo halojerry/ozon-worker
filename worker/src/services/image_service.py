@@ -108,7 +108,7 @@ async def regen_image(
     params = info.get("params") or {}
 
     if run_node is None:
-        from main import service as _graph_service  # 延迟导入防循环
+        from runtime.graph_service import service as _graph_service  # ✅ W3b: 不再 from main
         run_node = _graph_service.run_node
 
     run_config = {

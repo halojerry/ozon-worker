@@ -156,7 +156,7 @@ class ProgressLogger:
         # ✅ v0.10: 如果 run_id 是 "unknown"，尝试从全局上下文获取当前 task_id
         if (not run_id or run_id == "unknown"):
             try:
-                from main import get_current_task_id
+                from runtime.progress import get_current_task_id  # ✅ W3b: 不再 from main
                 ctx_id = get_current_task_id()
                 if ctx_id:
                     run_id = ctx_id
@@ -165,7 +165,7 @@ class ProgressLogger:
         if not run_id or run_id == "unknown":
             return
         try:
-            from main import update_progress
+            from runtime.progress import update_progress  # ✅ W3b: 不再 from main
             update_progress(run_id, stage, message)
         except Exception:
             pass  # 静默降级：不影响主流程

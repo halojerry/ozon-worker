@@ -7,9 +7,10 @@ thread_id / task uuid）的匿名请求可探测任务存在性与执行进度�
   校验（替身放行）→ 返回 clean token。
 - /progress/{run_id} 无 Bearer → 401（修复前 404/200）。
 
-说明：``_verify_analytics_token`` 为 main 模块级函数 → patch ``main`` 命名
-空间生效（同 test_task_statistics_auth_v076 惯例）。不带 with 的 TestClient
-不触发 lifespan（不连 PG / 不启动 worker）。
+说明：``_verify_analytics_token`` 自 W3b 起唯一权威在 ``api/security.py``，
+``_require_bearer`` 的内部调用走 security 模块命名空间 → patch 打
+``api_security``（打 main 上的 re-export 别名拦截不到 security 内部调用）。
+不带 with 的 TestClient 不触发 lifespan（不连 PG / 不启动 worker）。
 
 运行:
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_require_bearer_v076.py -q
@@ -23,6 +24,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod  # noqa: E402
+from api import security as api_security  # noqa: E402  # ✅ W3b: _verify 拦截点在 security 命名空间
 from main import _require_bearer, app  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
@@ -38,7 +40,7 @@ def test_require_bearer_missing_401():
 
 def test_require_bearer_strips_sk(monkeypatch):
     seen = []
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: seen.append(t))
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: seen.append(t))
     class R:
         headers = {"Authorization": "Bearer sk-abc123"}
     assert _require_bearer(R()) == "abc123"
@@ -46,7 +48,7 @@ def test_require_bearer_strips_sk(monkeypatch):
 
 
 def test_progress_requires_token(monkeypatch):
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     c = TestClient(app, raise_server_exceptions=False)
     r = c.get("/progress/run-xyz")
     assert r.status_code == 401
@@ -57,7 +59,7 @@ def test_progress_token_verify_passthrough(monkeypatch):
     """Bearer 无效 → _verify_analytics_token 的 401 原样透传（不得吞成 404/500）。"""
     def _reject(t):
         raise HTTPException(status_code=401, detail="token_invalid or account_inactive")
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", _reject)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", _reject)
     c = TestClient(app, raise_server_exceptions=False)
     r = c.get("/progress/run-xyz", headers={"Authorization": "Bearer bad-token"})
     assert r.status_code == 401

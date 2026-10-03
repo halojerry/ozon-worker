@@ -81,8 +81,10 @@ def test_auth_verify_select_includes_key_and_passes_key_to_balance():
         captured["record"] = record
         return 100.0, True
 
-    with patch("main.get_supabase_client", return_value=fake), patch(
-        "main._check_mxou_balance", side_effect=fake_balance
+    # ✅ W3b: auth_verify 路由调 _auth_verify_sync（唯一权威 api/security.py），
+    # 其内部 get_supabase_client/_check_mxou_balance 走 security 命名空间 → 打 api.security
+    with patch("api.security.get_supabase_client", return_value=fake), patch(
+        "api.security._check_mxou_balance", side_effect=fake_balance
     ):
         resp = asyncio.run(main_mod.auth_verify(FakeRequest({"token": "sk-tok123"})))
 

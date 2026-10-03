@@ -69,29 +69,27 @@ def _files_importing_main() -> set[str]:
     return out
 
 
-# ── R2 棘轮基线（2026-10 W3a 立法日实盘；W3b 收口后下调，禁止上调）──
+# ── R2 棘轮基线（2026-10 W3b 收口日实盘重定；此后只减不增）──
+# W3b 记账：utils→main 2→0、services→main 6→0、<root>→main 2→1
+# （低层 → God module 反向依赖清退，main 收缩 ~790 行）；services→orchestrator
+# 1→3 为立法日重定——draft/admin 从 from main import task_processor 改走
+# orchestrator 单例 holder，依赖从 God module 收敛到单一职责模块，净改善。
 RATCHET_BASELINE: dict[tuple[str, str], int] = {
     ("utils", "services"): 5,
-    ("utils", "main"): 2,
-    ("services", "main"): 6,
+    ("utils", "main"): 0,
+    ("services", "main"): 0,
     ("services", "api"): 2,
-    ("services", "orchestrator"): 1,
+    ("services", "orchestrator"): 3,
     ("graphs", "services"): 4,
     ("graphs", "api"): 2,
     ("api", "main"): 2,
-    ("<root>", "main"): 2,
+    ("<root>", "main"): 1,
 }
 
-# ── R3 文件冻结基线（同日实盘；只减不增）──
+# ── R3 文件冻结基线（W3b 收口日实盘；只减不增——低层 6 文件已清退）──
 MAIN_IMPORTER_FILES_FROZEN = {
     "mcp_server.py",
     "api/deps_tenant.py",
-    "utils/progress_logger.py",
-    "orchestrator/task_processor.py",
-    "services/draft_service.py",
-    "services/admin_service.py",
-    "services/image_service.py",
-    "services/mxou_login_service.py",
     "routes/admin_site_routes.py",
     "routes/settings_routes.py",
     "routes/image_tasks_routes.py",
