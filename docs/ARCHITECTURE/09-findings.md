@@ -81,7 +81,7 @@
 - 🟡 ingest task_id（uuid4）与 DB 任务 id 双轨（部分位置可能误用第二真相源）。
 - 🟡 PrepareOzonUploadOutput.failed_stage 默认值非空（state.py:527，唯一违反「默认值归零」纪律的 Output）——异常路径留非空 error_message 时会放大成 failed。
 - 🟠 **check_quota 定时炸弹**：无 Input 注解 + `route_after_early_quota` 路由读 `state.envelope`——谁按纪律补 Input 注解，路由立刻 AttributeError/恒走 full 分支。
-- 📚 set_graph docstring 与代码相反（/run 族实际写 checkpoint）。
+- 📚 set_graph docstring 与代码相反（/run 族实际写 checkpoint）。（/run 族已随 2026-10 platform-compat 退役删除，本条存档。）
 - 🟡 MCP 限流双计（一次调用计 2 次，有效配额减半，无文档提示）。
 - 🟡 `should_handle_error` 内变量重复声明（graph.py:351-359 残留）。
 - 🟡 has_pending 把 status="skipped" 当处理中（最坏空转 10 分钟，ozon_status:224）。

@@ -515,7 +515,7 @@ export interface paths {
         };
         /**
          * Admin Tasks
-         * @description 任务统计（全租户）——get_task_stats 是 async，必须 await。
+         * @description 任务统计（缺省全租户；?tenant_id= 指定 → 单租户，v0.83.2 接通）。
          */
         get: operations["admin_tasks_api_v1_admin_tasks_get"];
         put?: never;
@@ -2853,31 +2853,6 @@ export interface paths {
         patch: operations["newapi_proxy_api__path__patch"];
         trace?: never;
     };
-    "/async_run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Async Run
-         * @description [DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
-         *
-         *     v0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写
-         *     操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行
-         *     🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效
-         *     token → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。
-         */
-        post: operations["http_async_run_async_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/auth/verify": {
         parameters: {
             query?: never;
@@ -2904,29 +2879,6 @@ export interface paths {
          *     Supabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。
          */
         post: operations["auth_verify_auth_verify_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/cancel/{run_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Http Cancel
-         * @description 取消指定run_id的执行
-         *
-         *     使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
-         *     LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
-         */
-        post: operations["http_cancel_cancel__run_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3090,23 +3042,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/node_run/{node_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Http Node Run */
-        post: operations["http_node_run_node_run__node_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/progress/{run_id}": {
         parameters: {
             query?: never;
@@ -3159,40 +3094,6 @@ export interface paths {
          *     （此前冒泡成 500）。
          */
         post: operations["http_resubmit_task_resubmit_task__task_id__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Http Run */
-        post: operations["http_run_run_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stream_run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Http Stream Run */
-        post: operations["http_stream_run_stream_run_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3284,26 +3185,6 @@ export interface paths {
         get: operations["http_task_status_task_status__task_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/chat/completions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Openai Chat Completions
-         * @description OpenAI Chat Completions API 兼容接口
-         */
-        post: operations["openai_chat_completions_v1_chat_completions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9562,6 +9443,11 @@ export interface operations {
                          */
                         purchase_cost: number;
                         /**
+                         * Scid
+                         * @description 1688 source_category_id；dc 缺席时经学习映射表反查（category_mapping，命中才用）——estimate 佣金冷启动解锁（v0.83.1）
+                         */
+                        scid?: string | null;
+                        /**
                          * Weight G
                          * @description 单件重量（克）；缺省走归一化兜底
                          */
@@ -12540,34 +12426,6 @@ export interface operations {
             };
         };
     };
-    http_async_run_async_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "status": "queued",
-                     *       "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
-                     *     }
-                     */
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
     auth_verify_auth_verify_post: {
         parameters: {
             query?: never;
@@ -12584,44 +12442,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthVerifyResponse"];
-                };
-            };
-        };
-    };
-    http_cancel_cancel__run_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "message": "Cancellation signal sent, task will be cancelled at next await point",
-                     *       "run_id": "e1f2a3b4c5d647e8",
-                     *       "status": "success"
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -12937,46 +12757,6 @@ export interface operations {
             };
         };
     };
-    http_node_run_node_run__node_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                node_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "balance": 12.5,
-                     *       "currency_code": "CNY",
-                     *       "ozon_client_id": "5381204",
-                     *       "progress_counter": 1,
-                     *       "user_id": "28"
-                     *     }
-                     */
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     http_progress_progress__run_id__get: {
         parameters: {
             query?: never;
@@ -13115,74 +12895,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    http_run_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error_code": "",
-                     *       "error_message": "",
-                     *       "pricing_info": {
-                     *         "old_price": 305,
-                     *         "price": 254,
-                     *         "promo_price": 254
-                     *       },
-                     *       "product_id": "987654321",
-                     *       "purchase_url": "https://detail.1688.com/offer/123456789.html",
-                     *       "run_id": "e1f2a3b4c5d647e8",
-                     *       "stages": {
-                     *         "auth": "done",
-                     *         "category_match": "done",
-                     *         "ozon_upload": "done"
-                     *       },
-                     *       "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                     *       "upload_status": "success"
-                     *     }
-                     */
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    http_stream_run_stream_run_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                    /**
-                     * @example event: message
-                     *     data: {"progress_counter": 3, "stages": {"category_match": "done"}}
-                     */
-                    "text/event-stream": unknown;
                 };
             };
         };
@@ -13346,49 +13058,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    openai_chat_completions_v1_chat_completions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "choices": [
-                     *         {
-                     *           "finish_reason": "stop",
-                     *           "index": 0,
-                     *           "message": {
-                     *             "content": "Пример ответа ассистента.",
-                     *             "role": "assistant"
-                     *           }
-                     *         }
-                     *       ],
-                     *       "created": 1726000000,
-                     *       "id": "chatcmpl-e1f2a3b4c5d647e8",
-                     *       "model": "deepseek-v4-flash",
-                     *       "object": "chat.completion",
-                     *       "usage": {
-                     *         "completion_tokens": 64,
-                     *         "prompt_tokens": 128,
-                     *         "total_tokens": 192
-                     *       }
-                     *     }
-                     */
-                    "application/json": unknown;
                 };
             };
         };

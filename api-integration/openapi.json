@@ -12413,31 +12413,6 @@
         ]
       }
     },
-    "/async_run": {
-      "post": {
-        "description": "[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。\n\nv0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写\n操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行\n🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效\ntoken → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。",
-        "operationId": "http_async_run_async_run_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "status": "queued",
-                  "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d"
-                },
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Http Async Run Async Run Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Http Async Run"
-      }
-    },
     "/auth/verify": {
       "post": {
         "description": "Skill 鉴权端点。\n\n验证（与 submit_task 相同逻辑）:\n1. token 有效性（Supabase tokens 表 key 列，剥离 sk- 前缀）\n2. token 状态 = 1（active；status=4 欠费 → balance_insufficient）\n3. 余额检查：users.quota - used_quota（unlimited_quota=true 放行；\n   不再用 remain_quota——它是僵尸字段且无限额度 key 会被误判）\n4. Ozon API 有效性（可选）\n\n不返回余额数字，只返回 valid + reason。\n\nv0.63.1 架构优化 R2: 阻塞逻辑在 _auth_verify_sync（to_thread）——\nSupabase/Ozon HTTP 最长 10s，async 内直接执行会冻结事件循环。",
@@ -12455,49 +12430,6 @@
           }
         },
         "summary": "Auth Verify"
-      }
-    },
-    "/cancel/{run_id}": {
-      "post": {
-        "description": "取消指定run_id的执行\n\n使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。\nLangGraph会在节点之间的await点检查CancelledError,实现优雅取消。",
-        "operationId": "http_cancel_cancel__run_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "message": "Cancellation signal sent, task will be cancelled at next await point",
-                  "run_id": "e1f2a3b4c5d647e8",
-                  "status": "success"
-                },
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Http Cancel"
       }
     },
     "/cancel_task/{task_id}": {
@@ -12801,50 +12733,6 @@
         "summary": "Health Check"
       }
     },
-    "/node_run/{node_id}": {
-      "post": {
-        "operationId": "http_node_run_node_run__node_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "node_id",
-            "required": true,
-            "schema": {
-              "title": "Node Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "balance": 12.5,
-                  "currency_code": "CNY",
-                  "ozon_client_id": "5381204",
-                  "progress_counter": 1,
-                  "user_id": "28"
-                },
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Http Node Run"
-      }
-    },
     "/progress/{run_id}": {
       "get": {
         "description": "查询工作流执行进度。\n\nv0.76 T8(api-M2): Bearer 鉴权（``_require_bearer``）——此前完全无鉴权，\n匿名可探测 run_id 存在性与执行进度（13 阶段逐节点）。无独立应急开关，\n语义见 helper docstring。\n\n优先从 LangGraph checkpointer 读取实时 state，\n降级到内存 _task_progress → PG progress 列（任务完成后/重启后可用）。",
@@ -12984,64 +12872,6 @@
           }
         },
         "summary": "Http Resubmit Task"
-      }
-    },
-    "/run": {
-      "post": {
-        "operationId": "http_run_run_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "error_code": "",
-                  "error_message": "",
-                  "pricing_info": {
-                    "old_price": 305.0,
-                    "price": 254.0,
-                    "promo_price": 254.0
-                  },
-                  "product_id": "987654321",
-                  "purchase_url": "https://detail.1688.com/offer/123456789.html",
-                  "run_id": "e1f2a3b4c5d647e8",
-                  "stages": {
-                    "auth": "done",
-                    "category_match": "done",
-                    "ozon_upload": "done"
-                  },
-                  "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                  "upload_status": "success"
-                },
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Http Run Run Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Http Run"
-      }
-    },
-    "/stream_run": {
-      "post": {
-        "operationId": "http_stream_run_stream_run_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              },
-              "text/event-stream": {
-                "example": "event: message\ndata: {\"progress_counter\": 3, \"stages\": {\"category_match\": \"done\"}}\n\n"
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Http Stream Run"
       }
     },
     "/submit_task": {
@@ -13204,44 +13034,6 @@
           }
         },
         "summary": "Http Task Status"
-      }
-    },
-    "/v1/chat/completions": {
-      "post": {
-        "description": "OpenAI Chat Completions API 兼容接口",
-        "operationId": "openai_chat_completions_v1_chat_completions_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "choices": [
-                    {
-                      "finish_reason": "stop",
-                      "index": 0,
-                      "message": {
-                        "content": "Пример ответа ассистента.",
-                        "role": "assistant"
-                      }
-                    }
-                  ],
-                  "created": 1726000000,
-                  "id": "chatcmpl-e1f2a3b4c5d647e8",
-                  "model": "deepseek-v4-flash",
-                  "object": "chat.completion",
-                  "usage": {
-                    "completion_tokens": 64,
-                    "prompt_tokens": 128,
-                    "total_tokens": 192
-                  }
-                },
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Openai Chat Completions"
       }
     }
   }
