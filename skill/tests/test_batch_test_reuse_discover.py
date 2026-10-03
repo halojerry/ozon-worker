@@ -11,7 +11,6 @@
 - process_ozon_url 命中 discover 缓存 → 复用直上（不调 follow_sell_cloud）
 - process_ozon_url 未命中 → 走 follow 图搜链路
 - discover 缓存无 match_1688_url / 非 profitable → 降级 follow
-- estimate_shipping_cny 与 cloud_probe price_estimate 分段一致（防漂移）
 
 运行:
     cd skill && .venv314/bin/python -m pytest tests/test_batch_test_reuse_discover.py -q
@@ -25,7 +24,6 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import batch_test  # noqa: E402
-from scripts.lib.ozon_discovery import estimate_shipping_cny  # noqa: E402
 
 
 def _discover_entry(pid="4767514314", url="https://detail.1688.com/offer/1001.html",
@@ -168,21 +166,14 @@ def test_find_discover_source_empty_cache():
         assert batch_test._find_discover_source("111") is None
 
 
-def test_estimate_shipping_cny_consistency():
-    """默认重量/运费与 cloud_probe price_estimate 分段一致（防漂移）。
+def test_default_weight_g_pinned():
+    """无重量查费率表的兜底维度恒 500g（与 cloud_probe 上架管线同源，防漂移）。
 
-    无重量 → 500g → ¥6；≤500g → ¥6；≤1000g → ¥8；>1000g → ¥15。
+    v0.83 批① 运费/定价估算唯一出口是 worker `/estimate`；本地分段公式
+    estimate_shipping_cny 已随死代码清退，此处只钉 DEFAULT_WEIGHT_G。
     """
     from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G
     assert DEFAULT_WEIGHT_G == 500
-    assert estimate_shipping_cny(None) == 6.0
-    assert estimate_shipping_cny(0) == 6.0
-    assert estimate_shipping_cny(300) == 6.0
-    assert estimate_shipping_cny(500) == 6.0
-    assert estimate_shipping_cny(501) == 8.0
-    assert estimate_shipping_cny(1000) == 8.0
-    assert estimate_shipping_cny(1001) == 15.0
-    assert estimate_shipping_cny(5000) == 15.0
 
 
 def test_calculate_profit_sends_weight_to_batch():

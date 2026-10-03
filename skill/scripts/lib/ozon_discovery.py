@@ -37,20 +37,13 @@ CHINA_HIGHLIGHT_URL = "https://www.ozon.ru/highlight/tovary-iz-kitaya-935133/"
 # Default thresholds
 DEFAULT_FX_RATE = 0.075          # RUB -> CNY
 DEFAULT_LOGISTICS_CNY = 15.0     # rough per-kg logistics cost
-DEFAULT_COMMISSION_PCT = 0.10    # Ozon commission ~10%
-# 佣金默认分段（百分数，按售价选带）——worker 费率表/候选分段均不可达时的末级兜底
-DEFAULT_COMMISSION_SEGMENTS: dict[str, float] = {
-    "leq_1500": 12.0,
-    "leq_5000": 14.0,
-    "gt_5000": 18.0,
-}
 DEFAULT_MIN_MARGIN_PCT = 15.0    # minimum profit margin %
 DEFAULT_MAX_COMPETITORS = 50     # skip products with too many sellers
-LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8 CNY）
 
-# ⚠️ v0.58: 默认重量与 graph/follow 上架管线同源（cloud_probe.py price_estimate 分段）——
-# 此前 discover 无重量时落到 DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g → ¥6，
-# 两条路径差 ¥9/单，轻小件被选品分析误判「利润不足」。此处统一分段估算。
+# ⚠️ v0.58: 默认重量与 graph/follow 上架管线同源——此前 discover 无重量时落到
+# DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g → ¥6，两条路径差 ¥9/单，轻小件
+# 被选品分析误判「利润不足」。定价/运费估算唯一出口是 worker `/estimate`（v0.83
+# 批①，estimate_client.py）；本常量只喂「查费率表缺重量」的兜底维度。
 DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与 cloud_probe 一致
 
 # ⚠️ discover 货源有效性门槛：标题相关性置信度低于该值的图搜/AK 结果不作为有效货源
@@ -59,21 +52,6 @@ DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与
 # auto-submit 只取 profitable，绝不自动提交。对齐 _pick_best_match 的 conf 护栏档位。
 _MIN_SOURCE_CONFIDENCE = 0.3
 
-
-def estimate_shipping_cny(weight_g: int | None) -> float:
-    """按重量估算跨境运费 CNY（与 cloud_probe price_estimate 分段同源，防漂移）。
-
-    分段：≤500g → ¥6；≤1000g → ¥8；>1000g → ¥15。
-    重量缺失/非正 → 按 DEFAULT_WEIGHT_G(500g) 估算（¥6），与上架管线默认一致。
-    """
-    w = int(weight_g or 0)
-    if w <= 0:
-        w = DEFAULT_WEIGHT_G
-    if w <= 500:
-        return 6.0
-    if w <= 1000:
-        return 8.0
-    return 15.0
 
 # ⚠️ v0.22: 知名品牌黑名单（discover 直接过滤，避免浪费图搜/1688 匹配/生图资源）。
 # 只放知名品牌（跟卖会侵权/被拒）；1688 白牌/小厂牌（fansen 等）不在此列。
