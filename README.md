@@ -260,10 +260,10 @@ ozon-worker/
 | [`skill/SKILL.md`](skill/SKILL.md) | Agent 调用指南（Chrome 启动、选品、跟卖、以图搜款、批量处理） |
 | [`docs/CONTRACT-v4.md`](docs/CONTRACT-v4.md) | Skill ↔ Worker API 契约 v4.0（端点、信封结构、错误码、节点合约） |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Worker 云端部署完整指南（Docker、Nginx、HTTPS、运维） |
-| [`docs/WORKER-TOPOLOGY.md`](docs/WORKER-TOPOLOGY.md) | Worker 拓扑 + 错误映射 + 数据流 + 改代码快速参考 |
+| [`docs/ARCHITECTURE/`](docs/ARCHITECTURE/README.md) | 架构全景（函数级，10 文档 + 09-findings 问题清单；v0.80 基线） |
 | [`docs/LOGGING.md`](docs/LOGGING.md) | 日志系统架构 + 查看命令 + 故障排查 |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | 分支命名 + commit 规范 + 发版流程 |
-| [`AGENTS.md`](AGENTS.md) | 工作区导航 + 最近更新 + 已知坑（改代码前必读） |
+| [`AGENTS.md`](AGENTS.md) | 工作区导航 + 边界纪律 + 不变量速查（改代码前必读） |
 
 ## 🧪 测试
 

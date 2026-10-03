@@ -1,10 +1,10 @@
 ---
 title: 数据库 Schema 歧义审计
-purpose: 49 表分类（含 PR#16 三张新表）、14 歧义点、ID 词汇表与 status 取值域（建表/改列必读）
+purpose: 表分类、歧义点、ID 词汇表与 status 取值域（建表/改列必读；表数以 model.py 为准）
 applies-version: ">=v0.74.0"
 last-updated: 2026-09-11
 owner: worker-db
-depends: [WORKER-TOPOLOGY]
+depends: []
 status: active
 ---
 

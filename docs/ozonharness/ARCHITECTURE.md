@@ -277,8 +277,8 @@ ozon-worker/                  # 现有仓库（含 pounding-mcp，同仓同步�
 
 | 本文档章节 | 对应既有文档 |
 |---|---|
-| §三 skill/worker 分工 | `../ARCHITECTURE-TOPOLOGY.md`（业务拓扑）|
-| §四 数据流 | 本文 §四（`../WORKER-TOPOLOGY.md` 为 v0.11 旧版，仅参考）|
+| §三 skill/worker 分工 | `../ARCHITECTURE/`（函数级现行文档；ARCHITECTURE-TOPOLOGY.md 已归档 `archive/docs/legacy/`）|
+| §四 数据流 | 本文 §四（WORKER-TOPOLOGY.md 为 v0.11 旧版，已归档 `archive/docs/legacy/`）|
 | worker 端点 | `../../api-integration/API-INTEGRATION-GUIDE.md` |
 | webui 设计 | `../../design-deliverables/ozon-erp-design-spec.html` |
 

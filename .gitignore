@@ -161,3 +161,14 @@ deploy/backups/
 
 # ─── skill 部署副本的真实凭证配置（运行时文件，绝不入库）───
 deploy/skill/data/
+
+# ─── 运行时产物收口补漏（2026-10 W0 治理：枚举式子目录 → 通配收口）───
+# skill/data 的 gate/audit/ratings 等一次性测试残留此前裸奔 git status；
+# 已跟踪文件不受影响（skill/data 下仅 *.json.example 入库）
+skill/data/*.json
+skill/data/gate_v*/
+skill/data/scripts_tmp/
+docs/ARCHITECTURE.html
+docs/ARCHITECTURE.archify.json
+pounding-mcp/uv.lock
+.zcodeignore

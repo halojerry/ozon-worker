@@ -2,7 +2,7 @@
 title: docs/ 文档索引
 purpose: 按五层组织的 docs/ 导航（改 docs/ 必须同步本表）
 applies-version: ">=v0.74.0"
-last-updated: 2026-09-11
+last-updated: 2026-10-03
 owner: docs-gov
 depends: []
 status: active
@@ -10,7 +10,7 @@ status: active
 
 # docs/ 文档索引
 
-> 新会话先读仓库根 `AGENTS.md`「60 秒上手」；本页只做 docs/ 内导航。**改 docs/ 必须同步本表**（CI 探针校验覆盖度：每个 `docs/*.md` 必须在本页出现）。
+> 新会话先读仓库根 `AGENTS.md`「60 秒上手」；本页只做 docs/ 内导航。**改 docs/ 必须同步本表**（人工纪律。诚实口径：本索引无 CI 探针——曾声称有，实际未接线；2026-10 W0 已接线的 CI 文档闸只有 skill 的 `check_doc_sync`（SKILL.md 命令表 vs cli.py），不覆盖本页）。
 >
 > 分层判据：L1 回答「怎么协作」；L2 回答「怎么调」；L3 回答「系统是什么样」；L4 回答「怎么运维」；L5 回答「为什么这么做/打算做什么」。新文档入 docs/ 时必须在对应层登记，并按 CONVENTIONS 补 7 字段 frontmatter（title/purpose/applies-version/last-updated/owner/depends/status）。
 
@@ -33,8 +33,8 @@ status: active
 
 ## L3 架构与数据
 
-- [WORKER-TOPOLOGY.md](WORKER-TOPOLOGY.md) — Worker 节点拓扑 + 错误映射 + 数据流，改代码快速参考（正文 v0.27 口径 + 头部增量摘要，增量以 AGENTS「最近更新」块为准）。
-- [ARCHITECTURE-TOPOLOGY.md](ARCHITECTURE-TOPOLOGY.md) — 业务模型全景拓扑图（正文 v0.27 口径，增量以 AGENTS「最近更新」块为准）。
+- [ARCHITECTURE/](ARCHITECTURE/README.md) — 架构全景文档集（10 文档，函数级细节 + 09-findings 问题清单；v0.80 基线，**现行权威**）。
+- ~~WORKER-TOPOLOGY.md / ARCHITECTURE-TOPOLOGY.md~~ — v0.27 口径前代拓扑，2026-10 W0 治理归档 `archive/docs/legacy/`。
 - [DB-SCHEMA-AUDIT.md](DB-SCHEMA-AUDIT.md) — 49 表分类（含 PR#16 三张）、14 歧义点、ID 词汇表、status 取值域（建表/改列必读）。
 - [ozon-field-map-v1.md](ozon-field-map-v1.md) — Ozon 字段映射表（M0 探针冻结快照，status: frozen）。
 - [OZON-ATTRIBUTE-API.md](OZON-ATTRIBUTE-API.md) — Ozon 属性/类目 API 参考（长期维护，开发直接查这里）。
@@ -54,7 +54,7 @@ status: active
 - PRD：[PRD-store-sync-erp-v1.md](PRD-store-sync-erp-v1.md)（店铺数据同步 ERP 化）· [PRD-skill-learn-shangpinbang-v1.md](PRD-skill-learn-shangpinbang-v1.md)（Skill 学习上品帮）。
 - [DESIGN-PHASE2-PURCHASE-ADS-RECONCILIATION.md](DESIGN-PHASE2-PURCHASE-ADS-RECONCILIATION.md) — 阶段二预留设计（采购域/广告 OAuth/财务对账），新开里程碑时以此为准。
 - [POUNDING-WORKER-STORE-ANALYSIS.md](POUNDING-WORKER-STORE-ANALYSIS.md) — 店铺分析对接文档（3 新表 + 分析/执行端点）。
-- PLAN-\*（15 个）—— 状态一览见本页末「PLAN 状态表」；状态行规范：头部第 3 行 `> 状态: <值>`，值集见 docs/audit/2026-09-11-repo-gov/A1-doc-governance.md §6。
+- PLAN-\*（30 个）—— 状态一览见本页末「PLAN 状态表」；状态行规范：头部第 3 行 `> 状态: <值>`，值集见 docs/audit/2026-09-11-repo-gov/A1-doc-governance.md §6。
 
 ## 参考与审计与数据（物理目录）
 
@@ -64,7 +64,7 @@ status: active
 - [audit/](audit/) — 治理与审计报告（按 `<日期-主题>/` 分目录，最新：[2026-09-11-repo-gov/](audit/2026-09-11-repo-gov/SUMMARY.md)；含 B2-β 设计三件套（PR#16 即将合入）：[design-b2b-tenant-guard](audit/2026-09-11-repo-gov/design-b2b-tenant-guard.md)（租户 guard）/ [design-b2b-cache-ttl-governance](audit/2026-09-11-repo-gov/design-b2b-cache-ttl-governance.md)（缓存 TTL 治理）/ [design-b2b-perf-hardening](audit/2026-09-11-repo-gov/design-b2b-perf-hardening.md)（性能加固））。
 - [data/](data/) — 数据源文件（`china_scoring_freight.xlsx` 物流费率源表、`ozon-api-docs-2026-07-05.json` Ozon 官方文档抓取；`worker/assets/` 有同名 xlsx 运行时副本，`import_logistics.py` 读 docs/data/ 侧、`init_data.py` 读 assets/ 侧）。
 
-## PLAN 状态表（由各 PLAN 头部状态行生成，2026-09-11）
+## PLAN 状态表（由各 PLAN 头部状态行生成，2026-09-11；2026-10 W0 补录 14 行——状态按 CHANGELOG 落版考证，PLAN 自身缺状态行的不回填文件）
 
 | PLAN | 状态 |
 |---|---|
@@ -83,3 +83,17 @@ status: active
 | [PLAN-category-tree-refresh-v1](PLAN-category-tree-refresh-v1.md) | in-progress |
 | [PLAN-repo-gov-v1](PLAN-repo-gov-v1.md) | in-progress |
 | [PLAN-race-duplication-audit-v1](PLAN-race-duplication-audit-v1.md) | drafted |
+| [PLAN-agent-ergonomics-v1](PLAN-agent-ergonomics-v1.md) | shipped-with-v0.79.0 |
+| [PLAN-attr-fill-max-v1](PLAN-attr-fill-max-v1.md) | shipped-with-v0.80.0 |
+| [PLAN-attribute-fill-en-v1](PLAN-attribute-fill-en-v1.md) | unknown（无状态行、CHANGELOG 零提及——待补） |
+| [PLAN-card-audit-sweep-v1](PLAN-card-audit-sweep-v1.md) | shipped-with-v0.82.0 |
+| [PLAN-category-bridge-v1](PLAN-category-bridge-v1.md) | unknown（无状态行、CHANGELOG 零提及；v0.73 类目桥接实现未以本文件名收录） |
+| [PLAN-competitor-fullattrs-v1](PLAN-competitor-fullattrs-v1.md) | shipped-with-v0.80.0 |
+| [PLAN-follow-copy-attrs-v1](PLAN-follow-copy-attrs-v1.md) | shipped-with-v0.80.0 |
+| [PLAN-image-ref-cos-whitelist-fix-v1](PLAN-image-ref-cos-whitelist-fix-v1.md) | shipped-with-v0.77.0 |
+| [PLAN-n8n-legacy-purge-v1](PLAN-n8n-legacy-purge-v1.md) | shipped-with-v0.80.0 |
+| [PLAN-security-remediation-v1](PLAN-security-remediation-v1.md) | shipped-with-v0.79.0 |
+| [PLAN-silent-cdp-and-guard-precision-v1](PLAN-silent-cdp-and-guard-precision-v1.md) | shipped-with-v0.81.0（#76 静默 CDP；PLAN 状态行未更新） |
+| [PLAN-skill-concurrency-and-win-cookie-import-v1](PLAN-skill-concurrency-and-win-cookie-import-v1.md) | shipped-with-v0.76.0 |
+| [PLAN-v075-release-closeout](PLAN-v075-release-closeout.md) | shipped-with-v0.75.0 |
+| [PLAN-v083-quality-campaign-v1](PLAN-v083-quality-campaign-v1.md) | shipped-with-v0.83.0（dev 合入，tag 待打） |

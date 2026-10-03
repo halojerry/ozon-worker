@@ -4,7 +4,7 @@ purpose: 日志架构、查看命令与故障排查
 applies-version: ">=v0.63.0"
 last-updated: 2026-09-11
 owner: worker-api
-depends: [WORKER-TOPOLOGY]
+depends: []
 status: active
 ---
 

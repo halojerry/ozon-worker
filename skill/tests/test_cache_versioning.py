@@ -7,8 +7,8 @@ _CACHE_VERSION 指纹——_cache_path 对 key 哈希前拼上版本号，
 版本一变 → sha256 全变 → 全部 14 个命名空间一次性失效。
 
 关键点：
-  - 版本源是 skill/VERSION（当前 0.38.0），**不是** _const.SKILL_VERSION
-    （0.4.0，已过期残留）。
+  - 版本源是 skill/VERSION 文件（动态读取），不是任何源码常量——
+    过期常量 _const.SKILL_VERSION（0.4.0）已于 2026-10 W0 治理删除。
   - 测试用 mock.patch.object(cache, "_cache_version", ...) 控制版本，
     不写仓库 VERSION 文件。
 
@@ -54,8 +54,12 @@ def test_cache_miss_after_version_bump():
 
 
 def test_cache_version_reads_repo_version_not_stale_const():
-    """_cache_version() 读 skill/VERSION（动态），与过期 _const.SKILL_VERSION 不同。"""
-    from scripts._const import SKILL_ROOT, SKILL_VERSION
+    """_cache_version() 必须动态读 skill/VERSION 文件，禁止退回源码常量。
+
+    历史事故：_const.SKILL_VERSION 曾冻结在 0.4.0（常量随版本过期）——
+    该常量已删除；此处用历史事故值钉死「不得退回硬编码」的语义。
+    """
+    from scripts._const import SKILL_ROOT
     from scripts.lib import cache
 
     cache._CACHE_VERSION = None  # 重置惰性缓存，强制真实读文件
@@ -65,7 +69,7 @@ def test_cache_version_reads_repo_version_not_stale_const():
         cache._CACHE_VERSION = None
     real = (SKILL_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert v == real, f"应读 skill/VERSION，实际 {v!r}，文件 {real!r}"
-    assert v != SKILL_VERSION, f"禁止用过期的 _const.SKILL_VERSION（{SKILL_VERSION}）"
+    assert v != "0.4.0", "禁止退回硬编码常量（历史事故值 0.4.0）"
 
 
 def test_cache_version_fallback_on_read_error():
