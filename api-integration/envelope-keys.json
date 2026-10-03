@@ -1,0 +1,132 @@
+{
+  "_authority": "worker/src/api/envelope_contract.py (EnvelopeExtensions)",
+  "_regenerate": "python worker/scripts/gen_contract_docs.py",
+  "root_keys": [
+    "draft",
+    "source",
+    "extensions",
+    "assets"
+  ],
+  "extensions": {
+    "ozon_client_id": {
+      "origin": "skill-auto",
+      "description": "Ozon Client-Id（skill 从店铺配置注入）"
+    },
+    "mxou_token": {
+      "origin": "skill-auto",
+      "description": "MXOU token（skill 注入）"
+    },
+    "store_id": {
+      "origin": "skill-auto",
+      "description": "店铺 ID"
+    },
+    "shipping_provider": {
+      "origin": "skill-auto",
+      "description": "物流商（TPL）"
+    },
+    "shipping_service": {
+      "origin": "skill-auto",
+      "description": "物流服务等级"
+    },
+    "margin_rate": {
+      "origin": "skill-injectable",
+      "description": "日常毛利率（缺省走 worker 三档）"
+    },
+    "commission_rate": {
+      "origin": "skill-injectable",
+      "description": "显式佣金率（优先级最高）"
+    },
+    "fx_buffer": {
+      "origin": "skill-injectable",
+      "description": "汇损缓冲"
+    },
+    "margin_floor": {
+      "origin": "skill-injectable",
+      "description": "促销底线 margin"
+    },
+    "margin_anchor": {
+      "origin": "skill-injectable",
+      "description": "划线原价 margin"
+    },
+    "variable_cost_rate": {
+      "origin": "skill-injectable",
+      "description": "日常变动成本率"
+    },
+    "promo_variable_cost_rate": {
+      "origin": "skill-injectable",
+      "description": "促销变动成本率"
+    },
+    "traffic_keywords": {
+      "origin": "skill-injectable",
+      "description": "SEO 流量词（标题提示词增强）"
+    },
+    "offer_id_prefix": {
+      "origin": "skill-injectable",
+      "description": "offer_id 前缀覆盖"
+    },
+    "follow_type": {
+      "origin": "skill-injectable",
+      "description": "跟卖模式 hand|api"
+    },
+    "follow_sell": {
+      "origin": "skill-collect",
+      "description": "跟卖标记（路由分流）"
+    },
+    "competitor_weight_g": {
+      "origin": "skill-collect",
+      "description": "竞品重量 g（draft.weight 缺失兜底）"
+    },
+    "competitor_dimensions_mm": {
+      "origin": "skill-collect",
+      "description": "竞品尺寸 mm（缺失兜底）"
+    },
+    "competitor_ref_images": {
+      "origin": "skill-collect",
+      "description": "跟卖竞品主图快照（生图参考，绝不进 draft.images）"
+    },
+    "commission_segments": {
+      "origin": "skill-collect",
+      "description": "佣金分段 {fbs:{},fbo:{}}（rfbs/fbp 映射）"
+    },
+    "match_evidence": {
+      "origin": "skill-collect",
+      "description": "图搜匹配证据（method/confidence/divergent/…，学习与语义闸消费）"
+    },
+    "discovery_meta": {
+      "origin": "skill-collect",
+      "description": "discover 选品元数据快照（worker 零消费整包透传）"
+    },
+    "box_reviewed": {
+      "origin": "worker",
+      "description": "采集箱草稿提交标记（禁自主改写）"
+    },
+    "credential_id": {
+      "origin": "worker",
+      "description": "店铺凭证 ID（采集箱提交链）"
+    },
+    "update_product_id": {
+      "origin": "worker",
+      "description": "UPDATE 目标 product_id（改卡重提）"
+    },
+    "update_offer_id": {
+      "origin": "worker",
+      "description": "UPDATE 目标 offer_id"
+    },
+    "image_regen": {
+      "origin": "worker",
+      "description": "改图重传标记（main.py 注入重入队）"
+    },
+    "currency_code": {
+      "origin": "worker",
+      "description": "店铺币种（currency_resolver 信任序第一级）"
+    },
+    "stock": {
+      "origin": "legacy",
+      "description": "（v0.80 退役）存量兼容"
+    },
+    "warehouse_id": {
+      "origin": "legacy",
+      "description": "（v0.80 退役）存量兼容"
+    }
+  }
+}

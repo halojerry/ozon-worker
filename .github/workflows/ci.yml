@@ -201,6 +201,11 @@ jobs:
       - name: API docs drift check (docs/API-REFERENCE.md + openapi.json 快照 + example-lint strict)
         working-directory: worker
         run: python scripts/gen_api_docs.py --check --fail-on-missing-examples
+      # W2 治理：信封契约键表（envelope-keys.json + CONTRACT-v4 标记块）从
+      # api/envelope_contract.py 生成——漂移即红。
+      - name: Envelope contract docs drift check
+        working-directory: worker
+        run: python scripts/gen_contract_docs.py --check
 
   test-skill:
     name: Skill Tests (3.12 Docker)
