@@ -144,13 +144,15 @@ def test_last_backup_at_query_failure_returns_none():
 def test_record_call_insert_params():
     eng = _FakeEngine()
     with patch.object(ml, "get_engine", return_value=eng):
-        ml.record_call(tenant_id="u1", token_fp="a" * 64, endpoint="/v1/chat/completions")
+        # 端点串仅作样本（ledger 只落字符串；原 /v1/chat/completions 样本随
+        # 2026-10 platform-compat 退役换成活端点 /api/v1/estimate）
+        ml.record_call(tenant_id="u1", token_fp="a" * 64, endpoint="/api/v1/estimate")
     assert len(eng.executed) == 1
     sql_str, params = eng.executed[0]
     assert "INSERT INTO mxou_call_ledger" in sql_str
     assert params["tenant_id"] == "u1"
     assert params["token_fp"] == "a" * 64
-    assert params["endpoint"] == "/v1/chat/completions"
+    assert params["endpoint"] == "/api/v1/estimate"
     assert isinstance(params["ts"], float), "called_at 必须是 epoch 秒 float"
 
 
