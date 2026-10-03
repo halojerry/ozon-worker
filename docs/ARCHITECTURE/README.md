@@ -1,9 +1,9 @@
 # ozon-worker 架构全景（ARCHITECTURE 文档集）
 
 > 口径基线：dev 工作区 **v0.80.0+**，2026-09-25 全量重梳（九路并行深读 + 关键锚点人工抽查）。
-> 所有 `文件:行号` 锚点为当次快照，会随代码演进漂移；语义以锚点所在函数为准。
-> 与存量文档的关系：`docs/ARCHITECTURE-TOPOLOGY.md`（v0.27 业务模型拓扑，正文偏旧）与
-> `docs/ARCHITECTURE.html`（archify 组件总览交互图）是**组件级**视图；本目录是**函数级**细节，互为补充。
+> 所有 `文件:行号` 锚点为当次快照，会随代码演进漂移；语义以锚点所在函数为准；基线落后 dev 时以 CHANGELOG 为准。
+> 前代组件级视图 `ARCHITECTURE-TOPOLOGY.md`（v0.27 口径）已于 2026-10 W0 治理归档至
+> `archive/docs/legacy/`；本目录（函数级）是其现行替代。`docs/ARCHITECTURE.html` 为本地 archify 生成物，不入库。
 
 ## 文档索引
 

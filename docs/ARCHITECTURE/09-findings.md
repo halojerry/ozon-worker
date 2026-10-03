@@ -120,10 +120,10 @@
 - 🟡 webui 提交错误归因过粗（400/422 一律「请先选择有效店铺凭证」，吞 sanity 拒单真实原因）。
 
 ### 文档与口径漂移（集中清）
-- 📚 WORKER-TOPOLOGY.md:239 图片顺序与 `_IMG_ORDER` 不一致（social_proof/detail 对调）；头部更新日期 2026-08-05 落后多版路由变更。
+- 📚 WORKER-TOPOLOGY.md:239 图片顺序与 `_IMG_ORDER` 不一致（social_proof/detail 对调）；头部更新日期 2026-08-05 落后多版路由变更。（该文档 2026-10 已归档 `archive/docs/legacy/`）
 - 📚 CONTRACT-v4.md：auth 字段清单缺 failed_stage、失败示例 progress_counter=0（代码 1）；check_quota「复用 OzonUploadInput」与代码不符；ingest status=running（代码 accepted）且缺 error_message/failed_stage。
 - 📚 AGENTS「category_cache 90d」vs 代码 TTL≈10 年（L:330，读侧当持久化）。
-- 📚 ARCHITECTURE-TOPOLOGY.md 自认 v0.27 口径——本目录文档集可作为其 v0.80 替代素材。
+- 📚 ARCHITECTURE-TOPOLOGY.md 自认 v0.27 口径——本目录文档集可作为其 v0.80 替代素材。（2026-10 已归档 `archive/docs/legacy/`，本目录为现行替代）
 
 ### ✅ 已知 defer 确认（非新发现，现状核实仍在）
 - variant_v2 真值链三段断链（fetch_variant_truth 零生产调用/variant_payloads 无人传/needs_variant_sync 零消费）。
