@@ -1,6 +1,6 @@
 """BL-08 (repo-gov): /health 备份心跳透出回归（test_repo_gov_health_heartbeat）。
 
-覆盖 /health（main.health_check）新增两字段：
+覆盖 /health（routes/ops_routes.py:health_check，R3a 自 main 迁出）新增两字段：
 - last_backup_at: float|None —— lazy import services.backup_heartbeat_service，
   服务缺失 / 返回 None / 抛异常时均为 None，绝不影响 200 语义；
 - backup_stale: bool —— 只对「有过心跳但距今 >26h」置 True；从未备份（恒 None）
@@ -60,9 +60,9 @@ def _install_hb(monkeypatch, value):
 
 
 def _call_health():
-    import main
+    from routes.ops_routes import health_check  # R3a: /health 端点已迁 routes/ops_routes.py
 
-    return asyncio.run(main.health_check())
+    return asyncio.run(health_check())
 
 
 def test_fresh_heartbeat_not_stale(fake_db, monkeypatch):

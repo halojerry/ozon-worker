@@ -152,11 +152,12 @@ def _param(compiled_params, col):
 def test_analytics_report_double_writes_token_fp(monkeypatch, kind, fn, entry):
     """三 analytics 上报：每行双写 token_fp = fp(clean token)（编译参数级）。"""
     import main
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点已迁此模块
 
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     engine = _FakeEngine([1, 1])
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    resp = asyncio.run(getattr(main, fn)(_FakeRequest({"token": "sk-tok-a", **entry})))
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    resp = asyncio.run(getattr(_ingest, fn)(_FakeRequest({"token": "sk-tok-a", **entry})))
     assert resp == {"status": "ok", "inserted": 1, "upserted": 0}
     assert any("token_fp" in c for c in engine.calls), "INSERT 必须含 token_fp 列"
     assert _param(engine.compiled[0], "token_fp") == token_fingerprint("tok-a")
@@ -164,23 +165,24 @@ def test_analytics_report_double_writes_token_fp(monkeypatch, kind, fn, entry):
 
 def test_analytics_upsert_refreshes_token_fp_on_conflict():
     """token_fp 进三 kind 的 data_cols——重复上报（冲突行）刷新指纹自愈存量 NULL。"""
-    import main
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点已迁此模块
 
     for kind in ("queries", "ozon-bestsellers", "market-bestsellers"):
-        _model, _conflict, data_cols, _item, _key = main._ANALYTICS_KINDS[kind]
+        _model, _conflict, data_cols, _item, _key = _ingest._ANALYTICS_KINDS[kind]
         assert "token_fp" in data_cols, f"{kind} 缺 token_fp 冲突刷新"
 
 
 def test_discovery_run_double_writes_token_fp(monkeypatch):
     """discovery_runs（tenant_id 实为明文 key，grep 判定）：INSERT 双写 token_fp。"""
     import main
+    from routes import analytics_ingest_routes as _ingest  # R3a
 
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     engine = _FakeEngine([1])
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
     body = {"token": "sk-tenant-a", "keyword": "宠物饮水机",
             "filters": {"min_margin": 0.2}, "candidates": [{"offerId": "1"}]}
-    resp = asyncio.run(main.v1_discovery_report_run(_FakeRequest(body)))
+    resp = asyncio.run(_ingest.v1_discovery_report_run(_FakeRequest(body)))
     assert resp == {"status": "ok", "inserted": 1, "upserted": 0}
     assert _param(engine.compiled[0], "tenant_id") == "tenant-a"
     assert _param(engine.compiled[0], "token_fp") == token_fingerprint("tenant-a")
@@ -199,6 +201,7 @@ class _FakeGetRequest:
 def test_discovery_get_exposes_contributed_by_fp(monkeypatch):
     """GET /discovery/runs：contributed_by_fp（fp 前 8 位）；v0.76 T1 起明文键从响应删除。"""
     import main
+    from routes import analytics_ingest_routes as _ingest  # R3a
 
     rows = [
         ("1", "宠物饮水机", None, [], datetime(2026, 9, 11, 10, 0, 0), "tenant-a"),
@@ -227,9 +230,9 @@ def test_discovery_get_exposes_contributed_by_fp(monkeypatch):
     engine = _FakeEngine()
     engine.calls = []
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
     monkeypatch.setattr(engine, "connect", lambda: _ReadConn(engine))
-    resp = asyncio.run(main.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
+    resp = asyncio.run(_ingest.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
     fp8 = token_fingerprint("tenant-a")[:8]
     assert {it["contributed_by_fp"] for it in resp["items"]} == {fp8, token_fingerprint("tenant-b")[:8]}
     assert len(fp8) == 8

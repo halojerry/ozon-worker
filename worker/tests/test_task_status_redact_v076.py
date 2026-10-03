@@ -20,6 +20,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod  # noqa: E402
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.task_queue_routes import _redact_payload  # noqa: E402
 
 
 # ── 纯函数单测 ────────────────────────────────────────────────
@@ -27,7 +29,7 @@ import main as main_mod  # noqa: E402
 def test_redact_top_and_nested():
     p = {"token": "sk-live-abc", "ozon_api_key": "AK-1", "draft": {"title": "t", "token": "sk-nested"},
          "items": [{"api_key": "K", "keep": 1}], "count": 3}
-    out = main_mod._redact_payload(p)
+    out = _redact_payload(p)
     assert out["token"] == "[REDACTED]" and out["ozon_api_key"] == "[REDACTED]"
     assert out["draft"]["token"] == "[REDACTED]" and out["draft"]["title"] == "t"
     assert out["items"][0]["api_key"] == "[REDACTED]" and out["items"][0]["keep"] == 1
@@ -39,7 +41,7 @@ def test_redact_case_insensitive_key_and_non_str_value_kept():
     """键名匹配大小写不敏感；非字符串值（dict/int/None）不替换、继续下钻。"""
     p = {"Token": "sk-up", "OZON_API_KEY": "AK-up", "token": {"nested": "dict-value"},
          "password": None, "secret": 12345, "keep_me": "plain"}
-    out = main_mod._redact_payload(p)
+    out = _redact_payload(p)
     assert out["Token"] == "[REDACTED]" and out["OZON_API_KEY"] == "[REDACTED]"
     assert out["token"] == {"nested": "dict-value"}
     assert out["password"] is None and out["secret"] == 12345
@@ -48,9 +50,9 @@ def test_redact_case_insensitive_key_and_non_str_value_kept():
 
 def test_redact_non_dict_passthrough():
     """payload 顶层非 dict（None/list/str）→ 原样透传不报错。"""
-    assert main_mod._redact_payload(None) is None
-    assert main_mod._redact_payload([1, 2]) == [1, 2]
-    assert main_mod._redact_payload("raw") == "raw"
+    assert _redact_payload(None) is None
+    assert _redact_payload([1, 2]) == [1, 2]
+    assert _redact_payload("raw") == "raw"
 
 
 # ── HTTP 出口（旧路径 + /api/v1 别名共用 http_task_status） ───
@@ -78,7 +80,7 @@ def _fake_row(payload):
 def _client_with(monkeypatch, payload):
     from fastapi.testclient import TestClient
 
-    monkeypatch.setattr(main_mod, "task_processor", _FakeProcessor(_fake_row(payload)))
+    monkeypatch.setattr(task_processor_mod, "_task_processor", _FakeProcessor(_fake_row(payload)))
     # 应急门放行鉴权：本组测试只验脱敏不验鉴权（鉴权/租户语义已由
     # test_task_status_auth_v073.py 锁定）。
     monkeypatch.setenv("TASK_STATUS_AUTH", "0")

@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod
+import orchestrator.task_processor as task_processor_mod
+from routes.task_queue_routes import http_submit_task
 
 UID = main_mod._key_user_id("tok123")
 
@@ -117,11 +119,11 @@ def test_duplicate_submit_blocked_when_active_task_exists():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
 
     assert resp.status_code == 409, f"命中活跃任务应返回 409，实际 {resp.status_code}"
     body = json.loads(resp.body)
@@ -140,11 +142,11 @@ def test_resubmit_allowed_when_no_active_task():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
 
     assert resp["ok"] is True
     assert resp["task_id"] == "task-new"
@@ -160,12 +162,12 @@ def test_sku_key_includes_store_dimension():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
         resp = asyncio.run(
-            main_mod.http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeA")))
+            http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeA")))
         )
 
     assert resp["ok"] is True
@@ -182,12 +184,12 @@ def test_same_sku_different_stores_not_blocked():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
         resp = asyncio.run(
-            main_mod.http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeB")))
+            http_submit_task(FakeRequest(_submit_body(item_id="123456", ozon_client_id="storeB")))
         )
 
     assert resp["ok"] is True
@@ -202,11 +204,11 @@ def test_rejected_task_no_longer_blocks_resubmit():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
 
     assert resp["ok"] is True
     assert len(fake_proc.calls) == 1
@@ -220,12 +222,12 @@ def test_sku_key_uses_ozon_product_id_for_follow():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
         resp = asyncio.run(
-            main_mod.http_submit_task(FakeRequest(_submit_body(ozon_product_id="ozon123")))
+            http_submit_task(FakeRequest(_submit_body(ozon_product_id="ozon123")))
         )
 
     assert resp["ok"] is True
@@ -244,11 +246,11 @@ def test_sku_key_uses_item_id_for_1688():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body(item_id="1688abc"))))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body(item_id="1688abc"))))
 
     assert resp["ok"] is True
     _sql, params = fake_engine.conn.executed[0]
@@ -264,11 +266,11 @@ def test_empty_product_id_skips_dedup():
     fake_proc = _FakeProcessor()
 
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "api.security._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body(item_id="   "))))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body(item_id="   "))))
 
     assert resp["ok"] is True
     assert fake_engine.conn is None, "无商品 ID 时不应执行去重查询"

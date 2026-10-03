@@ -12,13 +12,15 @@
 - 旧路径 /task_statistics（无 /api/v1 前缀）同款语义。
 
 说明：conftest autouse 清空 SUPABASE_* env；鉴权两件套用 monkeypatch 替身
-（``main._verify_analytics_token`` 模块级替换；``resolve_tenant`` 端点内延迟
+（``api.security._verify_analytics_token`` 模块级替换；``resolve_tenant`` 端点内延迟
 import → patch 源模块 ``services.tenant_service`` 即生效）。非 admin 跨租户
 用例**不** patch ``resolve_analytics_scope``——依赖「未配置 Supabase → 本地
-非 admin」真实默认（本地 fail-safe 口径一并锁定）；admin 用例 patch ``main``
-命名空间（resolve_analytics_scope 为 main 模块级 import）。task_processor 用
-替身整只替换（不带 with 的 TestClient 不触发 lifespan，模块级 task_processor
-恒 None，不能按属性 patch——同 test_cancel_auth_v076 惯例）。
+非 admin」真实默认（本地 fail-safe 口径一并锁定）；admin 用例 patch
+``routes.task_queue_routes`` 命名空间（resolve_analytics_scope 为端点模块级
+import；R3a 端点自 main 迁出）。task_processor 用替身整只替换
+（不带 with 的 TestClient 不触发 lifespan，模块级 task_processor 恒 None，
+不能按属性 patch——同 test_cancel_auth_v076 惯例；R3a 起打
+``orchestrator.task_processor._task_processor`` holder）。
 
 运行:
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_task_statistics_auth_v076.py -q
@@ -32,7 +34,10 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod  # noqa: E402
+import api.security as api_security  # noqa: E402
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
 import services.tenant_service as tenant_service  # noqa: E402
+from routes import task_queue_routes  # noqa: E402
 
 OWN_TENANT = "my-tenant"
 
@@ -51,8 +56,8 @@ class _FakeProcessor:
 def _client_with(monkeypatch):
     """公共夹具：整只替换 task_processor + 鉴权两件套替身。"""
     proc = _FakeProcessor()
-    monkeypatch.setattr(main_mod, "task_processor", proc)
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(task_processor_mod, "_task_processor", proc)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     monkeypatch.setattr(tenant_service, "resolve_tenant", lambda tok: OWN_TENANT)
     # 不带 with → 不触发 lifespan（不连 PG / 不启动 worker，同 test_cancel_auth_v076 惯例）
     return TestClient(main_mod.app, raise_server_exceptions=False), proc
@@ -103,7 +108,7 @@ def test_other_tenant_403_for_non_admin(monkeypatch):
 def test_admin_can_query_other(monkeypatch):
     """admin 指定他人租户 → 200 且按指定租户查（resolve_analytics_scope 放行）。"""
     client, proc = _client_with(monkeypatch)
-    monkeypatch.setattr(main_mod, "resolve_analytics_scope",
+    monkeypatch.setattr(task_queue_routes, "resolve_analytics_scope",
                         lambda tok: {"tenant_id": OWN_TENANT, "is_admin": True})
     r = client.get("/api/v1/task_statistics?tenant_id=victim",
                    headers={"Authorization": "Bearer sk-admin"})

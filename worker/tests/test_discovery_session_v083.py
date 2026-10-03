@@ -137,19 +137,22 @@ VALID_SESSION_BODY = {
 
 def _post(body, monkeypatch, rowcounts=None, headers=None):
     import main
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点已迁此模块
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     engine = _FakeEngine(rowcounts or [1])
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    result = asyncio.run(main.v1_discovery_report_run(_FakeRequest(body, headers)))
+    # R3a: 路由模块级 from storage import get_engine → 打路由模块命名空间
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    result = asyncio.run(_ingest.v1_discovery_report_run(_FakeRequest(body, headers)))
     return result, engine
 
 
 def _get(run_id, token, monkeypatch, rows):
     import main
+    from routes import analytics_ingest_routes as _ingest  # R3a
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     engine = _ReadEngine(rows)
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    return asyncio.run(main.v1_discovery_get_run(run_id, _FakeGetRequest(token)))
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    return asyncio.run(_ingest.v1_discovery_get_run(run_id, _FakeGetRequest(token)))
 
 
 # ── 1. 迁移幂等 ──────────────────────────────────────────────────────
@@ -279,14 +282,15 @@ def test_get_bad_run_id_404(monkeypatch):
 
 def test_list_returns_session_run_id(monkeypatch):
     import main
+    from routes import analytics_ingest_routes as _ingest
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     rows = [
         ("1", "kw", None, [], datetime(2026, 8, 17, 10, 0, 0), "tenant-a", RID),
         ("2", "kw2", None, [], datetime(2026, 8, 17, 9, 0, 0), "tenant-a", None),
     ]
     engine = _ReadEngine(rows)
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    resp = asyncio.run(main.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    resp = asyncio.run(_ingest.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
     assert resp["items"][0]["session_run_id"] == RID
     assert resp["items"][1]["session_run_id"] is None
 
@@ -294,9 +298,10 @@ def test_list_returns_session_run_id(monkeypatch):
 def test_list_tolerates_legacy_six_tuple(monkeypatch):
     """旧 6 列行（无 session_run_id 列，测试夹具）不炸。"""
     import main
+    from routes import analytics_ingest_routes as _ingest
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     rows = [("1", "kw", None, [], datetime(2026, 8, 17, 10, 0, 0), "tenant-a")]
     engine = _ReadEngine(rows)
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    resp = asyncio.run(main.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    resp = asyncio.run(_ingest.v1_discovery_list_runs(_FakeGetRequest("sk-tenant-a")))
     assert resp["items"][0]["session_run_id"] is None

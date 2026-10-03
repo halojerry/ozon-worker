@@ -11,6 +11,11 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import main as main_mod  # noqa: E402
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.ops_routes import auth_verify  # noqa: E402
+from routes.task_queue_routes import http_submit_task  # noqa: E402
+
 EXPECTED_SELECT = "user_id, key, remain_quota, status, expired_time, unlimited_quota"
 
 
@@ -86,7 +91,7 @@ def test_auth_verify_select_includes_key_and_passes_key_to_balance():
     with patch("api.security.get_supabase_client", return_value=fake), patch(
         "api.security._check_mxou_balance", side_effect=fake_balance
     ):
-        resp = asyncio.run(main_mod.auth_verify(FakeRequest({"token": "sk-tok123"})))
+        resp = asyncio.run(auth_verify(FakeRequest({"token": "sk-tok123"})))
 
     assert _select_arg(fake) == EXPECTED_SELECT, "auth_verify SELECT 必须包含 key 列"
     assert captured["record"].get("key") == "tok123", "MXOU 实查分支需要 key，否则是死代码"
@@ -103,10 +108,13 @@ def test_submit_task_derives_tenant_and_passes_key_to_balance():
         captured["record"] = record
         return 100.0, True
 
-    with patch("main._check_mxou_balance", side_effect=fake_balance), patch.object(
-        main_mod, "task_processor", _FakeProcessor()
+    # R3a: submit 端点已迁 routes/task_queue_routes.py，_check_mxou_balance 为
+    # 该模块的模块级 from-import → 直调处打路由模块命名空间（打 api.security
+    # 只影响 security 内部调用方，不影响路由的已绑定名字）。
+    with patch("routes.task_queue_routes._check_mxou_balance", side_effect=fake_balance), patch.object(
+        task_processor_mod, "_task_processor", _FakeProcessor()
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
 
     assert captured["record"].get("key") == "tok123", "MXOU 实查分支需要 key，否则是死代码"
     assert captured["record"].get("user_id") == main_mod._key_user_id("tok123"), \

@@ -26,7 +26,9 @@ from starlette.requests import Request
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod  # noqa: E402
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
 import services.tenant_service as tenant_service  # noqa: E402
+from routes.task_queue_routes import http_task_status, v1_task_status  # noqa: E402
 
 TASK_TENANT = "28"
 
@@ -111,13 +113,14 @@ def _req(auth: str = "") -> Request:
 
 def _call_status(monkeypatch, row, auth="", env_auth=None, handler=None):
     """直调 task_status 处理器的公共 helper（env_auth=None → 删除应急开关 env）。"""
-    monkeypatch.setattr(main_mod, "task_processor", _FakeProcessor(row))
+    # R3a: 端点已迁 routes/task_queue_routes.py，task_processor 经 orchestrator holder 取。
+    monkeypatch.setattr(task_processor_mod, "_task_processor", _FakeProcessor(row))
     if env_auth is None:
         monkeypatch.delenv("TASK_STATUS_AUTH", raising=False)
     else:
         monkeypatch.setenv("TASK_STATUS_AUTH", env_auth)
     tenant_service.clear_cache()
-    fn = handler or main_mod.http_task_status
+    fn = handler or http_task_status
     return asyncio.run(fn("t1", _req(auth)))
 
 
@@ -162,7 +165,7 @@ def test_row_without_tenant_id_lenient_read(monkeypatch):
 
 def test_v1_alias_missing_bearer_401(monkeypatch):
     with pytest.raises(main_mod.HTTPException) as ei:
-        _call_status(monkeypatch, _row(), auth="", handler=main_mod.v1_task_status)
+        _call_status(monkeypatch, _row(), auth="", handler=v1_task_status)
     assert ei.value.status_code == 401
     assert ei.value.detail == "Token is required"
 
@@ -170,14 +173,14 @@ def test_v1_alias_missing_bearer_401(monkeypatch):
 def test_v1_alias_cross_tenant_404(monkeypatch):
     monkeypatch.setattr(tenant_service, "get_supabase", lambda: _FakeSupabase("99"))
     with pytest.raises(main_mod.HTTPException) as ei:
-        _call_status(monkeypatch, _row(), auth="Bearer sk-tok-d", handler=main_mod.v1_task_status)
+        _call_status(monkeypatch, _row(), auth="Bearer sk-tok-d", handler=v1_task_status)
     assert ei.value.status_code == 404
     assert ei.value.detail == "task not found"
 
 
 def test_v1_alias_same_tenant_200(monkeypatch):
     monkeypatch.setattr(tenant_service, "get_supabase", lambda: _FakeSupabase(TASK_TENANT))
-    resp = _call_status(monkeypatch, _row(), auth="Bearer sk-tok-e", handler=main_mod.v1_task_status)
+    resp = _call_status(monkeypatch, _row(), auth="Bearer sk-tok-e", handler=v1_task_status)
     assert resp["id"] == "t1"
 
 

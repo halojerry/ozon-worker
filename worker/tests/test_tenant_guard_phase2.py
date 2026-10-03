@@ -37,6 +37,10 @@ from api.deps_tenant import (  # noqa: E402
 )
 from services.tenant_service import key_derived_tenant  # noqa: E402
 
+# R3a: 六个已迁 GET 端点现分居两个路由模块（main 仅注册）——按符号定位模块。
+import routes.analytics_ingest_routes as _analytics_ingest  # noqa: E402
+import routes.catalog_routes as _catalog  # noqa: E402
+
 
 class FakeGetRequest:
     """直接调用型夹具（test_analytics_endpoints 同款 + 可选 state）。"""
@@ -156,13 +160,24 @@ _MIGRATED_GETS = [
     ("http_commissions_lookup", True),
 ]
 
+# R3a: 端点归属模块（自 main 迁出后的权威命名空间）
+_ENDPOINT_MODULES = {
+    "v1_analytics_list_bestsellers": _analytics_ingest,
+    "v1_discovery_list_runs": _analytics_ingest,
+    "v1_mappings_lookup": _catalog,
+    "v1_categories_search": _catalog,
+    "v1_categories_attributes": _catalog,
+    "http_commissions_lookup": _catalog,
+}
+
+def _endpoint(fn_name):
+    return getattr(_ENDPOINT_MODULES[fn_name], fn_name)
+
 
 @pytest.mark.parametrize("fn_name,_rl", _MIGRATED_GETS)
 def test_migrated_endpoints_converged_to_helper(fn_name, _rl):
     """六个 GET 端点：单行 helper 收敛，四段/三段内联不再各自手写。"""
-    import main
-
-    src = inspect.getsource(getattr(main, fn_name))
+    src = inspect.getsource(_endpoint(fn_name))
     assert "verify_bearer_from_request" in src, f"{fn_name} 未收敛到 deps_tenant helper"
     assert "auth[7:].strip()" not in src, f"{fn_name} 仍残留 Bearer 手工提取"
     assert "_verify_analytics_token" not in src, f"{fn_name} 仍残留 verify 手工调用"
@@ -176,7 +191,7 @@ def test_migrated_endpoints_still_require_token(fn_name, _rl, monkeypatch):
 
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(getattr(main, fn_name)(FakeGetRequest("")))
+        asyncio.run(_endpoint(fn_name)(FakeGetRequest("")))
     assert ei.value.status_code == 401
 
 
@@ -214,16 +229,18 @@ def test_migrated_endpoints_rate_limit_boundary(fn_name, _rl, monkeypatch):
 
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     monkeypatch.setattr(main.rate_limiter, "check", lambda token: (False, 0))
-    monkeypatch.setattr(main, "get_engine", lambda: _EmptyReadEngine())
+    # R3a: 读路径 get_engine 为 analytics 路由模块级 from-import → 打其命名空间
+    # （catalog 路由的 DB 依赖全在函数内惰性 import，无需模块级 get_engine）
+    monkeypatch.setattr(_analytics_ingest, "get_engine", lambda: _EmptyReadEngine())
     monkeypatch.setattr(analytics_service, "get_engine", lambda: _EmptyReadEngine())
     req = FakeGetRequest("sk-tok", query={"dc": "1", "tp": "2"} if fn_name == "v1_categories_attributes" else {})
     if _rl:
         with pytest.raises(main.HTTPException) as ei:
-            asyncio.run(getattr(main, fn_name)(req))
+            asyncio.run(_endpoint(fn_name)(req))
         assert ei.value.status_code == 429
     else:
         # 非限流三端点：无限流闸 → 进业务段（bestsellers/discovery 空表、mappings 空 keyword）
-        out = asyncio.run(getattr(main, fn_name)(req))
+        out = asyncio.run(_endpoint(fn_name)(req))
         assert out is not None
 
 
@@ -243,7 +260,7 @@ def test_categories_attributes_keeps_resolve_tenant_after_422(monkeypatch):
 
     # 非法 dc/tp → 422，且未消耗租户解析
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(main.v1_categories_attributes(
+        asyncio.run(_catalog.v1_categories_attributes(
             FakeGetRequest("sk-tok", query={"dc": "abc", "tp": "x"})))
     assert ei.value.status_code == 422
     assert calls == []
@@ -251,7 +268,7 @@ def test_categories_attributes_keeps_resolve_tenant_after_422(monkeypatch):
     # 合法 dc/tp → 解析租户（clean token，与 raw 等价）→ 下游降级响应
     import services.category_schema_service as css
     monkeypatch.setattr(css, "get_attributes_with_lazy_fetch", lambda *a, **k: {"found": False})
-    out = asyncio.run(main.v1_categories_attributes(
+    out = asyncio.run(_catalog.v1_categories_attributes(
         FakeGetRequest("sk-tok", query={"dc": "1", "tp": "2"})))
     assert out == {"found": False, "cached": False, "attributes": []}
     assert calls == ["tok"]
