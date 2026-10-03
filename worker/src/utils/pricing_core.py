@@ -236,6 +236,8 @@ def compute_pricing_core(
 
     # ── Step 4: 定价公式（唯一入口 compute_price；懒 import 保 patch 语义）──
     from utils.pricing_estimate import compute_price
+    # ✅ W3a SoT: provisional 种子佣金率归属 commission_resolver（band-pass 机制细节）
+    from utils.commission_resolver import PROVISIONAL_COMMISSION_RATE
 
     total_cost_cny: float = cost_cny + logistics_cost + PACKAGING_COST_CNY
 
@@ -245,7 +247,7 @@ def compute_pricing_core(
     _est_provisional = compute_price(
         total_cost_cny=total_cost_cny,
         margin_rate=eff_margin,
-        commission_rate=0.10,
+        commission_rate=PROVISIONAL_COMMISSION_RATE,
         fx_buffer=fx_buffer_val,
         currency_code=currency_code,
         exchange_rate=exchange_rate,
