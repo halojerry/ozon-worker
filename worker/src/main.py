@@ -10,11 +10,11 @@ import traceback
 import logging
 import uuid
 from contextlib import asynccontextmanager, AsyncExitStack
-from typing import Any, Dict, Iterable, AsyncIterable, AsyncGenerator, Optional
+from typing import Any, Dict, Iterable, Optional
 import uvicorn
 import time
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse
 from api.errors import WorkerErrorCode, error_response
 from utils.envelope_contract import envelope_strict_enabled, validate_envelope  # ✅ hotfix: 契约模块下沉 utils（graphs 层 ingest 也要用，graphs→api 是立法禁止的 upward 边）
 from api.schemas import (
@@ -24,7 +24,6 @@ from api.schemas import (
     BlueOceanQueryItem, OzonBestsellerItem, MarketBestsellerItem, DiscoveryRunItem,
     DiscoveryRunDetail,
 )
-from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from storage.database.db import get_session, get_engine, init_db
@@ -98,22 +97,11 @@ from api.security import (
 
 # Local runtime utilities (standalone replacements for platform SDK)
 from runtime.context import new_context, Context
-from runtime.helpers import (
-    graph_helper, ErrorClassifier, classify_error,
-    AgentStreamRunner, WorkflowStreamRunner,
-    agent_stream_handler, workflow_stream_handler, RunOpt,
-    to_stream_input, to_client_message,
-)
+from runtime.helpers import graph_helper, ErrorClassifier, classify_error
 from runtime.log_utils import (
-    LOG_FILE, LOG_LEVEL, setup_logging, request_context,
+    LOG_FILE, LOG_LEVEL, setup_logging,
     LangGraphParser, extract_core_stack,
 )
-from runtime.async_tasks import (
-    AsyncTaskRuntime, AsyncTaskStorageError,
-    extract_biz_context, parse_deadline_sec,
-    config as async_task_config, HEADER_X_RUN_ID as _ASYNC_HEADER_X_RUN_ID,
-)
-from runtime.openai_handler import OpenAIChatHandler
 
 from utils.logger import setup_structured_logging, get_logger, set_trace_context, log_task_event
 
@@ -126,10 +114,6 @@ setup_structured_logging(
 
 logger = get_logger(__name__)
 
-# 超时配置常量
-TIMEOUT_SECONDS = 900  # 15分钟
-
-async_runtime: Optional[AsyncTaskRuntime] = None
 async_graph: Optional[CompiledStateGraph] = None
 task_processor: Optional[SupabaseTaskProcessor] = None
 
@@ -236,13 +220,9 @@ async def lifespan(app: FastAPI):
     else:
         base = graph_helper.get_graph_instance("graphs.graph")
         sync_graph = base.builder.compile(checkpointer=checkpointer)
-    global async_graph, async_runtime
+    global async_graph
     async_graph = base.builder.compile(checkpointer=checkpointer)
     service.set_graph(sync_graph)
-    async_runtime = AsyncTaskRuntime(
-        session_factory=get_session, engine=engine,
-        graph=async_graph, checkpointer=checkpointer,
-    )
     
     # 启动Supabase任务处理器（最多30个并发任务 — 4核4G 服务器 I/O 密集安全值，外部 API 由全局限流器兜底）
     # ✅ W3b: 单例归 orchestrator holder（services 层经 get_task_processor 取，
@@ -429,12 +409,6 @@ async def lifespan(app: FastAPI):
             await cleanup_task
         except asyncio.CancelledError:
             logger.info("定时清理任务已取消")
-    
-    if async_runtime is not None:
-        try:
-            await async_runtime.shutdown()
-        except AttributeError:
-            pass  # shutdown method not available in this version
 
     # v0.64 P2: 关闭 asyncio 默认线程池（扩容的 ThreadPoolExecutor）
     # 防止进程退出时线程池中的 sync 节点泄漏（内存/句柄）
@@ -512,98 +486,6 @@ if _mcp_asgi_app is not None:
 v1 = APIRouter(prefix="/api/v1", tags=["v1"])
 
 
-# OpenAI 兼容接口处理器
-openai_handler = OpenAIChatHandler(service)
-
-
-@app.post("/async_run", responses={
-    200: {"content": {"application/json": {"example": {
-        "task_id": "5f8a7c2e9b1d4a3f8c6e2d1b0a9f8e7d",
-        "status": "queued",
-    }}}}})
-async def http_async_run(request: Request) -> dict:
-    """[DEPRECATED] 使用 POST /submit_task 代替。此端点将在未来版本移除。
-
-    v0.81 安全收尾（Mimosa medium 判定「真缺」已修）：提交异步任务=敏感写
-    操作，消费矩阵一直标「需鉴权」（webui API-INTEGRATION-GUIDE §任务·运行
-    🔒 POST /async_run），但实现漏挂——补 /run 同款 T3 鉴权门（无/空/无效
-    token → 401）。弃用端点不设 TASK_STATUS_AUTH 式应急开关。
-    """
-    logger.warning("⚠️ /async_run 已弃用，请使用 POST /submit_task")
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except UnicodeDecodeError:
-        # T2(api-M1): 400 不回显 body 原文
-        logger.warning("Invalid JSON body on %s: %s", "/async_run", traceback.format_exc()[-500:])
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-
-    # T3 鉴权门（镜像 /run、/node_run）：无/空/无效 token → 401，限流超限 → 429
-    _authenticate_token(_extract_token_from_body(body_text))
-
-    try:
-        payload = json.loads(body_text)
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in http_async_run: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON")
-    try:
-        deadline_sec = parse_deadline_sec(request.headers)
-    except ValueError as e:
-        # T2(api-M1 补): 固定语义文案，异常细节只进日志
-        logger.warning("Invalid deadline header on /async_run: %s", e)
-        raise HTTPException(status_code=400, detail="Invalid deadline header")
-
-    # 一个 ID 走到底：task_id == run_id == thread_id == ctx.run_id。
-    # 优先用上游 x-run-id；没传就生成 UUID。
-    run_id = request.headers.get(_ASYNC_HEADER_X_RUN_ID) or uuid.uuid4().hex
-
-    # ctx 在 handler scope 构造，与同步 /run 路径一致；后面 new_context 默认会
-    # 给 run_id 一个新 UUID，同步路径也是显式覆盖（main.py /run 处），这里同理。
-    ctx = new_context(method="async_run")
-    ctx.run_id = run_id
-    request_context.set(ctx)  # 与其他 HTTP endpoint 一致：让日志组件拿到 run_id 等信息
-    run_config: RunnableConfig = {
-        "configurable": {"thread_id": run_id},
-        "recursion_limit": async_task_config.RECURSION_LIMIT,
-    }
-
-    biz_context = extract_biz_context(request.headers) or {}
-    if graph_helper.is_agent_proj() and not (isinstance(payload, dict) and payload.get("messages")):
-        try:
-            client_msg, _ = to_client_message(payload)
-            payload = to_stream_input(client_msg)
-        except Exception as e:
-            error_response = service.error_classifier.get_error_response(
-                e, {"node_name": "http_async_run", "run_id": run_id})
-            logger.error(
-                f"failed to convert agent payload in http_async_run: "
-                f"[{error_response['error_code']}] {error_response['error_message']}, "
-                f"traceback: {traceback.format_exc()}", exc_info=True
-            )
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error_code": error_response["error_code"],
-                    "error_message": error_response["error_message"],
-                },
-            )
-
-    try:
-        return await async_runtime.submit(
-            task_id=run_id,
-            payload=payload,
-            biz_context=biz_context,
-            deadline_sec=deadline_sec,
-            run_config=run_config,
-            ctx=ctx,
-        )
-    except AsyncTaskStorageError as e:
-        # T2(api-M1 补): 503 固定文案（存储异常细节可能含 bucket/表名），只进日志
-        logger.warning("async-task storage unavailable: %s", e)
-        raise HTTPException(status_code=503,
-                            detail="async-task storage temporarily unavailable")
-
-
 @app.get("/task/{task_id}", include_in_schema=False)
 async def http_get_task(task_id: str) -> dict:
     """[REMOVED] 端点已删除（2026-09-23）：无鉴权且自 async runtime 重构起 100% 500
@@ -611,347 +493,6 @@ async def http_get_task(task_id: str) -> dict:
     """
     raise HTTPException(status_code=410,
                         detail="endpoint removed; use GET /task_status/{task_id}")
-
-
-HEADER_X_RUN_ID = "x-run-id"
-
-
-@app.post("/run", responses={
-    200: {"content": {"application/json": {"example": {
-        # GraphOutput 终态（成功路径，节选）+ run_id（handler 注入）
-        "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-        "product_id": "987654321",
-        "purchase_url": "https://detail.1688.com/offer/123456789.html",
-        "upload_status": "success",
-        "pricing_info": {"price": 254.0, "old_price": 305.0, "promo_price": 254.0},
-        "stages": {"auth": "done", "category_match": "done", "ozon_upload": "done"},
-        "error_message": "",
-        "error_code": "",
-        "run_id": "e1f2a3b4c5d647e8",
-    }}}}})
-async def http_run(request: Request) -> Dict[str, Any]:
-    global result
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except Exception:
-        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback（曾把 token 明文打进 detail）
-        logger.warning("Invalid JSON body on %s: %s", "/run", traceback.format_exc()[-500:])
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-
-    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
-    _authenticate_token(_extract_token_from_body(body_text))
-
-    ctx = new_context(method="run", headers=request.headers)
-    # 优先使用上游指定的 run_id，保证 cancel 能精确匹配
-    upstream_run_id = request.headers.get(HEADER_X_RUN_ID)
-    if upstream_run_id:
-        ctx.run_id = upstream_run_id
-    run_id = ctx.run_id
-    request_context.set(ctx)
-
-    _log_request_receipt("/run", run_id, request, raw_body)
-
-    try:
-        payload = await request.json()
-
-        # ✅ P0 修复：/run 同步端点也做 Ozon 配额预检（与 /submit_task 一致）
-        try:
-            ozon_cid = payload.get("ozon_client_id", "")
-            ozon_key = payload.get("ozon_api_key", "")
-            if ozon_cid and ozon_key:
-                from utils.ozon_client import ozon_check_quota
-                quota = ozon_check_quota(client_id=ozon_cid, api_key=ozon_key, timeout=5)
-                if not quota.get("ok"):
-                    raise HTTPException(
-                        status_code=429,
-                        detail={
-                            "error": "OZON_QUOTA_EXHAUSTED",
-                            "message": quota.get("message", "店铺配额已满"),
-                            "quota": quota,
-                        }
-                    )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning("配额预检异常，放行继续: %s", e)
-
-        # 创建任务并记录 - 这是关键，让我们可以通过run_id取消任务
-        task = asyncio.create_task(service.run(payload, ctx))
-        service.running_tasks[run_id] = task
-
-        try:
-            result = await asyncio.wait_for(task, timeout=float(TIMEOUT_SECONDS))
-        except TimeoutError:
-            logger.error(f"Run execution timeout after {TIMEOUT_SECONDS}s for run_id: {run_id}")
-            task.cancel()
-            try:
-                result = await task
-            except asyncio.CancelledError:
-                return {
-                    "status": "timeout",
-                    "run_id": run_id,
-                    "message": f"Execution timeout: exceeded {TIMEOUT_SECONDS} seconds"
-                }
-
-        if not result:
-            result = {}
-        if isinstance(result, dict):
-            result["run_id"] = run_id
-        return result
-
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in http_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-
-    except asyncio.CancelledError:
-        logger.info(f"Request cancelled for run_id: {run_id}")
-        result = {"status": "cancelled", "run_id": run_id, "message": "Execution was cancelled"}
-        return result
-
-    except Exception as e:
-        # 使用错误分类器获取错误信息
-        error_response = service.error_classifier.get_error_response(e, {"node_name": "http_run", "run_id": run_id})
-        logger.error(
-            f"Unexpected error in http_run: [{error_response['error_code']}] {error_response['error_message']}, "
-            f"traceback: {traceback.format_exc()}", exc_info=True
-        )
-        # T2(api-M1): stack_trace 移出响应 detail（此前整段 traceback 回显给客户端），只进日志
-        logger.error("run failed stack: %s", extract_core_stack())
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error_code": error_response["error_code"],
-                "error_message": error_response["error_message"],
-            }
-        )
-    finally:
-        pass
-
-
-HEADER_X_WORKFLOW_STREAM_MODE = "x-workflow-stream-mode"
-
-
-def _register_task(run_id: str, task: asyncio.Task):
-    service.running_tasks[run_id] = task
-
-
-@app.post("/stream_run", responses={
-    200: {"content": {"text/event-stream": {"example":
-        # SSE 逐帧：event 固定 message，data 为节点/Agent 产物 JSON（节选一帧）
-        "event: message\ndata: {\"progress_counter\": 3, \"stages\": {\"category_match\": \"done\"}}\n\n",
-    }}}})
-async def http_stream_run(request: Request):
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except Exception:
-        # T2(crypto-C1/api-M1): 400 不回显 body 原文与 traceback
-        logger.warning("Invalid JSON body on %s: %s", "/stream_run", traceback.format_exc()[-500:])
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-
-    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
-    _authenticate_token(_extract_token_from_body(body_text))
-
-    ctx = new_context(method="stream_run", headers=request.headers)
-    # 优先使用上游指定的 run_id，保证 cancel 能精确匹配
-    upstream_run_id = request.headers.get(HEADER_X_RUN_ID)
-    if upstream_run_id:
-        ctx.run_id = upstream_run_id
-    workflow_stream_mode = request.headers.get(HEADER_X_WORKFLOW_STREAM_MODE, "").lower()
-    workflow_debug = workflow_stream_mode == "debug"
-    request_context.set(ctx)
-    run_id = ctx.run_id
-    is_agent = graph_helper.is_agent_proj()
-    _log_request_receipt("/stream_run", run_id, request, raw_body,
-                         extra={"is_agent_project": is_agent})
-    try:
-        payload = await request.json()
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in http_stream_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-
-    if is_agent:
-        stream_generator = agent_stream_handler(
-            payload=payload,
-            ctx=ctx,
-            run_id=run_id,
-            stream_sse_func=service.stream_sse,
-            sse_event_func=service._sse_event,
-            error_classifier=service.error_classifier,
-            register_task_func=_register_task,
-        )
-    else:
-        stream_generator = workflow_stream_handler(
-            payload=payload,
-            ctx=ctx,
-            run_id=run_id,
-            stream_sse_func=service.stream_sse,
-            sse_event_func=service._sse_event,
-            error_classifier=service.error_classifier,
-            register_task_func=_register_task,
-            run_opt=RunOpt(workflow_debug=workflow_debug),
-        )
-
-    response = StreamingResponse(stream_generator, media_type="text/event-stream")
-    return response
-
-@app.post("/cancel/{run_id}", responses={
-    200: {"content": {"application/json": {"example": {
-        # service.cancel_run 三态：success / already_completed / not_found
-        "status": "success",
-        "run_id": "e1f2a3b4c5d647e8",
-        "message": "Cancellation signal sent, task will be cancelled at next await point",
-    }}}}})
-async def http_cancel(run_id: str, request: Request):
-    """
-    取消指定run_id的执行
-
-    使用asyncio.Task.cancel()实现取消,这是Python标准的异步任务取消机制。
-    LangGraph会在节点之间的await点检查CancelledError,实现优雅取消。
-    """
-    # v0.76 终审 Fix-4: 鉴权门——/run /stream_run /node_run /v1/chat/completions
-    # 都有 _authenticate_token，唯独本端点从无鉴权（知道 run_id 可取消他人在跑
-    # 任务）。与 /run 系一致从 body JSON 取 token（空 body → 无 token → 401）。
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except Exception:
-        body_text = ""
-    _authenticate_token(_extract_token_from_body(body_text))
-    ctx = new_context(method="cancel", headers=request.headers)
-    request_context.set(ctx)
-    logger.info(f"Received cancel request for run_id: {run_id}")
-    result = service.cancel_run(run_id, ctx)
-    return result
-
-
-# T12(api-H1): 有持久化副作用的节点禁止经 /node_run 触发——learning_record 会以
-# 调用方可控的 moderation_status/user_id 写全局共享 category_mapping（W11），
-# 属跨租户投毒面。新增有状态节点时必须同步维护本清单。
-# 入列评估（2026-09-16 全 25 主图节点逐个核查 DB 写/外部持久写）：
-#   - learning_record: 写全局 category_mapping + category_commission（均 W11 跨租户共享）
-#     + product_index/product_cost/source_candidates/web_category_path → 投毒面本体
-#   - assemble_ozon_product: INSERT category_match_log + attribute/dictionary 缓存回写（共享缓存）
-#   - prepare_ozon_upload: INSERT attr_match_log（审计写）
-#   - ozon_upload: Ozon /v3/product/import 外部持久写，绕过 validate/quota 闸
-#   - validation_retry_wrapper: 整个重试子图（含 reupload → Ozon 写）
-#   - auth: AuthOutput 直出平台 Supabase service key（supabase_key = SUPABASE_KEY
-#     env，见 auth_node 全部构造路径）——任何持平台 token 的调用方经本端点即可
-#     取得跨租户库读写权限；这是凭证外泄面，不是「纯转换+只读查证」，故入列。
-#   放行：ingest/follow_sell_import/pricing（纯转换+只读查证）、LLM/生图 12 节点
-#   （计算型）、ozon_validate/check_quota/ozon_status/fetch_back（只读外部）。
-_NODE_RUN_DENIED = frozenset({
-    "auth",
-    "learning_record",
-    "assemble_ozon_product",
-    "prepare_ozon_upload",
-    "ozon_upload",
-    "validation_retry_wrapper",
-})
-
-
-@app.post(path="/node_run/{node_id}", responses={
-    200: {"content": {"application/json": {"example": {
-        # 单节点直跑返回该节点 Output model 的 dict（示例取 auth 节点 AuthOutput
-        # 形态示意字段形状；auth 本身已在 _NODE_RUN_DENIED，不可经本端点调用）
-        "progress_counter": 1,
-        "user_id": "28",
-        "balance": 12.5,
-        "currency_code": "CNY",
-        "ozon_client_id": "5381204",
-    }}}}})
-async def http_node_run(node_id: str, request: Request):
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except UnicodeDecodeError:
-        # T2(crypto-C1/api-M1): 400 不回显 body 原文
-        logger.warning("Invalid JSON body on %s: %s", f"/node_run/{node_id}", traceback.format_exc()[-500:])
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-
-    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
-    _authenticate_token(_extract_token_from_body(body_text))
-
-    # T12(api-H1): 有状态节点黑名单——403 早于 body 深度处理与任何图执行
-    if node_id in _NODE_RUN_DENIED:
-        raise HTTPException(status_code=403, detail=f"node '{node_id}' is stateful and not runnable via /node_run")
-
-    ctx = new_context(method="node_run", headers=request.headers)
-    request_context.set(ctx)
-    run_id = ctx.run_id
-    _log_request_receipt(f"/node_run/{node_id}", run_id, request, raw_body)
-
-    try:
-        payload = await request.json()
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in http_node_run: {e}, traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-    try:
-        return await service.run_node(node_id, payload, ctx)
-    except KeyError:
-        # T2(api-M1): traceback 移出 404 detail，只进日志
-        logger.warning("node_run 404 stack: %s", extract_core_stack()[-500:])
-        raise HTTPException(status_code=404,
-                            detail=f"node_id '{node_id}' not found or input miss required fields")
-    except Exception as e:
-        # 使用错误分类器获取错误信息
-        error_response = service.error_classifier.get_error_response(e, {"node_name": node_id})
-        logger.error(
-            f"Unexpected error in http_node_run: [{error_response['error_code']}] {error_response['error_message']}, "
-            f"traceback: {traceback.format_exc()}", exc_info=True
-        )
-        # T2(api-M1): stack_trace 移出响应 detail，只进日志
-        logger.error("node_run failed stack: %s", extract_core_stack())
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error_code": error_response["error_code"],
-                "error_message": error_response["error_message"],
-            }
-        )
-    finally:
-        pass
-
-
-@app.post("/v1/chat/completions", responses={
-    200: {"content": {"application/json": {"example": {
-        # OpenAI Chat Completions 兼容透传（上游模型响应原样回传，此处为通用形态）
-        "id": "chatcmpl-e1f2a3b4c5d647e8",
-        "object": "chat.completion",
-        "created": 1726000000,
-        "model": "deepseek-v4-flash",
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": "Пример ответа ассистента."},
-            "finish_reason": "stop",
-        }],
-        "usage": {"prompt_tokens": 128, "completion_tokens": 64, "total_tokens": 192},
-    }}}}})
-async def openai_chat_completions(request: Request):
-    """OpenAI Chat Completions API 兼容接口"""
-    raw_body = await request.body()
-    try:
-        body_text = raw_body.decode("utf-8")
-    except Exception:
-        body_text = ""
-
-    # T3 鉴权门：无/空/无效 token → 401，限流超限 → 429
-    _authenticate_token(_extract_token_from_body(body_text))
-
-    ctx = new_context(method="openai_chat", headers=request.headers)
-    request_context.set(ctx)
-
-    logger.info(f"Received request for /v1/chat/completions: run_id={ctx.run_id}")
-
-    try:
-        payload = await request.json()
-        return await openai_handler.handle(payload, ctx)
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error in openai_chat_completions: {e}")
-        raise HTTPException(status_code=400, detail="Invalid JSON format")
-    finally:
-        pass
 
 
 # ============================================================
@@ -1828,21 +1369,6 @@ def _redact_payload(payload):
             return [walk(x) for x in obj]
         return obj
     return walk(copy.deepcopy(payload))
-
-
-def _log_request_receipt(endpoint: str, run_id: str, request: Request, raw_body: bytes,
-                         extra: dict | None = None) -> None:
-    """T2(crypto-C1): /run 系请求回执日志——绝不落 body 原文（含 token/ozon_api_key），
-    只落端点/run_id/query 键名列表/字节数。extra: 附加诊断键值对（k=v 空格拼接；None 省略）。"""
-    try:
-        qkeys = ",".join(sorted(request.query_params.keys())) if request.query_params else "-"
-    except Exception:
-        qkeys = "-"
-    extra_part = ""
-    if extra:
-        extra_part = " " + " ".join(f"{k}={v}" for k, v in extra.items())
-    logger.info(f"Received request for {endpoint}: run_id={run_id} query_keys={qkeys} "
-                f"body_bytes={len(raw_body)}{extra_part}")
 
 
 @app.get("/task_status/{task_id}", responses={
