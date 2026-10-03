@@ -159,11 +159,14 @@ def _param(compiled_params, col):
 def _post(body, monkeypatch, rowcounts=None, supabase=None):
     """直接调用 POST 端点（FakeRequest + mock get_supabase_client/get_engine）。"""
     import main
+    from api import security as _api_security  # ✅ W3b: _verify/_require_bearer 内部读 security 早绑定
 
     if supabase is None:
         monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: None)
     else:
         monkeypatch.setattr(main, "get_supabase_client", lambda: supabase)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: supabase)
     engine = FakeEngine(rowcounts or [1])
     monkeypatch.setattr(main, "get_engine", lambda: engine)
     result = asyncio.run(main.v1_discovery_report_run(FakeRequest(body)))
@@ -172,11 +175,14 @@ def _post(body, monkeypatch, rowcounts=None, supabase=None):
 
 def _get(token, monkeypatch, rows_by_tenant, supabase=None):
     import main
+    from api import security as _api_security  # ✅ W3b
 
     if supabase is None:
         monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: None)
     else:
         monkeypatch.setattr(main, "get_supabase_client", lambda: supabase)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: supabase)
     engine = FakeReadEngine(rows_by_tenant)
     monkeypatch.setattr(main, "get_engine", lambda: engine)
     return asyncio.run(main.v1_discovery_list_runs(FakeGetRequest(token)))
