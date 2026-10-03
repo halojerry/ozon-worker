@@ -217,9 +217,9 @@ status: active
 |---|---|---|
 | `ozon_client_id` | skill-auto | Ozon Client-Id（skill 从店铺配置注入） |
 | `mxou_token` | skill-auto | MXOU token（skill 注入） |
-| `store_id` | skill-auto | 店铺 ID |
-| `shipping_provider` | skill-auto | 物流商（TPL） |
-| `shipping_service` | skill-auto | 物流服务等级 |
+| `store_id` | legacy | 店铺 ID（2026-10 退役，存量草稿兼容） |
+| `shipping_provider` | legacy | 物流商（2026-10 退役，存量草稿兼容） |
+| `shipping_service` | legacy | 物流服务等级（2026-10 退役，存量草稿兼容） |
 | `margin_rate` | skill-injectable | 日常毛利率（缺省走 worker 三档） |
 | `commission_rate` | skill-injectable | 显式佣金率（优先级最高） |
 | `fx_buffer` | skill-injectable | 汇损缓冲 |

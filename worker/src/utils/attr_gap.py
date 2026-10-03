@@ -35,9 +35,6 @@ _FREE_TEXT_NON_SOURCE_IDS = {    # 自由文本但非 1688 属性源（有专用
     22390,  # 型号 = itemId
 }
 
-# 排除后仍可能被 is_customs_attr 拦掉的（名称关键词类）
-_SKIP_ATTR_IDS = frozenset({23536})
-
 
 def is_system_generated(schema_attr: dict[str, Any]) -> bool:
     """判断属性是否为「系统生成/强制默认」，不应计入应填缺口。

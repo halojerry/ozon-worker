@@ -7,7 +7,7 @@ R1/R4 闭环：MxouOutOfQuotaError（MXOU 401/403，余额/鉴权/额度永久�
 覆盖（17 处全部）：
 - 生图节点 10 个（含 main_image/social_proof 内层降级模型循环不再尝试）
 - 前置 chat 节点 2 个（scene_generation_llm / visual_vars_llm）
-- assemble 类目 LLM 2 个函数（_llm_match_category / _llm_rank_categories）
+- assemble 类目 LLM 1 个函数（_llm_rank_categories）
 - 富文本描述 / 类目翻译 / 去拉丁 / 属性消歧 4 处
 - 反向锁定：generic 异常（RuntimeError）仍走原降级路径，只对永久错误 fatal
 """
@@ -260,25 +260,8 @@ def test_visual_vars_llm_out_of_quota_fatal(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════
-# Group 3: assemble 类目 LLM 2 个函数
+# Group 3: assemble 类目 LLM 1 个函数
 # ═══════════════════════════════════════════════════════════
-
-def test_llm_match_category_out_of_quota_fatal(monkeypatch):
-    """_llm_match_category：401 → 不降级到下一匹配层，异常穿透。"""
-    import graphs.nodes.assemble_ozon_product_node as mod
-
-    def _boom(*a, **k):
-        raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
-
-    monkeypatch.setattr(mod, "call_mxou_chat_api", _boom)
-    with _workspace():
-        _raises_out_of_quota(
-            mod._llm_match_category,
-            "轮毂", "汽车轮毂", {},
-            [{"description_category_id": "17028758", "full_path": "汽车用品 > 轮辋"}],
-            "tok",
-        )
-
 
 def test_llm_rank_categories_out_of_quota_fatal(monkeypatch):
     """_llm_rank_categories：401 → 不返回 None，异常穿透。"""

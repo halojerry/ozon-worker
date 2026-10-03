@@ -126,7 +126,7 @@ def fake_db(monkeypatch):
     return engine
 
 
-def test_store_and_cookie_header_roundtrip(fake_db, key32):
+def test_store_and_load_roundtrip(fake_db, key32):
     from services import ozon_session_service as svc
 
     cookies = {"Abt": "x", "sc_company_id": "5371047"}
@@ -139,11 +139,11 @@ def test_store_and_cookie_header_roundtrip(fake_db, key32):
     assert _json.loads(params["names"]) == ["Abt", "sc_company_id"]  # 名单明文，值只在密文里
     assert b"5371047" not in params["enc"] and b"5371047" not in params["sc_enc"]
 
-    # 读路径：fetchone 返回写库时的密文 → 解出 cookie header
+    # 读路径：fetchone 返回写库时的密文 → 解出 cookie dict
     fake_db.rows = [SimpleNamespace(
         cookies_encrypted=params["enc"], status="active")]
-    header = svc.get_cookie_header("t1", _CRED1, key_raw=key32)
-    assert header == "Abt=x; sc_company_id=5371047"
+    loaded = svc.load_cookies("t1", _CRED1, key_raw=key32)
+    assert loaded == {"Abt": "x", "sc_company_id": "5371047"}
 
 
 def test_decrypt_failure_marks_expired_and_returns_none(fake_db, key32):
@@ -153,7 +153,7 @@ def test_decrypt_failure_marks_expired_and_returns_none(fake_db, key32):
     from utils import credential_cipher
     enc = credential_cipher.encrypt_with_key('{"sc_company_id":"1"}', "t1:c2", key32)
     fake_db.rows = [SimpleNamespace(cookies_encrypted=enc, status="active")]
-    assert svc.get_cookie_header("t1", _CRED2, key_raw=key32 + "x") is None
+    assert svc.load_cookies("t1", _CRED2, key_raw=key32 + "x") is None
     # mark_status 已被调用（最后一条 SQL 是 UPDATE ... status）
     last_stmt, last_params = fake_db.calls[-1]
     assert "UPDATE ozon_sessions" in last_stmt
@@ -502,7 +502,7 @@ def test_store_session_pg_jsonb_roundtrip(monkeypatch):
         st = svc.session_status(tid, cid)
         assert st is not None and st["status"] == "active"
         assert isinstance(st["cookie_names"], list) and "sc_company_id" in st["cookie_names"]
-        hdr = svc.get_cookie_header(tid, cid)
-        assert hdr and "sc_company_id=5371047" in hdr
+        cookies = svc.load_cookies(tid, cid)
+        assert cookies and cookies.get("sc_company_id") == "5371047"
     finally:
         svc.delete_session(tid, cid)

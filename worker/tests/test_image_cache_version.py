@@ -184,14 +184,6 @@ def test_get_image_info(store):
     assert tic.get_image_info("T1", "nonexist_slot") is None
 
 
-def test_get_latest_version_helper(store):
-    """get_latest_version → 0（无行）/ 最新版本号。"""
-    assert tic.get_latest_version("T1", "main") == 0
-    tic.save_image("T1", "main", "https://img/1.jpg")
-    tic.save_image("T1", "main", "https://img/2.jpg")
-    assert tic.get_latest_version("T1", "main") == 2
-
-
 # ══════════════════════════════════════════════════════════════
 # 2. params 快照（验收 d）
 # ══════════════════════════════════════════════════════════════
@@ -216,7 +208,7 @@ def test_force_regen_new_version_new_url(store):
     # force_regen → get 无视已有缓存（无静默缓存命中）
     assert tic.get_image("T3", "white_bg", force_regen=True) is None
     # regen 写 version=prev+1 = 2
-    tic.save_image("T3", "white_bg", "https://img/v2.jpg", version=tic.get_latest_version("T3", "white_bg") + 1)
+    tic.save_image("T3", "white_bg", "https://img/v2.jpg", version=2)
     assert tic.get_image("T3", "white_bg") == "https://img/v2.jpg"
     assert tic.get_image("T3", "white_bg") != "https://img/v1.jpg"
     assert store.images[("T3", "white_bg", 1)]["url"] == "https://img/v1.jpg"  # 旧版本保留

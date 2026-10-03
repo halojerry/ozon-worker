@@ -75,7 +75,3 @@ class RateLimiter:
 
 
 _rate_limiter = RateLimiter()
-
-
-def get_rate_limiter() -> RateLimiter:
-    return _rate_limiter

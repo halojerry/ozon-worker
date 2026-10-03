@@ -39,9 +39,6 @@ _NOISE_EN: tuple[str, ...] = (
     "exclusive", "trending", "top", "best", "popular", "cheap",
 )
 
-# 营销词全集：zh 规则 4 / en 规则 4 分别取对应子集，RU 供净化侧共享
-NOISE_KEYWORDS: tuple[str, ...] = _NOISE_ZH + _NOISE_RU + _NOISE_EN
-
 # 纯西里尔词正则（parse_title_formula_keywords 过滤依据）
 _CYRILLIC_ONLY_RE = re.compile(r"^[а-яА-ЯёЁ]+$")
 

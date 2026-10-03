@@ -66,9 +66,6 @@ EXTENSION_KEY_ORIGINS: Dict[str, str] = {
     # skill 自动注入（cloud_probe build_envelope resolved_extensions.setdefault）
     "ozon_client_id": "skill-auto",
     "mxou_token": "skill-auto",
-    "store_id": "skill-auto",
-    "shipping_provider": "skill-auto",
-    "shipping_service": "skill-auto",
     # 模板/店铺可注入（cloud_probe _INJECTABLE_EXT_KEYS）
     "margin_rate": "skill-injectable",
     "commission_rate": "skill-injectable",
@@ -98,14 +95,19 @@ EXTENSION_KEY_ORIGINS: Dict[str, str] = {
     # legacy：v0.80 退役（我方永不设库存），存量草稿 payload 仍含——resubmit 兼容
     "stock": "legacy",
     "warehouse_id": "legacy",
+    # legacy：2026-10 死代码清扫退役——唯一写入方在已删的 skill build_envelope 死链
+    # （worker 侧消费方为零，活链不写）；采集箱存量草稿 payload 仍含，resubmit 兼容
+    "store_id": "legacy",
+    "shipping_provider": "legacy",
+    "shipping_service": "legacy",
 }
 
 _KEY_DESCRIPTIONS: Dict[str, str] = {
     "ozon_client_id": "Ozon Client-Id（skill 从店铺配置注入）",
     "mxou_token": "MXOU token（skill 注入）",
-    "store_id": "店铺 ID",
-    "shipping_provider": "物流商（TPL）",
-    "shipping_service": "物流服务等级",
+    "store_id": "店铺 ID（2026-10 退役，存量草稿兼容）",
+    "shipping_provider": "物流商（2026-10 退役，存量草稿兼容）",
+    "shipping_service": "物流服务等级（2026-10 退役，存量草稿兼容）",
     "margin_rate": "日常毛利率（缺省走 worker 三档）",
     "commission_rate": "显式佣金率（优先级最高）",
     "fx_buffer": "汇损缓冲",

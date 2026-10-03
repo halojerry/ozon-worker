@@ -36,22 +36,6 @@ def _atomic_write(path: Path, data: dict) -> None:
         tmp.replace(path)
 
 
-def _read_backup() -> dict:
-    path = _backup_path()
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            return {}
-        backed = data.get("backed_at", 0) or 0
-        if time.time() - backed > _BACKUP_TTL:
-            return {}
-        return data
-    except (ValueError, OSError):
-        return {}
-
-
 def _from_cdp(cdp_url: str = "http://127.0.0.1:9222") -> list[dict]:
     """从常驻 Chrome 读全部 Ozon 域 cookie(含 httpOnly)，仅读不导航。"""
     conn = None
@@ -100,44 +84,3 @@ def backup(cdp_url: str = "http://127.0.0.1:9222") -> dict:
     })
     logger.info("Ozon session 备份完成: %d 个 cookie", len(cookies))
     return {"ok": True, "count": len(cookies), "message": f"备份 {len(cookies)} 个 Ozon cookie"}
-
-
-def restore(cdp_url: str = "http://127.0.0.1:9222") -> dict:
-    """从备份恢复 Ozon cookie → Storage.setCookies 注入。返回 {"ok", "count", "message"}。"""
-    data = _read_backup()
-    cookies = data.get("cookies") or []
-    if not cookies:
-        return {"ok": False, "count": 0, "message": "无有效备份(过期或不存在)"}
-    conn = None
-    tab = None
-    try:
-        from scripts.lib.cdp_client import CdpConnection
-        conn = CdpConnection(cdp_url)
-        tab = conn.new_tab("about:blank")
-        payload = []
-        for c in cookies:
-            item = {"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain")}
-            if c.get("path"):
-                item["path"] = c["path"]
-            if c.get("secure"):
-                item["secure"] = True
-            if c.get("httpOnly"):
-                item["httpOnly"] = True
-            if c.get("sameSite"):
-                item["sameSite"] = c["sameSite"]
-            payload.append(item)
-        msg_id = tab._send("Storage.setCookies", {"cookies": payload})
-        resp = tab._recv_until_id(msg_id, timeout=10)
-        ok = bool(resp and "error" not in resp.get("error", {}))
-        if ok:
-            logger.info("Ozon session 恢复完成: %d 个 cookie", len(payload))
-        return {"ok": ok, "count": len(payload), "message": f"恢复 {len(payload)} 个 Ozon cookie" if ok else "恢复失败"}
-    except Exception as exc:
-        logger.warning("ozon_session 恢复失败(%s)", exc)
-        return {"ok": False, "count": 0, "message": f"恢复失败: {exc}"}
-    finally:
-        if tab:
-            try:
-                tab.close()
-            except Exception:
-                pass

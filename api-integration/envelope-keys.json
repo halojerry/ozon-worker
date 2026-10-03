@@ -17,16 +17,16 @@
       "description": "MXOU token（skill 注入）"
     },
     "store_id": {
-      "origin": "skill-auto",
-      "description": "店铺 ID"
+      "origin": "legacy",
+      "description": "店铺 ID（2026-10 退役，存量草稿兼容）"
     },
     "shipping_provider": {
-      "origin": "skill-auto",
-      "description": "物流商（TPL）"
+      "origin": "legacy",
+      "description": "物流商（2026-10 退役，存量草稿兼容）"
     },
     "shipping_service": {
-      "origin": "skill-auto",
-      "description": "物流服务等级"
+      "origin": "legacy",
+      "description": "物流服务等级（2026-10 退役，存量草稿兼容）"
     },
     "margin_rate": {
       "origin": "skill-injectable",

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""后台任务全生命周期回归（v0.70：start_background / 惰性收割 / 单飞闸 / job_* 工具）。
+"""后台任务注册表回归（惰性收割 / 终态粘性 / job_* 工具）。
 
 核心承诺：
-① background=true 立即返回，CLI 进程组独立（会话关闭任务照跑——测试用假 CLI
-   sleep 验证不阻塞 + cancel 可终止）；
-② 孤儿任务（server 重启/watch 线程死）由 get()/list() 惰性收割按日志定案；
-③ 单飞闸：heavy 任务同时只跑 1 个，force 可越；
-④ 同步路径 run_and_record 行为不变。
+① 孤儿任务（server 重启/watch 线程死）由 get()/list() 惰性收割按日志定案；
+② 同步路径 run_and_record 行为不变；
+③ 终态粘性：completed 落定后 _finish(failed) 不得翻盘；
+④ 注册表原子写合并（盘上他进程的任务不被整文件互踩）。
+
+注（2026-10 死代码清扫）：v0.70 旧后台路径 CollectTaskManager.start_background
+（连同 _watch / _spawn_detach_kwargs / 单飞闸）已删除——v0.83 批④ 起后台统一走
+skill `--detach`（server._start_skill_job，`skill/data/jobs/` 注册表单一事实源）。
 
 运行：
     cd pounding-mcp && .venv/bin/python -m pytest tests/test_async_jobs.py -q
@@ -15,9 +18,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import time
-from pathlib import Path
 
 import pytest
 
@@ -25,73 +26,11 @@ from pounding_mcp import tasks as tasks_mod
 from pounding_mcp.server import _run_or_background
 from pounding_mcp.tasks import CollectTaskManager
 
-_SLEEP_THEN_JSON = (
-    "import time, sys\n"
-    "print('[1/2] 商品', flush=True)\n"
-    "print('阶段 1/2', flush=True)\n"
-    "time.sleep(1.2)\n"
-    "import json\n"
-    "print(json.dumps({'ok': 1, 'items': [1, 2]}, indent=2), flush=True)\n"
-)
-_SLEEPER = "import time; time.sleep(30)\n"
-
-
-def _fake_argv(script: str):
-    return [sys.executable, "-c", script]
-
 
 @pytest.fixture()
-def mgr(tmp_path, monkeypatch):
-    """独立 store 的 manager + _build_argv 换成假 CLI（可注入脚本）。"""
-    m = CollectTaskManager(store_path=tmp_path / "tasks.json", max_tasks=50)
-    holders: dict = {}
-
-    def _set_script(script: str) -> None:
-        holders["script"] = script
-        monkeypatch.setattr(tasks_mod, "_build_argv",
-                            lambda *a, **k: _fake_argv(holders["script"]))
-
-    _set_script(_SLEEP_THEN_JSON)
-    m._set_script = _set_script  # 供用例切换脚本
-    yield m
-
-
-def _wait_status(m: CollectTaskManager, task_id: str, want: set[str],
-                 timeout: float = 8.0) -> dict:
-    deadline = time.time() + timeout
-    t: dict = {}
-    while time.time() < deadline:
-        t = m.get(task_id) or {}
-        if t.get("status") in want:
-            return t
-        time.sleep(0.1)
-    return t
-
-
-def test_start_background_returns_immediately_and_completes(mgr):
-    """后台启动 <1s 返回 running；跑完由监控线程定案 completed + summary。"""
-    t0 = time.time()
-    task = mgr.start_background("discover", {"keyword": "手套"}, source="agent")
-    assert time.time() - t0 < 1.0
-    assert task["status"] == "running"
-    assert task["pid"] > 0 and Path(task["log"]).is_file()
-
-    done = _wait_status(mgr, task["id"], {"completed", "failed"})
-    assert done["status"] == "completed", done.get("error")
-    assert done["summary"]                              # _summarize(discover) 有产物
-    result, err = mgr.read_result(task["id"])
-    assert err is None and result["ok"] == 1
-
-
-def test_progress_parsed_from_log(mgr):
-    """running 中 get() 尾读日志回填 [N/M] 进度（job_status 的数据源）。"""
-    task = mgr.start_background("discover", {"keyword": "x"})
-    _wait_status(mgr, task["id"], {"running"})          # 拿到即查（脚本先打进度行）
-    got = mgr.get(task["id"])
-    assert got["status"] == "running"
-    if got.get("progress"):
-        assert got["progress"] == {"current": 1, "total": 2}
-    mgr.cancel(task["id"])
+def mgr(tmp_path):
+    """独立 store 的 manager。"""
+    return CollectTaskManager(store_path=tmp_path / "tasks.json", max_tasks=50)
 
 
 def test_reap_orphan_from_log(mgr, tmp_path):
@@ -141,36 +80,6 @@ def test_reap_skips_unverifiable_sync_tasks(mgr):
     assert mgr.get("sync1")["status"] == "running"
 
 
-def test_single_flight_gate_and_force(mgr):
-    """单飞闸：heavy 任务 running 时第二个 heavy 拒绝；force=true 越过。"""
-    mgr._set_script(_SLEEPER)
-    first = mgr.start_background("discover", {"keyword": "a"})
-    assert first["status"] == "running"
-
-    second = mgr.start_background("follow", {"ozon_url": "u"})
-    assert "error" in second and "force" in second["error"]
-
-    third = mgr.start_background("follow", {"ozon_url": "u"}, force=True)
-    assert third["status"] == "running" and not third.get("error")
-
-    # 轻任务（search）不受闸限制
-    light = mgr.start_background("search", {"query": "q"})
-    assert light["status"] == "running" and not light.get("error")
-
-    assert mgr.cancel(first["id"]) and mgr.cancel(third["id"]) and mgr.cancel(light["id"])
-
-
-def test_cancel_kills_background_process(mgr):
-    """job_cancel：running 后台任务被终止，registry 记 cancelled。"""
-    mgr._set_script(_SLEEPER)
-    task = mgr.start_background("discover_task", {"keyword": "a"})
-    assert mgr.cancel(task["id"]) is True
-    assert mgr.get(task["id"])["status"] == "cancelled"
-    time.sleep(0.3)
-    assert not tasks_mod._pid_alive(task["pid"]) or \
-        not mgr._is_running({"id": task["id"], "status": "running", "pid": task["pid"]})
-
-
 def test_run_or_background_sync_path_unchanged(mgr, monkeypatch):
     """background=False（v0.83 批④ 起为显式同步 opt-out）走同步 run_and_record。"""
     monkeypatch.setattr("pounding_mcp.server.get_manager", lambda: mgr)
@@ -194,31 +103,6 @@ def test_store_merge_keeps_foreign_tasks(mgr, tmp_path):
     merged = json.loads(store.read_text(encoding="utf-8"))
     assert "foreign" in merged and any(v.get("kind") == "search"
                                        for v in merged.values())
-
-
-def test_watch_exit0_raw_output_completes(mgr):
-    """退出码 0 但输出纯文本（queries 表格式）→ completed 不误判 failed。"""
-    mgr._set_script("print('词1  100\\n词2  200\\n')\n")
-    task = mgr.start_background("queries", {"type": "all-queries", "keyword": "x"})
-    done = _wait_status(mgr, task["id"], {"completed", "failed"})
-    assert done["status"] == "completed", done.get("error")
-
-
-def test_watch_discover_task_structured_summary(mgr):
-    """discover_task 尾部 _out JSON → summary 带达标/状态分布（job_status 机读）。"""
-    script = (
-        "import json\n"
-        "print('⏳ 阶段...', flush=True)\n"
-        "print(json.dumps({'task_id': 't1', 'summary': {'candidates': "
-        "{'profitable': 3, 'rejected': 5}, 'target': {'goal': 3, 'total': 3}, "
-        "'submitted': 0}}, indent=2), flush=True)\n"
-    )
-    mgr._set_script(script)
-    task = mgr.start_background("discover_task", {"keyword": "x"})
-    done = _wait_status(mgr, task["id"], {"completed", "failed"})
-    assert done["status"] == "completed", done.get("error")
-    assert done["summary"]["candidates"] == {"profitable": 3, "rejected": 5}
-    assert done["summary"]["target"] == {"goal": 3, "total": 3}
 
 
 def test_export_param_passthrough(mgr, tmp_path, monkeypatch):
@@ -266,14 +150,13 @@ def test_terminal_status_sticky(mgr):
     竞品上品帮实证（2026-08-16 win32 日志）：清理阶段窗口崩溃把已 completed
     的任务覆盖成 failed，采满 327 个商品的状态全丢——此处锁死该缺陷不可发生。
     """
-    m = mgr
-    m._set_script(_SLEEP_THEN_JSON)
-    t = m.start_background("discover", {"keyword": "手套"})
-    done = _wait_status(m, t["id"], {"completed"})
-    assert done["status"] == "completed"
+    task = mgr._register("discover", {"keyword": "手套"}, source="agent")
+    mgr._finish(task["id"], "completed", summary={"candidates": 1},
+                started=task["started_at"])
+    assert mgr.get(task["id"])["status"] == "completed"
 
-    # 模拟迟到的失败回调（watch 竞态/重复收割）
-    m._finish(t["id"], "failed", error="迟到的窗口异常关闭")
-    after = m.get(t["id"])
+    # 模拟迟到的失败回调（竞态/重复收割）
+    mgr._finish(task["id"], "failed", error="迟到的窗口异常关闭")
+    after = mgr.get(task["id"])
     assert after["status"] == "completed"
     assert not after.get("error")

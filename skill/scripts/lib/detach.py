@@ -74,18 +74,6 @@ def new_job_id(now: time.struct_time | None = None) -> str:
     return f"{ts}_{secrets.token_hex(3)}"
 
 
-def is_valid_job_id(job_id: str) -> bool:
-    """``<8digits>_<6digits>_<6hex>`` 形态校验（防路径注入）。"""
-    rid = (job_id or "").strip()
-    parts = rid.split("_")
-    if len(parts) != 3:
-        return False
-    d, t, hx = parts
-    if len(d) != 8 or len(t) != 6 or not (d + t).isdigit():
-        return False
-    return len(hx) == 6 and all(c in "0123456789abcdef" for c in hx)
-
-
 def job_path(job_id: str) -> Path:
     return jobs_dir() / f"{job_id}.json"
 

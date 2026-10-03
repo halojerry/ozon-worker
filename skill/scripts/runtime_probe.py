@@ -40,10 +40,6 @@ _ESCAPE = "SKILL_NO_VENV"
 # re-exec 时必须从 env 里清掉的变量（宿主环境污染源，race-risk R3）
 _STRIP_PREFIXES = ("PYTHONPATH", "PYTHONHOME", "PIP_", "VIRTUAL_ENV")
 
-# re-exec 后必须保留的变量（用户配置透传）
-_KEEP_VARS = ("WORKER_URL", "SKILL_AUTO_UPDATE", "SKILL_MANIFEST_URL",
-              "SKILL_NO_VENV", "SKILL_PYTHON", "OZON_CLIENT_ID", "OZON_API_KEY")
-
 
 def _parse_version(text: str) -> tuple | None:
     """解析 'Python 3.12.1' 或 '3.12.1' → (3, 12, 1)；失败返回 None。"""
@@ -143,7 +139,7 @@ def re_exec_if_needed(python_cmd: str, script: str, argv: list[str]) -> None:
 
     env 处理（race-risk R3）：
     - 清掉 PYTHONPATH/PYTHONHOME/PIP_*/VIRTUAL_ENV（宿主污染源）
-    - 保留 _KEEP_VARS（用户配置透传）
+    - 其余用户配置环境变量整份透传（os.environ 副本）
     - 置 SKILL_RUNTIME_OK=1 哨兵防递归
     """
     if python_cmd == sys.executable:
@@ -340,14 +336,3 @@ def ensure_venv(base_python: str) -> tuple[str, str]:
     finally:
         if lock_fd:
             _lock_release(lock_fd)
-
-
-def deps_ok() -> list[str]:
-    """探测当前解释器的核心依赖，返回缺失列表（空=齐全）。"""
-    missing = []
-    for _mod, _pkg in (("requests", "requests"), ("websocket", "websocket-client"), ("PIL", "Pillow")):
-        try:
-            __import__(_mod)
-        except ImportError:
-            missing.append(_pkg)
-    return missing

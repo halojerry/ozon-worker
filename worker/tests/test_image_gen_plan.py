@@ -3,7 +3,8 @@
 
 验收门（计划 §5 T7b / §2 C3b）：
 (a) plan {white_bg:1, scene_1:1} → 仅执行这 2 节点，其余跳过（断言其余节点未调生图 API）
-(b) 仅 Phase2 类型 plan（如 {scene_1:1}）→ validate_plan 拒绝（Momus W1：Phase2 依赖 Phase1 参考图）
+(b) validate_plan 已随 2026-10 死代码清扫删除（全仓零生产调用方）；plan 合法性
+    由消费侧 slot_enabled/plan_to_slots 语义覆盖
 (c) 默认 plan → 精简 5 张（white_bg/multi_angle/main_image/detail/scene_1 +
     variant 变体主图；social_proof/comparison/scene_2/scene_3 默认关，可覆盖重开）
 (d) plan_to_slots：scene 计数 0-3 展开 + 未知类型（材质/尺寸 v1 置灰）忽略
@@ -26,15 +27,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 logging.basicConfig(level=logging.WARNING)
 
-import pytest
-
 from utils.image_gen_plan import (  # noqa: E402
     ALL_SLOTS,
     DEFAULT_PLAN,
     PHASE1_SLOTS,
     plan_to_slots,
     slot_enabled,
-    validate_plan,
 )
 
 TITLE = "保温杯"
@@ -65,43 +63,8 @@ def _plan_config(plan=None):
 
 
 # ══════════════════════════════════════════════════════════════
-# 纯函数层：validate_plan / plan_to_slots / slot_enabled
+# 纯函数层：plan_to_slots / slot_enabled
 # ══════════════════════════════════════════════════════════════
-
-
-def test_validate_plan_rejects_phase2_only():
-    """Momus W1：仅 Phase2 类型 plan → 拒绝（提示需至少包含白底图或多角度图）。"""
-    for bad in [
-        {"scene_1": 1},
-        {"main_image": 1},
-        {"detail": 1, "comparison": 1, "social_proof": 1, "scene_1": 1},
-        {"scene": 3},
-        {},
-        None,
-    ]:
-        with pytest.raises(ValueError, match="白底图或多角度图"):
-            validate_plan(bad)
-
-
-def test_validate_plan_rejects_zero_count_phase1():
-    """count=0 的白底图/多角度图不视为 Phase1（0 = 不生成）。"""
-    with pytest.raises(ValueError, match="白底图或多角度图"):
-        validate_plan({"white_bg": 0, "scene_1": 1})
-    with pytest.raises(ValueError, match="白底图或多角度图"):
-        validate_plan({"multi_angle": 0, "detail": 1})
-
-
-def test_validate_plan_accepts_phase1():
-    """含 white_bg 或 multi_angle（count>=1）→ 通过；未知类型不阻断。"""
-    for ok in [
-        {"white_bg": 1},
-        {"multi_angle": 1},
-        {"white_bg": 1, "scene_1": 1},
-        {"white_bg": 1, "scene": 3},
-        {"material": 1, "white_bg": 1},  # 材质 v1 置灰，plan 里出现不阻断
-        DEFAULT_PLAN,
-    ]:
-        validate_plan(ok)  # 不抛异常即通过
 
 
 def test_plan_to_slots_scene_count_expansion():

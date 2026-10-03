@@ -19,7 +19,6 @@ from utils.dict_value_cache import (  # noqa: E402
     BUCKET_EPHEMERAL,
     BUCKET_GLOBAL,
     BUCKET_SCOPED,
-    classify_bucket,
     is_category_dependent,
     routed_get,
     routed_set,
@@ -28,20 +27,12 @@ from utils.dict_value_cache import (  # noqa: E402
 
 # ═══════════ 分类 ═══════════
 
-def test_classify_by_category_dependent():
-    assert classify_bucket({"category_dependent": False}) == BUCKET_GLOBAL
-    assert classify_bucket({"category_dependent": True}) == BUCKET_SCOPED
+def test_is_category_dependent_defaults_conservative():
     # 字段缺失/非 dict → 保守 scoped（旧缓存行/旧夹具行为不变）
-    assert classify_bucket({}) == BUCKET_SCOPED
-    assert classify_bucket(None) == BUCKET_SCOPED
     assert is_category_dependent("junk") is True
-
-
-def test_classify_ephemeral_by_size():
-    """首页即 has_next（truncated）或值数超上限 → ephemeral 不物化。"""
-    assert classify_bucket({"category_dependent": False}, truncated=True) == BUCKET_EPHEMERAL
-    assert classify_bucket({"category_dependent": True}, value_count=2001) == BUCKET_EPHEMERAL
-    assert classify_bucket({"category_dependent": True}, value_count=2000) == BUCKET_SCOPED
+    assert is_category_dependent({}) is True
+    assert is_category_dependent({"category_dependent": False}) is False
+    assert is_category_dependent({"category_dependent": True}) is True
 
 
 # ═══════════ routed_set 落桶 ═══════════

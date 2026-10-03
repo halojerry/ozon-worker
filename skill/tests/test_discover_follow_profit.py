@@ -12,15 +12,7 @@ from unittest import mock
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from scripts.lib.ozon_discovery import ProductCandidate, _calculate_profit
-
-
-@pytest.fixture(autouse=True)
-def _offline_logistics(monkeypatch):
-    """测试离线红线：费率表查询一律不出口（禁打生产 worker），回落本地兜底估算。"""
-    monkeypatch.setattr(
-        "scripts.lib.ozon_discovery._query_logistics_from_worker",
-        lambda *a, **k: None)
+from scripts.lib.ozon_discovery import ProductCandidate
 
 
 @pytest.fixture(autouse=True)
@@ -58,11 +50,19 @@ def _cand(**kw):
     return c
 
 
+def _run_estimate(c, fx_rate=12.0):
+    """算价唯一入口（v0.83 批① worker batch）——原 `_calculate_profit` 壳已随
+    2026-10 死代码清扫删除，改直调活路径（语义逐字等价：batch row → 应用行）。"""
+    import scripts.lib.ozon_discovery as od
+    rows = od._estimate_candidates([c], fx_rate=fx_rate)
+    od._apply_estimate_row(c, rows[0] if rows else None, fx_rate)
+
+
 def test_follow_profit_computed_from_min_competing_price():
     c = _cand()
     c.estimated_logistics_cny = 40.0
     c.estimated_commission = 0.0   # 让 commission 分支走 rate 重算前的显式值
-    _calculate_profit(c, fx_rate=12.0, commission_rate=0.10)
+    _run_estimate(c)
     # 竞品现价 953×12=11436 → 主利润已算；跟卖口径 900×12=10800
     assert c.follow_profit_cny > 0
     assert c.follow_profit_cny < (c.ozon_price * 12 - (60 + 40) * 1)  # 比主口径低
@@ -71,7 +71,7 @@ def test_follow_profit_computed_from_min_competing_price():
 
 def test_follow_profit_zero_without_competitors():
     c = _cand(min_competing_price=0.0)
-    _calculate_profit(c, fx_rate=12.0, commission_rate=0.10)
+    _run_estimate(c)
     assert c.follow_profit_cny == 0.0 and c.follow_margin == 0.0
 
 
@@ -169,7 +169,7 @@ def test_min_price_null_coerced_to_zero(monkeypatch):
     assert c.status == "ok"
     assert c.min_competing_price == 0.0
 
-    _calculate_profit(c, fx_rate=12.0, commission_rate=0.10)  # 不抛 TypeError
+    _run_estimate(c)  # 不抛 TypeError
     assert c.follow_profit_cny == 0.0 and c.follow_margin == 0.0
 
 

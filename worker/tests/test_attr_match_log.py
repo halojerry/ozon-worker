@@ -3,7 +3,6 @@
 锁定：
 - log_attr_match 非致命（DB 不可用/异常 → warning 不 raise）
 - task_id 空 → 跳过
-- compute_attempted_fill_rate 复用 Phase 0 compute_gap（系统生成不计分母）
 - 表模型 AttrMatchLog 结构（category_match_log 先例对照）
 无需 PG（mock psycopg2）。
 """
@@ -16,7 +15,7 @@ _SRC = os.path.join(_HERE, "..", "src")
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-from utils.attr_match_log import compute_attempted_fill_rate, log_attr_match  # noqa: E402
+from utils.attr_match_log import log_attr_match  # noqa: E402
 
 
 def test_log_empty_task_id_skips():
@@ -60,32 +59,6 @@ def test_log_candidates_truncated():
     import json
     cands = json.loads(params[11])
     assert len(cands) == 15  # 截断
-
-
-# ── compute_attempted_fill_rate ──
-
-def test_compute_fill_rate_ignores_system_generated():
-    """系统生成属性不计入分母（海关/标记码/品牌/原产国）。"""
-    schema = [
-        {"id": 22604, "name": "HS编码"},          # 海关
-        {"id": 23536, "name": "标记码"},          # 系统生成
-        {"id": 85, "name": "品牌"},               # 强制默认
-        {"id": 4389, "name": "原产国"},           # 强制默认
-        {"id": 10096, "name": "颜色", "dictionary_id": 1494},  # 应填，已填
-        {"id": 8962, "name": "件数"},             # 应填，未填
-    ]
-    r = compute_attempted_fill_rate(schema, [10096])
-    assert r["should_fill"] == 2
-    assert r["filled"] == 1
-    assert r["attempted_fill_rate"] == 0.5
-
-
-def test_compute_fill_rate_zero_denominator():
-    """全系统生成 → 分母 0 → rate 0（不除零）。"""
-    schema = [{"id": 22604, "name": "HS编码"}, {"id": 23536, "name": "标记码"}]
-    r = compute_attempted_fill_rate(schema, [])
-    assert r["should_fill"] == 0
-    assert r["attempted_fill_rate"] == 0.0
 
 
 # ── 表模型结构（对照 category_match_log 先例）──

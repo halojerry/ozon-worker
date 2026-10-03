@@ -264,25 +264,6 @@ class TestBuildOffers:
         assert len(offers) <= css.MAX_OFFERS
 
 
-class TestDigIds:
-    def test_taobao_ids(self):
-        html = ('<a href="//item.taobao.com/item.htm?id=679836775118">a</a>'
-                '<a href="//item.taobao.com/item.htm?id=679836775118">dup</a>'
-                '<a href="//item.taobao.com/item.htm?id=654654136372">b</a>'
-                '<a href="//item.taobao.com/item.htm?id=12345">短 id 不算</a>')
-        assert css.dig_taobao_ids(html) == ["679836775118", "654654136372"]
-
-    def test_pdd_ids_on_real_page_shape(self):
-        """实机形态：body ~344KB、客户端渲染、goods_id 只在 innerHTML 里。"""
-        noise = '<div class="x"><span>loading</span></div>' * 14760  # ~344KB
-        html = ('<!doctype html><html><body><script>window.rawData={"stores":1};'
-                '</script>' + noise +
-                '<script>var a={goods_id:538120412345};var b={"goods_id":"777777777777"};'
-                'var c="goods-id=888888888888";</script></body></html>')
-        assert css.dig_pdd_ids(html) == ["538120412345", "777777777777", "888888888888"]
-        assert len(html) > 300_000
-
-
 # ── search_taobao：mock CDP ──
 
 

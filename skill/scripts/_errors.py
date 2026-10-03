@@ -5,9 +5,6 @@ v0.80: ERR_CLOUD_* 云端 webhook 错误码已随前代 n8n 云端退役删除
 （docs/PLAN-n8n-legacy-purge-v1.md）。
 """
 
-# Config error codes
-ERR_MISSING_CONFIG = "MISSING_CONFIG"
-
 
 class SkillError(Exception):
     def __init__(self, message: str, code: str = "SKILL_ERROR"):

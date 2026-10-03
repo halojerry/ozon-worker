@@ -29,8 +29,6 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-SUPPORTED_PLATFORMS = ("1688", "taobao", "tmall", "pdd")
-
 # 抓取白名单：1688 现状 + 批2 淘宝/天猫 + 批3 拼多多（适配器全量就位）
 PROBE_SUPPORTED_PLATFORMS = ("1688", "taobao", "tmall", "pdd")
 

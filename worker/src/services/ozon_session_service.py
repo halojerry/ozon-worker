@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 _ENV_KEY = "CREDENTIAL_MASTER_KEY"
 
-_STATUS_ACTIVE = "active"
 _STATUS_EXPIRED = "expired"
 
 _STORE_SQL = """
@@ -126,25 +125,6 @@ def load_cookies(tenant_id: str, credential_id: str,
         mark_status(tenant_id, credential_id, _STATUS_EXPIRED)
         return None
     return data if isinstance(data, dict) else None
-
-
-def get_cookie_header(tenant_id: str, credential_id: str,
-                      *, key_raw: str | None = None) -> str | None:
-    """解密会话 → "a=b; c=d" 请求头。无会话/解密失败 → None。"""
-    cookies = load_cookies(tenant_id, credential_id, key_raw=key_raw)
-    if not cookies:
-        return None
-    return "; ".join(f"{name}={value}" for name, value in cookies.items())
-
-
-def get_sc_company_id(tenant_id: str, credential_id: str,
-                      *, key_raw: str | None = None) -> str | None:
-    """从解密后的 cookie dict 取 sc_company_id（cookie 里本身有，勿另存明文）。"""
-    cookies = load_cookies(tenant_id, credential_id, key_raw=key_raw)
-    if not cookies:
-        return None
-    value = str(cookies.get("sc_company_id") or "")
-    return value or None
 
 
 def mark_status(tenant_id: str, credential_id: str, status: str,

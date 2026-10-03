@@ -35,17 +35,6 @@ def get_latest_fx_rate() -> Optional[float]:
     return float(row[0]) if row else None
 
 
-def upsert_fx_rate(date: str, cny_to_rub: float, source: str = "manual") -> None:
-    with get_engine().begin() as conn:
-        conn.execute(text(
-            """
-            INSERT INTO fx_rates (date, cny_to_rub, source)
-            VALUES (:d, :r, :s)
-            ON CONFLICT (date) DO UPDATE SET cny_to_rub=EXCLUDED.cny_to_rub, source=EXCLUDED.source
-            """
-        ), {"d": date, "r": cny_to_rub, "s": source})
-
-
 def _cost_row(tenant_id: str, credential_id: str, product_id: str) -> Optional[dict]:
     with get_engine().connect() as conn:
         row = conn.execute(text(

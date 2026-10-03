@@ -44,11 +44,6 @@ COLLECT_KINDS: dict[str, str] = {
     "get_ak": "获取 AK",
 }
 
-# 重任务（CDP/图搜/长时）：单飞闸范围——同时只允许 1 个 running（Chrome tab 打架防护）
-_HEAVY_KINDS = frozenset({
-    "discover", "discover_multi", "discover_task", "follow", "seller", "graph",
-})
-
 # 终态集合：_finish 粘性保护（落定后任何后续收割/回调不得翻盘）
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "interrupted", "cancelled"})
 
@@ -130,14 +125,6 @@ _TASKS_LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "tasks"
 
 def _log_path(task_id: str) -> Path:
     return _TASKS_LOG_DIR / f"{task_id}.log"
-
-
-def _spawn_detach_kwargs() -> dict:
-    """进程脱离会话的 Popen 参数：POSIX 独立会话组；Windows 分离进程组。"""
-    if sys.platform == "win32":
-        return {"creationflags": getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
-    return {"start_new_session": True}
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -263,76 +250,6 @@ class CollectTaskManager:
                 error=f"{type(exc).__name__}: {exc}"[:300], started=started)
             raise
 
-    # ── v0.70 后台路径：脱离会话独立运行 ─────────────────────────────
-
-    def start_background(self, kind: str, params: dict, source: str = "agent",
-                         force: bool = False) -> dict:
-        """后台启动 skill 命令，立即返回 task dict（agent 不阻塞）。
-
-        - CLI 进程组独立（POSIX setsid / Windows DETACHED_PROCESS），stdout/stderr
-          写 data/tasks/{id}.log 文件（非管道）——dsh 会话关闭 / 本 MCP server 退出
-          任务照跑（根治「关会话任务终止」）；
-        - 完成状态由 _watch 监控线程定案；线程随 server 死掉的孤儿任务由
-          get()/list() 惰性收割按日志定案；
-        - 单飞闸：heavy 任务（_HEAVY_KINDS）同时只跑 1 个，防 Chrome tab 打架；
-          冲突返回 {"error": ...}（force=True 越过）。
-        """
-        if kind in _HEAVY_KINDS and not force:
-            busy = [t for t in self.list()
-                    if t.get("kind") in _HEAVY_KINDS and self._is_running(t)]
-            if busy:
-                b = busy[0]
-                return {"error": f"已有重采集任务运行中（{b.get('kind')}/{b.get('id')}），"
-                                 f"完成前不启动新任务——job_status 查进度，或 force=true 强制并行"}
-        task = self._register(kind, params, source)
-        task_id = task["id"]
-        log = _log_path(task_id)
-        p = dict(params or {})
-        positional = [p.pop(n) for n in _POSITIONAL.get(kind, []) if n in p and p[n] not in (None, "")]
-        argv = _build_argv(kind, tuple(positional), p)
-        try:
-            log.parent.mkdir(parents=True, exist_ok=True)
-            with open(log, "w", encoding="utf-8") as fh:
-                proc = subprocess.Popen(argv, stdout=fh, stderr=subprocess.STDOUT,
-                                        stdin=subprocess.DEVNULL, cwd=str(SKILL_DIR),
-                                        **_spawn_detach_kwargs())
-        except Exception as exc:  # noqa: BLE001
-            self._finish(task_id, "failed", error=f"启动失败: {exc}",
-                         started=task["started_at"])
-            return dict(self._tasks.get(task_id) or task)
-        with self._lock:
-            t = self._tasks.get(task_id)
-            if t:
-                t["pid"] = proc.pid
-                t["log"] = str(log)
-                self._save()
-        self._procs[task_id] = proc
-        _wake_browser()
-        threading.Thread(target=self._watch, args=(task_id, proc), daemon=True).start()
-        return dict(self._tasks.get(task_id) or task)
-
-    def _watch(self, task_id: str, proc: subprocess.Popen) -> None:
-        """后台任务监控线程：等进程退出按真实退出码定案。
-
-        本线程随 MCP server 进程死亡——孤儿任务（server 先死、CLI 独立跑完）
-        由下次 get()/list() 的 _reap 按日志定案。"""
-        code = proc.wait()
-        self._procs.pop(task_id, None)
-        _done_browser()
-        t = self._tasks.get(task_id) or {}
-        started = t.get("started_at")
-        if code == 0:
-            # 真实退出码 0 即完成——纯文本输出（queries 表格等无尾部 JSON）不算失败；
-            # 孤儿收割（_reap）拿不到退出码才需要严格以结构化 JSON 为完成判据
-            result, _ = self._result_from_log(task_id)
-            self._finish(task_id, "completed",
-                         summary=self._summarize(t.get("kind", ""), result or {}),
-                         started=started)
-        else:
-            tail = self.log_tail(task_id, 8)
-            self._finish(task_id, "failed",
-                         error=(tail[-300:] or f"退出码 {code}"), started=started)
-
     def _result_from_log(self, task_id: str,
                          log_path: str | None = None) -> tuple[dict | None, str | None]:
         """日志尾解析任务结果（复用 _parse_output 的尾部 JSON 提取）。
@@ -381,14 +298,6 @@ class CollectTaskManager:
             return self._tasks.get(t["id"], t)
         self._progress_from_log(t)
         return t
-
-    def _is_running(self, t: dict) -> bool:
-        """任务是否真在跑：进程内 Popen 活着，或 registry pid 跨进程存活。"""
-        if t.get("status") != "running":
-            return False
-        if t["id"] in self._procs:
-            return True
-        return _pid_alive(t.get("pid"))
 
     def _progress_from_log(self, t: dict) -> None:
         """pid 存活的 running 任务：尾读日志最后一屏，回填 stage/progress。"""

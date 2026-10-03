@@ -44,7 +44,7 @@ status: active
 
 ### 1.3 非目标
 
-- **不新增图搜 API**：Ozon 反搜已调研确认（skill 无现成 / 上品帮无 / Ozon Seller API 无），复用 `ozon_discovery.py:discover_from_keyword`(L816) 搜索页 CDP + 语义匹配件（`_llm_semantic_match` L1763 / `_ru_zh_title_overlap` L1427），仅 0.5d 串联入口
+- **不新增图搜 API**：Ozon 反搜已调研确认（skill 无现成 / 上品帮无 / Ozon Seller API 无），复用 `ozon_discovery.py:discover_from_keyword`(L816) 搜索页 CDP + 语义匹配件（`_llm_semantic_match` L1763 / `_ru_zh_title_overlap` L1427），仅 0.5d 串联入口（注：2026-10 已随死代码清扫移除）
 - **不学上品帮 8 BrowserWindow 真隔离**：当前多 tab 复用 1 Chrome 已够（用户体验 + 资源双赢）
 - **不加 TaskManager 守护进程**：与 webui 同事任务中心职责重叠
 - **不学旧 stealth 指纹伪造**：v0.28.7 已反学（真实指纹天然干净）

@@ -33,7 +33,6 @@ from storage.database.db import get_session
 
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
-from utils.safe_template import render_safe, render_safe_mapping  # v0.81: jinja2 全量切沙箱（Mimosa SSTI 加固）
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import (
     get_category_query, OzonCategoryQuery,
@@ -1064,18 +1063,7 @@ CHINA_VALUE = "Китай"
 
 # Ozon 强制属性
 FORCE_ATTR_9048 = 9048   # 变体绑定名
-FORCE_ATTR_8229 = 8229   # 类型名称
-FORCE_ATTR_4191 = 4191   # 完整描述
-FORCE_ATTR_4180 = 4180   # 短描述/关键字
-FORCE_ATTR_4958 = 4958   # 适用对象（部分类目）
-FORCE_ATTR_8962 = 8962   # 件数（部分类目）
 FORCE_ATTR_23171 = 23171 # hashtag 标签（部分类目）
-
-# 分类名属性（8229 的替代）
-TYPE_NAME_ATTR_IDS = [8229]
-
-# 集合属性（values 数组可包含多个元素）
-COLLECTION_ATTR_IDS = {9048, 23171}
 
 
 def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str, Any]]:
@@ -3411,77 +3399,6 @@ def _rebuild_for_new_category(
         }
     except Exception as e:
         logger.error(f"   ❌ 新类目重建异常: {e}")
-        return None
-
-
-def _llm_match_category(
-    title: str,
-    description: str,
-    attributes: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    token: str,
-) -> Optional[dict[str, Any]]:
-    """LLM 从候选类目列表中选出最佳匹配"""
-    try:
-        workspace = os.getenv("APP_WORKSPACE_PATH", "/app")
-        cfg_path = os.path.join(workspace, "config/category_match_v2_cfg.json")
-
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        llm_cfg = cfg.get("config", {})
-        model_id = llm_cfg.get("model", "deepseek-v4-flash-vision-exp")
-        sp_template = cfg.get("sp", "")
-        up_template = cfg.get("up", "")
-
-        # v0.81: 渲染走 SandboxedEnvironment 沙箱（utils/safe_template，Mimosa SSTI 加固）
-        system_prompt = render_safe(sp_template)
-
-        # 准备模板变量
-        attr_flat = {}
-        if attributes:
-            for k, v in attributes.items():
-                if isinstance(v, (str, int, float)):
-                    attr_flat[k] = str(v)
-
-        user_prompt = render_safe_mapping(up_template, {
-            "title": title,
-            "description": description[:500] if description else "",
-            "attributes": attr_flat,
-            "candidates": candidates,
-        })
-
-        resp = call_mxou_chat_api(
-            token=token,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=model_id,
-            temperature=0.0,
-            max_tokens=1024,
-        ) or ""
-
-        if not resp.strip():
-            logger.error("LLM 类目匹配返回空")
-            return None
-
-        # 清理 JSON
-        resp = resp.replace("```json", "").replace("```", "").strip()
-        # 尝试提取 JSON 对象
-        match = re.search(r'\{[^{}]*"description_category_id"[^{}]*\}', resp, re.DOTALL)
-        if match:
-            resp = match.group(0)
-
-        result = json.loads(resp)
-        logger.info(f"   LLM 类目匹配: {result.get('category_path', '')} (confidence={result.get('confidence', '?')})")
-        return result
-
-    except json.JSONDecodeError as e:
-        logger.error(f"LLM 类目匹配 JSON 解析失败: {e}, raw={resp[:200]}")
-        return None
-    except MxouOutOfQuotaError:
-        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级到下一匹配层
-    except Exception as e:
-        logger.error(f"LLM 类目匹配异常: {e}")
         return None
 
 

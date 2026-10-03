@@ -335,7 +335,6 @@ def test_readiness_fallback_repairs_login_probe(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setattr(rd, "_under_pytest", lambda: False)
     monkeypatch.setattr(rd, "probe_chrome_cdp", lambda **kw: True)
-    monkeypatch.setattr(rd, "_cached_ok", lambda probe: False)
     monkeypatch.setitem(rd._PROBES, "alibaba_login", lambda url: False)
     monkeypatch.setattr("scripts.lib.cookie_harvest.try_auto_import",
                         lambda probe, url: True)

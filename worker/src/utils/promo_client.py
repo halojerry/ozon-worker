@@ -39,9 +39,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# Performance API 前缀：广告投放用（独立 OAuth），promo_client 不触碰（在 roadmap）。
-PERFORMANCE_API_PREFIX = "/api/client"
-
 # 本模块允许使用的 Seller 端点白名单（测试 test_no_performance_api_called 锁定）
 ENDPOINT_LIST_ACTIONS = "/v1/actions"
 ENDPOINT_ACTION_PRODUCTS = "/v1/actions/products"

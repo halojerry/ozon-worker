@@ -88,20 +88,3 @@ def log_attr_match(
             conn.close()
     except Exception as e:
         _logger.warning("attr_match_log write failed (non-fatal): %s", e)
-
-
-def compute_attempted_fill_rate(
-    schema: List[dict],
-    filled_ids: List[int],
-) -> Dict[str, Any]:
-    """计算 attempted_fill_rate = 应填已填 / 应填总数（Phase 0 compute_gap 复用）。
-
-    返回 {should_fill, filled, attempted_fill_rate}。系统生成属性不计入分母。
-    """
-    from utils.attr_gap import compute_gap  # type: ignore
-    report = compute_gap(schema, {}, filled_ids)
-    return {
-        "should_fill": report.should_fill,
-        "filled": report.filled,
-        "attempted_fill_rate": report.attempted_fill_rate,
-    }

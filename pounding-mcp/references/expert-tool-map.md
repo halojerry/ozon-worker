@@ -1,7 +1,7 @@
 # 专家工具子集映射表
 
 > 给 agent 的「那位专家 → 该用哪些工具」速查。工具名列表已逐一对真实清单
-> `pounding-mcp/pounding_mcp/server.py`（21 个工具，`main` 为入口函数不计）grep 核对，
+> `pounding-mcp/pounding_mcp/server.py`（30 个工具，`main` 为入口函数不计）grep 核对，
 > 映射表内**只有清单内工具名**，无幻影。逐工具比对证据见文末「核对记录」。
 
 ## 专家概览
@@ -9,7 +9,7 @@
 | 专家 | 专注 | 主工具 | 写操作（须用户确认） |
 |------|------|--------|----------------------|
 | 店铺优化大师 | 改价/库存/上下架/促销建议 | `analyze_store`, `run_store_action`, `category`, `query`, `seller` | `run_store_action`(bulk_update_*/archive) |
-| 选品大师 | 选品/蓝海/趋势 | `discover`, `discover_multi`, `queries`, `search`, `image_search`, `graph`, `follow`, `probe` | `graph`/`follow`/`--auto-submit` |
+| 选品大师 | 选品/蓝海/趋势 | `discover`, `discover_multi`, `discover_task`, `queries`, `search`, `image_search`, `graph`, `follow`, `probe` | `graph`/`follow`/`--auto-submit` |
 | 营销大师 | 活动报名/自建促销/定价 | `analyze_store`, `run_store_action`, `category`, `query` | `run_store_action`(actions_register/seller_action_discount) |
 
 ## 工具子集映射（逐工具）
@@ -25,6 +25,7 @@
 | `seller` | ✅ 竞品店铺参照 | ⬜ | ⬜ | 店铺优化可选参照 |
 | `discover` | ⬜ | ✅ C/D 主入口 | ⬜ | — |
 | `discover_multi` | ⬜ | ✅ 批量选品 | ⬜ | — |
+| `discover_task` | ⬜ | ✅ 达标目标选品（后台任务） | ⬜ | — |
 | `queries` | ⬜ | ✅ 蓝海/榜单 | ⬜ | — |
 | `search` | ⬜ | ✅ 1688 关键词 | ⬜ | — |
 | `image_search` | ⬜ | ✅ 以图搜款 | ⬜ | — |
@@ -39,18 +40,26 @@
 | `get_ak` | ⬜ | ⬜ | ⬜ | 凭证配置，环境类，不归位 |
 | `update` | ⬜ | ⬜ | ⬜ | 自动更新，环境类，不归位 |
 | `cleanup` | ⬜ | ⬜ | ⬜ | 磁盘清理，环境类，不归位 |
+| `job_list` | ⬜ | ⬜ | ⬜ | 后台任务罗列（job_* 运维面），不归位 |
+| `job_status` | ⬜ | ⬜ | ⬜ | 后台任务进度（next_poll_s 节奏），不归位 |
+| `job_result` | ⬜ | ⬜ | ⬜ | 后台任务结果收割，不归位 |
+| `job_cancel` | ⬜ | ⬜ | ⬜ | 后台任务取消，不归位 |
+| `session_sync` | ⬜ | ⬜ | ⬜ | 店铺会话代管（凭证类），不归位 |
+| `report_issue` | ⬜ | ⬜ | ⬜ | 错误报告上报通道，不归位 |
+| `list_error_reports` | ⬜ | ⬜ | ⬜ | 错误报告查询，不归位 |
+| `get_task_forensics` | ⬜ | ⬜ | ⬜ | 任务取证诊断，不归位 |
 
 ## 三张图（按专家展开的完整子集）
 
 **店铺优化大师**：`analyze_store`, `run_store_action`(bulk_update_prices|bulk_update_stocks|bulk_archive), `category`, `query`, `seller`
 
-**选品大师**：`discover`, `discover_multi`, `queries`, `search`, `image_search`, `graph`, `follow`, `probe`
+**选品大师**：`discover`, `discover_multi`, `discover_task`, `queries`, `search`, `image_search`, `graph`, `follow`, `probe`
 
 **营销大师**：`analyze_store`, `run_store_action`(actions_register|seller_action_discount), `category`, `query`
 
 ## 环境 / 凭证 / 工具不归位
 
-以下 7 个工具是**通用环境与凭证类**，不归属任何业务专家，任何专家出现对应需求时都可调用，但语义是「环境准备/维护+」而非业务动作：
+以下 16 个工具是**通用环境 / 凭证 / 后台运维 / 反馈诊断类**，不归属任何业务专家，任何专家出现对应需求时都可调用，但语义是「环境准备/维护+」而非业务动作：
 
 | 工具 | 用途 | 说明 |
 |------|------|------|
@@ -62,6 +71,14 @@
 | `get_ak` | 浏览器自动获取 AK | 写（本地 Chrome） |
 | `update` | 检查并应用 skill 更新 | 写（维护） |
 | `cleanup` | 清理缓存/临时 | 写（维护，默认预演） |
+| `job_list` | 罗列后台任务 | 运维（job_*） |
+| `job_status` | 后台任务进度（带 next_poll_s） | 运维（job_*） |
+| `job_result` | 后台任务结果收割 | 运维（job_*） |
+| `job_cancel` | 后台任务取消 | 运维（job_*） |
+| `session_sync` | 店铺会话代管（cookie 加密存储） | 写（凭证类） |
+| `report_issue` | 上报错误报告（附任务快照） | 写（反馈通道） |
+| `list_error_reports` | 查询错误报告 | 读取环境 |
+| `get_task_forensics` | 任务一站式取证聚合 | 读取环境 |
 
 > 若某专家 prompt 里标注「写须用户确认」，其语义 = dsh 侧 pre-execute 审批（见 `docs/ozonharness/MCP-TOOLS.md` 的 SAFETY_MAP），与上述写类一致。
 
@@ -76,13 +93,15 @@
 
 **方法**：`grep -oE '^def [a-z_]+' pounding-mcp/pounding_mcp/server.py | awk '{print $2}'` 列出全部工具名（硬核对，非「看起来对」）。
 
-**清单输出**（22 行，`main` 为入口函数不计入业务工具，实际工具 21 个）：
+**清单输出**（31 行，`main` 为入口函数不计入业务工具，实际工具 30 个）：
 ```
-analyze_store  category  check  cleanup  discover  discover_multi  follow
-get_ak  graph  image_search  list_stores  main(*)  probe  queries  query
-run_store_action  search  seller  set_ak  set_store  set_token  update
+analyze_store  category  check  cleanup  discover  discover_multi  discover_task
+follow  get_ak  get_task_forensics  graph  image_search  job_cancel  job_list
+job_result  job_status  list_error_reports  list_stores  main(*)  probe  queries
+query  report_issue  run_store_action  search  seller  session_sync  set_ak
+set_store  set_token  update
 ```
-（`(*)` = `main` 为 `__main__` 入口，非 MCP 工具，剔除。**21 个业务工具**。）
+（`(*)` = `main` 为 `__main__` 入口，非 MCP 工具，剔除。**30 个业务工具**。）
 
 **逐工具比对（映射表引用的每个工具名 ↔ 清单）**：
 
@@ -95,6 +114,7 @@ run_store_action  search  seller  set_ak  set_store  set_token  update
 | `seller` | `seller` | ✅ |
 | `discover` | `discover` | ✅ |
 | `discover_multi` | `discover_multi` | ✅ |
+| `discover_task` | `discover_task` | ✅ |
 | `queries` | `queries` | ✅ |
 | `search` | `search` | ✅ |
 | `image_search` | `image_search` | ✅ |
@@ -109,7 +129,15 @@ run_store_action  search  seller  set_ak  set_store  set_token  update
 | `get_ak` | `get_ak` | ✅ |
 | `update` | `update` | ✅ |
 | `cleanup` | `cleanup` | ✅ |
+| `job_list` | `job_list` | ✅ |
+| `job_status` | `job_status` | ✅ |
+| `job_result` | `job_result` | ✅ |
+| `job_cancel` | `job_cancel` | ✅ |
+| `session_sync` | `session_sync` | ✅ |
+| `report_issue` | `report_issue` | ✅ |
+| `list_error_reports` | `list_error_reports` | ✅ |
+| `get_task_forensics` | `get_task_forensics` | ✅ |
 
-**无幻影证据**：映射表引用的全部工具名 = 清单 21 个中的 21 个，**无一超出**清单（21/21 命中）。映射表未出现 `main`（入口函数）或任何 CLI/虚构名（如 `batch_test`、`analyze`、`promo`、`ad`）。
+**无幻影证据**：映射表引用的全部工具名 = 清单 30 个中的 30 个，**无一超出**清单（30/30 命中）。映射表未出现 `main`（入口函数）或任何 CLI/虚构名（如 `batch_test`、`analyze`、`promo`、`ad`）。
 
-**无遗漏证据**：21 个业务工具全部在映射表中出现（14 个归业务专家 + 7 个环境/凭证类已标注不归位 + 说明）。`graph`/`follow`/`discover`/`search` 的写类 flag（auto_submit/to_box）已归选品大师并标注确认。`analyze_store`/`category`/`query` 为多专家共用，已展开。无任何工具被静默丢弃。
+**无遗漏证据**：30 个业务工具全部在映射表中出现（14 个归业务专家 + 16 个环境/凭证/运维/反馈类已标注不归位 + 说明）。`graph`/`follow`/`discover`/`search` 的写类 flag（auto_submit/to_box）已归选品大师并标注确认。`analyze_store`/`category`/`query` 为多专家共用，已展开。无任何工具被静默丢弃。

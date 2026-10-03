@@ -38,7 +38,7 @@
 - 费率表 = 独立 `logistics_rates` 表（~142 条真实费率，非 SystemSettings）；四级 fallback：Q1(3PL+等级+重量+尺寸)→Q2(仅重量)→Q3(同等级跨 3PL)→RETS Standard→绝对兜底 max(5, 0.05×weight)。
 - **体积重计费**：billable = max(实重, D×W×H ÷ vol_weight_divisor)；`cost = base + per_gram × billable`（:144-149）。
 - 3PL/等级探测 `/v2/delivery-method/list`，失败回退 ("RETS","Standard") 绝不抛。
-- 端点 `POST /api/v1/logistics/quote`（`_require_bearer`+专属限流键）；skill `_query_logistics_from_worker`（缺重按 500g 查表→last-good 同重量带 24h→本地分段 ¥6/¥8/¥15）。
+- 端点 `POST /api/v1/logistics/quote`（`_require_bearer`+专属限流键）；skill `_query_logistics_from_worker`（缺重按 500g 查表→last-good 同重量带 24h→本地分段 ¥6/¥8/¥15）。（注：2026-10 已随死代码清扫移除——skill 侧直查 helper 退役，预估统一走 worker `/estimate`）
 
 ## 5. 汇率三级链（utils/fx_rate_service.py:53-82）
 

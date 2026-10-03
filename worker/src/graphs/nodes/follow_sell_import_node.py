@@ -22,7 +22,7 @@ from typing import Any
 # 类型化错误），移除裸 requests 直发
 from utils.ozon_client import ozon_post
 
-from graphs.state import GlobalState, FollowSellImportOutput
+from graphs.state import GlobalState
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +480,7 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         "final_attributes": final_attrs,
         "attributes_schema": attrs_schema,
         # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表透传（channel 纪律：
-        # FollowSellImportOutput/GlobalState/PrepareOzonUploadInput 三处已声明）
+        # GlobalState/PrepareOzonUploadInput 两处已声明）
         "follow_copied_attributes": ibs_attrs,
         # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/
         # follow_type/competitor_ref_images），供 prepare 跟卖判定与生图参考分线

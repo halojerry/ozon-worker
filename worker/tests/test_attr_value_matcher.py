@@ -23,7 +23,6 @@ from utils.attr_value_matcher import (  # noqa: E402
     match_attr_name,
     match_dict_value,
     normalize_text,
-    resolve_cached,
     unique_or_none,
 )
 
@@ -170,15 +169,3 @@ def test_clean_dict_value_chinese_zeroed():
     assert clean_dict_value(61571, "白色") == ""
     assert clean_dict_value(61571, "Белый") == "Белый"
     assert clean_dict_value(0, "白色") == "白色"  # 自由文本保留
-
-
-# ── resolve_cached ──
-
-def test_resolve_cached_full_path():
-    res = resolve_cached(10096, "商品颜色", "白色", [_v(61571, "白色")])
-    assert res.status == "matched" and res.dictionary_value_id == 61571
-
-
-def test_resolve_cached_no_source():
-    res = resolve_cached(10096, "商品颜色", "", [_v(61571, "白色")])
-    assert res.status == "no_source"
