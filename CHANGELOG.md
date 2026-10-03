@@ -1,5 +1,24 @@
 # Changelog
 
+## [开发中] fix/v0832-review-findings-v1 — 验收修复批：curated 恒赢文档闸豁免阶梯 + card_audit A/B 同轮双 POST 洗补根治
+
+> 动因（2026-10-03 v0.83.1..dev 合并后验收 review）：PR #106/#107 合入后
+> review 揪出两处缺陷，本批修复。
+
+- **P1 类目文档闸优先级（行为变更，改 assemble/类目闸前必读）**：判定顺序改
+  curated（人工确认）**先于** `_doc_gate_exempt` 豁免阶梯——discover 主流源
+  what_to_sell/page 此前连同 curated/学习表一起绕过闸：需文档类目每单白烧
+  import+生图，且上一批升级指引「运营人工登记 requires_doc_categories.json
+  兜底」对该源静默无效。学习表仍在豁免阶梯之内（自动链路保护口径不变）。
+  新公共入口 `utils/category_doc_gate.curated_doc_requirement`（零 DB 单层
+  判定）；`_doc_gate_exempt`/模块 docstring 优先级注释同步。
+- **P2 card_audit A/B 同卡同轮双 POST**：B auto_repair 成功发出 UPDATE 后
+  本轮跳过 A（`_apply_declined_repair` 返回 `bool`）——A 的全量回显基是
+  POST 前拉的 echo、不含 B 定向补丁，二连发把修复洗掉、下轮再修再洗永不
+  收敛（每轮白烧一次 import）。D/E 只读不受影响。
+- 测试：+4（curated 层判定 / curated 压过豁免源码锚 / 学习表不越豁免 /
+  B 修复后跳过 A 且非修复卡 A 照常）+1 更新（主流程源码锚改 curated 顺序）。
+
 ## [开发中] fix(tier-b-0832) — admin 面两处修复 + skill 测试遥测隔离补洞
 
 - **`/admin/users/{id}` ResponseValidationError 500 修复**（生产实锤

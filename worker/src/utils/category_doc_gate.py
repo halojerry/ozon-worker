@@ -12,13 +12,19 @@
   拒单自动 upsert）+ curated 种子（config 热加载）→ assemble 预检命中即入
   采集箱（阻断出口在 assemble_ozon_product_node._doc_required_exit），零白烧。
 
-数据分层（读优先级）：
-1. config/requires_doc_categories.json（curated，人工维护，热加载——每次调用
-   现读磁盘，改文件下一次调用生效，语义对齐 utils/restricted_keywords.py）；
-   支持 (dc, tp) 精确行与 (dc, 0) 类目级通配行。
-2. category_doc_requirements 学习表（decline 学习自动积累；对齐
+数据分层（读优先级；✅ v0.83.2 验收修复起 curated 恒赢 assemble 豁免阶梯）：
+0. curated_doc_requirement —— config/requires_doc_categories.json（curated，
+   人工维护，热加载——每次调用现读磁盘，改文件下一次调用生效，语义对齐
+   utils/restricted_keywords.py）；支持 (dc, tp) 精确行与 (dc, 0) 类目级通配行。
+   assemble 在豁免阶梯（_doc_gate_exempt）**之前**判定本层：人工确认的类目
+   事实对 manual/page/what_to_sell/widget 可信来源照样硬（R1 veto 对人工来源
+   不松动的同款哲学）——否则 discover 主流（what_to_sell/page 源）连同
+   curated/学习表一起绕过，需文档类目每单白烧 + 运营人工登记形同虚设。
+1. category_doc_requirements 学习表（decline 学习自动积累；对齐
    attr_bounds_learned 先例：全局共享无 tenant，evidence 留拒单原文供人工
-   复核，人工确认后可晋升进 curated 配置）。
+   复核，人工确认后可晋升进 curated 配置）——**仅在豁免阶梯之内生效**
+   （自动链路 L0/L1/R2b/search_kw 保护口径不变）。requires_document =
+   curated + 学习表，是非豁免路径的合并判定入口。
 
 红线：
 - 本模块只做「判定 + 记录」，不做阻断动作（唯一入箱写侧仍是
@@ -165,6 +171,29 @@ def requires_document(dc: int, tp: int) -> dict | None:
         logger.warning("类目文档要求学习表查询失败 dc/tp=%s/%s（fail-open 放行）: %s",
                        dc_i, tp_i, e)
     return None
+
+
+def curated_doc_requirement(dc: int, tp: int) -> dict | None:
+    """curated 层单独判定（只读盘，零 DB、零写副作用；fail-open：异常 → None）。
+
+    ✅ v0.83.2 验收修复（fix/v0832-review-findings-v1）：assemble 在豁免阶梯
+    **之前**调用本函数——人工确认的 curated 类目事实对 manual/page/what_to_sell/
+    widget 可信来源照样硬（R1 veto 对人工来源不松动的同款哲学）。豁免阶梯先于
+    本层生效时，discover 主流（what_to_sell/page 源）会连同 curated 与学习表
+    一起绕过：需文档类目每单白烧 import+生图，运营按升级指引人工登记 config
+    也形同虚设。学习表（decline 自动积累）仍只在豁免阶梯之内生效。
+    """
+    try:
+        dc_i, tp_i = int(dc or 0), int(tp or 0)
+    except (TypeError, ValueError):
+        return None
+    if dc_i <= 0 or tp_i <= 0:
+        return None
+    try:
+        return _curated_hit(dc_i, tp_i)
+    except Exception as e:  # 读盘/解析异常 → curated 层失能放行（对齐 _load_curated 红线）
+        logger.warning("curated 文档要求判定异常（fail-open 放行）: %s", e)
+        return None
 
 
 def record_doc_requirement(dc: int, tp: int, evidence: dict | None = None,

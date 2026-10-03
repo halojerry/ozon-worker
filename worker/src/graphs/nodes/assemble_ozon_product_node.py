@@ -998,6 +998,9 @@ def _restricted_category_exit(state, draft: dict, candidates: list,
 def _doc_gate_exempt(state, draft: dict, extensions: dict | None = None) -> bool:
     """✅ v0.83.2: 类目文档硬要求闸豁免判定（纯函数，可单测）。
 
+    ✅ v0.83.2 验收修复（fix/v0832-review-findings-v1）：本阶梯只管辖「学习表」
+    层——curated 人工确认在调用侧**先于**本阶梯判定（人工确认的事实对可信
+    来源照样硬）。
     豁免三类（与受限品类闸 v0.69 拍板同一豁免哲学——闸只保护自动链路）：
     1. 可信类目来源 manual/page/what_to_sell/widget：人工指定或 Ozon 在售竞品
        事实（店铺可能已配置合规文件，人工路径放行；R1 成人闸独立不松动）。
@@ -3103,22 +3106,33 @@ def assemble_ozon_product_node(
     # ✅ v0.83.2: 类目文档硬要求闸（第一性原理：预检代替试错）。dc/tp 定稿后、
     # Step 7 汇出前判定——命中即入采集箱终态，省掉属性补全后的生图/上传全程
     # （2026-10-02 生产实锤：袜子类目省略 pdf_list 仍被 Ozon 拒
-    # PDF_SRC_URL_IS_EMPTY，白烧一轮 import+生图）。豁免见 _doc_gate_exempt
-    # （人工指定/采集箱复核/编辑更新放行——闸只保护自动链路）；decline 学习
-    # 见 ozon_status_node（拒单自动 upsert category_doc_requirements）。
-    if not _doc_gate_exempt(state, draft, extensions):
+    # PDF_SRC_URL_IS_EMPTY，白烧一轮 import+生图）。
+    # ✅ v0.83.2 验收修复（fix/v0832-review-findings-v1）：curated 人工确认
+    # **先于**豁免阶梯——discover 主流源 what_to_sell/page 若先豁免，会连同
+    # curated/学习表一起绕过（每单白烧 + 运营登记失效）。学习表仍只在豁免
+    # 阶梯之内生效；decline 学习见 ozon_status_node（拒单自动 upsert
+    # category_doc_requirements）。
+    _dc_i, _tp_i = int(description_category_id or 0), int(type_id or 0)
+    try:
+        from utils.category_doc_gate import curated_doc_requirement
+
+        _doc_req = curated_doc_requirement(_dc_i, _tp_i)
+    except Exception as _doc_gate_e:
+        logger.warning("类目文档硬要求闸 curated 判定异常（fail-open 放行）: %s",
+                       _doc_gate_e)
+        _doc_req = None
+    if not _doc_req and not _doc_gate_exempt(state, draft, extensions):
         try:
             from utils.category_doc_gate import requires_document
 
-            _doc_req = requires_document(int(description_category_id or 0),
-                                         int(type_id or 0))
+            _doc_req = requires_document(_dc_i, _tp_i)
         except Exception as _doc_gate_e:
-            logger.warning("类目文档硬要求闸判定异常（fail-open 放行）: %s", _doc_gate_e)
+            logger.warning("类目文档硬要求闸判定异常（fail-open 放行）: %s",
+                           _doc_gate_e)
             _doc_req = None
-        if _doc_req:
-            return _doc_required_exit(state, draft, candidates,
-                                      int(description_category_id or 0),
-                                      int(type_id or 0), _doc_req)
+    if _doc_req:
+        return _doc_required_exit(state, draft, candidates, _dc_i, _tp_i,
+                                  _doc_req)
 
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）

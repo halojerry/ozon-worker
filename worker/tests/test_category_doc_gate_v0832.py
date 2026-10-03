@@ -206,15 +206,61 @@ def test_doc_required_exit_shape(monkeypatch):
     assert "match_confidence" not in out  # 类目匹配本身是对的，不压置信度
 
 
-def test_doc_gate_in_main_flow_after_category(monkeypatch, tmp_path):
-    """闸在主路径生效：Step7 前命中 → 阻断出口（不走 DB：monkeypatch 判定函数）。"""
+def test_curated_doc_requirement_layer(tmp_path, monkeypatch):
+    """curated 单层判定（零 DB）：命中/通配/未登记/非法入参 fail-open。"""
+    _write_config(tmp_path, [
+        {"description_category_id": 90, "type_id": 91},
+        {"description_category_id": 80, "type_id": 0},
+    ], monkeypatch)
+    assert catdoc.curated_doc_requirement(90, 91)["source"] == "curated"
+    assert catdoc.curated_doc_requirement(80, 555)["source"] == "curated"  # (dc,0) 通配
+    assert catdoc.curated_doc_requirement(70, 71) is None
+    assert catdoc.curated_doc_requirement(0, 1) is None
+    assert catdoc.curated_doc_requirement("x", 1) is None
+
+
+def test_curated_overrides_exemption_ladder(tmp_path, monkeypatch):
+    """验收修复核心口径：curated 人工登记对 what_to_sell 等可信来源照样拦。
+
+    discover 主流源是 what_to_sell/page——豁免阶梯若先于 curated，则需文档
+    类目每单白烧，且「运营人工登记 config 兜底」的升级指引对该源静默无效。
+    """
+    _write_config(tmp_path, [
+        {"description_category_id": 90, "type_id": 0, "note": "袜子级通配"},
+    ], monkeypatch)
     m = _assemble_mod()
-    src_text = "if not _doc_gate_exempt(state, draft, extensions):"
-    gate_text = "from utils.category_doc_gate import requires_document"
+    st = SimpleNamespace()
+    # 豁免阶梯本身不回退（口径不变）：阶梯只管辖学习表层
+    assert m._doc_gate_exempt(st, {"ozon_category": {"source": "what_to_sell"}}) is True
+    # 但 assemble 主流程 curated 判定先于豁免阶梯（源码锚断言）
     node_src = open(m.__file__, encoding="utf-8").read()
-    assert src_text in node_src and gate_text in node_src
+    assert node_src.index("curated_doc_requirement(_dc_i, _tp_i)") < \
+        node_src.index("not _doc_gate_exempt(state, draft, extensions)")
+
+
+def test_learned_table_stays_behind_exemption(monkeypatch, tmp_path):
+    """学习表不越豁免阶梯：学习行对可信来源不生效（自动链路保护口径不变）。"""
+    _write_config(tmp_path, [], monkeypatch)  # curated 空
+    conn = _FakeConn(row=("decline_learned", {}, 2))
+    monkeypatch.setattr(catdoc, "get_engine", lambda: _FakeEngine(conn))
+    assert requires_document(90, 91) is not None  # 学习表对自动链（非豁免）生效
+    m = _assemble_mod()
+    assert m._doc_gate_exempt(SimpleNamespace(),
+                              {"ozon_category": {"source": "page"}}) is True
+
+
+def test_doc_gate_in_main_flow_after_category(monkeypatch, tmp_path):
+    """闸在主路径生效：curated 先于豁免阶梯、二者都在 Step7 前（源码锚断言）。"""
+    m = _assemble_mod()
+    node_src = open(m.__file__, encoding="utf-8").read()
+    curated_text = "curated_doc_requirement(_dc_i, _tp_i)"
+    exc_text = "not _doc_gate_exempt(state, draft, extensions)"
+    learned_text = "from utils.category_doc_gate import requires_document"
+    assert curated_text in node_src and exc_text in node_src and learned_text in node_src
     step7_idx = node_src.index("# Step 7: 返回结果 dict")
-    assert node_src.index(src_text) < step7_idx  # 闸在 Step 7 之前
+    cur_idx = node_src.index(curated_text)
+    exc_idx = node_src.index(exc_text)
+    assert cur_idx < exc_idx < step7_idx  # curated → 豁免 → Step 7
 
 
 # ═══ 5. ozon_status 学习钩子 ═══
