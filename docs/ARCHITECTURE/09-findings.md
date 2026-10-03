@@ -106,7 +106,7 @@
 - 🟡 DEFAULT_WEIGHT_G 注释与实现漂移：选品运费缺重按 500g 分段、信封缺重兜底 50g——同一商品选品期估 ¥6、上架按 50g 进 worker，两链口径不同（ozon_discovery.py:45 vs cloud_probe.py:1050）。
 - 🟡 match_1688_freight_cny 占位键：唯一读者读 `match["freightCny"]`，全库无通道产出——CSV「1688 国内运费」列恒空（ozon_discovery.py:1332）。
 - 🟡 ai 档阈值双份维护（cli.py:2745 `_AI_DEFAULT_RULES` vs ozon_discovery.py:1577 `AI_PRESET` 字面重复）——改阈值需双改。
-- 📚 死代码：publish_product_new / build_variant_envelope（cloud_probe:3377/3291）；ozon_seller.py 三导出无生产调用。
+- 📚 死代码：publish_product_new / build_variant_envelope（cloud_probe:3377/3291）；ozon_seller.py 三导出无生产调用。（2026-10 已清除，见死代码清扫 PR；ozon_seller.py 因 compile AUX 登记的可选能力 fetch_analytics_via_premium_spoof 保留，见 PR 说明）
 - 📚 envelope_example.json 仍示例 `draft.stock:100`（stock 已退役）。
 
 ### 生态线
