@@ -8,9 +8,12 @@ from pydantic import BaseModel, Field
 # Phase1节点（2个）
 class WhiteBgInput(BaseModel):
     """白底图生成节点输入"""
+    # ✅ W1 通道修复：category_name 此前未声明进 Input，assemble 写入的类目词被
+    # channel 静默剥空，生图提示词的类目语境一直缺失（state.py:76 语义=生图提示词用）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     # ✅ 新增：进度追踪（从GlobalState传递）
     progress_counter: int = Field(default=0, description="全局进度计数器（从GlobalState传递）")
-    
+
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
@@ -28,6 +31,8 @@ class WhiteBgOutput(BaseModel):
 
 class MultiAngleInput(BaseModel):
     """多角度图生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     # ✅ 新增：进度追踪（从GlobalState传递）
     progress_counter: int = Field(default=0, description="全局进度计数器（从GlobalState传递）")
     
@@ -49,6 +54,8 @@ class MultiAngleOutput(BaseModel):
 # Phase2节点（8个）
 class MainImageInput(BaseModel):
     """主图生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     # ✅ 新增：进度追踪（从GlobalState传递）
     progress_counter: int = Field(default=0, description="全局进度计数器（从GlobalState传递）")
     
@@ -93,6 +100,8 @@ class MultiInfoOutput(BaseModel):
 
 class DetailImageInput(BaseModel):
     """详情图生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     # ✅ 新增：进度追踪（从GlobalState传递）
     progress_counter: int = Field(default=0, description="全局进度计数器（从GlobalState传递）")
     
@@ -114,6 +123,8 @@ class DetailImageOutput(BaseModel):
 
 class SocialProofInput(BaseModel):
     """社交证明图生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     # ✅ 新增：进度追踪（从GlobalState传递）
     progress_counter: int = Field(default=0, description="全局进度计数器（从GlobalState传递）")
     
@@ -135,6 +146,8 @@ class SocialProofOutput(BaseModel):
 
 class Scene1Input(BaseModel):
     """场景图1生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
@@ -154,6 +167,8 @@ class Scene1Output(BaseModel):
 
 class Scene2Input(BaseModel):
     """场景图2生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
@@ -173,6 +188,8 @@ class Scene2Output(BaseModel):
 
 class Scene3Input(BaseModel):
     """场景图3生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")
@@ -192,6 +209,8 @@ class Scene3Output(BaseModel):
 
 class ComparisonInput(BaseModel):
     """对比图生成节点输入"""
+    # ✅ W1 通道修复（同 WhiteBgInput）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     draft: Optional[Dict[str, Any]] = Field(default=None, description="产品数据")
     token: str = Field(default="", description="api.mxou.cn token")
     visual_vars: Optional[Dict[str, str]] = Field(default=None, description="19 个视觉变量（visual_vars_llm 生成）")

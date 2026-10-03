@@ -353,6 +353,12 @@ class IngestInput(BaseModel):
     supabase_url: str = Field(..., description="Supabase URL")
     supabase_key: str = Field(..., description="Supabase key")
     currency_code: str = Field(default="", description="店铺货币类型（从auth_node传递）")  # 关键：传递currency_code
+    # ✅ W1 通道修复：v0.73 的 ingest 空标题 fail-fast 闸依赖 route_after_ingest 读
+    # failed_stage/error_message 判 END——但条件边路由收到的是 source 节点 Input 过滤后的
+    # state（langgraph 实证，见本文件 AuthInput v0.69 注释），两字段此前未声明 → 闸恒空转
+    # （空标题信封继续流向 pricing）。声明后闸才真正生效。
+    error_message: str = Field(default="", description="失败信息（route_after_ingest 判 END 用）")
+    failed_stage: str = Field(default="", description="失败阶段（route_after_ingest 判 END 用）")
 
 
 class IngestOutput(BaseModel):
@@ -440,6 +446,14 @@ class PricingInput(BaseModel):
     # 入箱跳过（对齐 assemble/learning_record envelope 声明先例）
     user_id: str = Field(default="", description="用户ID（tenant，价差守卫阻断入箱归属）")
     envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（discovery_meta 锚价来源 + 阻断入箱落 payload）")
+    # ✅ W1 通道修复：以下四字段节点 body 有读取但此前未声明 → 恒 None：
+    # task_id/tenant_id/token → mxou_call_ledger 调用归因（生产 ledger 行缺 tenant/模型归因）；
+    # description_category_id → 佣金类目档位（跟卖路径 follow_sell_import 已写 dc，被剥空后退
+    # fallback 档）。声明后按既有兜底链恢复语义。
+    task_id: str = Field(default="", description="任务ID（mxou_call_ledger 归因）")
+    tenant_id: str = Field(default="", description="租户ID（mxou_call_ledger 归因）")
+    token: str = Field(default="", description="MXOU token（mxou_call_ledger 归因）")
+    description_category_id: str = Field(default="", description="类目 dc（佣金类目档位，跟卖路径已写）")
 
 
 class PricingOutput(BaseModel):
@@ -586,6 +600,42 @@ class OzonUploadInput(BaseModel):
     # langgraph 按节点 Input 过滤 channel（v0.66 实证），节点里 getattr 恒 False（死代码）。
     # 声明后守卫生效：import-by-sku 已提交未确认 → 返回 pending，不再裸 CREATE 抢卡。
     import_submitted: bool = Field(default=False, description="import-by-sku 已提交但未确认完成")
+    # ✅ W1 通道修复：:245 守卫后半句 `not getattr(state, "product_id", None)` 恒真
+    # （字段未声明被剥空）——product_id 此前只能靠 ozon_payload 内部传递，该守卫的
+    # 「已提交但无 pid」分支不可达。补声明恢复守卫语义。
+    product_id: Optional[str] = Field(default=None, description="Ozon 商品ID（follow/retry UPDATE 路径；prepare/上游写入）")
+
+
+# ==================== 配额检查节点 + 类目置信闸（W1 通道纪律补注解） ====================
+class CheckQuotaInput(BaseModel):
+    """配额检查节点输入。
+
+    ✅ W1：此前裸 `state`（无注解）——langgraph 对无注解节点回退全量 GlobalState，
+    看似能跑，实为定时炸弹：任何人补一个窄 Input 注解就会触发静默过滤。此处按
+    节点实读 + 下游路由（route_after_early_quota/route_by_sell_type 经同一过滤视图）
+    所需字段显式化。helper `_quota_ok/_quota_blocked` 的读取同属本节点语义。
+    """
+    ozon_client_id: str = Field(default="", description="Ozon Client-Id")
+    ozon_api_key: str = Field(default="", description="Ozon Api-Key")
+    product_id: Optional[str] = Field(default=None, description="透传（_quota_ok 保通道）")
+    purchase_url: str = Field(default="", description="透传（_quota_ok 保通道）")
+    purchase_cost: str = Field(default="", description="透传（_quota_ok 保通道）")
+    sku_id: str = Field(default="", description="透传（_quota_ok 保通道）")
+    profit_estimation: Dict[str, Any] = Field(default_factory=dict, description="透传（_quota_ok 保通道）")
+    error_message: str = Field(default="", description="阻断原因（route_after_early_quota 读 [QUOTA_BLOCKED]）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（route_by_sell_type 读 extensions.follow_sell 分流）")
+
+
+class CategoryConfGateInput(BaseModel):
+    """类目置信闸节点输入（graph.py 内联节点 category_conf_gate）。
+
+    ✅ W1：此前裸 `state`。节点实读 match_confidence/envelope；下游路由
+    route_after_assemble（同一过滤视图）读 failed_stage/error_message/match_confidence。
+    """
+    match_confidence: Optional[float] = Field(default=None, description="类目匹配置信度（assemble 写入；None=缺失放行）")
+    envelope: Dict[str, Any] = Field(default_factory=dict, description="原始信封（低置信入采集箱取 draft）")
+    failed_stage: str = Field(default="", description="失败阶段（route_after_assemble 判 category_match 阻断）")
+    error_message: str = Field(default="", description="失败信息（route_after_assemble 兜底判定）")
 
 
 class OzonUploadOutput(BaseModel):
