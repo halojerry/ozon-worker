@@ -74,7 +74,7 @@ class _BearerAuthMiddleware:
         auth = headers.get("authorization", "")
         token = auth[7:].strip() if auth.startswith("Bearer ") else ""
         try:
-            from main import _authenticate_token
+            from api.security import _authenticate_token  # ✅ W3b: 鉴权唯一入口（不再 from main）
 
             tenant = _authenticate_token(token)
         except Exception as exc:

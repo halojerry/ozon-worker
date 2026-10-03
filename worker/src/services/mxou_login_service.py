@@ -229,7 +229,7 @@ def _fetch_user_role(user_id: str) -> str:
     现改走 Supabase，与 admin_service.is_admin_user 同源；role >= 10 判 admin。
     """
     try:
-        from main import get_supabase_client
+        from storage.database.supabase_client import get_supabase_client  # ✅ W3b: 直连 storage，不再 from main
         from services.admin_service import is_admin_role
         supabase = get_supabase_client()
         if supabase is None:

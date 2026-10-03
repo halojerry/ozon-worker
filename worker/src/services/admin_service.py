@@ -57,7 +57,7 @@ def is_admin_user(user_id: str) -> bool:
     if user_id == "local_dev":
         return True
     try:
-        from main import get_supabase_client
+        from storage.database.supabase_client import get_supabase_client  # ✅ W3b: 直连 storage
         supabase = get_supabase_client()
         if supabase is None:
             return False  # fail-closed：未配置 Supabase 不放行（本地开发走 local_dev）
@@ -134,7 +134,7 @@ def get_overview() -> dict:
 def _list_supabase_users() -> list[dict]:
     """Supabase users 表全量（id/username/quota/role/created_at）；无 Supabase → []。"""
     try:
-        from main import get_supabase_client
+        from storage.database.supabase_client import get_supabase_client  # ✅ W3b: 直连 storage
         supabase = get_supabase_client()
         if supabase is None:
             return []
@@ -248,7 +248,8 @@ async def get_task_stats(tenant_id: Optional[str] = None) -> dict:
     支持租户过滤，路由层此前没接——事故排查时 ?tenant_id=28 被静默忽略）。
     """
     try:
-        from main import task_processor
+        from orchestrator.task_processor import get_task_processor  # ✅ W3b: 不再 from main
+        task_processor = get_task_processor()
         if task_processor is None:
             return {"error": "Task processor not initialized"}
         return await task_processor.get_task_statistics(

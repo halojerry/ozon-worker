@@ -32,6 +32,24 @@ from utils.draft_status_writeback import writeback_submission_status, map_worker
 logger = get_logger(__name__)
 
 
+# ── ✅ W3b 单例 holder ──
+# 实例由 main.lifespan 创建后 set_task_processor 注入；services 层
+# （draft_service/admin_service）经 get_task_processor() 取用——此前它们只能
+# 函数内 `from main import task_processor`（下层 → God module 反向依赖，W3b 清退）。
+_task_processor: Optional["SupabaseTaskProcessor"] = None
+
+
+def set_task_processor(p: "SupabaseTaskProcessor") -> None:
+    """lifespan 注入单例（进程内唯一写入口）。"""
+    global _task_processor
+    _task_processor = p
+
+
+def get_task_processor() -> Optional["SupabaseTaskProcessor"]:
+    """取当前单例（未初始化返回 None，调用方自辨——503/降级语义留在调用层）。"""
+    return _task_processor
+
+
 def _should_report_task_rerun(retry_count: int, error_message: str) -> bool:
     """v0.62 R6: task_rerun 是否上报 Sentry。
 
@@ -1084,7 +1102,7 @@ class SupabaseTaskProcessor:
             transaction = None
         try:
             from langchain_core.runnables import RunnableConfig
-            from main import update_progress, set_current_task_id
+            from runtime.progress import update_progress, set_current_task_id  # ✅ W3b: 不再 from main
 
             # ✅ v0.10: 设置全局当前 task_id，使 ProgressLogger 能自动获取
             set_current_task_id(task_id)
@@ -1117,7 +1135,7 @@ class SupabaseTaskProcessor:
                 pass
             # ✅ v0.10: 清除全局 task_id 上下文
             try:
-                from main import set_current_task_id
+                from runtime.progress import set_current_task_id  # ✅ W3b
                 set_current_task_id(None)
             except Exception:
                 pass
@@ -1136,7 +1154,7 @@ class SupabaseTaskProcessor:
         while True:
             # ✅ v0.29(PRD-cicd-stability): 优雅关闭 — 不再接收新任务
             try:
-                from main import is_shutting_down
+                from runtime.progress import is_shutting_down  # ✅ W3b
                 if is_shutting_down():
                     logger.info("🛑 Worker 收到关闭信号, 停止拉取新任务")
                     break
