@@ -16,6 +16,7 @@ import time
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from api.errors import WorkerErrorCode, error_response
+from api.envelope_contract import envelope_strict_enabled, validate_envelope
 from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,
@@ -2211,7 +2212,20 @@ async def http_submit_task(request: Request):
                 f"信封数据异常: {sanity_err}",
                 detail={"sanity": sanity_err},
             )
-        
+
+        # ✅ W2 信封契约硬化：未知顶层/未知 extensions 键 fail-closed（权威 =
+        # api/envelope_contract.py；ENVELOPE_STRICT=0 降级 warn，存量旧包逃生门）。
+        # 只在边界校验——worker 在 ingest 后注入 box_reviewed/update_* 等键不受影响。
+        envelope_errors = validate_envelope(envelope)
+        if envelope_errors:
+            if envelope_strict_enabled():
+                return error_response(
+                    WorkerErrorCode.INVALID_REQUEST,
+                    f"信封契约校验失败（{len(envelope_errors)} 项）",
+                    detail={"envelope_errors": envelope_errors},
+                )
+            logger.warning("⚠️ 信封契约校验失败（ENVELOPE_STRICT=0 降级放行）: %s", envelope_errors)
+
         # ✅ Step2: 验证token（查询Supabase tokens表）
         if not token:
             raise HTTPException(status_code=401, detail="Token is required")
