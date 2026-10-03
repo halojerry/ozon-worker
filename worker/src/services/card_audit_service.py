@@ -627,13 +627,16 @@ def _check_declined(state: dict, pid: str, info: dict) -> None:
 
 
 def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dict],
-                           px: dict) -> None:
+                           px: dict) -> bool:
     """B declined（pass 2）：可修族经唯一构造器全量回显 UPDATE。
 
     回显先过 patch_echo_for_declines 定向补丁（数值清洗/重量密度/维度 clamp/
     空值剔除——只修 Ozon 点名问题，其余字节不动）；DESCRIPTION_DECLINE 经
     allow_annotation_replace 重建 4191（构造器内部「更长才替换」防降级）。
     失败 → finding open 留痕（finding 幂等挡下轮重试 = 设计内熔断，同 A 闸）。
+    返回 True **仅当** UPDATE POST 成功发出——调用方据此本轮跳过 A（✅
+    v0.83.2 验收修复：A 的全量回显基是 POST 前拉的 echo、不含本函数的定向
+    补丁，同卡同轮二连发会把修复洗掉、下轮再修再洗永不收敛）。
     """
     from utils.content_enrich import build_enrich_update_body
     from utils.declined_disposition import patch_echo_for_declines
@@ -651,7 +654,7 @@ def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dic
         _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
         summary["findings_open"] += 1
         summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
-        return
+        return False
 
     patched, changes = patch_echo_for_declines(echo, info)
     detail["patched"] = changes
@@ -660,7 +663,7 @@ def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dic
         _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
         summary["findings_open"] += 1
         summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
-        return
+        return False
 
     body, audit = build_enrich_update_body(
         pid, patched, [], {}, {},
@@ -675,7 +678,7 @@ def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dic
         _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
         summary["findings_open"] += 1
         summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
-        return
+        return False
 
     try:
         ozon_post(state["client_id"], state["api_key"], "/v3/product/import",
@@ -685,12 +688,13 @@ def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dic
         _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
         summary["findings_open"] += 1
         summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
-        return
+        return False
 
     detail["action"] = "auto_repaired"
     _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "low",
                     detail, resolved=True)
     summary["declined_repaired"] = summary.get("declined_repaired", 0) + 1
+    return True
 
 
 def _flush_declined_archives(state: dict) -> None:
@@ -1147,18 +1151,22 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
     echoes = _fetch_card_echoes(client_id, api_key, sorted(set(need_echo))) if need_echo else {}
 
     for pid, info in live:
+        _b_repaired = False
         try:
             # ✅ v0.83.2 B pass 2：可修族 declined 修复（回显补丁 + 唯一构造器）
+            # ✅ v0.83.2 验收修复：B 成功发出 UPDATE 后本轮**跳过 A**——A 的
+            # 全量回显基（POST 前拉的 echo）不含 B 的定向补丁，同卡同轮二连发
+            # 会把修复洗掉、下轮再修再洗永不收敛（D/E 只读，不受影响照常跑）。
             if pid in (state.get("declined_repair") or {}):
-                _apply_declined_repair(state, pid, info, echoes.get(pid),
-                                       price_map.get(pid) or {})
+                _b_repaired = _apply_declined_repair(state, pid, info, echoes.get(pid),
+                                                     price_map.get(pid) or {})
         except Exception as exc:
             summary["card_errors"] += 1
             logger.warning("card_audit B 修复异常 pid=%s: %s", pid, str(exc)[:150])
         try:
             rating_p = ratings.get(pid)
             rating = float(rating_p.get("rating") or 0) if rating_p else None
-            if rating is not None and rating < _RATING_THRESHOLD:
+            if rating is not None and rating < _RATING_THRESHOLD and not _b_repaired:
                 _check_rating_gap(state, pid, rating_p, echoes.get(pid),
                                   price_map.get(pid) or {}, info)
         except Exception as exc:

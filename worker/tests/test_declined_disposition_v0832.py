@@ -169,8 +169,11 @@ def test_patch_unrelated_code_zero_changes():
 
 # ═══ 3. 服务级（真 PG + mock Ozon）═══
 
-def _svc_handler(*, info_extra=None, echoes=None):
-    """单 declined 卡（201）+ 健康对照（202）的最小 handler。"""
+def _svc_handler(*, info_extra=None, echoes=None, ratings=None):
+    """单 declined 卡（201）+ 健康对照（202）的最小 handler。
+
+    ratings：{product_id: rating} 覆盖（缺省 95——高于 A 阈值，A 不触发）。
+    """
     calls: list[dict] = []
 
     def _handler(client_id, api_key, path, body=None, **kw):
@@ -199,8 +202,8 @@ def _svc_handler(*, info_extra=None, echoes=None):
                                             "currency_code": "CNY"}}
                 for p in (201, 202)]}
         if path == "/v1/product/rating-by-sku":
-            return {"products": [{"sku": p, "rating": 95, "groups": []}
-                                 for p in (201, 202)]}
+            return {"products": [{"sku": p, "rating": (ratings or {}).get(p, 95),
+                                  "groups": []} for p in (201, 202)]}
         if path == "/v4/product/info/attributes":
             if echoes is not None:
                 return {"result": echoes}
@@ -286,6 +289,31 @@ def test_svc_repair_via_constructor_full_echo(cred):
     assert rows[0][1] == "auto_fixed" and rows[0][3]["action"] == "auto_repaired"
     assert rows[0][3]["patched"] == ["numeric:9001"]
     assert summary["declined_repaired"] == 1 and summary["declined_reported"] == 0
+
+
+def test_svc_b_repair_skips_a_same_round(cred):
+    """验收修复（fix/v0832-review-findings-v1）：B auto_repair 成功发出 UPDATE
+    → 同卡本轮跳过 A——A 的全量回显基是 POST 前拉的 echo、不含 B 定向补丁，
+    二连发会把修复洗掉、下轮再修再洗永不收敛；非 B 修复卡 A 照常跑。"""
+    tenant, cid = cred
+    handler, calls = _svc_handler(
+        info_extra={"errors_201": [{"code": "VALUE_MUST_BE_DECIMAL", "attribute_id": 9001}]},
+        ratings={201: 85, 202: 85})
+    with patch("utils.ozon_client.ozon_post", side_effect=handler), \
+         patch.object(svc, "_check_rating_gap", wraps=svc._check_rating_gap) as a_mock:
+        summary = svc.run_card_audit(tenant, cid)
+    imports_201 = [c for c in calls if c["path"] == "/v3/product/import"
+                   and c["body"]["items"][0]["product_id"] == 201]
+    imports_202 = [c for c in calls if c["path"] == "/v3/product/import"
+                   and c["body"]["items"][0]["product_id"] == 202]
+    # 修复前：201 会被 B（补丁版）+ A（未补丁全量回显基）各 POST 一次 = 2，
+    # A 的回显把 B 的 numeric:9001 补丁洗掉，下一轮再修再洗永不收敛。
+    assert len(imports_201) == 1, "B 修复恰一次 UPDATE，A 不再同轮二连发洗补丁"
+    assert len(imports_202) == 1, "202（approved+rating<90）走 A 正常修复，对照不误伤"
+    assert summary["declined_repaired"] == 1
+    called_pids = {str(a[0][1]) for a in a_mock.call_args_list}
+    assert "201" not in called_pids, "B 修复成功的卡本轮必须跳过 A"
+    assert "202" in called_pids, "非修复卡（approved+rating<90）A 照常执行"
 
 
 def test_svc_archive_hopeless_batch(cred):
