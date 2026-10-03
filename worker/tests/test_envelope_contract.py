@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """信封契约 parity 门禁（W2 治理重写——替代 v0.63 的 5-token 存在性测试）。
 
-契约权威 = `worker/src/api/envelope_contract.py`（EnvelopeExtensions extra="forbid"）。
+契约权威 = `worker/src/utils/envelope_contract.py`（EnvelopeExtensions extra="forbid"；
+2026-10-03 hotfix 自 api/ 下沉 utils——graphs 层 ingest 校验不得向上 import api）。
 本文件锁定四件事：
   1. 模型键 ↔ api-integration/envelope-keys.json 零漂移（gen_contract_docs 产物）
   2. validate_envelope 行为：全量真实信封放行 / 未知键点名拒绝 / legacy 扁平放行 /
@@ -24,7 +25,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from api.envelope_contract import (
+from utils.envelope_contract import (
     EXTENSION_KEY_ORIGINS,
     EnvelopeExtensions,
     EnvelopeRoot,
@@ -192,7 +193,7 @@ def test_skill_extension_writes_subset_of_model():
     unknown = sorted(writes - model_keys)
     assert not unknown, (
         f"skill 实写 extensions 键未登记进契约模型: {unknown}——"
-        "在 api/envelope_contract.py 加字段+来源 → 跑 gen_contract_docs.py"
+        "在 utils/envelope_contract.py 加字段+来源 → 跑 gen_contract_docs.py"
     )
 
 

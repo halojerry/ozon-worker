@@ -16,7 +16,7 @@ import time
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from api.errors import WorkerErrorCode, error_response
-from api.envelope_contract import envelope_strict_enabled, validate_envelope
+from utils.envelope_contract import envelope_strict_enabled, validate_envelope  # ✅ hotfix: 契约模块下沉 utils（graphs 层 ingest 也要用，graphs→api 是立法禁止的 upward 边）
 from api.schemas import (
     SubmitTaskRequest, SubmitTaskResponse, TaskStatusResponse,
     CancelTaskResponse, HealthResponse, TaskStatisticsResponse, ErrorBody,

@@ -9,7 +9,7 @@ from typing import Any, Dict
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
-from api.envelope_contract import envelope_strict_enabled, validate_envelope
+from utils.envelope_contract import envelope_strict_enabled, validate_envelope  # ✅ hotfix: 下沉 utils（graphs 不向上 import api）
 from graphs.state import IngestInput, IngestOutput
 
 

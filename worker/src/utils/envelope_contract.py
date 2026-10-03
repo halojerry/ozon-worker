@@ -15,6 +15,10 @@
 - **口径**：fail-closed——未知键默认拒绝并点名；`ENVELOPE_STRICT=0` 降级 warn
   （存量旧 skill 包逃生门，与 IMAGE_SALVAGE_FALLBACK 等硬闸同形态）。
 
+⚠️ 位置（2026-10-03 hotfix）：本模块自 `api/` 下沉 `utils/`——ingest_node（graphs 层）
+的防直调绕过校验需要 import 它，graphs→api 是 W3a 依赖立法（test_import_direction R2）
+明令禁止的 upward 边；api 与 graphs 都向下依赖 utils，双向合法。
+
 范围裁剪（有意）：draft 深层不做全类型化（漂移主战场是 extensions；draft 必填/
 合理性已有 ingest/提交层闸）；extensions 逐键类型保持 Any 宽松——本闸管「键存在性」
 （拼错/私加键），不管值类型。
@@ -209,7 +213,7 @@ def validate_envelope(envelope: Any) -> list[str]:
     except ValidationError as exc:
         for err in exc.errors():
             loc = ".".join(str(x) for x in err.get("loc", ()))
-            errors.append(f"envelope.{loc or '<root>'}: {err.get('msg', '校验失败')}（未知键或类型不符；权威键清单 = api/envelope_contract.py）")
+            errors.append(f"envelope.{loc or '<root>'}: {err.get('msg', '校验失败')}（未知键或类型不符；权威键清单 = utils/envelope_contract.py）")
     draft = envelope.get("draft")
     if isinstance(draft, dict) and isinstance(draft.get("ozon_category"), dict):
         try:

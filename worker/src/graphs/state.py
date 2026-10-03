@@ -206,7 +206,7 @@ class GraphInput(BaseModel):
 
 # ── v0.63: 信封类目契约（类型化）──
 # ✅ W2 治理：EnvelopeOzonCategory / EnvelopeSourceCategory 迁往
-# `api/envelope_contract.py`（信封键的唯一权威；原定义在此全仓零引用）。
+# `utils/envelope_contract.py`（信封键的唯一权威；原定义在此全仓零引用）。
 # envelope 键校验 = `validate_envelope()`（main.py 提交层 + ingest 接线；
 # ENVELOPE_STRICT=0 降级 warn）。
 

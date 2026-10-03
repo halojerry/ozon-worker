@@ -1,5 +1,5 @@
 {
-  "_authority": "worker/src/api/envelope_contract.py (EnvelopeExtensions)",
+  "_authority": "worker/src/utils/envelope_contract.py (EnvelopeExtensions)",
   "_regenerate": "python worker/scripts/gen_contract_docs.py",
   "root_keys": [
     "draft",
