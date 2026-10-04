@@ -43,8 +43,8 @@ status: active
 ### 红线② healthcheck 的 config 哨兵语义（unhealthy = config 挂空）
 
 - worker healthcheck = **健康端点 AND `test -f /app/config/imagegen.json`**
-  （哨兵文件取自 `main.py` `_CRITICAL_CONFIG_FILES` 清单，与启动守卫
-  `_assert_critical_configs` 同源；0.78.0 批D 接入）。
+  （哨兵文件取自 `runtime/startup_checks.py` `_CRITICAL_CONFIG_FILES` 清单，与启动守卫
+  `_assert_critical_configs` 同源；0.78.0 批D 接入，2026-10 W3c 随启动校验迁出 main）。
 - **容器 unhealthy 且 `/api/v1/health` 手动 curl 正常 ⇒ 几乎必是 config bind
   挂空**：按红线①查 bind 源路径是否存在（compose 未设 container_name，先
   `cd /opt/ozon-worker/deploy` 再用

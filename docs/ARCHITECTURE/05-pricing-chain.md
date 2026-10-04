@@ -31,7 +31,7 @@
 - `resolve_commission_rate_detail:127`：缓存段值 ≤0 视同未命中（0% 污染守卫读侧）；>180d→stale；超龄且无 segments→`fallback:stale`（0.10）。
 - **provisional-price band pass**（pricing_node:209-235 / estimate_service:142-171）：先 0.10 算临时价→选档→resolve 真佣金→重算，破解「档位依赖价格/价格依赖佣金」环。⚠️ 两处临时价口径不一：pricing_node 不传三档 kwargs、estimate_service 传——选出的价格段可能不同（09-#7-定价）。
 - `category_commission` 表：FBS/FBO×三段，全局共享无 tenant；`upsert` 随用续期 updated_at；**写侧无入参守卫**（当前唯一写方 learning approved 回填 `_backfill_category_commission` LR:319-378，parse 0% 守卫天然拦 0，风险受控）。
-- `/api/v1/commissions/lookup`（main.py:3612）+ MCP `lookup_commission` + skill `_query_commission_from_worker`（fbs 段优先）。
+- `/api/v1/commissions/lookup`（`routes/catalog_routes.py` `http_commissions_lookup`）+ MCP `lookup_commission` + skill `_query_commission_from_worker`（fbs 段优先）。
 
 ## 4. 物流（utils/logistics_quote.py）
 

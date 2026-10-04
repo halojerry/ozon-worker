@@ -142,9 +142,9 @@ curl -i -X POST https://worker.mxou.cn/mcp \
 
 ## 实现与运维备注（改代码前必读）
 
-- 实现在 `worker/src/mcp_server.py`；`main.py` 顶层挂载（`MCP_ENABLED` 守卫 + lifespan 合并
-  `_root_lifespan` + 精确 `/mcp` 无尾斜杠内部转交 `_McpNoSlash`——Mount 对裸路径会在鉴权前
-  307，勿删）。
+- 实现在 `worker/src/mcp_server.py`；装配挂载在 `worker/src/app_factory.py`（`MCP_ENABLED` 守卫
+  + 精确 `/mcp` 无尾斜杠内部转交 `_McpNoSlash`——Mount 对裸路径会在鉴权前 307，勿删）；
+  lifespan 合并 `_root_lifespan` 也在 app_factory（内层复用 `runtime/lifespan.py` 的主 lifespan）。
 - **零业务逻辑**：工具经进程内 httpx ASGITransport 回调现有 REST 路由，鉴权/租户/校验/错误码
   与 REST 同源。给 REST 加字段自动对 MCP 生效；改路由路径要同步 `mcp_server.py` 的 `_call` 调用。
 - 限流计数：一次工具调用记 2 次（MCP 中间件 + 内层路由各一次），比 REST 更保守。
