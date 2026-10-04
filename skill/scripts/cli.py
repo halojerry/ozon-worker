@@ -136,7 +136,13 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
         est = estimate_envelope({"draft": draft, "extensions": ext})
         if not est:
             print("💰 预估: 无预估（worker 不可达，未回落本地公式）", flush=True)
-            return {"estimate_source": "unavailable"}
+            _res = {"estimate_source": "unavailable"}
+            # multi-SKU V1（PLAN-multi-sku-v1）: --variants 信封补变体行（无价不打售价）
+            if draft.get("multi_sku"):
+                from scripts.lib.variants_expander import print_multi_sku_estimate
+                _res["variants_count"] = print_multi_sku_estimate(
+                    draft.get("variants") or [], None)
+            return _res
         _price = float(est.get("price") or 0)
         _profit = float(est.get("profit_cny") or 0)
         _rate = round(float(est.get("profit_rate") or 0) * 100, 1)
@@ -146,7 +152,7 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
         print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
               f"售价≈{_sym}{_price:.2f} (利润¥{_profit:.2f}, 率{_rate}%)", flush=True)
         print("   （预估非终价，以 Worker 实算为准）", flush=True)
-        return {
+        out = {
             "estimated_retail_price_cny": round(_price, 2),
             "estimated_logistics_cny": round(_logistics, 2),
             "estimated_profit_cny": round(_profit, 2),
@@ -154,6 +160,12 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
             "estimate_source": "worker",
             "currency": _unit,
         }
+        # multi-SKU V1（PLAN-multi-sku-v1）: --variants 信封逐行打主价+每 variant delta
+        if draft.get("multi_sku"):
+            from scripts.lib.variants_expander import print_multi_sku_estimate
+            out["variants_count"] = print_multi_sku_estimate(
+                draft.get("variants") or [], _price)
+        return out
     except Exception:
         return None
 
@@ -939,6 +951,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
             # 恢复评审 A（620eb14d）当时拆掉的传参。
             category_id=getattr(args, 'category_id', '') or "",
             type_id=getattr(args, 'type_id', '') or "",
+            # multi-SKU V1（PLAN-multi-sku-v1）: --variants → 多 SKU 合卡展开
+            # （draft.variants/draft.multi_sku；缺省关 = 单 SKU 现状零变化）
+            multi_sku=bool(getattr(args, 'variants', False)),
         )
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
@@ -4102,6 +4117,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="D11: worker listing_templates 模板 ID（显式指定优先于默认模板）")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    # multi-SKU V1（PLAN-multi-sku-v1）: 颜色 SKU 逐个进 draft.variants 合卡
+    gp.add_argument("--variants", action="store_true",
+                    help="多SKU合卡：颜色维度 SKU 逐个展开 draft.variants（≤15，"
+                         "draft.multi_sku=True）→ worker 合成一张多变体卡（每色可选）。"
+                         "缺省关 = 单 SKU 现状零变化；仅颜色类简单规格品适用，"
+                         "跟卖/克隆模式不适用")
     _add_heavy_gate_args(gp)
     gp.set_defaults(func=cmd_graph)
 

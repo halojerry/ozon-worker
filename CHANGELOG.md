@@ -1,5 +1,27 @@
 # Changelog
 
+## [未发版 dev] — 多 SKU 合卡 V1 skill 腿：graph --variants 颜色 SKU 展开（worker V2 契约面就位）
+
+### feat(skill): 多 SKU 合卡 V1（PLAN-multi-sku-v1）——1688 颜色维度 SKU → draft.variants + draft.multi_sku
+
+- **通道**：`graph --variants`（缺省关=单 SKU 现状零变化）→ 1688 采集腿折叠前快照
+  （bait 过滤后）经 `lib/variants_expander.py`（新模块，cloud_probe/cli 冻结增长只留
+  薄调用点）展开 `draft.variants = [{sku_id, color(中文待译), color_dict_id(None),
+  price_delta_cny(对主 SKU 1688 价差，负=减价), ref_image(该色图)}] ≤15（超限取前 15
+  + warning 剔除清单）+ `draft.multi_sku: true`。draft 键不进 extensions 契约闸
+  （envelope_contract 只类型化 extensions），worker V2 读 multi_sku 切 9048 合卡语义；
+  颜色俄语翻译/Ozon 颜色字典匹配在 worker 侧（skill 零 LLM）。
+- **预估展示**：`--variants` 信封预估按主 SKU + 每 variant delta 逐行（🎨 多SKU 行：
+  数量/delta 区间/变体售价区间≈主价+delta）；worker 不可达只打数量+区间不打售价
+  （绝不本地补公式）。跨平台/跟卖/克隆/discover 腿不适用（显式丢弃保持零变化）。
+- **登记**：variants_expander 进 compile.py AUX_FILES（纯函数明文，
+  test_compile_lists 锁定）；SKILL.md 命令名零变化（check_doc_sync 绿），
+  `--variants` flag 细则进 references/commands-listing.md；pounding-mcp graph
+  参数表未暴露该 flag（V1 范围外，无破坏）。
+- **测试**：`tests/test_multi_sku_variants_v1.py` 18 用例（展开形状逐键锁定/
+  15 截断+剔除清单/无颜色不产/flag parser+retry 透传/信封集成 mock 全外依/
+  预估逐行展示）；18/18 绿 + 相邻回归（envelope/estimate/compile_lists 等 96+87）绿。
+
 ## [未发版 dev] — 生图主模型正式切 nano-banana-fast（全槽统一，数据驱动）
 
 ### feat(imagegen): main/social_proof gpt-image-2.5 → nano-banana-fast
