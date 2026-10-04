@@ -34,6 +34,25 @@ python3 scripts/cli.py check --logs <task_id>    # 打印该任务 JSONL 事件�
   （check 各项汇总判定含优先级笔误，fix/arch-findings-v1 对齐中——修复后「全绿=可跑单」口径完全成立）
 - `check --logs <task_id>` 零副作用，适合取证
 
+## 整体体检（doctor，v0.84.0）
+
+**触发**：skill 安装完 / 升级完 / 换机器 / 「总感觉哪里不对但不知道查什么」。与 `check` 分工：check 是**跑单前的运行环境诊断**（拉 Chrome、验会话活性）；doctor 是**安装体本身的整体体检**（零副作用：不拉 Chrome、不写文件、3s 级网络轻探）。
+
+```bash
+python3 scripts/cli.py doctor           # 人读红绿清单（FAIL 带 NEXT 修复行）
+python3 scripts/cli.py doctor --json    # 机器可读（agent 消费）；出口码 0=全 PASS/SKIP，1=存在 FAIL
+```
+
+六个体检区（动因：Sentry 实录两台病机 WORKER_URL=`http://x`、AK 过期各灌 80+ 事件——检查面分散无单一入口）：
+
+1. **配置语义**：WORKER_URL 语义校验（`http://x` 手滑当场红，不等网络层）+ 凭证在位快览（零网络）
+2. **包与版本**：skill/VERSION ↔ SKILL.md frontmatter 两源对账 + CLI↔SKILL.md 文档同步（复用 check_doc_sync 提取器）
+3. **契约 parity**：有 sibling 仓库时 skill 实发 extensions 键 ⊆ worker 模型 30 键（升级错配当场现形；独立安装 SKIP，worker CI 同款闸兜底）
+4. **MCP 工具对账**：pounding-mcp server.py 注册数 ↔ docs/MCP-SERVER.md 口径
+5. **CDP 轻探**：9222 三秒 TCP 探（不通只 WARN，引导跑 check 完整诊断）
+
+**agent 纪律**：新会话接到「装好了/升级了/报错不知道哪的问题」→ 先 `doctor --json`，FAIL 项按 next 字段修复后重跑至全绿，再进业务命令。
+
 ## 任务查询（query）
 
 **触发**：用户问"任务/上架进度"、"完成了吗"、追问 `graph`/`follow`/`batch_test` 提交后返回的 task_id 状态。
