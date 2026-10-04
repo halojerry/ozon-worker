@@ -21,6 +21,9 @@ from typing import Any
 # F-F01（2026-09-09 审计）：Ozon 直连收敛 ozon_post（全局限流 + 429/5xx 重试 +
 # 类型化错误），移除裸 requests 直发
 from utils.ozon_client import ozon_post
+# ✅ fix/dedupe-batch1 A1（v0.81.1 立法）：划线价唯一规则出口——占位 old_price
+# 不得手写倍率（旧 int(*1.3) 低价卡差价 <20 被 Ozon 拒，见下）
+from utils.pricing_estimate import MIN_OLD_PRICE_GAP, enforce_old_price_rule
 
 from graphs.state import GlobalState
 
@@ -86,7 +89,14 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     purchase_cost = float(draft.get("purchase_cost", 0) or 0)
     placeholder_price = max(10, int(purchase_cost * 2.0)) if purchase_cost > 0 else 100
     price_val = placeholder_price
-    old_price_val = int(placeholder_price * 1.3)
+    # ✅ fix/dedupe-batch1 A1: 划线价唯一规则 enforce_old_price_rule（≥price×1.2
+    # 且差价 <400 时必须 ≥20，v0.81.1 立法）。旧手写 int(*1.3)：低价跟卖卡
+    # （purchase_cost=10 → placeholder 20 → old 26，差价 6）违反 Ozon 差价契约
+    # 被拒——import-by-sku 是每单真实路径，占位价同样必须过唯一出口。
+    old_price_val = int(
+        enforce_old_price_rule(price_val, int(price_val * 1.3))
+        or price_val + MIN_OLD_PRICE_GAP
+    )
 
     # 类目解析（v0.69 P-B：确定性直采 → 门控仲裁，模糊直采通道全部移除）
     dc_raw = str(ozon_cat.get("description_category_id") or "")

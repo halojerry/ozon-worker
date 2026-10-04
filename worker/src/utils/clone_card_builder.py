@@ -33,12 +33,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from utils.content_enrich import MEDIA_ATTR_IDS  # ✅ fix/dedupe-batch1 B7: 唯一事实源
 from utils.image_url_guard import filter_competitor_cdn_images
 
 logger = logging.getLogger(__name__)
 
-# 媒体类属性我们产不了（content_enrich.MEDIA_ATTR_IDS 同款），克隆时跳过防 import 拒收
-MEDIA_ATTR_IDS = frozenset({21841, 21845, 4195})
+# 媒体类属性我们产不了（唯一事实源 utils/content_enrich.py MEDIA_ATTR_IDS，
+# fix/dedupe-batch1 B7 收敛自拷贝），克隆时跳过防 import 拒收
 # Ozon import images 上限（单卡 15 张）
 CLONE_MAX_IMAGES = 15
 
