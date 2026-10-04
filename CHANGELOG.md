@@ -1,5 +1,17 @@
 # Changelog
 
+## [未发版 dev] — 生图主模型正式切 nano-banana-fast（全槽统一，数据驱动）
+
+### feat(imagegen): main/social_proof gpt-image-2.5 → nano-banana-fast
+
+- **依据**：24h mxou 台账 nano-banana-fast **97%**（249 ok/7 failed）vs
+  gpt-image-2.5 **18%**（拥塞期）+ 四类目 8 单实机波次 95% 生图、8/8 Ozon
+  过审（收尾卡片图断言全过）。平台侧 gpt-image-2/2.5/banana-fast 三者均可用
+  （用户确认 2026-10-04），回滚改键即热加载生效。
+- 此前 main/social 的 nano-banana-fast 是**未提交的本地热调参**（已知测试
+  漂移源）——本批转正，`test_main_and_social_use_image25` 同步更新，本地
+  漂移失败清零。
+
 ## [未发版 dev] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
 
 ### fix(security): 4 真 finding 根修 + 1 连带 bug（repair_cards 丢 import time）

@@ -11,9 +11,10 @@ from utils.image_models import get_image_model
 
 
 def test_main_and_social_use_image25():
-    # v0.77 批3：主模型 gpt-image-2 → gpt-image-2.5（config/imagegen.json main/social_proof 两键）
-    assert get_image_model("main") == "gpt-image-2.5"
-    assert get_image_model("social_proof") == "gpt-image-2.5"
+    # ✅ 2026-10-04：main/social_proof gpt-image-2.5 → nano-banana-fast 全槽统一
+    # （24h 台账 97% vs 18% + 四类目 8 单实机 95% 生图 8/8 过审；详见 CHANGELOG）
+    assert get_image_model("main") == "nano-banana-fast"
+    assert get_image_model("social_proof") == "nano-banana-fast"
 
 
 def test_other_nodes_use_banana():
