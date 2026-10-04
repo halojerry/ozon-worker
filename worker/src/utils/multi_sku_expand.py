@@ -25,6 +25,12 @@
 - **值数闸天然合规**：每 item 属性恒 1 值（cap_attribute_values 出口闸照过）。
 - **缺省零变化**：``draft.multi_sku`` 缺失/variants 空 → 本模块不被调用
   （prepare 既有单 SKU 路径逐字不变，防并卡 9048 派生照旧）。
+- **9048-only 降级合卡**（feat/multi-sku-9048-only）：类目 schema 确无颜色
+  字典属性且颜色字典展开全剔除（color_* 族）→ 不再整批回退单 SKU，改走
+  ``expand_items_9048_only``（竞品 4929923490 实测形态：同 9048 多 items、
+  无颜色属性、标题色尾缀区分变体）；无法俄语化的色名剔除（宁缺毋滥）、
+  保留 <2 变体放弃降级。触发判定 ``should_degrade_to_9048_only``（schema
+  判据 + 全 color_* 剔除双条件，瞬时字典缓存缺失不误降级）。
 
 分层纪律（对齐 attr_value_matcher）：本文件 = 纯函数层，零网络/零 LLM/零 IO，
 全部可离线单测。不 import graphs/api（W3a 依赖方向）。
@@ -34,6 +40,8 @@ from __future__ import annotations
 import copy
 import logging
 import math
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,6 +62,15 @@ MAX_VARIANTS = 15
 
 # 颜色属性 id 集合（不同类目用不同 id；prepare 既有 COLOR_ATTR_IDS 同源口径）
 COLOR_ATTR_IDS = (10096, 10097, 10098, 10099)
+
+# 9048-only 降级合卡（feat/multi-sku-9048-only，双 gate 铁证）最小变体数：
+# 3D 耗材类目（17028935/*、200001721/*）schema 无 Цвет 颜色字典属性 → 颜色字典
+# 路径 7/7 color_no_match 全剔除回退单 SKU；而竞品 4929923490 多变体形态实测
+# 是 9048 合并（同 9048 多 items，非颜色字典维度）。降级至少保 2 变体才值得
+# 合卡，否则回退单 SKU 现状（宁缺毋滥）。
+MIN_MERGE_VARIANTS_9048_ONLY = 2
+
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 
 
 # ────────────────────────── 颜色属性定位 ──────────────────────────
@@ -91,6 +108,30 @@ def resolve_color_attr_id(
     return 10096
 
 
+def schema_has_color_dict_attr(attributes_schema: List[Dict[str, Any]]) -> bool:
+    """类目 schema 是否**确有**颜色字典属性（9048-only 降级触发判据之一）。
+
+    判据与 resolve_color_attr_id 同一命名启发（属性名含 цвет/颜色），
+    另要求是字典属性（dictionary_id>0；键缺失无法证伪 → 保守视为有，
+    误降级=上无颜色区分的 items 比「不降级维持单 SKU」风险高）。
+    3D 耗材类目（17028935/*）schema 无此类属性 → False（双 gate 实证）。
+    """
+    for schema_attr in attributes_schema or []:
+        if not isinstance(schema_attr, dict):
+            continue
+        name = str(schema_attr.get("name") or "").lower()
+        if "цвет" not in name and "颜色" not in name:
+            continue
+        if "dictionary_id" not in schema_attr:
+            return True
+        try:
+            if int(schema_attr.get("dictionary_id") or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
 # ────────────────────────── 颜色匹配（attr_value_matcher 唯一入口） ──────────────────────────
 
 
@@ -102,6 +143,27 @@ def _zh_to_ru_bridge(color: str) -> str:
         if zh in c:
             return ru
     return ""
+
+
+def _variant_color_text(variant: Dict[str, Any]) -> str:
+    """variant 颜色文本（attributes["颜色"] 权威 > color 字段，match/降级共用）。"""
+    attrs = variant.get("attributes") if isinstance(variant.get("attributes"), dict) else {}
+    return str(attrs.get("颜色", variant.get("color", "")) or "").strip()
+
+
+def derive_ru_color_suffix(color: str) -> str:
+    """9048-only 降级模式的变体标题色尾缀（该类目无颜色属性，标题尾缀是
+    唯一变体区分手段）。语言桥 = attr_value_matcher 同源 COLOR_ZH_TO_RU。
+
+    宁缺毋滥：西里尔原文直接用（skill 采集腿可产 RU 色名）；中文过 ZH→RU
+    桥；桥不中（生僻色）/拉丁/其他文字 → ""（调用方必须剔除该 variant，
+    绝不保留中文尾缀、绝不音译编造俄语色名）。"""
+    c = str(color or "").strip()
+    if not c:
+        return ""
+    if _CYRILLIC_RE.search(c):
+        return c
+    return _zh_to_ru_bridge(c)
 
 
 def _exact_hits(color: str, candidates: List[dict]) -> List[dict]:
@@ -126,8 +188,7 @@ def match_variant_color(
     调用方必须剔除该 variant——绝不盲补首值、绝不 FALLBACK_COLORS 编造。
     """
     cached = dictionary_values.get(str(color_attr_id)) or []
-    attrs = variant.get("attributes") if isinstance(variant.get("attributes"), dict) else {}
-    color_cn = str(attrs.get("颜色", variant.get("color", "")) or "").strip()
+    color_cn = _variant_color_text(variant)
     color_dict_id = int(variant.get("color_dict_id") or 0)
 
     # 0) skill 权威 dict_id（验存在，防幻觉；缓存空时无法验证 → 不采信）
@@ -328,18 +389,7 @@ def expand_multi_sku_items(
             _set_9048(item, merge_9048)
 
         # 每 variant 主图：该色生图优先（缺/败回落 base 主图——AI 图，过 payload 图源闸）
-        primary = ""
-        if variant_primary_images and i < len(variant_primary_images):
-            primary = str(variant_primary_images[i] or "").strip()
-        if not primary:
-            primary = base_primary
-        item["primary_image"] = primary
-        gallery = [primary] if primary else []
-        for img in shared_images or []:
-            s = str(img or "").strip()
-            if s and s != primary and s not in gallery:
-                gallery.append(s)
-        item["images"] = gallery[:15]  # Ozon 单 item 图上限（与既有变体分支同口径）
+        _set_variant_gallery(item, i, variant_primary_images, base_primary, shared_images)
 
         used_color_ids.add(dict_id)
         used_offers.add(offer_id)
@@ -350,6 +400,7 @@ def expand_multi_sku_items(
         )
 
     expansion.marks = {
+        "mode": "color_dict",
         "requested": len(variants),
         "kept": len(expansion.items),
         "dropped": len(expansion.dropped),
@@ -367,6 +418,198 @@ def expand_multi_sku_items(
         len(variants), len(expansion.items), len(expansion.dropped), merge_9048[:40],
     )
     return expansion
+
+
+def _set_variant_gallery(
+    item: Dict[str, Any],
+    idx: int,
+    variant_primary_images: Optional[List[str]],
+    base_primary: str,
+    shared_images: List[str],
+) -> None:
+    """每 variant 主图：该色生图优先（缺/败回落 base 主图——AI 图，过 payload
+    图源闸）；共享营销图全变体复用。颜色字典/9048-only 两模式共用。"""
+    primary = ""
+    if variant_primary_images and idx < len(variant_primary_images):
+        primary = str(variant_primary_images[idx] or "").strip()
+    if not primary:
+        primary = base_primary
+    item["primary_image"] = primary
+    gallery = [primary] if primary else []
+    for img in shared_images or []:
+        s = str(img or "").strip()
+        if s and s != primary and s not in gallery:
+            gallery.append(s)
+    item["images"] = gallery[:15]  # Ozon 单 item 图上限（与既有变体分支同口径）
+
+
+# ────────────────────────── 9048-only 降级合卡 ──────────────────────────
+
+
+def should_degrade_to_9048_only(
+    expansion: MultiSkuExpansion,
+    attributes_schema: List[Dict[str, Any]],
+) -> Tuple[bool, str]:
+    """颜色字典展开全剔除 → 是否降级 9048-only 合卡（纯函数判定）。
+
+    触发条件（双 gate 铁证 1，三条件同时成立）：
+    1. 展开产物 items 全空（全部 variant 被剔除）；
+    2. 剔除原因全是颜色匹配族（``color_*``：no_match/missing/ambiguous）——
+       结构性剔除（offer 重复/超限）不触发，回退单 SKU 现状；
+    3. 类目 schema **确无**颜色字典属性（schema_has_color_dict_attr=False）——
+       schema 有颜色字典而全剔除多半是字典缓存缺失（瞬时故障），此时降级会
+       上出无颜色区分的 items，宁可回退单 SKU 等重试。
+
+    返回 (是否降级, 原因码)；原因码进 log 留痕。
+    """
+    if expansion is None or expansion.items:
+        return False, ""
+    drops = expansion.dropped or []
+    if not drops:
+        return False, ""
+    if not all(str(d.get("reason") or "").startswith("color_") for d in drops):
+        return False, "structural_drop_present"
+    if schema_has_color_dict_attr(attributes_schema):
+        # schema 有颜色字典却全无匹配 = 字典缓存缺失类瞬时故障 → 不降级（回退单 SKU）
+        return False, "schema_has_color_dict_attr"
+    return True, "no_color_dict_schema_all_color_dropped"
+
+
+def expand_items_9048_only(
+    base_item: Dict[str, Any],
+    variants: List[Dict[str, Any]],
+    *,
+    shared_images: List[str],
+    variant_primary_images: Optional[List[str]] = None,
+    main_price: Any = 0,
+    main_old_price: Any = 0,
+    fx_rate: float = 1.0,
+    merge_9048: str = "",
+    base_offer_id: str = "",
+    max_variants: int = MAX_VARIANTS,
+) -> MultiSkuExpansion:
+    """9048-only 降级合卡展开（纯函数）：类目无颜色字典属性时的合卡形态，
+    对齐竞品 4929923490 实测结构（同 9048 多 items，非颜色字典维度）。
+
+    与颜色字典路径（expand_multi_sku_items）差异：
+    - **不写颜色属性**（该类目没有；防御性剥离 base 误带的 COLOR_ATTR_IDS 属性）；
+    - 变体区分 = 标题色尾缀：``f"{主标题}, {俄语色名}"``（derive_ru_color_suffix；
+      俄语化走 COLOR_ZH_TO_RU 语言桥，西里尔原文直用）；
+    - **无法确定俄语色名的 variant 剔除**（宁缺毋滥：绝不中文尾缀、绝不音译编造）；
+    - 保留变体 < MIN_MERGE_VARIANTS_9048_ONLY → 返回空 items（调用方回退单 SKU）；
+    - 其余同颜色字典路径：offer_id=variant sku_id 唯一、9048 全 items 同值、
+      price=主定价±delta、每 variant 主图一张。
+
+    marks.mode="merge_9048_only" 留痕；全流程剔除清单如实 log 不静默。
+    """
+    expansion = MultiSkuExpansion()
+    variants = [v for v in (variants or []) if isinstance(v, dict)]
+    base = base_item or {}
+    base_primary = str(base.get("primary_image") or "").strip()
+    base_name = str(base.get("name") or "").strip()
+
+    # 超上限截断（保前 N，剔除清单如实记录；与颜色字典路径同口径）
+    for j, v in enumerate(variants[max_variants:], start=max_variants):
+        expansion.dropped.append({
+            "index": j, "sku_id": str(v.get("sku_id") or ""),
+            "color": str(v.get("color") or ""), "reason": "limit_exceeded",
+        })
+    variants = variants[:max_variants]
+
+    used_offers: set = set()
+    for i, variant in enumerate(variants):
+        offer_id = _variant_offer_id(variant, i, base_offer_id)
+        if offer_id in used_offers:
+            expansion.dropped.append({
+                "index": i, "sku_id": offer_id,
+                "color": str(variant.get("color") or ""), "reason": "offer_duplicate",
+            })
+            continue
+
+        color_text = _variant_color_text(variant)
+        suffix = derive_ru_color_suffix(color_text)
+        if not suffix:
+            reason = "color_missing" if not color_text else "color_untranslatable"
+            expansion.dropped.append({
+                "index": i, "sku_id": offer_id,
+                "color": color_text, "reason": reason,
+            })
+            continue
+
+        price_v, old_v = variant_list_prices(main_price, main_old_price, variant.get("price_delta_cny"), fx_rate)
+
+        item = copy.deepcopy(base)
+        item["offer_id"] = offer_id
+        if price_v:
+            item["price"] = price_v
+            item["old_price"] = old_v
+        item["name"] = f"{base_name}, {suffix}" if base_name else suffix
+
+        # 该类目无颜色字典属性 → 防御性剥离 base 误带的颜色属性（正常不在场=零操作）
+        for attr_id in COLOR_ATTR_IDS:
+            before = len(item.get("attributes") or [])
+            item["attributes"] = [
+                a for a in (item.get("attributes") or [])
+                if not (isinstance(a, dict) and _safe_attr_id(a) == attr_id)
+            ]
+            if len(item.get("attributes") or []) != before:
+                logger.warning(
+                    "[multi_sku_9048_only] 剥离 base 误带颜色属性 id=%s（该类目 schema 无颜色字典属性）",
+                    attr_id)
+
+        # 9048 合卡键强制同值（合卡是本模式唯一目的，兜底覆写防上游漂移）
+        if merge_9048:
+            _set_9048(item, merge_9048)
+
+        # 每 variant 主图：该色生图优先（缺/败回落 base 主图）
+        _set_variant_gallery(item, i, variant_primary_images, base_primary, shared_images)
+
+        used_offers.add(offer_id)
+        expansion.items.append(item)
+        logger.info(
+            "[multi_sku_9048_only] variant[%d] offer=%s color=%s → 尾缀=%s price=%s/%s",
+            i, offer_id, color_text[:24], suffix[:24], price_v, old_v,
+        )
+
+    # 至少保 2 变体才值得降级合卡，否则回退单 SKU 现状（宁缺毋滥）
+    if 0 < len(expansion.items) < MIN_MERGE_VARIANTS_9048_ONLY:
+        kept = expansion.items
+        for it in kept:
+            expansion.dropped.append({
+                "index": -1, "sku_id": str(it.get("offer_id") or ""),
+                "color": "", "reason": "below_min_merge_variants",
+            })
+        expansion.items = []
+        logger.warning(
+            "[multi_sku_9048_only] 可译变体仅 %d 个（<%d）→ 放弃降级，回退单 SKU",
+            len(kept), MIN_MERGE_VARIANTS_9048_ONLY,
+        )
+
+    expansion.marks = {
+        "mode": "merge_9048_only",
+        "requested": len(variants),
+        "kept": len(expansion.items),
+        "dropped": len(expansion.dropped),
+        "merge_9048": merge_9048,
+    }
+    for d in expansion.dropped:
+        # 剔除必须如实 log（纪律：不静默降级）
+        logger.warning(
+            "[multi_sku_9048_only] variant 剔除: idx=%s sku=%s color=%s reason=%s",
+            d.get("index"), d.get("sku_id"), str(d.get("color") or "")[:24], d.get("reason"),
+        )
+    logger.info(
+        "[multi_sku_9048_only] 完成: 请求 %d → 保留 %d，剔除 %d（9048=%s）",
+        len(variants), len(expansion.items), len(expansion.dropped), merge_9048[:40],
+    )
+    return expansion
+
+
+def _safe_attr_id(attr: Dict[str, Any]) -> int:
+    try:
+        return int(attr.get("id") or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _set_9048(item: Dict[str, Any], value: str) -> None:
