@@ -218,9 +218,11 @@ def test_expand_limit_15_truncates_with_report():
 def test_resolve_color_attr_id_trust_order():
     # base item 已有 10096 → 直接采
     assert resolve_color_attr_id([{"id": 10096, "values": []}], []) == 10096
-    # schema 名含 цвет → 10097
+    # schema 名命中 «цвет» 词形 + 显式字典 → 10097
+    # （fix/multi-sku-9048-fixes 起 schema 候选必须显式 dictionary_id>0，
+    #   5646 «Количество цветов» 类计数属性 dict_id=0 不得入选）
     assert resolve_color_attr_id([{"id": 4191, "values": []}],
-                                 [{"id": 10097, "name": "Цвет товара"}]) == 10097
+                                 [{"id": 10097, "name": "Цвет товара", "dictionary_id": 4}]) == 10097
     # 都无 → 缺省 10096
     assert resolve_color_attr_id([], []) == 10096
 
