@@ -1835,7 +1835,8 @@ def cmd_follow(args) -> int:
                                    notify=getattr(args, "notify", False),
                                    to_box=getattr(args, "to_box", False),
                                    min_margin=float(getattr(args, "min_margin", 0.0) or 0.0),
-                                   clone=bool(getattr(args, "clone", False)))
+                                   clone=bool(getattr(args, "clone", False)),
+                                   allow_latin_name=bool(getattr(args, "allow_latin_name", False)))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -1858,7 +1859,7 @@ def cmd_follow(args) -> int:
                     "用户确认后加 --auto-submit 重跑本命令提交（可加 --wait 直达终态）")
     # ✅ v0.78 批B6: --min-margin 拦截在 follow_sell_cloud 内部提交前执行（预估后），
     # 这里只认领退出码（对齐 graph 腿 exit 3 语义）。
-    if result.get("blocked_reason") in ("low_margin", "source_preflight"):
+    if result.get("blocked_reason") in ("low_margin", "source_preflight", "latin_name"):
         return 3
     # ✅ v0.78 批B3: --wait 一次性命令——直提 task_id 此前只埋 _out JSON 不打行，
     # 现在轮询到终态并打印人话一行（缺省 fire-and-forget 零变化）。
@@ -4164,6 +4165,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     fp.add_argument("--clone", action="store_true",
                     help="跟卖克隆模式：官方复制竞品卡，不生图不写文案，"
                          "上架价卡跟卖列表前 20 均值（B1 批接入选品筛选）")
+    # ✅ feat/multi-sku-9048-only: clone 源名拉丁前置守卫豁免（判定/文案在
+    # lib/name_lang_guard；默认阻断——拉丁名竞品 worker LOCAL_NAME_LATIN 必拒终态）
+    fp.add_argument("--allow-latin-name", action="store_true",
+                    help="（仅 --clone）豁免竞品源卡名拉丁前置拦截：默认拉丁名"
+                         "提交必被 worker LOCAL_NAME_LATIN 拒终态；本开关仅用户"
+                         "知情放行走已知必拒路径，建议换西里尔名竞品")
     _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 

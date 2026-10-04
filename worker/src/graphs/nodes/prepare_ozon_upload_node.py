@@ -3915,7 +3915,12 @@ def prepare_ozon_upload_node(
         and not is_follow_sell and not follow_clone_mode and not is_update_mode
         and str(item_id or "").strip()
     ):
-        from utils.multi_sku_expand import expand_multi_sku_items, resolve_color_attr_id
+        from utils.multi_sku_expand import (
+            expand_items_9048_only,
+            expand_multi_sku_items,
+            resolve_color_attr_id,
+            should_degrade_to_9048_only,
+        )
         _ms_fx = float(pricing_info.get("exchange_rate") or 0)
         if _ms_fx <= 0:
             # pricing_core 恒回吐 RUB 真汇率/CNY=1.0；此处兜底同 fx fallback_12 语义
@@ -3941,11 +3946,44 @@ def prepare_ozon_upload_node(
                 _ms.marks, str(item_id).strip()[:40], _ms.marks.get("dropped", 0),
             )
         else:
-            # 全部 variant 被剔除（颜色全无匹配等）→ 如实回退单 SKU 主 item，绝不传空 items
-            logger.warning(
-                "⚠️ multi_sku: 全部 %d 个 variant 被剔除（%s），回退单 SKU 主 item",
-                len(variants), [d.get("reason") for d in _ms.dropped][:5],
-            )
+            # ✅ feat/multi-sku-9048-only 降级合卡：颜色匹配全剔除（color_* 族）且
+            # 类目 schema 确无颜色字典属性（3D 耗材 17028935/* 双 gate 实证）→ 不再
+            # 整批回退单 SKU，改走 9048-only 合并（竞品 4929923490 实测形态：同
+            # 9048 多 items、无颜色属性、标题俄语色尾缀区分变体）。降级内部仍宁缺
+            # 毋滥：无法俄语化的色名剔除、保留 <2 变体放弃降级回退单 SKU。
+            _deg_ok, _deg_reason = should_degrade_to_9048_only(_ms, attributes_schema)
+            _ms2 = expand_items_9048_only(
+                ozon_payload["items"][0],
+                variants,
+                shared_images=shared_marketing_images,
+                variant_primary_images=variant_primary_images_list,
+                main_price=price,
+                main_old_price=old_price,
+                fx_rate=_ms_fx,
+                merge_9048=str(item_id).strip(),
+                base_offer_id=str(sku_id),
+            ) if _deg_ok else None
+            if _ms2 is not None and _ms2.items:
+                ozon_payload["items"] = _ms2.items
+                logger.warning(
+                    "🧩 multi_sku 9048-only 降级合卡: 原因=%s，保留 %d/%d 变体，"
+                    "剔除清单=%s（9048 合卡键=%s，无颜色属性，标题色尾缀区分）",
+                    _deg_reason, _ms2.marks.get("kept", 0), len(variants),
+                    [(d.get("sku_id"), d.get("reason")) for d in _ms2.dropped][:10],
+                    str(item_id).strip()[:40],
+                )
+            elif _ms2 is not None:
+                # 降级后仍无可用变体（可译色 <2 等）→ 如实回退单 SKU 主 item
+                logger.warning(
+                    "⚠️ multi_sku: 9048-only 降级失败（原因=%s，剔除 %s），回退单 SKU 主 item",
+                    _deg_reason, [d.get("reason") for d in _ms2.dropped][:5],
+                )
+            else:
+                # 降级闸未触发（结构性剔除/schema 有颜色字典类瞬时故障等）→ 现行回退单 SKU
+                logger.warning(
+                    "⚠️ multi_sku: 全部 %d 个 variant 被剔除（%s），回退单 SKU 主 item",
+                    len(variants), [d.get("reason") for d in _ms.dropped][:5],
+                )
     # ✅ 数量变体拆分：每个数量 SKU 作为独立 Ozon 产品
     elif is_quantity_split and variants and len(variants) > 1:
         logger.info(f"🔀 数量变体拆分：将{len(variants)}个数量SKU拆分为独立产品")

@@ -3720,7 +3720,8 @@ def _cached_ozon_scrape(
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
                       review: bool = False, notify: bool = False,
                       to_box: bool = False, min_margin: float = 0.0,
-                      clone: bool = False) -> dict[str, Any]:
+                      clone: bool = False,
+                      allow_latin_name: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
@@ -3736,6 +3737,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
 
     review: D3 L3 人工评审暂停——展示全部 1688 候选，人工接受/改选/拒绝；
     拒绝 → no_relevant_match（不组装信封不提交），决策写 review_log。
+
+    ✅ feat/multi-sku-9048-only: ``allow_latin_name``（--allow-latin-name，仅 clone
+    模式生效）——克隆源名拉丁前置守卫豁免开关。双 gate 铁证：竞品源卡名拉丁 →
+    worker LOCAL_NAME_LATIN 秒拒终态（零 LLM 不可译）；守卫判定在
+    lib/name_lang_guard（cloud_probe 冻结纪律），此处只留薄调用点：CDP 抓到卡名
+    即判（提前警示，选品阶段就能换竞品）+ 提交前默认阻断，豁免时放行走必拒
+    已知路径（用户知情）。
 
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
@@ -3882,6 +3890,21 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     result["images"] = ozon_images
     if ozon_title:
         result["title"] = ozon_title
+
+    # ✅ feat/multi-sku-9048-only: clone 源名语言前置守卫（判定 lib/name_lang_guard
+    # 唯一实现，cloud_probe 冻结纪律只留薄调用点）。CDP 抓到卡名即判+提前警示
+    # （选品阶段就能换西里尔名竞品，省整条 1688 搜索链）；提交闸在下方 Step 5。
+    if clone and ozon_title:
+        from scripts.lib.name_lang_guard import name_language_verdict
+        _nlv = name_language_verdict(ozon_title)
+        result["competitor_name_language"] = _nlv
+        if _nlv.get("latin_only"):
+            logger.warning(
+                "⚠️ clone 源名前置警示: 竞品卡名为拉丁字符（latin=%.0f%% 无西里尔）→ "
+                "提交将被拦截（worker LOCAL_NAME_LATIN 必拒终态）；建议换西里尔名竞品"
+                "（或 --allow-latin-name 显式豁免，仍必拒）",
+                float(_nlv.get("latin_ratio") or 0.0) * 100,
+            )
 
     # ── Step 2.5: 竞品运营数据 + 重量/尺寸（what_to_sell，卖家后台借道）──
     # v0.22（参考 maozi）：竞品重量(4497)/尺寸(9454/9455/9456)/月销/GMV 从
@@ -4397,7 +4420,27 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                                 logger.warning("⛔ follow 源前置拦截（提交前）: %s", _why_src)
                             else:
                                 logger.warning("⚠️ 展示态源数据质量警示: %s", _why_src)
-                        if auto_submit and not _low_margin_block and not _src_hard_block:
+                        # ✅ feat/multi-sku-9048-only: clone 源名拉丁前置闸（提交前默认
+                        # 阻断，--allow-latin-name 显式豁免=用户知情走 LOCAL_NAME_LATIN
+                        # 必拒已知路径）。判定 lib/name_lang_guard 唯一实现；--to-box
+                        # 入箱 warning 放行（对齐 _source_preflight 口径——入箱可逆，
+                        # WebUI 认领时人工把关）；展示态只警示（上方 CDP 抓名后已警示）。
+                        _latin_block = False
+                        if clone and not allow_latin_name:
+                            from scripts.lib.name_lang_guard import latin_name_block_reason
+                            _why_latin = latin_name_block_reason(str(draft.get("title") or ""))
+                            if _why_latin:
+                                if auto_submit and not to_box:
+                                    _latin_block = True
+                                    result["blocked_reason"] = "latin_name"
+                                    result["success"] = False
+                                    result["submit_result"] = None
+                                    print(f"❌ 提交被前置拦截: {_why_latin}", flush=True)
+                                    logger.warning("⛔ clone 源名拉丁前置拦截（提交前）: %s", _why_latin)
+                                else:
+                                    logger.warning("⚠️ clone 源名拉丁警示（%s放行）: %s",
+                                                   "入箱" if to_box else "展示态", _why_latin)
+                        if auto_submit and not _low_margin_block and not _src_hard_block and not _latin_block:
                             if notify:
                                 envelope["notify"] = True
                             submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
@@ -4411,8 +4454,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             else:
                                 result["task_id"] = submit_res.get("task_id", "")
                                 result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
-                        elif auto_submit and (_low_margin_block or _src_hard_block):
-                            pass  # min-margin / 源前置拦截：不提交（success 已置 False）
+                        elif auto_submit and (_low_margin_block or _src_hard_block or _latin_block):
+                            pass  # min-margin / 源前置 / clone 源名拉丁拦截：不提交（success 已置 False）
                         else:
                             # dry-run：仅组装信封，构建成功即算成功
                             result["success"] = True
