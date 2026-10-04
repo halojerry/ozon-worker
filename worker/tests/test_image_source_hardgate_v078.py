@@ -395,3 +395,55 @@ class TestAssembleCosFillNarrowing:
         """外链诚实不补语义保持（既有行为回归）。"""
         out = _enrich([ALICDN])
         assert not out[0].get("images")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# fix/sentry-ga-retransmit-leak: filter_uploadable_images（写入口净化过滤侧）
+# ═══════════════════════════════════════════════════════════════════
+
+class TestFilterUploadableImages:
+    """与 enforce_upload_policy 同一放行语义的过滤侧——写入口在进 ozon_payload
+    之前剔除违规图（根修在写侧），出口闸降级最后防线。"""
+
+    def test_ai_kept_b64_kept(self):
+        from utils.image_source import filter_uploadable_images
+
+        assert filter_uploadable_images([COS_AI, COS_B64]) == [COS_AI, COS_B64]
+
+    def test_mirror_salvage_external_dropped_by_default(self):
+        from utils.image_source import filter_uploadable_images
+
+        out = filter_uploadable_images([COS_MIRROR, COS_SALVAGE, ALICDN])
+        assert out == []
+
+    def test_mixed_keeps_only_uploadable(self):
+        from utils.image_source import filter_uploadable_images
+
+        out = filter_uploadable_images([COS_MIRROR, COS_AI, ALICDN, COS_B64])
+        assert out == [COS_AI, COS_B64]
+
+    def test_salvage_kept_with_escape_hatch(self):
+        from utils.image_source import filter_uploadable_images
+
+        with mock.patch.dict(os.environ, {"IMAGE_SALVAGE_FALLBACK": "1"}):
+            assert filter_uploadable_images([COS_SALVAGE]) == [COS_SALVAGE]
+        assert filter_uploadable_images([COS_SALVAGE]) == []
+
+    def test_invalid_and_non_str_dropped(self):
+        from utils.image_source import filter_uploadable_images
+
+        assert filter_uploadable_images(["", "   ", None, 123, "ftp://x/a.jpg"]) == []
+
+    def test_unknown_cos_key_conservative_external_dropped(self):
+        """本方 COS 域但 key 不属已知通道 → 保守 external，剔除（与分类器一致）。"""
+        from utils.image_source import filter_uploadable_images
+
+        stray = "https://yss-1256275613.cos.ap-guangzhou.myqcloud.com/misc/manual.jpg"
+        assert filter_uploadable_images([stray]) == []
+
+    def test_allow_salvage_explicit_override(self):
+        """显式 allow_salvage 优先于 env（无 env 场景复用）。"""
+        from utils.image_source import filter_uploadable_images
+
+        assert filter_uploadable_images([COS_SALVAGE], allow_salvage=True) == [COS_SALVAGE]
+        assert filter_uploadable_images([COS_SALVAGE], allow_salvage=False) == []
