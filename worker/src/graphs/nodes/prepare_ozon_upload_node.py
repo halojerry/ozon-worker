@@ -2704,9 +2704,21 @@ def prepare_ozon_upload_node(
     # 克隆卡名/描述/属性就是竞品在售俄语内容——整段标题转换链（LLM 翻译/去拉丁
     # LLM/结构闸/公式重生成）全部跳过，标题**逐字回显**（零 LLM 本意，PLAN §明确
     # 不做翻译）；坏标题如实交 validate 名称闸拦截，绝不静默改写。
+    # ✅ v0.85.x 克隆卡名回读（复测 4/5 死因修复）：import-by-sku 复制成功后卡上
+    # name=竞品卡俄语原名（Ozon 已接受的事实），draft.title 只是 CDP 抓取的拉丁
+    # 占位（"Beanie Hat"）——copied_card_name 非空时 item name 逐字用它（回显
+    # 复制卡事实，本地拉丁预检不再拒）；空=回落 draft.title 现状。非 clone 模式
+    # 本分支不进入，语义零变化。
     if follow_clone_mode:
-        logger.info("🧬 clone 模式：标题逐字回显（零 LLM，跳过翻译/净化/重生成）: %s",
-                    (title_ru or "")[:80])
+        _copied_card_name = str(getattr(state, "copied_card_name", "") or "").strip()
+        if _copied_card_name:
+            title_cn = _copied_card_name
+            title_ru = _copied_card_name
+            logger.info("🧬 clone 模式：item name 逐字回读复制卡卡上 name（%s…），"
+                        "draft.title 仅留档", _copied_card_name[:60])
+        else:
+            logger.info("🧬 clone 模式：标题逐字回显（零 LLM，跳过翻译/净化/重生成）: %s",
+                        (title_ru or "")[:80])
     else:
         # v0.59: 标题公式流量词（envelope extensions 携带，纯西里尔 ≤3 ≤20 字符，只做提示词增强）
         _traffic_keywords: list = _extract_traffic_keywords(state.extensions or {})
@@ -4448,7 +4460,11 @@ def prepare_ozon_upload_node(
         validation_errors.append("type_id缺失或无效（TypeId must be > 0）")
     if not sku_id:
         validation_errors.append("1688 SKU_ID缺失（offer_id is required）")
-    if not shared_marketing_images:
+    # ✅ v0.85.x follow_clone 豁免（复测噪音修复）：clone 模式零生图 →
+    # shared_marketing_images 恒空，「图片列表为空」是过时误报——图已走
+    # _apply_follow_clone_images 回填通道（UPDATE 信封图源回填 / CREATE 竞品
+    # CDN 直传，见上方图片分支），校验对象不存在。非 clone 模式该行语义零变化。
+    if not shared_marketing_images and not follow_clone_mode:
         validation_errors.append("图片列表为空（images is required）")
     if price == 0:
         validation_errors.append("价格无效（price must be > 0）")

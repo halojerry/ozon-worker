@@ -76,6 +76,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # fix/category-bridge-v1: import-by-sku 复制卡的真实 dc/tp（复制完成后反查回填；
     # 见 import 完成点注释——UPDATE 项 required dc/tp，此值是权威来源）
     ibs_dc, ibs_tp = "", ""
+    # ✅ v0.85.x 克隆卡名回读（复测 4/5 死因修复）：复制卡的卡上 name（/v3 反查，
+    # 与类目回填同一次调用）——import-by-sku 成功后卡上 name=竞品卡俄语原名（Ozon
+    # 已接受的事实），draft.title 只是 CDP 抓取的拉丁占位（"Beanie Hat"）；
+    # prepare follow_clone 模式据此用真值组装 item name，拉丁预检不再拒。
+    ibs_name: str = ""
     ibs_attrs: list[dict] = []  # A6: 复制卡原带特征表（/v4 反查，prepare 合并）
 
     # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
@@ -267,6 +272,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                                     _ibs_item = ((_ibs_info.get("items") or [{}])[0]) or {}
                                     _ibs_dc = str(_ibs_item.get("description_category_id") or "")
                                     _ibs_tp = str(_ibs_item.get("type_id") or "")
+                                    # ✅ v0.85.x 克隆卡名回读：同一次反查带回卡上 name
+                                    # （俄语原名，Ozon 已接受事实；空值不覆盖保持 ""）
+                                    _ibs_nm = str(_ibs_item.get("name") or "").strip()
+                                    if _ibs_nm:
+                                        ibs_name = _ibs_nm
                                     if _ibs_dc.isdigit() and _ibs_tp.isdigit() \
                                             and int(_ibs_dc) > 0 and int(_ibs_tp) > 0:
                                         ibs_dc, ibs_tp = _ibs_dc, _ibs_tp
@@ -428,6 +438,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                     _re_it = ((_re_info.get("items") or [{}])[0]) or {}
                     _re_dc = str(_re_it.get("description_category_id") or "")
                     _re_tp = str(_re_it.get("type_id") or "")
+                    # ✅ v0.85.x 克隆卡名回读：兜底反查同样带回 name（首次反查未命中时的补漏）
+                    if not ibs_name:
+                        _re_nm = str(_re_it.get("name") or "").strip()
+                        if _re_nm:
+                            ibs_name = _re_nm
                     if _re_dc.isdigit() and _re_tp.isdigit() and int(_re_dc) > 0 and int(_re_tp) > 0:
                         dc_id, tp_id = _re_dc, _re_tp
                         category_missing = False
@@ -560,6 +575,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表透传（channel 纪律：
         # GlobalState/PrepareOzonUploadInput 两处已声明）
         "follow_copied_attributes": ibs_attrs,
+        # ✅ v0.85.x 克隆卡名回读：复制卡卡上 name（俄语原名，空串=反查未命中/
+        # 非复制路径）。channel 纪律：GlobalState/PrepareOzonUploadInput 两处声明，
+        # prepare follow_clone 模式消费（prepare item name 逐字回显复制卡事实）。
+        "copied_card_name": ibs_name,
         # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/
         # follow_type/competitor_ref_images），供 prepare 跟卖判定与生图参考分线
         "extensions": extensions,

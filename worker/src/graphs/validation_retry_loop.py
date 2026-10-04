@@ -62,6 +62,7 @@ from utils import image_source
 from utils.pipeline_error_codes import (
     LOCAL_CATEGORY_INVALID_REQUEST,
     LOCAL_CATEGORY_RECATEGORIZE_FAILED,
+    LOCAL_NAME_LATIN,
     LOCAL_PRICING_FAILED,
     LOCAL_REUPLOAD_FAILED,
     LOCAL_STATUS_QUERY_FAILED,
@@ -276,6 +277,8 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
     LOCAL_CATEGORY_INVALID_REQUEST: "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
     "description_category_invalid": "类目无效:Ozon 未识别该类目 ID,请人工改配后重提",
     "description_category_has_no_description_type": "类目与类型不匹配:type_id 不属于该类目,请人工改配后重提",
+    # ✅ v0.85.x follow_clone 快速终态人话（复测 4/5 死因的 retry 侧根治）
+    LOCAL_NAME_LATIN: "竞品卡名拉丁，克隆零 LLM 不可译——换西里尔名竞品或开单次翻译豁免",
 }
 
 
@@ -307,7 +310,7 @@ def _build_notice(error_type: str, error_message: str, upload_status: str,
     v0.67.1 wave①: 调用点改传 error_code（ERROR_NOTICE_MAP 的 code 级
     说明此前因传 error_type 恒为 fixable/unfixable 而成死代码）；
     error_message 被 revalidate 清空时，兜底携带 decline_errors 里的俄语原文。
-    ⚠️ 条数以 len(ERROR_NOTICE_MAP) 为准（2026-09-25 核对 = 21 条）——历史上
+    ⚠️ 条数以 len(ERROR_NOTICE_MAP) 为准（2026-10-04 核对 = 22 条）——历史上
     本注释写死「18 条」随加码漂移失真，新增码后同步核对勿再写死旧数。
     """
     if upload_status == "success":
@@ -417,6 +420,10 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "description_category_has_no_description_type": "unfixable",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE": "unfixable",
     LOCAL_CATEGORY_INVALID_REQUEST: "unfixable",
+    # ✅ v0.85.x follow_clone 快速终态（复测 4/5 死因 retry 侧根治）：clone 模式
+    # name 拉丁错零 LLM 不可译——旧路径误分类 BR_chinese_hieroglyphs_in_attribute
+    # 走中文属性翻译空转 3 轮终态还挂误导错误码。识别即直达 final_result 失败。
+    LOCAL_NAME_LATIN: "unfixable",
 }
 
 
@@ -481,6 +488,8 @@ FIX_TYPE_UNFIXABLE: set = {
     "description_category_has_no_description_type",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE",
     LOCAL_CATEGORY_INVALID_REQUEST,
+    # ✅ v0.85.x follow_clone: name 拉丁错快速终态（与 REPAIR_STRATEGY 同码登记）
+    LOCAL_NAME_LATIN,
 }
 
 
@@ -787,6 +796,17 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
 # ============================================================
 # 子图节点函数
 # ============================================================
+def _is_name_latin_error(msg: Any) -> bool:
+    """v0.85.x: 识别本地预检「name 拉丁」错误（follow_clone 快速终态判据）。
+
+    命中 ozon_validate_node 名称拉丁预检原文形态（``item[i].name含拉丁字母
+    （Ozon要求俄语名称）``）。description/属性拉丁错不命中（各自有修复链），
+    「无≥4字符西里尔词」空槽坏标题不命中（那是标题质量问题，非克隆卡名事实）。
+    """
+    m = str(msg or "")
+    return "拉丁" in m and (".name" in m or "名称" in m)
+
+
 def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """解析错误节点：从Ozon官方错误结构中提取错误代码和属性ID"""
     logger.info("📋 开始解析Ozon错误...")
@@ -799,6 +819,38 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     if not errors:
         local_errs: list = state.validation_errors or []
         if local_errs:
+            # ✅ v0.85.x follow_clone 快速终态（复测 4/5 死因 retry 侧根治）：
+            # clone 模式零 LLM——name 拉丁错不可修复（竞品卡名/CDP 占位名就是
+            # 拉丁，克隆模式无翻译通道），识别即 LOCAL_NAME_LATIN 直达失败终态。
+            # 旧路径：该消息含「name/名称」被下方关键词粗分类误归
+            # BR_chinese_hieroglyphs_in_attribute → 中文属性翻译支路空转 3 轮，
+            # 终态还挂误导错误码。非 clone 模式不进此分支（主链有翻译通道，
+            # 行为零变化）。
+            if bool((state.extensions or {}).get("follow_clone")) \
+                    and any(_is_name_latin_error(_le) for _le in local_errs):
+                _le_struct = [
+                    {"code": LOCAL_NAME_LATIN, "attribute_id": 0,
+                     "texts": {"message": str(_le)}}
+                    for _le in local_errs if _is_name_latin_error(_le)
+                ]
+                # v0.67.1 wave① 纪律：消费前原样累积（留存表 moderation_texts 审计）
+                _accumulate_decline_errors(state, _le_struct)
+                state.error_code = LOCAL_NAME_LATIN
+                state.attribute_id = 0
+                state.error_type = "unfixable"
+                state.repair_node = "final_result"
+                # 显式失败终态（_graph_result_is_failed 按 upload_status=failed 判）
+                state.upload_status = "failed"
+                state.is_valid = False
+                state.error_message = (
+                    "竞品卡名拉丁，克隆零 LLM 不可译——换西里尔名竞品或开单次翻译豁免；"
+                    f"原文: {str(_le_struct[0]['texts']['message'])[:150]}"
+                )
+                state.retry_count += 1
+                logger.error(
+                    "⛔ clone 模式 name 拉丁错 → %s 快速终态（不进中文属性翻译修复循环）",
+                    LOCAL_NAME_LATIN)
+                return state
             # 本地校验错误（字符串列表）→ 结构化 error dict + 关键词粗分类
             for _le in local_errs:
                 _le_msg = str(_le)

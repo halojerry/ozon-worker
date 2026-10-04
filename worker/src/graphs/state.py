@@ -84,6 +84,12 @@ class GlobalState(BaseModel):
     # import），后续 import 会把复制卡带来的竞品特征全量洗掉；此处保存原表供
     # prepare 合并回 payload（竞品已过审特征 = 最高质量证据源）。
     follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="follow 复制卡原带特征（/v4 反查，A6）")
+    # ✅ v0.85.x 克隆卡名回读（复测 4/5 死因修复）：import-by-sku 复制卡卡上 name
+    # （/v3 product/info/list 反查，与类目回填同一次调用）。复制成功后卡上
+    # name=竞品卡俄语原名（Ozon 已接受的事实），draft.title 只是 CDP 抓取的拉丁
+    # 占位——prepare follow_clone 模式据此组装 item name，本地拉丁预检不再拒。
+    # 空串=反查未命中/非复制路径（prepare 回落 draft.title 现状）。
+    copied_card_name: str = Field(default="", description="follow 复制卡卡上 name（/v3 反查；空=未命中，prepare 回落 draft.title）")
     # ✅ v0.22: 跟卖类目缺失标记（import-by-sku 成功但类目解析失败时打标，不阻断）
     category_missing: bool = Field(default=False, description="跟卖类目缺失标记")
     # ⚠️ v0.14 P0-3: 补全字段——旧版缺失导致 assemble/attributes_fetch 写入被图状态合并丢弃，
@@ -476,6 +482,10 @@ class PrepareOzonUploadInput(BaseModel):
                                                 description="类目匹配元数据（match_layer/confidence，Q7 权威类目判定读 match_layer）")
     # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表（channel 纪律：不声明=静默拿不到）
     follow_copied_attributes: List[Dict[str, Any]] = Field(default_factory=list, description="follow 复制卡原带特征（合并防 import 全量替换洗卡）")
+    # ✅ v0.85.x 克隆卡名回读（channel 纪律：GlobalState 同名声明，漏一跳被
+    # langgraph channel 静默过滤）——follow_clone 模式 item name 用复制卡俄语
+    # 原名（逐字回显复制卡事实），空=回落 draft.title 现状。
+    copied_card_name: str = Field(default="", description="follow 复制卡卡上 name（follow_clone 模式 item name 回读；空=回落 draft.title）")
 
 
 class PrepareOzonUploadOutput(BaseModel):
