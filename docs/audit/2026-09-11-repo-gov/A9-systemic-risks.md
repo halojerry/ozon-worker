@@ -1,6 +1,12 @@
 # A9 — 性能/稳定性/耦合/扩展/工程闭环/隔离 体系化风险登记册
 
 - 基线：v0.74.0 @ `7a13d7ab`（2026-09-11）；审计范围 = worker 运行时 + 部署链 + 测试/CI + 多租户面。
+
+> ⚠️ 2026-10 治理注记（后加，正文保持基线快照不重写）：本文路径/行号均指 2026-09-11 基线。
+> 此后 `main.py` 已拆解为 composition root（装配 → `app_factory.py`，生命周期/清理 →
+> `runtime/`，四族路由 → `routes/`），编排器迁至 `orchestrator/task_processor.py`——
+> 文中相应旧路径请按此映射阅读，现行住址以 AGENTS.md「唯一入口/边界」节为准。
+
 - 方法：全量读码取证（main.py / task_processor / 两个 rate_limiter / ozon_client / mxou_api / dict_value_cache / memory_saver / instance_lock / tenant_service / credential_service / forensics / CI workflow / cos-update.sh / tests 分层统计），路径均为仓库相对路径。
 - 排除（不重复立案）：竞态/重复类 26 条见 `docs/audit/2026-09-09-race-duplication/findings.md`；汇率断链/备份/alembic 见 A3（G-01~G-03）；variant 断链与死代码见 A5；文档漂移明细归 A1 波（本文只在门禁可行性处引用）。
 - 等级口径：P0=正在造成不可逆损失；P1=架构性缺口、必然复发或防线失效；P2=高概率触发/影响可量化；P3=现状可接受但需登记。

@@ -16,6 +16,12 @@ status: active
 **不列端点清单**——完整清单以 `docs/API-REFERENCE.md`（从代码自动生成）为准；本文所有事实
 括注代码位置 `文件:行`，行号以当前 dev 分支为准，冲突时**以代码为准**。
 
+> ⚠️ **2026-10 治理注记**：`main.py` 已拆解为 181 行 composition root（app 装配 → `app_factory.py`，
+> 生命周期/清理/启动校验 → `runtime/`，四族路由 → `routes/`，编排器 → `orchestrator/task_processor.py`）。
+> 本文遗留的 `main.py:NNN` 锚点为治理前快照（行号已失效，请按符号名检索）；**模块住址以 AGENTS.md
+> 「唯一入口/边界」节与 `docs/ARCHITECTURE/` 为活权威**。已删 compat 端点（§11/§12 platform-compat
+> 退役）的活口描述已复核，端点清单以 `API-REFERENCE.md` 为准。
+
 ## 1. 概览
 
 Worker 是一个 FastAPI 应用：`FastAPI(title="Ozon Worker API", version="1.0.0")`
@@ -52,7 +58,7 @@ LangGraph 管线、上传 Ozon」）。对外有两个面：
 
 ## 3. 鉴权矩阵（两种形态并存）
 
-### 3.1 请求体 `token` 字段（legacy/LangGraph 面）
+### 3.1 请求体 `token` 字段（legacy；LangGraph 调试面 2026-10 已退役）
 
 从请求体 JSON 提取 `token`（`_extract_token_from_body`，`main.py:1197-1204`），再走
 `_authenticate_token`（`main.py:1217-1234`）。覆盖端点：
@@ -251,8 +257,8 @@ submit_task → pending → running → completed / failed / cancelled
   回退持久化（`main.py:91-110`，2s 节流异步写 PG `main.py:114-136`）——worker 重启后仍可
   从 PG 读到最近一次进度（内存中已完成超 1 小时的条目会被清理，`main.py:139-144`）。
 - **completed 必须过真实商品证据校验**：`_has_real_product_evidence`
-  （`utils/task_processor.py:73`）——product_id 为空或等于 import task_id 的「假成功」
-  会被改判 failed（completed 兜底分支，`task_processor.py:616`；v0.69 收口）。
+  （`orchestrator/task_processor.py`；2026-10 治理后迁出 main/旧 utils 路径）——product_id 为空或等于 import task_id 的「假成功」
+  会被改判 failed（`process_next_task` 的 completed 兜底分支；v0.69 收口）。
 - LangGraph 细粒度进度另有 `GET /progress/{run_id}`（内存态，`main.py:1449`）与
   任务中心 SSE（v0.61 `task_progress_events`）。
 

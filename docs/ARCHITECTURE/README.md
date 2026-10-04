@@ -1,6 +1,10 @@
 # ozon-worker 架构全景（ARCHITECTURE 文档集）
 
-> 口径基线：dev 工作区 **v0.80.0+**，2026-09-25 全量重梳（九路并行深读 + 关键锚点人工抽查）。
+> 口径基线：dev 工作区 **2026-10 治理后结构**（W3a-W3c：`main.py` 拆解为 181 行 composition root /
+> 编排器归位 `orchestrator/` / 四族路由 `routes/` / 生命周期与共享设施 `runtime/`）；领域链路内容
+> 仍为 v0.80.0+ 口径（2026-09-25 九路并行深读 + 关键锚点人工抽查）。
+> **模块住址（文件在哪、谁是唯一入口）以 AGENTS.md「唯一入口/边界」节为活权威，本册描述领域链路**；
+> 治理中被搬迁模块的引用已改符号名+模块（旧 utils/ 下的 task_processor、main 顶层内联均已不存在）。
 > 所有 `文件:行号` 锚点为当次快照，会随代码演进漂移；语义以锚点所在函数为准；基线落后 dev 时以 CHANGELOG 为准。
 > 前代组件级视图 `ARCHITECTURE-TOPOLOGY.md`（v0.27 口径）已于 2026-10 W0 治理归档至
 > `archive/docs/legacy/`；本目录（函数级）是其现行替代。`docs/ARCHITECTURE.html` 为本地 archify 生成物，不入库。
@@ -105,8 +109,8 @@ flowchart TD
     end
 ```
 
-> ⚠️ `STAGE_ORDER`（main.py:91-95）是**展示顺序**不是拓扑顺序：check_quota 实际在 auth 后第二跳；
-> `_NODE_STAGE_MAP`（task_processor.py:289-300）缺 7+ 个节点名 → 进度条倒退，见 `09-findings.md` #2。
+> ⚠️ `STAGE_ORDER`（`runtime/progress.py`）是**展示顺序**不是拓扑顺序：check_quota 实际在 auth 后第二跳；
+> `_NODE_STAGE_MAP`（`orchestrator/task_processor.py`）缺 7+ 个节点名 → 进度条倒退，见 `09-findings.md` #2。
 
 ## 核心不变式（横切纪律，改代码前对照）
 
@@ -142,14 +146,14 @@ flowchart TD
 | worker | 图片出口闸 `_enforce_payload_image_policy` | prepare:2026 | IMAGE_GEN_ALL_FAILED |
 | worker | 重传闸 `_reupload_gate_blocked` ×3 出口 | validation_retry_loop.py:3824 | 违规图不 POST |
 | worker | 卡图断言 `card_image_assert` | ozon_status_node.py:523 | CARD_IMAGE_MISMATCH 拒假成功 |
-| worker | 终态佐证闸 T0.4 | task_processor.py:84 | PRODUCT_NOT_CREATED |
+| worker | 终态佐证闸 T0.4 | `orchestrator/task_processor.py` `_has_real_product_evidence` | PRODUCT_NOT_CREATED |
 
 ## 台账 / 留存 / 学习 表地图
 
 | 表 | 写入点 | 用途 |
 |---|---|---|
-| `ozon_product_tasks` | task_processor.submit_task:394 | 任务主行（FOR UPDATE SKIP LOCKED 认领） |
-| `draft_submissions` | main.py:2039 直连 / draft_service 采集箱 | 提交对账（state 归位） |
+| `ozon_product_tasks` | `orchestrator/task_processor.py` `SupabaseTaskProcessor.submit_task` | 任务主行（FOR UPDATE SKIP LOCKED 认领） |
+| `draft_submissions` | `routes/task_queue_routes.py` 直连 / draft_service 采集箱 | 提交对账（state 归位） |
 | `product_drafts`（采集箱） | blocked_draft_box.create_draft:98 | 阻断入箱（tenant+item_id 幂等） |
 | `listing_result_log` | listing_result_log.py:147（终态三路挂点） | 终态真值：dc/tp/error_code/moderation_texts/final_weight/dims |
 | `category_match_log` | assemble:4256 | 匹配审计：layer/confidence/candidates（blocked 6 处也写） |
@@ -162,7 +166,7 @@ flowchart TD
 | `task_generated_images` | task_image_cache | 生图缓存（(task,slot,version)，7 天清理） |
 | `sku_metrics_pool` | sku_metrics_pool_service | 数据池（只存指标永不存 cookie，W11） |
 | `ozon_sessions` | ozon_session_service | 会话代管（AES-256-GCM aad=tenant:credential） |
-| `shop_usage_stats` | task_processor:175 | 店铺用量埋点 |
+| `shop_usage_stats` | `orchestrator/task_processor.py` `_upsert_shop_usage` | 店铺用量埋点 |
 
 ## 本轮梳理暴露的问题
 
