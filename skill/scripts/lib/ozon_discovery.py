@@ -834,6 +834,15 @@ def collect_and_analyze(
         # 批A A1（fix/skill-silent-cdp-v1）：滚动采集 tab 后台创建——静默选品
         # 不得把搜索/亮点页弹到用户眼前（参考图搜 background=True 在产先例）
         tab = cdp.new_tab(target_url, background=True)
+        # ⚠️ v0.85 修「采集池恒 8」：后台 tab 的 rAF 被 Chrome 冻结——缓动滚动
+        # _EASE_SCROLL_JS 全靠 requestAnimationFrame 驱动，hidden 状态 step()
+        # 永不执行 → window 不滚 → 懒加载永不触发 → 采集恒等于首屏渲染的
+        # ~8 张卡（2026-10-04 四类目实机波次实锤：--max-products 50 恒 8，
+        # highlight 与 /search 同病）。force_active 翻 visibilityState→visible、
+        # rAF 恢复（v0.81 静默抓取教义；cli._collect_keyword_pids /
+        # ozon_scraper.scrape_ozon_product_via_cdp 同款先例）。失败静默返回
+        # False（老 Chrome/无头无此命令），调用方继续不阻断。
+        tab.force_active()
         scroll_tab = None
         try:
             time.sleep(5)  # 初始加载
@@ -3855,7 +3864,17 @@ def _candidate_commission_segments(candidate: ProductCandidate) -> dict | None:
 
 
 def _build_estimate_item(candidate: ProductCandidate) -> dict:
-    """候选 → worker batch item（唯一算价出口；currency 恒 RUB——ozon_price 是 RUB）。
+    """候选 → worker batch item（唯一算价出口）。
+
+    ⚠️ **绝不传 ``currency_code="RUB"``**（2026-10-04 修「profit_margin 恒
+    4.18%」实锤）：worker 三档 RUB 路径 ``profit_rate = profit_cny / price``
+    分子是 CNY、分母是 RUB 售价（worker/src/utils/pricing_estimate.py 三档段
+    注释）——量纲错位使净利率被 CNY→RUB 汇率整除（44.9% → ~4.2%），且该比值
+    只依赖 margin/佣金/vcr/汇率常数、与成本无关 → 所有候选恒同一个数，利润闸
+    全灭。batch 缺省 currency 时 worker 按其 schema 契约走 CNY 口径
+    （"缺省按 CNY"）＝货币中性净利率（分母同币种），与 /estimate/batch 直调
+    参考一致（worker 锁 test_estimate_batch_parity_v083.py:214 期望
+    profit_rate≈0.4484）。本函数不消费 row 的 price 字段，CNY 口径零副作用。
 
     scid（v0.83.1）：aibuy 匹配回填的 1688 数字 cid——dc 缺席（highlight 关键词
     候选常态）时 worker 经学习映射表反查，佣金冷启动解锁。
@@ -3867,7 +3886,6 @@ def _build_estimate_item(candidate: ProductCandidate) -> dict:
         candidate.match_1688_price,
         weight_g=candidate.weight_g or None,
         dims_mm=candidate.dimensions_mm or None,
-        currency_code="RUB",
         commission_segments=_candidate_commission_segments(candidate),
         dc=dc,
         scid=getattr(candidate, "match_1688_category_id", None) or None,
