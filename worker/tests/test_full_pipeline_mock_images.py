@@ -323,7 +323,8 @@ class TestFullPipelineMockImages:
 
     def test_task_id_injection(self):
         """测试 task_processor 注入 task_id 到 payload"""
-        path = os.path.join(os.path.dirname(__file__), "..", "src", "utils", "task_processor.py")
+        # ✅ W3a: task_processor 已归位 orchestrator 包（utils 退役），路径跟随
+        path = os.path.join(os.path.dirname(__file__), "..", "src", "orchestrator", "task_processor.py")
         with open(path) as f:
             content = f.read()
         assert 'payload["task_id"] = task_id' in content, "应注入 task_id"

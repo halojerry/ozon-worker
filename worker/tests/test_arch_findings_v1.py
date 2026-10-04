@@ -46,8 +46,8 @@ _BODY_CONFIG = "400: 模型价格尚未由管理员配置，请联系管理员"
 
 def test_variant_mixed_success_and_failure_isolated():
     """失败隔离保持：第 1 变体成功返回 AI 图，第 2 变体失败留空——互不拖累且无原图。"""
-    # ⚠️ 用节点真实 Input（含 token）；VariantLoopState 无 token 字段会让 _gen_one
-    # 在读 state.token 时就走异常分支（test_ref_image_pollution_guard 同款陷阱）。
+    # ⚠️ 用节点真实 Input（含 token）；历史 VariantLoopState（2026-10 清扫已删）
+    # 无 token 字段会让 _gen_one 在读 state.token 时就走异常分支。
     # ⚠️ 两变体用不同参考图 + 按参考图判定 mock 结果：节点是 ThreadPool 并发，
     # 调用计数器在双线程下与变体顺序无保证（全量套件进程里曾稳定翻转出
     # ['', GEN_URL]），按参数判定才是线程安全的确定性写法。

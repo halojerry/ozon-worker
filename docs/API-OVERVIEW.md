@@ -16,6 +16,12 @@ status: active
 **不列端点清单**——完整清单以 `docs/API-REFERENCE.md`（从代码自动生成）为准；本文所有事实
 括注代码位置 `文件:行`，行号以当前 dev 分支为准，冲突时**以代码为准**。
 
+> ⚠️ **2026-10 治理注记**：`main.py` 已拆解为 181 行 composition root（app 装配 → `app_factory.py`，
+> 生命周期/清理/启动校验 → `runtime/`，四族路由 → `routes/`，编排器 → `orchestrator/task_processor.py`）。
+> 本文遗留的 `main.py:NNN` 锚点为治理前快照（行号已失效，请按符号名检索）；**模块住址以 AGENTS.md
+> 「唯一入口/边界」节与 `docs/ARCHITECTURE/` 为活权威**。已删 compat 端点（§11/§12 platform-compat
+> 退役）的活口描述已复核，端点清单以 `API-REFERENCE.md` 为准。
+
 ## 1. 概览
 
 Worker 是一个 FastAPI 应用：`FastAPI(title="Ozon Worker API", version="1.0.0")`
@@ -52,15 +58,17 @@ LangGraph 管线、上传 Ozon」）。对外有两个面：
 
 ## 3. 鉴权矩阵（两种形态并存）
 
-### 3.1 请求体 `token` 字段（legacy/LangGraph 面）
+### 3.1 请求体 `token` 字段（legacy；LangGraph 调试面 2026-10 已退役）
 
 从请求体 JSON 提取 `token`（`_extract_token_from_body`，`main.py:1197-1204`），再走
 `_authenticate_token`（`main.py:1217-1234`）。覆盖端点：
 
 - `POST /submit_task`（`main.py:1595`；提取在 `main.py:1620-1623`；token 缺失 → 401
   `"Token is required"`，`main.py:1679`）
-- `POST /run`（`main.py:789`）、`POST /stream_run`（`main.py:901`）、
-  `POST /node_run/{node_id}`（`main.py:976`）、`POST /v1/chat/completions`（`main.py:1026`）
+- ~~`POST /run`、`POST /stream_run`、`POST /node_run/{node_id}`、`POST /v1/chat/completions`~~
+  **已移除（2026-10，platform-compat 退役 PR）**——LangGraph 内部调试面整层删除（生产零消费，
+  原文档定性见 `docs/audit/2026-09-11-repo-gov/A6`）；同批移除 `POST /async_run` 与
+  `POST /cancel/{run_id}`
 - `POST /auth/verify`（双挂，`main.py:1355-1356`）——skill 的轻量鉴权检查端点
 
 `_authenticate_token` 行为：空 token → 401；内存吊销表命中（含剥 `sk-` 后比对）→ 401
@@ -249,8 +257,8 @@ submit_task → pending → running → completed / failed / cancelled
   回退持久化（`main.py:91-110`，2s 节流异步写 PG `main.py:114-136`）——worker 重启后仍可
   从 PG 读到最近一次进度（内存中已完成超 1 小时的条目会被清理，`main.py:139-144`）。
 - **completed 必须过真实商品证据校验**：`_has_real_product_evidence`
-  （`utils/task_processor.py:73`）——product_id 为空或等于 import task_id 的「假成功」
-  会被改判 failed（completed 兜底分支，`task_processor.py:616`；v0.69 收口）。
+  （`orchestrator/task_processor.py`；2026-10 治理后迁出 main/旧 utils 路径）——product_id 为空或等于 import task_id 的「假成功」
+  会被改判 failed（`process_next_task` 的 completed 兜底分支；v0.69 收口）。
 - LangGraph 细粒度进度另有 `GET /progress/{run_id}`（内存态，`main.py:1449`）与
   任务中心 SSE（v0.61 `task_progress_events`）。
 
@@ -266,10 +274,12 @@ submit_task → pending → running → completed / failed / cancelled
   仓库根 `VERSION`（四源同步，见 AGENTS.md「版本管理」）。`GET /health` **不返回版本**
   （返回 status/message/db/queue，`main.py:1122-1146`）；运行时版本经 `APP_VERSION` env
   注入（如 error_reports 响应附 `worker_version`，`main.py:2526`）。
-- 已标 DEPRECATED（未来版本移除，勿新接）：`POST /async_run`（`main.py:710-712`，改用
-  `/submit_task`）。`GET /task/{task_id}` 已于 2026-09-23 **退役为 410 墓碑**（实机取证：
-  无鉴权 + 自 async runtime 重构起 100% 500——`AsyncTaskRuntime.get` 已不存在；改用
-  `GET /task_status/{task_id}`）。
+- ~~已标 DEPRECATED（未来版本移除，勿新接）：`POST /async_run`（`main.py:710-712`，改用
+  `/submit_task`）~~ **已移除（2026-10，platform-compat 退役 PR）**——`/async_run`、
+  `/run`、`/stream_run`、`/cancel/{run_id}`、`/node_run/{node_id}`、`/v1/chat/completions`
+  六个 LangGraph 内部调试面端点整层删除。`GET /task/{task_id}` 已于 2026-09-23
+  **退役为 410 墓碑**（实机取证：无鉴权 + 自 async runtime 重构起 100% 500——
+  `AsyncTaskRuntime.get` 已不存在；改用 `GET /task_status/{task_id}`；墓碑本批保留）。
 - Skill↔Worker 接口契约版本：`docs/CONTRACT-v4.md`（v4.0）。信封结构变更必须同步该文档
   （AGENTS.md「更新联动规则」）。
 
@@ -298,6 +308,7 @@ submit_task → pending → running → completed / failed / cancelled
 | 行为变更（2026-09-16，安全修复批） | — | ①`GET /task_statistics` 补鉴权+租户强制：无 Bearer 401，非 admin 恒查自身租户（`tenant_id` 参数跨租户 403）；②`POST /drafts/{id}/resubmit` 新增 **402**（低余额预检）/ **409**（并发重复提交）语义；③`GET /store/health` 凭证支持 `X-Ozon-Client-Id`/`X-Ozon-Api-Key` header 传递（query 传参仅为存量向后兼容保留），上游失败改 **502** 固定文案（200 体不再有 error 形态）；④`POST /logistics/quote` 补 Bearer+限流（无凭据 401、超限 429）；⑤`POST /cancel_task/{id}` 与 `GET /progress/{run_id}` 补 Bearer（无凭据 401；cancel 跨租户 404） |
 | 行为变更（2026-09-26，安全收尾批 fix/sec-closeout-v081） | — | ①`POST /async_run`（已弃用）补 T3 鉴权门：无/空/无效 token **401**（消费矩阵一直标需鉴权但实现漏挂，对齐同族 /run、/node_run）；②`GET /graph_parameter` 补 `_require_bearer`：无 Bearer **401**（消费矩阵标需鉴权但实现漏挂）；③`POST /logistics/quote` 的 tpl_provider/service_level 入口白名单归一（大小写不敏感到权威拼写，未知值原样透传走既有 fallback——报价语义不变，纯加固） |
 | v0.83.0 批①（预估统一，2026-09-28） | `POST /api/v1/estimate/batch`（批量预估 ≤50/批，逐项 ok/failed，Bearer + 独立限流桶 `estimate_batch:{token}`，契约见 CONTRACT-v4 §1.9） | 定价主链抽 `utils/pricing_core.compute_pricing_core`（pricing_node / `/api/v1/estimate` / batch 三处同源）；`/api/v1/estimate` 补 fx 三级链（RUB 无汇率）+ 店铺 3PL 探测（`credential_id`）+ 审计 marks；`commission_resolver` fbs 段缺失**回退 fbo**（source 带 `:fbo`）；skill 五处内联公式退役为消费方 |
+| 未发版（2026-10，platform-compat 退役） | — | **退役** `POST /async_run`、`POST /run`、`POST /stream_run`、`POST /cancel/{run_id}`、`POST /node_run/{node_id}`、`POST /v1/chat/completions`——LangGraph 内部调试面整层删除（生产零消费：routes/mcp/skill/pounding-mcp/webui 全零调用方）；`GET /task/{task_id}` 410 墓碑保留 |
 
 ## 13. 文档地图
 

@@ -22,18 +22,25 @@ import sys
 
 
 def extract_cli_commands(cli_path: str) -> set[str]:
-    """从 cli.py 提取 add_parser 注册的全部子命令。"""
+    """从 cli.py 提取 add_parser 注册的全部子命令。
+
+    ⚠️ 命令名含连字符（discover-multi/session-sync/…），字符集必须带 `-`
+    （2026-10 W0 治理：旧 `[a-z_]+` 把 4 个连字符命令误判成 ghost）。
+    """
     try:
         src = open(cli_path, "r", encoding="utf-8").read()
     except FileNotFoundError:
         return set()
-    return set(re.findall(r'add_parser\(\s*["\']([a-z_]+)["\']', src))
+    return set(re.findall(r'add_parser\(\s*["\']([a-z_-]+)["\']', src))
 
 
 def extract_doc_commands(skill_md_path: str) -> set[str]:
     """从 SKILL.md 命令表提取已记录的命令名。
 
-    匹配 `| `code` | 行（命令表行）；支持 `batch_test.py` 这类带扩展名条目。
+    只解析表格行（`|` 开头）的**第一格**内的反引号 token——SKILL.md 速查表
+    大量使用多命令合一行（`| `set_store` / `set_token` / … | 凭证配置 |`），
+    旧实现只认「行首单命令」漏掉整行（2026-10 W0 治理）。第一格约束避免把
+    描述列里的 flag（`--detach` 等）误收进命令集。
     """
     try:
         lines = open(skill_md_path, "r", encoding="utf-8").read().splitlines()
@@ -41,9 +48,13 @@ def extract_doc_commands(skill_md_path: str) -> set[str]:
         return set()
     cmds: set[str] = set()
     for line in lines:
-        m = re.match(r"^\|\s*`([a-zA-Z0-9_.-]+)`\s*\|", line.strip())
-        if m:
-            cmds.add(m.group(1))
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        parts = stripped.split("|")
+        first_cell = parts[1] if len(parts) > 1 else ""
+        for tok in re.findall(r"`([a-zA-Z][a-zA-Z0-9_.-]*)`", first_cell):
+            cmds.add(tok)
     return cmds
 
 

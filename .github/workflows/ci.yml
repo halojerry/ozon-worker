@@ -201,6 +201,11 @@ jobs:
       - name: API docs drift check (docs/API-REFERENCE.md + openapi.json 快照 + example-lint strict)
         working-directory: worker
         run: python scripts/gen_api_docs.py --check --fail-on-missing-examples
+      # W2 治理：信封契约键表（envelope-keys.json + CONTRACT-v4 标记块）从
+      # api/envelope_contract.py 生成——漂移即红。
+      - name: Envelope contract docs drift check
+        working-directory: worker
+        run: python scripts/gen_contract_docs.py --check
 
   test-skill:
     name: Skill Tests (3.12 Docker)
@@ -221,6 +226,12 @@ jobs:
             -w /workspace/skill \
             python:3.12-slim \
           sh -c "pip install -q -r requirements.txt pytest && timeout 600 python -m pytest tests/ -q"
+      # W0 治理（2026-10）：此前「声称有 CI 探针」实际未接线——CLI 加命令不补
+      # SKILL.md 命令表从此在 CI 红。注意 paths-ignore 含 **.md，仅改 SKILL.md 的
+      # push 不触发 CI；核心失败模式（改 cli.py 漏文档）由本步覆盖。
+      - name: Doc sync check (SKILL.md 命令表 vs cli.py)
+        working-directory: skill
+        run: python3 scripts/check_doc_sync.py
 
   # ═══ WebUI: tsc + build(PR 门禁;演示清零后前端改动频繁,必须随 PR 验证)═══
   webui-build:

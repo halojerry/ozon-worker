@@ -111,24 +111,24 @@ def _seed_pg(tenant: str, client_id: str, task_count: int, completed: int):
 
 def test_is_admin_user_role_admin():
     fake = _FakeSupabase({"u1": {"id": "u1", "role": "admin", "username": "boss"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         assert admin_service.is_admin_user("u1") is True
 
 
 def test_is_admin_user_role_user():
     fake = _FakeSupabase({"u2": {"id": "u2", "role": "user", "username": "user"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         assert admin_service.is_admin_user("u2") is False
 
 
 def test_is_admin_local_dev():
-    with patch("main.get_supabase_client", return_value=None):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=None):
         assert admin_service.is_admin_user("local_dev") is True
 
 
 def test_require_admin_forbidden():
     fake = _FakeSupabase({"u2": {"id": "u2", "role": "user"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         with pytest.raises(HTTPException) as ei:
             admin_service.require_admin("u2")
     assert ei.value.status_code == 403
@@ -181,21 +181,21 @@ def test_is_admin_role_edge():
 def test_is_admin_user_role_100_int():
     """Supabase 实际存储整数 100 → 管理员（修复前恒 False 的 bug 回归）。"""
     fake = _FakeSupabase({"u1": {"id": "u1", "role": 100, "username": "boss"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         assert admin_service.is_admin_user("u1") is True
 
 
 def test_is_admin_user_role_10_int():
     """Supabase 整数 10（admin）→ 管理员。"""
     fake = _FakeSupabase({"u1": {"id": "u1", "role": 10, "username": "op"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         assert admin_service.is_admin_user("u1") is True
 
 
 def test_is_admin_user_role_1_int():
     """Supabase 整数 1（普通用户）→ 非管理员。"""
     fake = _FakeSupabase({"u1": {"id": "u1", "role": 1, "username": "user"}})
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         assert admin_service.is_admin_user("u1") is False
 
 
@@ -209,7 +209,7 @@ def test_overview_aggregates(_pg):
         "u1": {"id": "u1", "role": "user", "username": "a"},
         "u2": {"id": "u2", "role": "admin", "username": "b"},
     })
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         ov = admin_service.get_overview()
     assert ov["user_count"] >= 2
     assert ov["store_count"] >= 1
@@ -227,7 +227,7 @@ def test_list_users_joins_pg_counts(_pg):
     fake = _FakeSupabase({
         "admin-test-u1": {"id": "admin-test-u1", "role": "user", "username": "alice", "quota": 100},
     })
-    with patch("main.get_supabase_client", return_value=fake):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake):
         users = admin_service.list_users()
     alice = next(u for u in users if u["id"] == "admin-test-u1")
     assert alice["username"] == "alice"
@@ -269,7 +269,7 @@ def test_list_stores_cross_tenant(_pg):
 
 def test_is_admin_user_supabase_none_fail_closed():
     """Supabase 未配置 → 非法 user 拒绝（原 fail-open 全员管理员，review CRITICAL）。"""
-    with patch("main.get_supabase_client", return_value=None):
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=None):
         assert admin_service.is_admin_user("u123") is False
         assert admin_service.is_admin_user("2") is False
 
@@ -280,7 +280,7 @@ def test_list_users_int_role_mapped_to_contract():
         "2": {"id": "2", "role": 100, "username": "root", "quota": 141527.0},
         "9": {"id": "9", "role": 1, "username": "peaclaw"},
     })
-    with patch("main.get_supabase_client", return_value=fake), \
+    with patch("storage.database.supabase_client.get_supabase_client", return_value=fake), \
          patch.object(admin_service, "_pg_count", return_value=0):
         rows = admin_service.list_users()
     by_id = {r["id"]: r for r in rows}
@@ -299,7 +299,55 @@ async def test_get_task_stats_awaitable_returns_dict():
         async def get_task_statistics(self, _tenant):
             return {"total": 5, "completed": 3}
 
-    with patch("main.task_processor", _FakeProcessor()):
+    with patch("orchestrator.task_processor._task_processor", _FakeProcessor()):
         result = await admin_service.get_task_stats()
     assert result == {"total": 5, "completed": 3}
     assert not asyncio.iscoroutine(result)
+
+
+@pytest.mark.asyncio
+async def test_get_task_stats_tenant_passthrough_v0832():
+    """✅ v0.83.2：?tenant_id= 透传到 task_processor；空串 → None（全租户）。
+
+    生产实锤（2026-10-02 事故排查）：路由层此前忽略 tenant_id 参数，
+    ?tenant_id=28 静默返回全租户聚合。
+    """
+    seen: list = []
+
+    class _FakeProcessor:
+        async def get_task_statistics(self, tenant):
+            seen.append(tenant)
+            return {"total": 1}
+
+    with patch("orchestrator.task_processor._task_processor", _FakeProcessor()):
+        await admin_service.get_task_stats(tenant_id="28")
+        await admin_service.get_task_stats(tenant_id="  ")
+        await admin_service.get_task_stats()
+    assert seen == ["28", None, None]
+
+
+def test_get_user_detail_stores_shape_validates_v0832():
+    """✅ v0.83.2：stores 出参含 tenant_id——AdminUserDetailOut 可序列化。
+
+    生产实锤（2026-10-02，Sentry 0b623dff）：stores 缺 tenant_id →
+    ResponseValidationError 500（AdminStoreOut 必填字段）。
+    """
+    import datetime
+
+    from api.schemas import AdminUserDetailOut
+
+    def _rows(sql, args):
+        assert args == {"t": "28"}
+        return [(
+            "5949571e-5fe4-4762-8fac-6d9e79eb49f7",  # id
+            "28",                                       # tenant_id（本批补列）
+            "4718259", "", "CNY", False, "active", None,
+        )]
+
+    with patch.object(admin_service, "_pg_rows", side_effect=_rows), \
+         patch.object(admin_service, "_pg_count", return_value=0):
+        detail = admin_service.get_user_detail("28")
+    # 响应模型可序列化（原 bug 在此抛 ResponseValidationError）
+    out = AdminUserDetailOut.model_validate(detail)
+    assert out.stores[0].tenant_id == "28"
+    assert out.stores[0].ozon_client_id == "4718259"

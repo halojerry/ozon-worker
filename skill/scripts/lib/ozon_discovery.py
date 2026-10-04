@@ -37,20 +37,13 @@ CHINA_HIGHLIGHT_URL = "https://www.ozon.ru/highlight/tovary-iz-kitaya-935133/"
 # Default thresholds
 DEFAULT_FX_RATE = 0.075          # RUB -> CNY
 DEFAULT_LOGISTICS_CNY = 15.0     # rough per-kg logistics cost
-DEFAULT_COMMISSION_PCT = 0.10    # Ozon commission ~10%
-# 佣金默认分段（百分数，按售价选带）——worker 费率表/候选分段均不可达时的末级兜底
-DEFAULT_COMMISSION_SEGMENTS: dict[str, float] = {
-    "leq_1500": 12.0,
-    "leq_5000": 14.0,
-    "gt_5000": 18.0,
-}
 DEFAULT_MIN_MARGIN_PCT = 15.0    # minimum profit margin %
 DEFAULT_MAX_COMPETITORS = 50     # skip products with too many sellers
-LOGISTICS_PER_KG_CNY = 40.0      # 跨境物流按重量估算 CNY/kg（保底 8 CNY）
 
-# ⚠️ v0.58: 默认重量与 graph/follow 上架管线同源（cloud_probe.py price_estimate 分段）——
-# 此前 discover 无重量时落到 DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g → ¥6，
-# 两条路径差 ¥9/单，轻小件被选品分析误判「利润不足」。此处统一分段估算。
+# ⚠️ v0.58: 默认重量与 graph/follow 上架管线同源——此前 discover 无重量时落到
+# DEFAULT_LOGISTICS_CNY=15，而上架管线默认 500g → ¥6，两条路径差 ¥9/单，轻小件
+# 被选品分析误判「利润不足」。定价/运费估算唯一出口是 worker `/estimate`（v0.83
+# 批①，estimate_client.py）；本常量只喂「查费率表缺重量」的兜底维度。
 DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与 cloud_probe 一致
 
 # ⚠️ discover 货源有效性门槛：标题相关性置信度低于该值的图搜/AK 结果不作为有效货源
@@ -59,21 +52,6 @@ DEFAULT_WEIGHT_G = 500           # 重量缺失时的默认重量（克），与
 # auto-submit 只取 profitable，绝不自动提交。对齐 _pick_best_match 的 conf 护栏档位。
 _MIN_SOURCE_CONFIDENCE = 0.3
 
-
-def estimate_shipping_cny(weight_g: int | None) -> float:
-    """按重量估算跨境运费 CNY（与 cloud_probe price_estimate 分段同源，防漂移）。
-
-    分段：≤500g → ¥6；≤1000g → ¥8；>1000g → ¥15。
-    重量缺失/非正 → 按 DEFAULT_WEIGHT_G(500g) 估算（¥6），与上架管线默认一致。
-    """
-    w = int(weight_g or 0)
-    if w <= 0:
-        w = DEFAULT_WEIGHT_G
-    if w <= 500:
-        return 6.0
-    if w <= 1000:
-        return 8.0
-    return 15.0
 
 # ⚠️ v0.22: 知名品牌黑名单（discover 直接过滤，避免浪费图搜/1688 匹配/生图资源）。
 # 只放知名品牌（跟卖会侵权/被拒）；1688 白牌/小厂牌（fansen 等）不在此列。
@@ -277,49 +255,6 @@ class ProductCandidate:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
-
-
-def discover_from_highlight(
-    cdp_url: str,
-    max_products: int = 20,
-    fx_rate: float = DEFAULT_FX_RATE,
-    min_margin_pct: float = DEFAULT_MIN_MARGIN_PCT,
-    max_competitors: int = DEFAULT_MAX_COMPETITORS,
-    logistics_cny: float = DEFAULT_LOGISTICS_CNY,
-    keyword: str = "",
-    progress_callback=None,
-    compare_sources: int | None = None,
-) -> list[ProductCandidate]:
-    """兼容壳（v1 入口）：走 Discover v2 管线，返回 profitable 候选。
-
-    Args 同 v1。注意：v2 中 max_competitors 仅作为 1688 匹配阶段的
-    预过滤（跟卖过多的候选不浪费识图配额），不再硬丢弃。
-    compare_sources：跨平台静默比价候选数（None=env/默认解析，0=关）。
-    """
-    candidates = collect_and_analyze(
-        cdp_url,
-        keyword=keyword,
-        max_products=max_products,
-        progress_callback=progress_callback,
-    )
-    to_match = [c for c in candidates if c.status in ("ok", "uncertain")
-                and c.competing_sellers <= max_competitors]
-    match_selected(
-        to_match,
-        cdp_url,
-        fx_rate=fx_rate,
-        min_margin_pct=min_margin_pct,
-        logistics_cny=logistics_cny,
-        compare_sources=compare_sources,
-    )
-
-    profitable = [c for c in candidates if c.status == "profitable"]
-    profitable.sort(key=lambda c: c.profit_margin, reverse=True)
-    logger.info(
-        "Discovery complete: %d total, %d profitable",
-        len(candidates), len(profitable),
-    )
-    return profitable
 
 
 # ---------------------------------------------------------------------------
@@ -1911,75 +1846,6 @@ def apply_selection_rules(candidates: list[ProductCandidate], rules: str) -> lis
         if all(_check_rule(_SELECTION_FIELDS[f](c), op, val) for f, op, val in parsed):
             result.append(c)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Generic page discovery
-# ---------------------------------------------------------------------------
-
-
-def discover_from_url(cdp_url: str, url: str, max_products: int = 50) -> list[str]:
-    """Discover product URLs from any Ozon page.
-
-    Supports:
-    - Highlight pages: https://www.ozon.ru/highlight/...
-    - Search results: https://www.ozon.ru/search/?text=...
-    - Category pages: https://www.ozon.ru/category/...
-    - Brand pages: https://www.ozon.ru/brand/...
-    - Sale pages: https://www.ozon.ru/sale/...
-
-    Returns list of product URLs (deduplicated).
-    """
-    from scripts.lib.cdp_client import CdpConnection
-
-    with CdpConnection(cdp_url) as cdp:
-        # v0.81: 后台 tab + force_active——商品瀑布流靠滚动懒加载，
-        # 后台 hidden 状态 IO 不派发；force_active 可见化渲染不抢前台。
-        tab = cdp.new_tab(url, background=True)
-        tab.force_active()
-        try:
-            time.sleep(6)
-
-            # Scroll to load products
-            prev_count = 0
-            for _ in range(max_products // 10 + 5):
-                tab.evaluate(_EASE_SCROLL_JS)
-                time.sleep(4)  # 缓动 3s + 沉降，防 count 未更新误判触底
-
-                # Check if new products loaded
-                count = tab.evaluate('document.querySelectorAll(".tile-root").length')
-                if count == prev_count:
-                    break  # no new products
-                prev_count = count
-
-                if count >= max_products:
-                    break
-
-            # Extract product URLs
-            urls = tab.evaluate(r'''(() => {
-                return [...new Set(
-                    [...document.querySelectorAll('.tile-root a[href*="/product/"]')]
-                        .map(a => a.href.split('?')[0])
-                        .filter(h => h.match(/-\d{5,}\/?$/) || h.match(/\/product\/\d{5,}\/?$/))
-                )];
-            })()''')
-        finally:
-            tab.close()
-
-    return (urls or [])[:max_products]
-
-
-def discover_from_keyword(cdp_url: str, keyword: str, max_products: int = 50) -> list[str]:
-    """Search Ozon by keyword and discover products.
-
-    Constructs search URL and calls discover_from_url().
-    固定走中国馆（跨境卖家竞争视角：主站 /search/ 返回本地仓卖家，跨境无法竞争；
-    S1 信封竞品反查 follow_min_price 必须与中国货源同场）。
-    """
-    import urllib.parse
-    encoded = urllib.parse.quote(keyword)
-    url = f"{CHINA_HIGHLIGHT_URL}?text={encoded}"
-    return discover_from_url(cdp_url, url, max_products)
 
 
 # ---------------------------------------------------------------------------
@@ -3786,68 +3652,8 @@ def _extract_search_keywords(title: str) -> str:
     return " ".join(words[:6])
 
 
-@dataclass(frozen=True)
-class LogisticsQuote:
-    """Worker /api/v1/logistics/quote 报价结果（含估算来源标记）。
-
-    estimated=False: Worker 实时费率（权威）; True: last-good 缓存兜底估算。
-    """
-
-    cost: float
-    fallback_chain: str = ""   # worker fallback_chain（逗号连接）或 last_good
-    channel: str = ""          # worker channel（如 RETS_Standard_fallback）
-    estimated: bool = False
-
-
-_LAST_GOOD_LOGISTICS: dict[int, tuple[float, float]] = {}  # {weight_band: (rate_cny, ts)}
+# last-good 复用 TTL（佣金分段查询用；物流直查 helper 已随 2026-10 死代码清扫删除）
 _LAST_GOOD_TTL_SECONDS = 24 * 3600
-
-
-def _logistics_weight_band(weight_g: int) -> int:
-    """物流 last-good 费率按 250g 分带（±125g 内复用同带费率）。"""
-    return max(250, int(round(max(1, int(weight_g)) / 250.0)) * 250)
-
-
-def _last_good_quote(weight_g: int) -> LogisticsQuote | None:
-    """API 失败时复用同重量带 last-good 费率（24h TTL）。无有效缓存 → None。"""
-    band = _logistics_weight_band(weight_g)
-    entry = _LAST_GOOD_LOGISTICS.get(band)
-    if not entry:
-        return None
-    rate, ts = entry
-    if time.time() - ts > _LAST_GOOD_TTL_SECONDS:
-        return None
-    return LogisticsQuote(cost=rate, fallback_chain="last_good", estimated=True)
-
-
-def _dims_mm_to_cm(dims_mm) -> dict[str, float] | None:
-    """mm 尺寸（dict {length,width,height} 或 3 元组/列表）→ cm 请求参数。
-
-    无有效尺寸 → None（调用方用默认 10cm 立方）。
-    """
-    if not dims_mm:
-        return None
-    if isinstance(dims_mm, (tuple, list)):
-        if len(dims_mm) < 3:
-            return None
-        d, w, h = dims_mm[0], dims_mm[1], dims_mm[2]
-    elif isinstance(dims_mm, dict):
-        d = dims_mm.get("length") or dims_mm.get("depth")
-        w = dims_mm.get("width")
-        h = dims_mm.get("height")
-    else:
-        return None
-    try:
-        vals = [float(x) for x in (d, w, h)]
-    except (TypeError, ValueError):
-        return None
-    if any(v <= 0 for v in vals):
-        return None
-    return {"depth_cm": vals[0] / 10.0, "width_cm": vals[1] / 10.0,
-            "height_cm": vals[2] / 10.0}
-
-
-_LOGISTICS_QUOTE_CACHE: dict[int, float | None] = {}
 
 
 # 佣金分段查询缓存（任务 2.2，镜像物流 last-good 模式）：
@@ -3970,92 +3776,6 @@ def fetch_seller_analysis(
                 pass
 
 
-def _query_logistics_from_worker(weight_g: int, dims_mm=None) -> LogisticsQuote | None:
-    """调 Worker /api/v1/logistics/quote 查真实物流费率（v0.29.x / P1-5 加固）。
-
-    - 按重量查询；dims_mm（mm 尺寸 dict/元组）转 cm 随请求，缺省 10cm 立方。
-    - ⚠️ v0.58: 重量缺失（None/≤0）时按 DEFAULT_WEIGHT_G(500g) 查表——此前
-      直接返回 None 跳过费率表，导致 discover 无重量时落到本地硬编码估算
-      （曾 ¥15），与上架管线默认 500g 的费率不一致。费率表是权威，无重量
-      只是少一个查询维度，不是放弃查表的理由。
-    - 进程内成功缓存（_LOGISTICS_QUOTE_CACHE，只缓存成功结果）。
-    - Worker 不可达/超时/无 token → 复用同重量带 last-good 费率（24h TTL，
-      标记 estimated=True）；连 last-good 都没有 → None（调用方本地兜底）。
-    """
-    eff_weight = int(weight_g) if weight_g is not None and weight_g > 0 else DEFAULT_WEIGHT_G
-    cached = _LOGISTICS_QUOTE_CACHE.get(eff_weight)
-    if cached is not None:
-        return LogisticsQuote(cost=cached)
-
-    payload = {"weight_g": int(eff_weight)}
-    dims_cm = _dims_mm_to_cm(dims_mm)
-    if dims_cm:
-        payload.update(dims_cm)
-    else:
-        payload.update({"depth_cm": 10.0, "width_cm": 10.0, "height_cm": 10.0})
-
-    try:
-        from scripts._const import CLOUD_API_BASE
-        from scripts.lib.config_store import get_mxou_token
-        import requests as _req
-
-        token = get_mxou_token()
-        if not token:
-            return _last_good_quote(eff_weight)
-        resp = _req.post(
-            f"{CLOUD_API_BASE}/api/v1/logistics/quote",
-            json={"token": token, **payload},
-            # v0.76 T10(api-M4) 联动: worker 端 Bearer 必填(_require_bearer, 无
-            # header 401)——只发 body token 会被拒并静默降级 last-good, 失去权威
-            # 费率表。header 值直接用 body 同源 token(服务端剥 sk- 一层, 有无
-            # sk- 前缀均可)。
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=6,
-        )
-        if resp.status_code != 200:
-            return _last_good_quote(eff_weight)
-        data = resp.json()
-        cost = data.get("logistics_cost_cny")
-        if isinstance(cost, (int, float)) and cost > 0:
-            cost_f = float(cost)
-            _LOGISTICS_QUOTE_CACHE[eff_weight] = cost_f
-            _LAST_GOOD_LOGISTICS[_logistics_weight_band(eff_weight)] = (cost_f, time.time())
-            chain = data.get("fallback_chain", "")
-            if isinstance(chain, (list, tuple)):
-                chain = ",".join(str(x) for x in chain)
-            return LogisticsQuote(
-                cost=cost_f,
-                fallback_chain=str(chain or ""),
-                channel=str(data.get("channel", "") or ""),
-            )
-        return _last_good_quote(eff_weight)
-    except Exception:
-        return _last_good_quote(eff_weight)
-
-
-def _commission_band_rate(segments, price_rub: float) -> float | None:
-    """按售价（RUB）取佣金分段率（百分数，10 = 10%）。
-
-    分段 dict {"leq_1500","leq_5000","gt_5000"}（worker fbs/fbo 或候选
-    commission_rfbs_segments 同构）。售价 ≤1500₽ → leq_1500；≤5000₽ → leq_5000；
-    其余 → gt_5000。分段缺失/无效 → None。
-    """
-    if not segments or not isinstance(segments, dict):
-        return None
-    if price_rub <= 1500:
-        band = "leq_1500"
-    elif price_rub <= 5000:
-        band = "leq_5000"
-    else:
-        band = "gt_5000"
-    raw = segments.get(band)
-    try:
-        rate = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return rate if rate > 0 else None
-
-
 def _last_good_commission(category_id: int) -> dict | None:
     """API 失败时复用同 category_id 的 last-good 佣金分段（24h TTL）。"""
     entry = _LAST_GOOD_COMMISSION.get(category_id)
@@ -4119,24 +3839,6 @@ def _query_commission_from_worker(category_id) -> dict | None:
         return result
     except Exception:
         return _last_good_commission(cid)
-
-
-def _worker_commission_rate_pct(candidate: ProductCandidate) -> float | None:
-    """worker /commissions/lookup 分段佣金（百分数）：fbs 优先，fbo 次之。
-
-    candidate.ozon_category 无 description_category_id → None（不请求）。
-    """
-    category_id = (candidate.ozon_category or {}).get("description_category_id")
-    if not category_id:
-        return None
-    segs = _query_commission_from_worker(category_id)
-    if not segs:
-        return None
-    for s in (segs.get("fbs"), segs.get("fbo")):
-        rate = _commission_band_rate(s, candidate.ozon_price)
-        if rate is not None:
-            return rate
-    return None
 
 
 def _candidate_commission_segments(candidate: ProductCandidate) -> dict | None:
@@ -4231,25 +3933,6 @@ def _apply_estimate_row(
     candidate.estimate_source = "worker"
     candidate.commission_source = str(row.get("commission_source") or "")
     _compute_follow_profit(candidate, fx_rate, rate)
-
-
-def _calculate_profit(
-    candidate: ProductCandidate,
-    fx_rate: float = DEFAULT_FX_RATE,
-    logistics_cny: float = DEFAULT_LOGISTICS_CNY,
-    commission_rate: float = 0,
-) -> None:
-    """单候选利润（v0.83 批① 起 = worker batch 单条；函数名/签名向后兼容调用方）。
-
-    ⚠️ 本地定价公式已退役：worker 不可达 → ``estimate_source="unavailable"``（无预估
-    字段/无 profit_margin），**绝不回落 legacy 公式**。跟卖利润 ``follow_profit_cny``
-    仍本地算（竞品价口径，与 batch 成本公式不同口径，PLAN 批①定案）。
-    ``logistics_cny``/``commission_rate`` 参数保留签名兼容，批次口径由 worker 决定。
-    """
-    if not candidate.match_1688_price or not candidate.ozon_price:
-        return
-    rows = _estimate_candidates([candidate], fx_rate=fx_rate)
-    _apply_estimate_row(candidate, rows[0] if rows else None, fx_rate)
 
 
 def calculate_blue_ocean_score(
@@ -4753,24 +4436,4 @@ def load_latest_discovery() -> list[dict[str, Any]]:
         return json.loads(legacy_files[0].read_text(encoding="utf-8"))
     except Exception as exc:
         logger.warning("Failed to load discovery cache %s: %s", legacy_files[0], exc)
-        return []
-
-
-def load_discovery_by_date(date_str: str) -> list[dict[str, Any]]:
-    """Load discovery cache for a specific date (YYYYMMDD format).
-
-    Returns list of product dicts from the first matching file.
-    """
-    if not DISCOVERY_CACHE_DIR.exists():
-        return []
-
-    pattern = f"discovery_{date_str}*.json"
-    files = sorted(DISCOVERY_CACHE_DIR.glob(pattern), reverse=True)
-    if not files:
-        return []
-
-    try:
-        return json.loads(files[0].read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.warning("Failed to load discovery cache %s: %s", files[0], exc)
         return []

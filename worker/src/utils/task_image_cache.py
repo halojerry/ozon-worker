@@ -36,11 +36,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SLOTS = (
-    "main", "white_bg", "multi_angle", "detail", "social_proof",
-    "comparison", "scene_1", "scene_2", "scene_3",
-)
-
 
 def _task_id_from_config(config) -> str:
     """从 LangGraph RunnableConfig 提取任务 ID（thread_id = PG 任务 ID）。"""
@@ -211,12 +206,6 @@ def get_image_info(task_id: str, slot: str, version: Optional[int] = None) -> Op
         return None
 
 
-def get_latest_version(task_id: str, slot: str) -> int:
-    """该 (task_id, slot) 最新版本号（无行 → 0）。"""
-    info = get_image_info(task_id, slot)
-    return int(info["version"]) if info else 0
-
-
 def list_images(task_id: str) -> list[dict]:
     """该任务全部图片行（slot/version/url/params/image_parent_task_id）。"""
     if not task_id or task_id in ("unknown", "None"):
@@ -269,7 +258,7 @@ def save_image(task_id: str, slot: str, url: str, version: Optional[int] = None,
 
 
 def cleanup_old(older_than_days: int = 7) -> int:
-    """清理超过 N 天的缓存行（由 main._periodic_task_cleanup 定期调用）。"""
+    """清理超过 N 天的缓存行（由 runtime.maintenance._periodic_task_cleanup 定期调用）。"""
     try:
         from storage.database.db import get_engine
         from sqlalchemy import text
@@ -286,7 +275,7 @@ def cleanup_old(older_than_days: int = 7) -> int:
 
 
 __all__ = [
-    "get_image", "get_image_info", "get_latest_version", "list_images",
-    "save_image", "cleanup_old", "SLOTS",
+    "get_image", "get_image_info", "list_images",
+    "save_image", "cleanup_old",
     "_task_id_from_config", "_force_regen_from_config", "_regen_version_from_config",
 ]

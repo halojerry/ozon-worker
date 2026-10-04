@@ -5,7 +5,8 @@
 - T1(D-03)：utils/error_classifier.py 整模块删除（ErrorClassifier 实为
   runtime/helpers.py 另一实现；本模块 fix_path 指向已不存在的旧拓扑节点）
 - T2(D-02)：graphs/state.py 旧 4 节点管线死模型 8 个删除
-  （⚠️ VariantLoopOutput/VariantLoopState 是活的，必须保留）
+  （VariantLoopState/VariantLoopOutput 当时判活，2026-10 死代码清扫复核为
+  测试专用构造 → 已删，见下 T2 断言）
 - T3(D-04)：死配置 2 个删除（category_match_llm_cfg / product_assembly_cfg）
 - T5(D-01)：TASK_NOT_CANCELLABLE 接线——cancel_task 对非 pending 任务
   由 200+{status:failed} 改返 409 统一错误信封（可编程处理）
@@ -32,6 +33,11 @@ os.environ.setdefault("CREDENTIAL_MASTER_KEY", "0123456789abcdef0123456789abcdef
 os.environ["SKIP_ZOMBIE_RECOVERY"] = "1"
 os.environ["SKIP_FAILED_REVIVE"] = "1"
 os.environ["SKIP_STORE_SYNC"] = "1"
+
+# R3a: cancel_task 端点已迁 routes/task_queue_routes.py，task_processor 经
+# orchestrator holder 取（lifespan 注入形态）。
+import orchestrator.task_processor as _task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_cancel_task as _http_cancel_task  # noqa: E402
 
 
 # ============================================================
@@ -77,9 +83,13 @@ def test_state_dead_models_removed_and_live_models_kept():
         "AttributesFetchInput", "AttributesFetchOutput",
         "AttributesLLMInput", "AttributesLLMOutput",
         "AttributesLearningInput", "AttributesLearningOutput",
-        "VariantLoopInput",  # variant_primary_loop 子图实际用 VariantLoopState
+        "VariantLoopInput",
+        # 2026-10 死代码清扫：VariantLoopState/VariantLoopOutput 仅被测试构造使用，
+        # 节点真实 Input/Output 是 VariantPrimaryLoopInput/VariantPrimaryLoopOutput
+        # （同文件内定义），随清扫删除。
+        "VariantLoopState", "VariantLoopOutput",
     ]
-    alive = ["VariantLoopState", "VariantLoopOutput", "VariantPrimaryLoopOutput"]
+    alive = ["VariantPrimaryLoopOutput"]
     for name in dead:
         assert not hasattr(gs, name), f"state.py 死模型未删: {name}"
     for name in alive:
@@ -133,11 +143,10 @@ def _cancel_request():
 def test_cancel_task_not_cancellable_returns_409(monkeypatch):
     from fastapi.responses import JSONResponse
 
-    main_mod = _import_main()
     fake = _FakeProcessor(outcome=False)  # 非 pending（终态/运行中）
-    monkeypatch.setattr(main_mod, "task_processor", fake)
+    monkeypatch.setattr(_task_processor_mod, "_task_processor", fake)
     monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # T6(api-H2) 起端点带鉴权闸，本组只验取消业务逻辑
-    res = asyncio.run(main_mod.http_cancel_task("task-abc", _cancel_request()))
+    res = asyncio.run(_http_cancel_task("task-abc", _cancel_request()))
     assert isinstance(res, JSONResponse), "不可取消应返回 error_response(JSONResponse)"
     assert res.status_code == 409
     import json as _json
@@ -148,11 +157,10 @@ def test_cancel_task_not_cancellable_returns_409(monkeypatch):
 
 
 def test_cancel_task_pending_still_succeeds(monkeypatch):
-    main_mod = _import_main()
     fake = _FakeProcessor(outcome=True)
-    monkeypatch.setattr(main_mod, "task_processor", fake)
+    monkeypatch.setattr(_task_processor_mod, "_task_processor", fake)
     monkeypatch.setenv("TASK_STATUS_AUTH", "0")  # 同上：鉴权语义由 test_cancel_auth_v076 锁定
-    res = asyncio.run(main_mod.http_cancel_task("task-xyz", _cancel_request()))
+    res = asyncio.run(_http_cancel_task("task-xyz", _cancel_request()))
     assert isinstance(res, dict), "可取消路径保持原 dict 契约"
     assert res["status"] == "success"
     assert res["task_id"] == "task-xyz"
@@ -180,23 +188,23 @@ def test_shelf_bulk_endpoints_removed_list_endpoints_kept():
 # ============================================================
 
 def test_multi_worker_env_triggers_warning(monkeypatch, caplog):
-    main_mod = _import_main()
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
     import logging
     monkeypatch.setenv("WEB_CONCURRENCY", "4")
     monkeypatch.delenv("WORKERS", raising=False)
-    with caplog.at_level(logging.WARNING, logger="main"):
-        main_mod._warn_if_multi_worker()
+    with caplog.at_level(logging.WARNING, logger="runtime.startup_checks"):
+        startup_checks._warn_if_multi_worker()
     assert any("WEB_CONCURRENCY=4" in r.message and "workers=1" in r.message
                for r in caplog.records), "WEB_CONCURRENCY>1 应触发 workers=1 告警"
 
 
 def test_single_worker_env_no_warning(monkeypatch, caplog):
-    main_mod = _import_main()
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
     import logging
     monkeypatch.setenv("WEB_CONCURRENCY", "1")
     monkeypatch.delenv("WORKERS", raising=False)
-    with caplog.at_level(logging.WARNING, logger="main"):
-        main_mod._warn_if_multi_worker()
+    with caplog.at_level(logging.WARNING, logger="runtime.startup_checks"):
+        startup_checks._warn_if_multi_worker()
     assert not any("workers=1" in r.message for r in caplog.records), (
         "workers=1 部署不应告警"
     )

@@ -662,6 +662,35 @@ def _skill_version_tag() -> str:
         return "0.0.0"
 
 
+def _sentry_before_send(event: dict, hint: dict | None = None) -> dict | None:
+    """v0.84.0 配额保护：用户环境/配置类错误直接丢弃（return None）。
+
+    Sentry 配额按事件数计费——以下家族是「机器本地配置/Chrome 状态」问题，
+    CLI 输出已就地大声提示（用户看本地输出修配置），Sentry 远端副本无人处理
+    纯烧额度（2026-10-04 实录：WORKER_URL 配错 83 发/AK 过期 40 发/CDP 环境事件
+    79 发持续累积）。数据另有正主：本地日志 + 运行报告文件。
+    丢弃条件按消息关键词匹配（含 traceback 的事件也丢——这类不是代码 bug）。
+    """
+    try:
+        values = event.get("logentry") or {}
+        msg = str(values.get("message") or "") if isinstance(values, dict) else ""
+        if not msg:
+            exc = (hint or {}).get("exc_info")
+            msg = str(getattr(exc, "args", ("",))[0]) if exc else ""
+        drop_keywords = (
+            "Worker unreachable",            # WORKER_URL 配错（本地输出有 NEXT 提示）
+            "1688 AK 认证失败", "AK 已过期",  # set_ak/get_ak 可修
+            "CDP 连接被拒", "No Chrome CDP session",
+            "cannot wait for login", "无法连接到 Chrome",  # Chrome 环境状态
+            "9222",                          # CDP 端口拒连族（WinError 10061 等）
+        )
+        if any(kw in msg for kw in drop_keywords):
+            return None
+    except Exception:
+        pass
+    return event
+
+
 def init_sentry() -> bool:
     """Initialize Sentry SDK. DSN: settings.json `sentry_dsn` → 内置默认。"""
     global _SENTRY_INITIALIZED
@@ -680,6 +709,7 @@ def init_sentry() -> bool:
             traces_sample_rate=0.0,  # 仅错误事件，不上报性能 trace（省额度）
             environment="skill",
             release=_skill_version_tag(),
+            before_send=_sentry_before_send,  # v0.84.0: 环境/配置类事件丢弃（配额保护）
         )
         _SENTRY_INITIALIZED = True
         return True
@@ -708,42 +738,6 @@ def capture_exception(exc: BaseException | None = None, **extra: Any) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # Backward compatibility aliases (will be removed in future)
 # ═══════════════════════════════════════════════════════════════════════════
-
-# These aliases exist to avoid breaking imports in files that haven't been updated yet.
-# They will be removed once all callers are migrated.
-
-def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    """Load config as a flat dict. Backward compatible with old API.
-
-    Returns a dict with keys like 'ALI_1688_AK', 'OZON_CLIENT_ID', etc.
-    Used by ak_1688_client._signature_headers().
-    """
-    result = {}
-    # From settings.json
-    settings = _load_settings_file()
-    for k, v in settings.items():
-        result[k.upper()] = v
-    # From stores.json (first store)
-    store = get_store()
-    if store:
-        result.setdefault("OZON_CLIENT_ID", store.get("client_id", ""))
-        result.setdefault("OZON_API_KEY", store.get("api_key", ""))
-    return result
-
-
-def load_env_file() -> None:
-    """No-op. Config is now in stores.json/settings.json."""
-
-
-def get_required_keys() -> dict[str, dict[str, str]]:
-    """Return credential metadata. Kept for backward compatibility."""
-    return {
-        'MXOU_TOKEN':        {'label': '平台 Token（云端认证）',       'tier': 'dist', 'source': 'settings.json'},
-        'ALI_1688_AK':       {'label': '1688 AK（本地搜索用）',       'tier': 'user', 'source': 'settings.json'},
-        'OZON_CLIENT_ID':    {'label': 'Ozon Client ID（上架用）',    'tier': 'user', 'source': 'stores.json'},
-        'OZON_API_KEY':      {'label': 'Ozon API Key（上架用）',      'tier': 'user', 'source': 'stores.json'},
-    }
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Auth framework — 核心函数级鉴权
@@ -894,36 +888,6 @@ def _require_auth() -> None:
     }
     msg = messages.get(reason, f"鉴权失败（{reason}）")
     raise AuthError(f"{msg}\n然后运行: python3.12 scripts/cli.py set_token --token <新token>")
-
-
-def get_auth_status() -> str:
-    """Get human-readable auth status for check command.
-
-    Returns:
-        "✅ MXOU_TOKEN（已验证，下次验证: 2026-07-25 19:30）"
-        "❌ MXOU_TOKEN（未配置）"
-        "❌ MXOU_TOKEN（已过期，请重新验证）"
-    """
-    token = get_mxou_token()
-    if not token:
-        return "❌ MXOU_TOKEN（未配置）"
-
-    cache = _load_auth_cache()
-    if not cache:
-        return "⚠️ MXOU_TOKEN（已配置，未验证）"
-
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    if token_hash != cache.get("token_hash"):
-        return "⚠️ MXOU_TOKEN（已变更，需重新验证）"
-
-    expires_at = cache.get("expires_at", 0)
-    if _time.time() >= expires_at:
-        return "⚠️ MXOU_TOKEN（已过期，请重新验证）"
-
-    # Format expiry time
-    from datetime import datetime
-    expiry_str = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
-    return f"✅ MXOU_TOKEN（已验证，下次验证: {expiry_str}）"
 
 
 def preflight_check(skip_store: bool = False) -> list[str]:

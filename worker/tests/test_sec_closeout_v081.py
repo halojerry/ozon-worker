@@ -11,7 +11,9 @@
 - Medium ×10 判定：2 条真缺已修（``POST /async_run``、``GET /graph_parameter``
   补鉴权——消费矩阵一直标 🔒 但实现漏挂）；8 条已保护/设计公开（docstring
   留痕）。本文件锁行为：无 token 401 形态（对齐 test_task_statistics_auth_v076
-  风格，hermetic 不依赖 PG/Supabase）。
+  风格，hermetic 不依赖 PG/Supabase）。``/async_run`` 及原三条鉴权用例已随
+  2026-10 platform-compat 调试面退役删除；本文件保留 ``/graph_parameter``
+  与已保护活端点抽查。
 
 运行:
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_sec_closeout_v081.py -q
@@ -26,6 +28,8 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import main as main_mod
+import api.security as api_security  # noqa: E402
+import routes.ops_routes as ops_routes  # noqa: E402
 from main import app
 
 _WORKER_ROOT = Path(__file__).resolve().parent.parent
@@ -153,10 +157,10 @@ def test_logistics_quote_entry_canonicalizes_before_query(monkeypatch):
 
 
 def test_logistics_quote_sync_endpoint_comment_contract():
-    """main._logistics_quote_sync 的 tpl/svc 出口注释留痕存在（扫描器结构性证据）。"""
+    """routes/ops_routes._logistics_quote_sync 的 tpl/svc 出口注释留痕存在（扫描器结构性证据）。"""
     import inspect
 
-    src = inspect.getsource(main_mod._logistics_quote_sync)
+    src = inspect.getsource(ops_routes._logistics_quote_sync)
     assert "canonical_tpl_provider" in src
     assert "绑定参数" in src
 
@@ -252,45 +256,9 @@ def test_offline_validate_allows_constant_target(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Medium 真缺修复：/async_run、/graph_parameter 补鉴权
+# Medium 真缺修复：/graph_parameter 补鉴权
+# （/async_run 及原三条鉴权用例已随 platform-compat 调试面退役删除，2026-10）
 # ---------------------------------------------------------------------------
-
-
-def test_async_run_no_token_401():
-    """修复前：匿名可提交异步任务（敏感写）；修复后 401 "Token is required"。"""
-    r = TestClient(app, raise_server_exceptions=False).post("/async_run", json={})
-    assert r.status_code == 401
-    assert r.json()["detail"] == "Token is required"
-
-
-def test_async_run_with_token_passes_auth(monkeypatch):
-    """带合法 token → 鉴权放行、到达 runtime 提交（提交实现打替身，hermetic）。"""
-    monkeypatch.setattr("services.tenant_service.resolve_tenant", lambda t: "28")
-    # 无 lifespan 时 async_task_config 是 stub（缺 RECURSION_LIMIT），补上避免无关 500
-    # （test_log_scrub_v076 同款处理）
-    monkeypatch.setattr(main_mod.async_task_config, "RECURSION_LIMIT", 25, raising=False)
-
-    class _FakeRuntime:
-        async def submit(self, **kwargs):
-            return {"task_id": kwargs.get("task_id", ""), "status": "queued"}
-
-    monkeypatch.setattr(main_mod, "async_runtime", _FakeRuntime())
-    r = TestClient(app).post("/async_run", json={"token": "sk-probe-token"})
-    assert r.status_code == 200
-    assert r.json()["status"] == "queued"
-
-
-def test_async_run_invalid_token_401(monkeypatch):
-    """失效 token（resolve_tenant 401）→ 401 透传。"""
-    from fastapi import HTTPException
-
-    def _deny(token):
-        raise HTTPException(status_code=401, detail="invalid token")
-
-    monkeypatch.setattr("services.tenant_service.resolve_tenant", _deny)
-    r = TestClient(app, raise_server_exceptions=False).post(
-        "/async_run", json={"token": "sk-bad"})
-    assert r.status_code == 401
 
 
 def test_graph_parameter_no_token_401():
@@ -302,7 +270,7 @@ def test_graph_parameter_no_token_401():
 
 def test_graph_parameter_with_token_200(monkeypatch):
     """带合法 Bearer → 200 + input_schema（只读语义不变，仅补鉴权）。"""
-    monkeypatch.setattr(main_mod, "_verify_analytics_token", lambda t: None)
+    monkeypatch.setattr(api_security, "_verify_analytics_token", lambda t: None)
     r = TestClient(app).get(
         "/graph_parameter", headers={"Authorization": "Bearer sk-probe-token"})
     assert r.status_code == 200

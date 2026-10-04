@@ -8,7 +8,7 @@ from langgraph.runtime import Runtime
 from runtime.context import Context
 from pydantic import BaseModel, Field
 
-from graphs.state import GlobalState, VariantLoopState, VariantLoopOutput, VariantPrimaryLoopOutput
+from graphs.state import VariantPrimaryLoopOutput
 
 from utils.mxou_api import call_mxou_image_api  # ✅ 统一mxou API调用
 from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError  # v0.62 R4 / v0.63.1
@@ -23,6 +23,8 @@ from utils.image_gen_plan import slot_enabled  # T7b: image_gen_plan 前置条�
 
 class VariantPrimaryLoopInput(BaseModel):
     """变体主图循环生成节点输入"""
+    # ✅ W1 通道修复（同 state_image_gen.WhiteBgInput——assemble 写入的类目词此前被剥空）
+    category_name: str = Field(default="", description="匹配类目中文末级名（生图提示词用）")
     variants: List[Dict[str, Any]] = Field(default_factory=list, description="变体SKU列表")
     white_bg_image: Optional[str] = Field(default=None, description="白底图URL（可选，variant_primary_loop_node不依赖此字段）")
     multi_angle_image: Optional[str] = Field(default=None, description="多角度图URL（可选，variant_primary_loop_node不依赖此字段）")

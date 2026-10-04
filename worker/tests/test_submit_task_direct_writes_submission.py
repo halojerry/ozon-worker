@@ -9,7 +9,7 @@
   submitted_task_id=task_id、extensions=NULL。
 - 写行失败 → 任务仍入队成功（非致命，与 M0.2 同纪律）。
 - 采集路径不重复：draft_service.submit_draft 不触发额外写行（写行逻辑只在
-  main.http_submit_task 端点层，task_processor/draft_service 无写行）。
+  routes.task_queue_routes.http_submit_task 端点层，task_processor/draft_service 无写行）。
 
 运行（mock 模式，无需 PG）：
     cd worker && PYTHONPATH=src ../skill/.venv314/bin/python -m pytest tests/test_submit_task_direct_writes_submission.py -q
@@ -22,6 +22,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes import task_queue_routes  # noqa: E402
+from routes.task_queue_routes import http_submit_task  # noqa: E402
 
 
 class FakeRequest:
@@ -129,16 +133,15 @@ class _FakeProcessor:
 
 
 def _run_submit(fake_engine=None, fake_proc=None):
-    import main as main_mod
-
+    # R3a: 端点已迁 routes/task_queue_routes.py（模块级绑定 → 打路由模块命名空间）
     fake_engine = fake_engine or _FakeEngine()
     fake_proc = fake_proc or _FakeProcessor()
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=fake_engine), patch.object(
-        main_mod, "task_processor", fake_proc
+        "routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=fake_engine), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
     return resp, fake_engine, fake_proc
 
 
@@ -193,18 +196,18 @@ def test_write_row_failure_does_not_block_task():
 # ============================================================
 
 def test_collection_path_does_not_double_write():
-    """draft_service.submit_draft 不触发额外写行 — 写行只在 main.http_submit_task。
+    """draft_service.submit_draft 不触发额外写行 — 写行只在 routes.task_queue_routes.http_submit_task。
 
     结构断言（防回归）：
     - task_processor.submit_task 是两条路径共用的入队器 → 内部绝不能写行
       （否则采集路径 = draft_service 已写 + task_processor 又写 = 双写）
     - draft_service 不引用 _write_direct_submission_row
-    - main 模块定义 _write_direct_submission_row（端点层辅助）
+    - routes/task_queue_routes.py 定义 _write_direct_submission_row（端点层辅助；R3a 自 main 迁出）
     """
-    import main as main_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
-    assert hasattr(main_mod, "_write_direct_submission_row"), "写行辅助必须定义在 main 模块"
+    assert hasattr(task_queue_routes, "_write_direct_submission_row"), \
+        "写行辅助必须定义在 routes/task_queue_routes.py"
 
     proc_src = inspect.getsource(SupabaseTaskProcessor.submit_task)
     assert "draft_submissions" not in proc_src, "task_processor.submit_task 内不得写行（采集路径会双写）"
@@ -213,7 +216,7 @@ def test_collection_path_does_not_double_write():
     ds_src = inspect.getsource(draft_service.submit_draft)
     assert "_write_direct_submission_row" not in ds_src, "draft_service 不调用直连写行辅助"
 
-    submit_src = inspect.getsource(main_mod.http_submit_task)
+    submit_src = inspect.getsource(task_queue_routes.http_submit_task)
     assert "_write_direct_submission_row" in submit_src, "写行辅助必须被 http_submit_task 端点调用"
 
 

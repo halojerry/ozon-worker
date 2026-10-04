@@ -33,7 +33,6 @@ from storage.database.db import get_session
 
 from graphs.state import GlobalState
 from utils.mxou_llm import call_mxou_chat_api, MxouOutOfQuotaError  # v0.63.1: mxou_llm re-export
-from utils.safe_template import render_safe, render_safe_mapping  # v0.81: jinja2 全量切沙箱（Mimosa SSTI 加固）
 from utils.progress_logger import ProgressLogger
 from utils.ozon_category_query import (
     get_category_query, OzonCategoryQuery,
@@ -995,6 +994,57 @@ def _restricted_category_exit(state, draft: dict, candidates: list,
     return out
 
 
+def _doc_gate_exempt(state, draft: dict, extensions: dict | None = None) -> bool:
+    """✅ v0.83.2: 类目文档硬要求闸豁免判定（纯函数，可单测）。
+
+    ✅ v0.83.2 验收修复（fix/v0832-review-findings-v1）：本阶梯只管辖「学习表」
+    层——curated 人工确认在调用侧**先于**本阶梯判定（人工确认的事实对可信
+    来源照样硬）。
+    豁免三类（与受限品类闸 v0.69 拍板同一豁免哲学——闸只保护自动链路）：
+    1. 可信类目来源 manual/page/what_to_sell/widget：人工指定或 Ozon 在售竞品
+       事实（店铺可能已配置合规文件，人工路径放行；R1 成人闸独立不松动）。
+       注意 **不含 mapping**——mapping 是我们自己学习表的自动化结论，恰是
+       本闸要兜的「自动化反复撞墙」面。
+    2. 采集箱已复核（extensions.box_reviewed）：采集箱即权威（v0.70 拍板），
+       所见即所得，不重复拦；拒单后 decline 学习照常积累。
+    3. 编辑更新（extensions.update_product_id）：卡已在 Ozon 存在（原卡建卡
+       路径已过文档要求），编辑更新不重复拦。跟卖走 _assemble_follow_sell
+       早退，不经本闸。
+    """
+    ext = extensions if isinstance(extensions, dict) else {}
+    src = str(((draft or {}).get("ozon_category") or {}).get("source") or "")
+    if src in ("manual", "page", "what_to_sell", "widget"):
+        return True
+    if ext.get("box_reviewed"):
+        return True
+    return bool(str(ext.get("update_product_id") or "").strip())
+
+
+def _doc_required_exit(state, draft: dict, candidates: list, dc: int, tp: int,
+                       req_info: dict) -> dict:
+    """✅ v0.83.2: 类目文档硬要求出口——failed 终态 + 入采集箱（零白烧）。
+
+    与 _restricted_category_exit 同构；error_code=LOCAL_CATEGORY_REQUIRES_DOCUMENT
+    （graph 层 LOCAL_* 字符串口径，非 REST 错误码枚举）。刻意**不写
+    category_match_log / 不触发 mapping 负反馈**：类目匹配本身是对的，阻断
+    的是「该类目我们供不出合规文档」这一类目适配事实（写负反馈会把正确
+    mapping 错误降权）。
+    """
+    from utils.category_doc_gate import doc_gate_notice
+
+    _notice = doc_gate_notice(req_info)
+    _reason = (f"类目 [{dc}/{tp}] 需商品合规文档（PDF）：Ozon 对该类目强制要求"
+               f"商品文档（来源：{req_info.get('source')}），自动上架无法提供，"
+               f"已阻断避免白烧配额；{_notice}")
+    logger.error(f"   🛑 类目文档硬要求闸: dc/tp={dc}/{tp} "
+                 f"source={req_info.get('source')} times_seen={req_info.get('times_seen')}")
+    out = _blocked_exit(state, draft, candidates, _reason,
+                        match_confidence=None,
+                        error_code="LOCAL_CATEGORY_REQUIRES_DOCUMENT")
+    out["notice"] = f"{_notice}；{out['notice']}" if out.get("notice") else _notice
+    return out
+
+
 logger = logging.getLogger(__name__)
 
 # ==================== 常量 ====================
@@ -1013,18 +1063,7 @@ CHINA_VALUE = "Китай"
 
 # Ozon 强制属性
 FORCE_ATTR_9048 = 9048   # 变体绑定名
-FORCE_ATTR_8229 = 8229   # 类型名称
-FORCE_ATTR_4191 = 4191   # 完整描述
-FORCE_ATTR_4180 = 4180   # 短描述/关键字
-FORCE_ATTR_4958 = 4958   # 适用对象（部分类目）
-FORCE_ATTR_8962 = 8962   # 件数（部分类目）
 FORCE_ATTR_23171 = 23171 # hashtag 标签（部分类目）
-
-# 分类名属性（8229 的替代）
-TYPE_NAME_ATTR_IDS = [8229]
-
-# 集合属性（values 数组可包含多个元素）
-COLLECTION_ATTR_IDS = {9048, 23171}
 
 
 def _build_hardcoded_attributes(_description_category_id: int) -> list[dict[str, Any]]:
@@ -3052,6 +3091,37 @@ def assemble_ozon_product_node(
             return _blocked_exit(state, draft, candidates, _s65_reason,
                                  match_confidence=0.0)
 
+    # ✅ v0.83.2: 类目文档硬要求闸（第一性原理：预检代替试错）。dc/tp 定稿后、
+    # Step 7 汇出前判定——命中即入采集箱终态，省掉属性补全后的生图/上传全程
+    # （2026-10-02 生产实锤：袜子类目省略 pdf_list 仍被 Ozon 拒
+    # PDF_SRC_URL_IS_EMPTY，白烧一轮 import+生图）。
+    # ✅ v0.83.2 验收修复（fix/v0832-review-findings-v1）：curated 人工确认
+    # **先于**豁免阶梯——discover 主流源 what_to_sell/page 若先豁免，会连同
+    # curated/学习表一起绕过（每单白烧 + 运营登记失效）。学习表仍只在豁免
+    # 阶梯之内生效；decline 学习见 ozon_status_node（拒单自动 upsert
+    # category_doc_requirements）。
+    _dc_i, _tp_i = int(description_category_id or 0), int(type_id or 0)
+    try:
+        from utils.category_doc_gate import curated_doc_requirement
+
+        _doc_req = curated_doc_requirement(_dc_i, _tp_i)
+    except Exception as _doc_gate_e:
+        logger.warning("类目文档硬要求闸 curated 判定异常（fail-open 放行）: %s",
+                       _doc_gate_e)
+        _doc_req = None
+    if not _doc_req and not _doc_gate_exempt(state, draft, extensions):
+        try:
+            from utils.category_doc_gate import requires_document
+
+            _doc_req = requires_document(_dc_i, _tp_i)
+        except Exception as _doc_gate_e:
+            logger.warning("类目文档硬要求闸判定异常（fail-open 放行）: %s",
+                           _doc_gate_e)
+            _doc_req = None
+    if _doc_req:
+        return _doc_required_exit(state, draft, candidates, _dc_i, _tp_i,
+                                  _doc_req)
+
     # =====================================================
     # Step 7: 返回结果 dict（LangGraph 自动合并到 GlobalState）
     # =====================================================
@@ -3329,77 +3399,6 @@ def _rebuild_for_new_category(
         }
     except Exception as e:
         logger.error(f"   ❌ 新类目重建异常: {e}")
-        return None
-
-
-def _llm_match_category(
-    title: str,
-    description: str,
-    attributes: dict[str, Any],
-    candidates: list[dict[str, Any]],
-    token: str,
-) -> Optional[dict[str, Any]]:
-    """LLM 从候选类目列表中选出最佳匹配"""
-    try:
-        workspace = os.getenv("APP_WORKSPACE_PATH", "/app")
-        cfg_path = os.path.join(workspace, "config/category_match_v2_cfg.json")
-
-        with open(cfg_path, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        llm_cfg = cfg.get("config", {})
-        model_id = llm_cfg.get("model", "deepseek-v4-flash-vision-exp")
-        sp_template = cfg.get("sp", "")
-        up_template = cfg.get("up", "")
-
-        # v0.81: 渲染走 SandboxedEnvironment 沙箱（utils/safe_template，Mimosa SSTI 加固）
-        system_prompt = render_safe(sp_template)
-
-        # 准备模板变量
-        attr_flat = {}
-        if attributes:
-            for k, v in attributes.items():
-                if isinstance(v, (str, int, float)):
-                    attr_flat[k] = str(v)
-
-        user_prompt = render_safe_mapping(up_template, {
-            "title": title,
-            "description": description[:500] if description else "",
-            "attributes": attr_flat,
-            "candidates": candidates,
-        })
-
-        resp = call_mxou_chat_api(
-            token=token,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            model=model_id,
-            temperature=0.0,
-            max_tokens=1024,
-        ) or ""
-
-        if not resp.strip():
-            logger.error("LLM 类目匹配返回空")
-            return None
-
-        # 清理 JSON
-        resp = resp.replace("```json", "").replace("```", "").strip()
-        # 尝试提取 JSON 对象
-        match = re.search(r'\{[^{}]*"description_category_id"[^{}]*\}', resp, re.DOTALL)
-        if match:
-            resp = match.group(0)
-
-        result = json.loads(resp)
-        logger.info(f"   LLM 类目匹配: {result.get('category_path', '')} (confidence={result.get('confidence', '?')})")
-        return result
-
-    except json.JSONDecodeError as e:
-        logger.error(f"LLM 类目匹配 JSON 解析失败: {e}, raw={resp[:200]}")
-        return None
-    except MxouOutOfQuotaError:
-        raise  # v0.63.1: 余额/鉴权/额度永久错误 → 任务明确失败，不降级到下一匹配层
-    except Exception as e:
-        logger.error(f"LLM 类目匹配异常: {e}")
         return None
 
 
@@ -4102,7 +4101,11 @@ def _validate_and_enrich_items(
                             dict_vals = _fetched
                             logger.info(f"   📡 API 获取字典值: attr={missing_id}, {len(_fetched)}条")
                     except Exception as _fe:
-                        logger.debug(f"   API 获取字典值失败 attr={missing_id}: {_fe}")
+                        # ✅ v0.83.2: debug→warning——必填字典回源失败此前完全不可见
+                        # （2026-10-02 生产：4 个必填字典属性同时"无法获取任何字典值"，
+                        # 回源异常被 debug 吞掉无法定位是限流/凭证/负缓存）。搜索
+                        # no-hit 属正常业务（下方仍 debug），回源异常才是故障信号。
+                        logger.warning(f"   ⚠️ API 获取字典值失败 attr={missing_id}: {_fe}")
 
                 # 尝试用产品标题搜索字典值（比取第一个更准确）
                 if draft_title and isinstance(dict_vals, list) and dict_vals:

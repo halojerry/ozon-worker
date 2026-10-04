@@ -26,8 +26,8 @@ from scripts.lib.utils import safe_unlink
 logger = logging.getLogger(__name__)
 
 # 版本指纹：key 哈希前缀。skill 升级（VERSION 变更）→ 全部命名空间一次性失效，
-# 防旧版本缓存污染新版本逻辑（cache poisoning）。⚠️ 勿用 _const.SKILL_VERSION——
-# 它是过期残留（0.4.0），真实版本在 SKILL_ROOT/VERSION。
+# 防旧版本缓存污染新版本逻辑（cache poisoning）。版本源是 SKILL_ROOT/VERSION
+# 文件——禁止在 _const.py 重新引入版本常量（历史事故：曾冻结在 0.4.0）。
 _CACHE_VERSION: str | None = None
 
 

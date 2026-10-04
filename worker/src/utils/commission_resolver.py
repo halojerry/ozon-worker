@@ -23,6 +23,11 @@ from storage.database.shared.model import CategoryCommission
 # FBS 是 worker 主履约通道；FBO 段仍入库，解析时按需换 prefix
 DEFAULT_PREFIX = "fbs"
 
+# ✅ W3a SoT: provisional band-pass 的种子佣金率（v0.59：「先 0.10 算临时价选档，
+# 再 resolve 真实佣金重算」破「档位↔价格」鸡生蛋）。归属本模块——band-pass 是
+# 佣金域的机制细节，定价链只引用不自定义（pricing_core 唯一消费方）。
+PROVISIONAL_COMMISSION_RATE = 0.10
+
 _SEGMENT_KEYS = (
     "fbs_leq_1500",
     "fbs_leq_5000",

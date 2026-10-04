@@ -57,7 +57,7 @@ def is_admin_user(user_id: str) -> bool:
     if user_id == "local_dev":
         return True
     try:
-        from main import get_supabase_client
+        from storage.database.supabase_client import get_supabase_client  # ✅ W3b: 直连 storage
         supabase = get_supabase_client()
         if supabase is None:
             return False  # fail-closed：未配置 Supabase 不放行（本地开发走 local_dev）
@@ -134,7 +134,7 @@ def get_overview() -> dict:
 def _list_supabase_users() -> list[dict]:
     """Supabase users 表全量（id/username/quota/role/created_at）；无 Supabase → []。"""
     try:
-        from main import get_supabase_client
+        from storage.database.supabase_client import get_supabase_client  # ✅ W3b: 直连 storage
         supabase = get_supabase_client()
         if supabase is None:
             return []
@@ -172,21 +172,28 @@ def list_users() -> list[dict]:
 
 
 def get_user_detail(user_id: str) -> dict:
-    """用户详情：店铺列表 + 任务统计。"""
+    """用户详情：店铺列表 + 任务统计。
+
+    ✅ v0.83.2 修复 ResponseValidationError 500（生产 2026-10-02 实锤，
+    Sentry 0b623dff）：stores 出参缺 tenant_id——AdminUserDetailOut.stores
+    复用 AdminStoreOut（跨用户店铺列表形状，tenant_id 必填）。SELECT 补列，
+    值恒等于入参 user_id（credentials.tenant_id 即归属）。
+    """
     stores = []
     for row in _pg_rows(
-        "SELECT id, ozon_client_id, shop_name, currency, is_default, status, "
+        "SELECT id, tenant_id, ozon_client_id, shop_name, currency, is_default, status, "
         "last_validated_at FROM credentials WHERE tenant_id=:t ORDER BY created_at DESC",
         {"t": user_id},
     ):
         stores.append({
             "id": str(row[0]),
-            "ozon_client_id": str(row[1]),
-            "shop_name": str(row[2] or ""),
-            "currency": str(row[3] or "CNY"),
-            "is_default": bool(row[4]),
-            "status": str(row[5] or "active"),
-            "last_validated_at": row[6].isoformat() if row[6] else None,
+            "tenant_id": str(row[1] or user_id),
+            "ozon_client_id": str(row[2]),
+            "shop_name": str(row[3] or ""),
+            "currency": str(row[4] or "CNY"),
+            "is_default": bool(row[5]),
+            "status": str(row[6] or "active"),
+            "last_validated_at": row[7].isoformat() if row[7] else None,
         })
     task_total = _pg_count("SELECT COUNT(*) FROM ozon_product_tasks WHERE tenant_id=:t", {"t": user_id})
     task_completed = _pg_count(
@@ -232,17 +239,21 @@ def list_stores() -> list[dict]:
 # ──────────────────────────────────────────────
 
 
-async def get_task_stats() -> dict:
-    """全租户任务统计（复用 task_processor.get_task_statistics）。
+async def get_task_stats(tenant_id: Optional[str] = None) -> dict:
+    """任务统计（缺省全租户；tenant_id 指定 → 单租户过滤）。
 
     async——内部 await task_processor.get_task_statistics；同步调用会拿到
     coroutine 未 await → 响应序列化 500（QA 实测 /admin/tasks 崩溃根因）。
+    ✅ v0.83.2：补 tenant_id 透传（task_processor.get_task_statistics 本就
+    支持租户过滤，路由层此前没接——事故排查时 ?tenant_id=28 被静默忽略）。
     """
     try:
-        from main import task_processor
+        from orchestrator.task_processor import get_task_processor  # ✅ W3b: 不再 from main
+        task_processor = get_task_processor()
         if task_processor is None:
             return {"error": "Task processor not initialized"}
-        return await task_processor.get_task_statistics(None)
+        return await task_processor.get_task_statistics(
+            str(tenant_id).strip() if tenant_id and str(tenant_id).strip() else None)
     except Exception as exc:
         logger.warning("任务统计失败: %s", str(exc)[:200])
         return {"error": str(exc)[:200]}

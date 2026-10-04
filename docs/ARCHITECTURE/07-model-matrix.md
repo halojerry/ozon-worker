@@ -61,7 +61,7 @@ None     = fail-open，Supabase users.quota stale 镜像兜底（unlimited 恒�
 
 - `_check_balance_cached`（:496-526）：30s TTL + **token 指纹绑定**（防多用户互染）；**首查 0.0 不写缓存、二次直查确认**（B2 防缓存污染大面积 402）。
 - 低余额告警：0<balance<¥50（BALANCE_ALERT_THRESHOLD）→ token 指纹 30min 去重 → POST TASK_NOTIFY_URL。
-- 402 文案带 source 标识（mxou_real/mxou_session/supabase/unknown，main.py:1794-1826）。
+- 402 文案带 source 标识（mxou_real/mxou_session/supabase/unknown，`routes/task_queue_routes.py` submit/resubmit 两出口；标签函数 `api/security.py` `_balance_source_label`）。
 - ⚠️ 余额探测 HTTP 不进 mxou_call_ledger；多 worker 缓存不共享（只告警不拦）。
 
 ## 5. 台账（mxou_call_ledger）
@@ -74,7 +74,7 @@ None     = fail-open，Supabase users.quota stale 镜像兜底（unlimited 恒�
 
 - `_is_out_of_quota_response:529`：401/403 或 body 额度词 → `MxouOutOfQuotaError`（永久）。
 - `MxouContentViolationError`：violation/关键词 → 不重试不降级（永久）。
-- 任务级永久分类 `_is_permanent_task_error`（task_processor.py:40-58）：isinstance + 消息前缀 `OUT_OF_QUOTA:`/含「内容违规」→ failed 不耗 retry；Sentry 单一 fingerprint。
+- 任务级永久分类 `_is_permanent_task_error`（`orchestrator/task_processor.py`）：isinstance + 消息前缀 `OUT_OF_QUOTA:`/含「内容违规」→ failed 不耗 retry；Sentry 单一 fingerprint。
 - graph 层刻意不挂 langgraph retry_policy（graph.py:447）。
 - **OutOfQuota 吞异常回归口**（v0.63.1 修复后被新代码重新引入 ×5）：A5 整段、_translate_ru、revalidate 两处翻译、ai_field_service——余额耗尽时静默降级而非「请充值」（09-#4）。
 

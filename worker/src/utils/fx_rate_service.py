@@ -24,7 +24,7 @@ import time
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
-import requests
+from utils.secure_fetch import safe_fetch  # ✅ W3a: 出站唯一入口（requests 直连退役）
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,9 @@ _LAST_AT: float = 0.0          # 模块级节流游标（进程内共享即可�
 def fetch_cny_rub_live() -> Optional[float]:
     """拉取实时 CNY→RUB 汇率；任何异常/缺键/非正数返回 None（绝不 raise）。"""
     try:
-        resp = requests.get(_FX_API_URL, timeout=_FX_HTTP_TIMEOUT)
+        # ✅ W3a: 出口收编 safe_fetch（SSRF 每跳复核唯一入口）；调用方宽 except
+        # 兜底是 safe_fetch 的接线纪律（畸形 Location 可抛裸 ValueError，fail-closed）
+        resp = safe_fetch(_FX_API_URL, timeout=_FX_HTTP_TIMEOUT)
         payload = resp.json() or {}
         rate = float(payload["rates"]["RUB"])
     except Exception as exc:

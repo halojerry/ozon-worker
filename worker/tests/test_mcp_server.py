@@ -217,8 +217,8 @@ async def test_middleware_rejects_invalid_token(monkeypatch):
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Token is revoked")
 
-    import main as _main
-    monkeypatch.setattr(_main, "_authenticate_token", fake_auth)
+    import main as _main  # noqa: F401 — 保留：app 挂载断言仍用
+    monkeypatch.setattr("api.security._authenticate_token", fake_auth)  # ✅ W3b: 中间件经 security 取鉴权
     transport = _mcp_asgi_transport()
     async with httpx.AsyncClient(transport=transport, base_url="http://mcp") as client:
         resp = await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
@@ -235,7 +235,7 @@ async def test_middleware_passes_valid_token_to_mcp_app(monkeypatch):
 
     monkeypatch.setattr(_main, "_authenticate_token", fake_auth)
     # 直打 wrapper：真实挂载时 Mount 已剥掉 /mcp 前缀（root_path=/mcp, path=/），故 POST /；
-    # fastmcp session manager 需要 lifespan 在跑（真实挂载由 main._root_lifespan 提供）。
+    # fastmcp session manager 需要 lifespan 在跑（真实挂载由 app_factory._root_lifespan 提供）。
     init_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
                  "params": {"protocolVersion": "2025-03-26", "capabilities": {},
                             "clientInfo": {"name": "t", "version": "0"}}}

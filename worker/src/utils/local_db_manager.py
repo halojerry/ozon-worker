@@ -18,12 +18,9 @@ from storage.database.shared.model import (
     DictionaryValueCache,
     CategoryCache,
     CategoryTreeNode,
-    LogisticsRate,
     ExchangeRate,
     OzonAttributeMapping,
-    GatewayTask,
     CategoryMapping,
-    AttributeSynonym,
     WebCategoryPathMap,
 )
 
@@ -65,32 +62,6 @@ class LocalDBManager:
     # 查询方法
     # ============================================================
 
-    def get_attribute_cache(self, description_category_id: int, type_id: Optional[int], language: str = "ZH_HANS") -> Optional[Dict[str, Any]]:
-        """查询属性缓存"""
-        current_time = int(time.time())
-        session = get_session()
-        try:
-            row = session.execute(
-                select(AttributeCache).where(
-                    and_(
-                        AttributeCache.description_category_id == description_category_id,
-                        AttributeCache.type_id == type_id,
-                        AttributeCache.language == language,
-                        AttributeCache.expires_at > current_time,
-                    )
-                )
-            ).scalar_one_or_none()
-            if row:
-                logger.info(f"✅ PG 查询命中：attribute_cache（category_id={description_category_id}）")
-                return {
-                    "attributes_schema": row.attributes_schema,
-                    "expires_at": row.expires_at,
-                }
-            logger.info(f"❌ PG 查询未命中：attribute_cache（category_id={description_category_id}）")
-            return None
-        finally:
-            session.close()
-
     def get_dictionary_value_cache(self, attribute_id: int, description_category_id: int, type_id: Optional[int], language: str = "ZH_HANS") -> Optional[Dict[str, Any]]:
         """查询字典值缓存"""
         current_time = int(time.time())
@@ -114,57 +85,6 @@ class LocalDBManager:
                     "expires_at": row.expires_at,
                 }
             logger.info(f"❌ PG 查询未命中：dictionary_value_cache（attribute_id={attribute_id}）")
-            return None
-        finally:
-            session.close()
-
-    def get_category_cache(self, ozon_client_id: str, language: str = "ZH_HANS") -> Optional[Dict[str, Any]]:
-        """查询类目树缓存"""
-        current_time = int(time.time())
-        session = get_session()
-        try:
-            row = session.execute(
-                select(CategoryCache).where(
-                    and_(
-                        CategoryCache.ozon_client_id == ozon_client_id,
-                        CategoryCache.language == language,
-                        CategoryCache.expires_at > current_time,
-                    )
-                )
-            ).scalar_one_or_none()
-            if row:
-                logger.info(f"✅ PG 查询命中：category_cache（client_id={ozon_client_id}）")
-                return {
-                    "tree_data": row.tree_data,
-                    "expires_at": row.expires_at,
-                }
-            logger.info(f"❌ PG 查询未命中：category_cache（client_id={ozon_client_id}）")
-            return None
-        finally:
-            session.close()
-
-    def get_logistics_cost(self, weight: float, channel: str = "standard") -> Optional[Dict[str, Any]]:
-        """查询物流费率"""
-        session = get_session()
-        try:
-            row = session.execute(
-                select(LogisticsRate).where(
-                    and_(
-                        LogisticsRate.weight_min <= weight,
-                        LogisticsRate.weight_max >= weight,
-                    )
-                ).limit(1)
-            ).scalar_one_or_none()
-            if row:
-                logger.info(f"✅ PG 查询命中：logistics_rates（weight={weight}g）")
-                return {
-                    "base_cost": row.base_cost,
-                    "per_gram_rate": row.per_gram_rate,
-                    "scoring_group": row.scoring_group,
-                    "service_level": row.service_level,
-                    "tpl_provider": row.tpl_provider,
-                }
-            logger.info(f"❌ PG 查询未命中：logistics_rates（weight={weight}g）")
             return None
         finally:
             session.close()
@@ -224,30 +144,6 @@ class LocalDBManager:
                 ]
             logger.info(f"❌ PG 查询未命中：ozon_attribute_mappings（category_id={category_id}）")
             return []
-        finally:
-            session.close()
-
-    def get_gateway_task(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """查询任务状态"""
-        session = get_session()
-        try:
-            row = session.execute(
-                select(GatewayTask).where(GatewayTask.task_id == task_id)
-            ).scalar_one_or_none()
-            if row:
-                logger.info(f"✅ PG 查询命中：gateway_tasks（task_id={task_id}）")
-                return {
-                    "id": row.id,
-                    "task_id": row.task_id,
-                    "status": row.status,
-                    "result_json": row.result_json,
-                    "stages": row.stages,
-                    "error": row.error,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at,
-                }
-            logger.info(f"❌ PG 查询未命中：gateway_tasks（task_id={task_id}）")
-            return None
         finally:
             session.close()
 
@@ -452,29 +348,6 @@ class LocalDBManager:
             session.execute(stmt)
             session.commit()
             logger.info(f"✅ PG 写入成功：exchange_rates（{from_currency}→{to_currency}={rate}）")
-        finally:
-            session.close()
-
-    def set_gateway_task(self, task_id: str, status: str, result_json: Optional[Dict[str, Any]] = None, stages: Optional[Dict[str, str]] = None, error: Optional[str] = None):
-        """写入任务状态"""
-        current_time = int(time.time())
-        session = get_session()
-        try:
-            stmt = pg_insert(GatewayTask).values(
-                task_id=task_id,
-                status=status,
-                result_json=result_json,
-                stages=stages,
-                error=error,
-                created_at=current_time,
-                updated_at=current_time,
-            ).on_conflict_do_update(
-                constraint="gateway_tasks_task_id_key",
-                set_=dict(status=status, result_json=result_json, stages=stages, error=error, updated_at=current_time),
-            )
-            session.execute(stmt)
-            session.commit()
-            logger.info(f"✅ PG 写入成功：gateway_tasks（task_id={task_id}，status={status}）")
         finally:
             session.close()
 
@@ -810,28 +683,6 @@ class LocalDBManager:
             session.rollback()
             logger.warning(f"⚠️ mark_category_mapping_failed 失败(非致命): {_e}")
             return 0
-        finally:
-            session.close()
-
-    def get_attr_synonyms(self, source_attr_names: List[str]) -> Dict[str, Dict[str, Any]]:
-        if not source_attr_names:
-            return {}
-        session = get_session()
-        try:
-            rows = session.execute(
-                select(AttributeSynonym)
-                .where(AttributeSynonym.source_attr_name.in_(source_attr_names))
-                .order_by(AttributeSynonym.confidence.desc())
-            ).scalars().all()
-            result = {}
-            for r in rows:
-                if r.source_attr_name not in result:
-                    result[r.source_attr_name] = {
-                        "target_name": r.target_ozon_attr_name,
-                        "target_id": r.target_ozon_attr_id,
-                        "confidence": r.confidence,
-                    }
-            return result
         finally:
             session.close()
 

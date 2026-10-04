@@ -14,10 +14,29 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import pytest  # noqa: E402
+
 from graphs.nodes.assemble_ozon_product_node import (
     _build_items_deterministically,
     _validate_and_enrich_items,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_live_ozon_dict_search(monkeypatch):
+    """✅ W3b 外呼立法配套：本文件的字典匹配全部走 _dict_lookup 桩；assemble
+    缺词兜底的 /values/search（utils.ozon_dict_values）此前会打真 Ozon API
+    （CI 有网侥幸通过，机器断网即整卡死——2026-09 W3a 全量验证事故链）。
+    统一 mock 成确定性桩：搜索恒无结果 / RU 补查恒回退 fallback，与节点
+    「精确不中不盲采、交 prepare 消歧」的宁缺毋滥语义一致。"""
+    monkeypatch.setattr(
+        "utils.ozon_dict_values.search_dictionary_values", lambda *a, **kw: []
+    )
+
+    def _ru_fallback(*args, **kwargs):
+        return kwargs.get("fallback", "")
+
+    monkeypatch.setattr("utils.ozon_dict_values.fetch_ru_dict_value", _ru_fallback)
 
 
 def _schema():

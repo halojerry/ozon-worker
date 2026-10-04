@@ -1,7 +1,8 @@
 """api 兜底信封（无 1688 货源字段）应能通过入队校验（P1 回归）。"""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from main import _validate_draft_required_fields
+# R3a: 校验辅助已随 submit 端点迁 routes/task_queue_routes.py
+from routes.task_queue_routes import _validate_draft_required_fields
 
 def test_api_follow_envelope_skips_1688_fields():
     draft = {

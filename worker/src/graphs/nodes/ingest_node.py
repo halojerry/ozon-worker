@@ -9,6 +9,7 @@ from typing import Any, Dict
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
+from utils.envelope_contract import envelope_strict_enabled, validate_envelope  # ✅ hotfix: 下沉 utils（graphs 不向上 import api）
 from graphs.state import IngestInput, IngestOutput
 
 
@@ -55,6 +56,24 @@ def ingest_node(state: IngestInput, config: RunnableConfig, runtime: Runtime[Con
             source: Dict[str, Any] = envelope.get("source", {})
             extensions: Dict[str, Any] = envelope.get("extensions", {})
             logger.info("✅ Payload结构：标准三层结构（envelope包含draft字段）")
+            # ✅ W2 信封契约硬化：直调/绕过提交层的路径在此兜底（口径同 main.py——
+            # 未知键 fail-closed，ENVELOPE_STRICT=0 降级 warn）
+            envelope_errors = validate_envelope(envelope)
+            if envelope_errors:
+                if envelope_strict_enabled():
+                    logger.error("❌ 信封契约校验失败（ingest 兜底闸）: %s", envelope_errors[:3])
+                    return IngestOutput(
+                        task_id="",
+                        status="error",
+                        draft=draft,
+                        source=source,
+                        extensions=extensions,
+                        currency_code=currency_code,
+                        item_id=str((draft or {}).get("item_id", "") or ""),
+                        error_message=f"信封契约校验失败: {envelope_errors[0]}",
+                        failed_stage="ingest",
+                    )
+                logger.warning("⚠️ 信封契约校验失败（ENVELOPE_STRICT=0 降级放行）: %s", envelope_errors[:3])
         else:
             # 扁平结构（envelope直接包含产品数据）
             draft: Dict[str, Any] = envelope  # 直接使用envelope作为draft

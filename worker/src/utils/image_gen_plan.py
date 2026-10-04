@@ -65,20 +65,6 @@ DEFAULT_PLAN: Dict[str, int] = {
 }
 
 
-def validate_plan(plan: Optional[Dict[str, Any]]) -> None:
-    """校验 image_gen_plan；非法 → 抛 ValueError。
-
-    Momus W1：plan 必须含 Phase1（white_bg 或 multi_angle，count>=1）——Phase2
-    节点依赖 Phase1 输出作参考图（graph.py:235-245）。仅 Phase2 类型 → 拒绝并提示
-    「需至少包含白底图或多角度图」。未知类型（材质/尺寸 v1 置灰）不阻断。
-    """
-    if not isinstance(plan, dict) or not plan:
-        raise ValueError("image_gen_plan 不能为空：需至少包含白底图或多角度图")
-    has_phase1 = any(plan.get(slot, 0) for slot in PHASE1_SLOTS)
-    if not has_phase1:
-        raise ValueError("image_gen_plan 需至少包含白底图或多角度图（Phase2 节点依赖 Phase1 输出作参考图）")
-
-
 def plan_to_slots(plan: Optional[Dict[str, Any]]) -> set[str]:
     """type→slot 展开：返回启用的 slot 集合。
 

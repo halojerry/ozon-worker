@@ -90,8 +90,8 @@ def _run_process_next(graph_result, payload=None, writeback_spy=None):
     返回 (engine, writeback_calls, events)。writeback_calls 为
     [(task_id, status, error_message)]；events 记录 commit/writeback 顺序。
     """
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     events = []
     engine = _FakeEngine(_make_task_row(payload), events)
@@ -122,8 +122,8 @@ def _terminal_update(engine):
 def _run_handle_failure_permanent(error_message="boom", retry_count=3, max_retries=3,
                                   permanent=False):
     """驱动 handle_task_failure 重试耗尽（永久失败）分支。"""
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     events = []
     engine = _FakeEngine(_make_failure_row(retry_count, max_retries), events)
@@ -227,7 +227,7 @@ def test_handle_failure_permanent_flag_skips_retry():
 
 def test_is_permanent_error_classification():
     """R1/R4 闭环：余额/鉴权/内容违规异常 → 永久错误；普通异常可重试。"""
-    import utils.task_processor as tp_mod
+    import orchestrator.task_processor as tp_mod
     from utils.mxou_api import MxouContentViolationError, MxouOutOfQuotaError
 
     assert tp_mod._is_permanent_task_error(MxouOutOfQuotaError("OUT_OF_QUOTA: x")) is True
@@ -245,8 +245,8 @@ def test_is_permanent_error_classification():
 
 def _run_process_next_exception(exc):
     """驱动 process_next_task，图执行抛 exc → 捕获 capture_task_error 调用。"""
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     engine = _FakeEngine(_make_task_row({}), [])
     captured = []
@@ -304,8 +304,8 @@ def test_writeback_after_commit_order():
 # ============================================================
 
 def test_writeback_exception_does_not_break_task():
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     events = []
     engine = _FakeEngine(_make_task_row(), events)
@@ -341,7 +341,7 @@ def test_writeback_exception_does_not_break_task():
 # ============================================================
 
 def test_on_chain_error_does_not_capture():
-    from utils.task_processor import ProgressCallback
+    from orchestrator.task_processor import ProgressCallback
 
     captured = []
 
@@ -349,7 +349,7 @@ def test_on_chain_error_does_not_capture():
         captured.append((a, k))
 
     cb = ProgressCallback("task-1", lambda *a: None)
-    with patch("utils.task_processor.capture_task_error", side_effect=_spy):
+    with patch("orchestrator.task_processor.capture_task_error", side_effect=_spy):
         cb.on_chain_error(ValueError("node boom"), run_id="r1")
     assert captured == [], f"on_chain_error 不应再调用 capture_task_error: {captured}"
 
@@ -361,8 +361,8 @@ def test_on_chain_error_does_not_capture():
 # ============================================================
 
 def test_process_next_task_sets_trace_id():
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     events = []
     engine = _FakeEngine(_make_task_row(), events)

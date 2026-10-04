@@ -31,14 +31,14 @@
 - `resolve_commission_rate_detail:127`：缓存段值 ≤0 视同未命中（0% 污染守卫读侧）；>180d→stale；超龄且无 segments→`fallback:stale`（0.10）。
 - **provisional-price band pass**（pricing_node:209-235 / estimate_service:142-171）：先 0.10 算临时价→选档→resolve 真佣金→重算，破解「档位依赖价格/价格依赖佣金」环。⚠️ 两处临时价口径不一：pricing_node 不传三档 kwargs、estimate_service 传——选出的价格段可能不同（09-#7-定价）。
 - `category_commission` 表：FBS/FBO×三段，全局共享无 tenant；`upsert` 随用续期 updated_at；**写侧无入参守卫**（当前唯一写方 learning approved 回填 `_backfill_category_commission` LR:319-378，parse 0% 守卫天然拦 0，风险受控）。
-- `/api/v1/commissions/lookup`（main.py:3612）+ MCP `lookup_commission` + skill `_query_commission_from_worker`（fbs 段优先）。
+- `/api/v1/commissions/lookup`（`routes/catalog_routes.py` `http_commissions_lookup`）+ MCP `lookup_commission` + skill `_query_commission_from_worker`（fbs 段优先）。
 
 ## 4. 物流（utils/logistics_quote.py）
 
 - 费率表 = 独立 `logistics_rates` 表（~142 条真实费率，非 SystemSettings）；四级 fallback：Q1(3PL+等级+重量+尺寸)→Q2(仅重量)→Q3(同等级跨 3PL)→RETS Standard→绝对兜底 max(5, 0.05×weight)。
 - **体积重计费**：billable = max(实重, D×W×H ÷ vol_weight_divisor)；`cost = base + per_gram × billable`（:144-149）。
 - 3PL/等级探测 `/v2/delivery-method/list`，失败回退 ("RETS","Standard") 绝不抛。
-- 端点 `POST /api/v1/logistics/quote`（`_require_bearer`+专属限流键）；skill `_query_logistics_from_worker`（缺重按 500g 查表→last-good 同重量带 24h→本地分段 ¥6/¥8/¥15）。
+- 端点 `POST /api/v1/logistics/quote`（`_require_bearer`+专属限流键）；skill `_query_logistics_from_worker`（缺重按 500g 查表→last-good 同重量带 24h→本地分段 ¥6/¥8/¥15）。（注：2026-10 已随死代码清扫移除——skill 侧直查 helper 退役，预估统一走 worker `/estimate`）
 
 ## 5. 汇率三级链（utils/fx_rate_service.py:53-82）
 

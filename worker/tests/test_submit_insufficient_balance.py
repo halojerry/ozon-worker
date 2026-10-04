@@ -11,6 +11,9 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_submit_task  # noqa: E402
+
 
 class FakeRequest:
     def __init__(self, body):
@@ -63,12 +66,12 @@ class _FakeProcessor:
 
 def test_submit_task_insufficient_balance_returns_unified_402():
     """余额不足 → 统一错误响应：HTTP 402 + ok=false + INSUFFICIENT_BALANCE。"""
-    import main as main_mod
-
+    # R3a: 端点已迁 routes/task_queue_routes.py；直调函数从路由模块 import，
+    # task_processor 打 orchestrator holder，_check_mxou_balance 为路由模块级绑定。
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(0.0, False)
-    ), patch.object(main_mod, "task_processor", _FakeProcessor()):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(_submit_body())))
+        "routes.task_queue_routes._check_mxou_balance", return_value=(0.0, False)
+    ), patch.object(task_processor_mod, "_task_processor", _FakeProcessor()):
+        resp = asyncio.run(http_submit_task(FakeRequest(_submit_body())))
 
     assert resp.status_code == 402, f"余额不足应返回 402，实际 {resp.status_code}"
     body = json.loads(resp.body)

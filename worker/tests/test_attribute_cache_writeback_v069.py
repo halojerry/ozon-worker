@@ -112,23 +112,6 @@ def test_set_attribute_cache_round_trip_via_query_reader():
 
 
 @_pg_required
-def test_set_attribute_cache_round_trip_local_db_reader():
-    """LocalDBManager.get_attribute_cache 同样读回（双读入口形状一致）。"""
-    from utils.local_db_manager import LocalDBManager
-
-    _cleanup_fake_rows()
-    try:
-        LocalDBManager().set_attribute_cache(
-            _FAKE_DC, _FAKE_TP1, _SCHEMA_FIXTURE, language="ZH_HANS", expires_in=86400,
-        )
-        got = LocalDBManager().get_attribute_cache(_FAKE_DC, _FAKE_TP1, language="ZH_HANS")
-        assert got is not None
-        assert got["attributes_schema"] == _SCHEMA_FIXTURE
-    finally:
-        _cleanup_fake_rows()
-
-
-@_pg_required
 def test_set_attribute_cache_upsert_overwrites():
     """同 (dc,tp,language) 二次写入覆盖旧 schema（懒加载回写可刷新 warm 旧数据）。"""
     from utils.local_db_manager import LocalDBManager

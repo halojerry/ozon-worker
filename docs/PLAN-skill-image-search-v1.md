@@ -345,7 +345,7 @@ aibuy 图搜 API (找品)                    → offerId + 标题/价格/图/月
 
 **根因验证（代码级确认）**：
 ```
-cloud_probe.py:2280  publish_product_new（graph/batch 提交主路径）
+cloud_probe.py:2280  publish_product_new（graph/batch 提交主路径）（注：2026-10 已随死代码清扫移除——无生产调用方）
   search_text = category_query or title   ← 用完整商品标题搜 Ozon 类目树
   → 歧义词错配：水枪→Пистолет-маркиратор / 护手霜→Крем интимный / 收纳盒→Органайзер рыболовный
 cloud_probe.py:1315  build_graph_envelope（另一路径）
@@ -436,7 +436,7 @@ Agent web_search 趋势 → LLM 提炼关键词
 
 ### 追加需求（2026-08-12 用户三新需求）
 
-**需求 1【已实现】graph 提交前预估售价**：cmd_graph 用 `_query_logistics_from_worker`（真实运费）+ 定价公式算预估售价，提交前打印 `💰 预估: 采购¥X + 运费¥Y → 售价≈¥Z (利润¥W, 率R%)`。实测化妆刷：采购7.33+运费6.03→售价18.56/利润5.20/率28%。commit a50cf1f。
+**需求 1【已实现】graph 提交前预估售价**：cmd_graph 用 `_query_logistics_from_worker`（真实运费）+ 定价公式算预估售价，提交前打印 `💰 预估: 采购¥X + 运费¥Y → 售价≈¥Z (利润¥W, 率R%)`。实测化妆刷：采购7.33+运费6.03→售价18.56/利润5.20/率28%。commit a50cf1f。（注：2026-10 已随死代码清扫移除——预估统一走 worker `/estimate` 唯一出口）
 
 **需求 2【已实现】query 展示采购明细 + 比价建议**：`_print_query_result` 增强展示 product_summary 完整字段（采购链接/采购价/运费——此前只展示 OzonID/售价/利润率/审核，数据在 worker 已算好但 skill 展示层丢弃）+ 💡 比价建议（引导去 1688/淘宝/拼多多/阿里国际站对比货源）。实测输出完整。commit a50cf1f。
 

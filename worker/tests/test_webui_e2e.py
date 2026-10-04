@@ -173,10 +173,12 @@ def _db(sql: str, params: dict | None = None):
 
 
 class FakeTaskProcessor:
-    """mock main.task_processor：submit_task 像真实一样插入 pending 行并返回 UUID。
+    """mock 编排器 holder：submit_task 像真实一样插入 pending 行并返回 UUID。
 
-    draft_service._submit_task 懒导入 main.task_processor（lifespan 初始化），
-    测试中替换为同签名 fake —— 唯一被替换的内部入队器（真实入队需 worker 进程）。
+    ✅ W3b：draft_service._submit_task 经 orchestrator.task_processor holder 取
+    单例（lifespan 注入）。测试替换 = 钉 holder 全局（打 main.task_processor
+    已拦不到该链路）。⚠️ holder 是进程级全局——conftest 的快照恢复 fixture
+    防其他测试用 `with TestClient` 跑 lifespan 后真实 processor 驻留污染本用例。
     """
 
     def __init__(self):
@@ -216,7 +218,7 @@ def _submit(client, monkeypatch, credential_id=None) -> str:
     draft_id = _create_draft(client)
     cred_id = credential_id or _setup_credential(client)
     fake_tp = FakeTaskProcessor()
-    monkeypatch.setattr(main_mod, "task_processor", fake_tp)
+    monkeypatch.setattr("orchestrator.task_processor._task_processor", fake_tp)  # ✅ W3b: 钉 holder（draft_service 消费点）
     with patch("services.draft_service.ozon_post",
                return_value={"items": [], "total": 0}):
         resp = client.post(f"/api/v1/drafts/{draft_id}/submit",

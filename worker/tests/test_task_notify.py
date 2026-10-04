@@ -90,8 +90,8 @@ def _run_process_next(graph_result, payload=None, env=None):
     conns[1]=终态分支(UPDATE terminal + shop_usage)。
     env 完全控制环境变量（clear=True），保证 TASK_NOTIFY_URL 确定性。
     """
-    import utils.task_processor as tp_mod
-    from utils.task_processor import SupabaseTaskProcessor
+    import orchestrator.task_processor as tp_mod
+    from orchestrator.task_processor import SupabaseTaskProcessor
 
     engine = _FakeEngine(_make_task_row(payload))
 
@@ -119,8 +119,11 @@ def _terminal_update(engine):
 # ============================================================
 
 def test_env_url_fires_notify_on_completed():
-    """配置 TASK_NOTIFY_URL + 终态 completed → requests.post 带 task_id/status/product_summary。"""
-    with patch("requests.post", return_value=Mock()) as mock_post:
+    """配置 TASK_NOTIFY_URL + 终态 completed → safe_fetch POST 带 task_id/status/product_summary。
+
+    ✅ W3a: 出口收编 safe_fetch（SSRF 每跳复核）；patch 接缝随之从 requests.post
+    换成模块内 safe_fetch。"""
+    with patch("orchestrator.task_processor.safe_fetch", return_value=Mock()) as mock_post:
         engine = _run_process_next(
             {"upload_status": "success", "moderation_status": "approved", "product_id": "PID-1"},
             env={"TASK_NOTIFY_URL": "https://sctapi.ftqq.com/KEY/send"},
@@ -133,7 +136,7 @@ def test_env_url_fires_notify_on_completed():
     assert body["status"] == "completed"
     assert body["product_id"] == "PID-1"
     assert body["product_summary"] and isinstance(body["product_summary"], list)
-    assert kwargs.get("allow_redirects") is False, "v0.38.1: 禁重定向防 payload 转发到意外主机"
+    assert kwargs.get("max_redirects") == 0, "v0.38.1: 禁重定向防 payload 转发到意外主机（safe_fetch 形态=0 跳）"
     # 通知是附加行为，终态落库不受影响
     sql, _params = _terminal_update(engine)
     assert "status = 'completed'" in sql
@@ -149,7 +152,7 @@ def test_payload_notify_flag_fires_when_url_set():
         "envelope": {"draft": {"item_id": "1688-1"}},
         "notify": True,
     }
-    with patch("requests.post", return_value=Mock()) as mock_post:
+    with patch("orchestrator.task_processor.safe_fetch", return_value=Mock()) as mock_post:
         engine = _run_process_next(
             {"upload_status": "success", "moderation_status": "approved",
              "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
@@ -175,7 +178,7 @@ def test_notify_product_id_falls_back_to_draft_item_id():
         "envelope": {"draft": {"item_id": "1688-1"}},
         "notify": True,
     }
-    with patch("requests.post", return_value=Mock()) as mock_post:
+    with patch("orchestrator.task_processor.safe_fetch", return_value=Mock()) as mock_post:
         _engine = _run_process_next(
             {"upload_status": "failed", "error_message": "[OZON_VALIDATION_FAILED] x",
              "failed_stage": "ozon_status"},
@@ -190,9 +193,9 @@ def test_notify_product_id_falls_back_to_draft_item_id():
 
 def test_notify_flag_without_url_skips():
     """payload.notify=True 但未配置 URL → 跳过（不 POST）+ warning 日志，不抛异常。"""
-    import utils.task_processor as tp_mod
+    import orchestrator.task_processor as tp_mod
 
-    with patch("requests.post") as mock_post, \
+    with patch("orchestrator.task_processor.safe_fetch") as mock_post, \
          patch.object(tp_mod.logger, "warning") as mock_warn:
         engine = _run_process_next(
             {"upload_status": "success", "moderation_status": "approved",
@@ -208,7 +211,7 @@ def test_notify_flag_without_url_skips():
 
 def test_no_url_no_notify_no_post():
     """无 URL 无 notify → 零额外行为（不 POST）。"""
-    with patch("requests.post") as mock_post:
+    with patch("orchestrator.task_processor.safe_fetch") as mock_post:
         engine = _run_process_next(
             {"upload_status": "success", "moderation_status": "approved",
              "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
@@ -230,7 +233,7 @@ def test_notify_post_exception_never_propagates():
     def _boom(*a, **k):
         raise requests.RequestException("webhook down")
 
-    with patch("requests.post", side_effect=_boom):
+    with patch("orchestrator.task_processor.safe_fetch", side_effect=_boom):
         engine = _run_process_next(
             {"upload_status": "success", "moderation_status": "approved",
              "product_id": "123456"},  # v0.69.2 T0.4: completed 需真实商品佐证
@@ -246,7 +249,7 @@ def test_notify_post_exception_never_propagates():
 
 def test_notify_fires_on_rejected():
     """rejected 终态 → 触发通知（status=rejected + error_message 携带拒绝原因）。"""
-    with patch("requests.post", return_value=Mock()) as mock_post:
+    with patch("orchestrator.task_processor.safe_fetch", return_value=Mock()) as mock_post:
         engine = _run_process_next(
             {"upload_status": "rejected_unfixable", "error_code": "VARIANT_MODERATE_REJECTED",
              "failed_stage": "ozon_status"},
@@ -262,7 +265,7 @@ def test_notify_fires_on_rejected():
 
 def test_notify_fires_on_failed():
     """failed 终态 → 触发通知（status=failed + error_message 携带失败原因）。"""
-    with patch("requests.post", return_value=Mock()) as mock_post:
+    with patch("orchestrator.task_processor.safe_fetch", return_value=Mock()) as mock_post:
         engine = _run_process_next(
             {"upload_status": "failed", "error_message": "[OZON_VALIDATION_FAILED] 属性错误",
              "failed_stage": "ozon_status"},

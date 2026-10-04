@@ -126,8 +126,3 @@ def is_generic_word(word: str) -> bool:
     with _lock:
         generic = _load_generic_words()
     return any(_is_stem_match(w, stem) for stem in generic)
-
-
-def non_generic_words(words) -> set:
-    """剔除泛词后剩余的「携带品类信息」词集（重配强匹配判据用）。"""
-    return {w for w in (words or ()) if not is_generic_word(w)}

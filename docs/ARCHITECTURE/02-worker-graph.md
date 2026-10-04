@@ -1,6 +1,8 @@
 # 02 · worker 骨架：LangGraph 图 / 节点出入参 / 路由 / 生命周期
 
-> 范围：`worker/src/graphs/`、`worker/src/main.py`、`worker/src/utils/task_processor.py`、`worker/src/mcp_server.py`。
+> 范围：`worker/src/graphs/`、`worker/src/app_factory.py` + `worker/src/runtime/`（装配/生命周期/共享设施）、
+> `worker/src/routes/` 四族路由、`worker/src/orchestrator/task_processor.py`、`worker/src/mcp_server.py`。
+> 2026-10 治理后 `main.py` 仅 181 行 composition root（引导 + re-export 兼容面 + `from app_factory import app` + CLI 入口）。
 > 硬纪律：**langgraph 按节点 Input model 过滤 state**——节点/路由要读的字段必须声明进 Input，否则静默拿不到。
 
 ## 1. 图装配（graphs/graph.py）
@@ -8,7 +10,7 @@
 - 主图：`StateGraph(GlobalState, input_schema=GraphInput, output_schema=GraphOutput)`（graph.py:52-56），编译 `:453`，**刻意不挂 langgraph retry_policy**（注释 447-452，永久错误分类交给 task_processor）。
 - 入口 `auth`（:99）。节点注册 :62-95 + validation_retry_wrapper/learning_record/fetch_back（:298-300）。
 - 边：assemble→scene_llm(261)→visual_vars(262)→Phase1 扇出 [white_bg,multi_angle](262-263)→Phase2 扇出 8 节点(274-284，多 SKU→variant_primary_loop、单 SKU→main_image_gen)→汇聚 prepare(287-291)→validate(295)→条件边→upload(320-327)→status(333)→条件边→fetch_back→learning_record→END / 失败→validation_retry_wrapper(407-443)。
-- **STAGE_ORDER 13 阶段（main.py:91-95）是展示顺序非拓扑**：check_quota 实际在 auth 后第二跳（graph.py:121-155），却排在第 10 位。
+- **STAGE_ORDER 13 阶段（`runtime/progress.py`）是展示顺序非拓扑**：check_quota 实际在 auth 后第二跳（graph.py:121-155），却排在第 10 位。
 
 ## 2. 节点全卡（Input → Output → 核心 → 写表）
 
@@ -53,28 +55,28 @@
 
 ## 4. 任务生命周期（submit → queue → execute → terminal）
 
-**提交** `POST /submit_task`（main.py:2081-2330）：
-1. 信封解析（兼容 body.payload 包装）→ 空 draft 校验 → `_validate_draft_required_fields:2134`（api 跟卖必带 ozon_product_id/competitor_price）→ 重量非负 → `validate_draft_sanity:2159`。
-2. token 剥 `sk-` → `resolve_tenant:2183` → 限流 300/min(:2189) → 余额 402(:2196)。
-3. 店铺配额预检 429(:2227)；SKU 去重 `{tenant}:{store}:{ozon_product_id|item_id|sku_id}` → 409 DUPLICATE_SUBMIT（并发由部分唯一索引兜底 :2290）。
-4. 建任务行（task_processor.submit_task:394，INSERT ozon_product_tasks，FOR UPDATE SKIP LOCKED 认领 :464-516）+ 直连提交写 draft_submissions（main.py:2039-2078）。
+**提交** `POST /submit_task`（`routes/task_queue_routes.py` `http_submit_task`）：
+1. 信封解析（兼容 body.payload 包装）→ 空 draft 校验 → `_validate_draft_required_fields`（同模块；api 跟卖必带 ozon_product_id/competitor_price）→ 重量非负 → `validate_draft_sanity`。
+2. token 剥 `sk-` → `services/tenant_service.resolve_tenant` → 限流 300/min → 余额 402。
+3. 店铺配额预检 429；SKU 去重 `{tenant}:{store}:{ozon_product_id|item_id|sku_id}` → 409 DUPLICATE_SUBMIT（并发由部分唯一索引兜底）。
+4. 建任务行（`orchestrator/task_processor.py` `SupabaseTaskProcessor.submit_task`，INSERT ozon_product_tasks，FOR UPDATE SKIP LOCKED 认领）+ 直连提交写 draft_submissions（`routes/task_queue_routes.py` `_write_direct_submission_row`）。
 
-**执行**：lifespan 起 30 workers（main.py:578）→ `process_next_task:518` → `execute_graph_with_timeout:967`（60s 心跳防误判 stale :932；thread_id=任务行 id :998；**队列路径刻意无 checkpointer** :1004-1008，防 30-50 并发锁竞争，超时重跑由 task_image_cache 兜底）。节点回调 → `ProgressCallback:303`（_NODE_STAGE_MAP :289）。
+**执行**：`runtime/lifespan.py` 起 30 workers（MAX_CONCURRENT）→ `process_next_task` → `execute_graph_with_timeout`（60s 心跳防误判 stale；thread_id=任务行 id；**队列路径刻意无 checkpointer**，防 30-50 并发锁竞争，超时重跑由 task_image_cache 兜底）——以上方法均在 `orchestrator/task_processor.py`。节点回调 → `ProgressCallback`（`_NODE_STAGE_MAP` 同模块）。
 
-**终态**（三路 + 守卫）：
-- 失败判定 `_graph_result_is_failed:60`（upload_status∈(failed,blocked) / notice|error_message 以 `[` 开头 / error_message+failed_stage）。
-- **T0.4 佐证闸 `_has_real_product_evidence:84`**：product_id 空/==ozon_task_id（假 pid）→ `_mark_no_real_product_failure:119`（PRODUCT_NOT_CREATED + failed_stage=final_product_evidence_check）→ failed。零假 completed 七道防线见 09。
-- 唯一写入口 `_write_terminal_status:907`（`WHERE status='running'` 守卫防迟到翻盘）→ shop_usage 埋点 → draft_submissions 写回 → webhook → `listing_result_log`（failed/rejected/completed 三挂点 :686/:721/:752）。
-- 异常：TimeoutError→永久 failed；`_is_permanent_task_error:37`（OutOfQuota/ContentViolation/FileNotFound…）→ retry_count 推满；否则 pending+retry+1。
+**终态**（三路 + 守卫；以下符号均在 `orchestrator/task_processor.py`）：
+- 失败判定 `_graph_result_is_failed`（upload_status∈(failed,blocked) / notice|error_message 以 `[` 开头 / error_message+failed_stage）。
+- **T0.4 佐证闸 `_has_real_product_evidence`**：product_id 空/==ozon_task_id（假 pid）→ `_mark_no_real_product_failure`（PRODUCT_NOT_CREATED + failed_stage=final_product_evidence_check）→ failed。零假 completed 七道防线见 09。
+- 唯一写入口 `_write_terminal_status`（`WHERE status='running'` 守卫防迟到翻盘）→ shop_usage 埋点 → draft_submissions 写回 → webhook → `listing_result_log`（failed/rejected/completed 三挂点）。
+- 异常：TimeoutError→永久 failed；`_is_permanent_task_error`（OutOfQuota/ContentViolation/FileNotFound…）→ retry_count 推满；否则 pending+retry+1。
 
-**查询/重试**：GET /task_status（:2429，_task_status_guard + 跨租户 404 + payload 脱敏）；POST /cancel_task（仅 pending，409）；POST /resubmit_task（:2573，仅 rejected/failed，深拷贝注入 parent_task_id + image_regen=True）；**SKIP_FAILED_REVIVE 语义翻转**（main.py:540,601-658：部署重启默认**不**复活 failed；`SKIP_FAILED_REVIVE=0` 恢复旧行为；running 僵尸照常有界复活）。
+**查询/重试**：GET /task_status（`routes/task_queue_routes.py` `http_task_status`，_task_status_guard + 跨租户 404 + payload 脱敏）；POST /cancel_task（仅 pending，409）；POST /resubmit_task（仅 rejected/failed，深拷贝注入 parent_task_id + image_regen=True）；**SKIP_FAILED_REVIVE 语义翻转**（`runtime/startup_checks.py` `_recover_zombie_tasks`/`_revive_failed_enabled`：部署重启默认**不**复活 failed；`SKIP_FAILED_REVIVE=0` 恢复旧行为；running 僵尸照常有界复活）。
 
 ## 5. checkpoint 与恢复
 
-- checkpointer 工厂 memory_saver.py:88-126（AsyncPostgresSaver 优先，退化 MemorySaver）；lifespan 挂给 **sync/async `/run` 族图**（main.py:563-576）——⚠️ `set_graph` docstring 宣称 "never hit checkpoint DB" 与代码相反（09-#2-doc）。
+- checkpointer 工厂 memory_saver.py:88-126（AsyncPostgresSaver 优先，退化 MemorySaver）；`runtime/lifespan.py` 挂给 **sync/async `/run` 族图**——⚠️ `set_graph`（`runtime/graph_service.py`）docstring 宣称 "never hit checkpoint DB" 与代码相反（09-#2-doc）。（`/run` 族已随 2026-10 platform-compat 退役删除；async 图现仅由 `/progress` checkpointer 读取，本条前半存档。）
 - 队列主路径无 checkpointer；无 langgraph interrupt（全仓 0 处）。
-- checkpoint 归档 `_purge_checkpoints:1403`（30 天 completed 删行前，序 checkpoints→blobs→writes）。
-- stale 清理：运行期 30 分钟未更新重置（:1440）；重启恢复 running→pending+retry+1 有界（:601-658）。
+- checkpoint 归档 `_purge_checkpoints`（`runtime/maintenance.py`；30 天 completed 删行前，序 checkpoints→blobs→writes）。
+- stale 清理：运行期 30 分钟未更新重置（`runtime/maintenance.py` `_periodic_task_cleanup`）；重启恢复 running→pending+retry+1 有界（`runtime/startup_checks.py` `_recover_zombie_tasks`）。
 
 ## 6. GlobalState 分组（state.py:15-182）
 
@@ -104,14 +106,14 @@ ASGI Bearer 中间件(56-90) → 22 工具全部经进程内 httpx ASGITransport
 
 ## 8. HTTP API 面与鉴权矩阵
 
-- **main.py 直挂**：执行族 /run /stream_run /node_run（`_authenticate_token`+限流）、/progress（`_require_bearer`）、/graph_parameter（无鉴权，仅 JSON Schema）；任务族 submit_task/task_status/cancel/resubmit/task_statistics（statistics 走 `_require_bearer`+admin 判定，非 admin 跨租户 403）；/health 无鉴权；/api/v1/store/health（`_require_bearer`，上游失败 502）；分析直读 analytics/*（`_verify_analytics_token`+限流）；/logistics/quote（`_require_bearer`+专属限流键）。
+- **四族路由（`routes/`，2026-10 自 main 迁出，路径零变）**：~~执行族 /run /stream_run /node_run（`_authenticate_token`+限流）~~（**已移除**，2026-10 platform-compat 退役——连同 /async_run、/cancel/{run_id}、/v1/chat/completions；`GET /task/{task_id}` 410 墓碑保留，见 `app_factory.py`）、/progress（`_require_bearer`）与 /graph_parameter（无鉴权，仅 JSON Schema）在 `routes/ops_routes.py`；任务族 submit_task/task_status/cancel/resubmit/task_statistics（statistics 走 `_require_bearer`+admin 判定，非 admin 跨租户 403）在 `routes/task_queue_routes.py`；/health 无鉴权、/api/v1/store/health（`_require_bearer`，上游失败 502）、/logistics/quote（`_require_bearer`+专属限流键）在 `routes/ops_routes.py`；分析直读 analytics/*（`_verify_analytics_token`+限流）在 `routes/analytics_ingest_routes.py`。
 - **routes/**：credentials/dashboard/drafts/estimate/images/orders/products/settings/shelf/source_candidates/store_actions/store_sync/tasks/templates/admin_* 全走 `_authenticate_token`（admin_* 再过 require_admin）；error_reports 走 `get_tenant` Depends；site_public/newapi_proxy/静态无鉴权。
-- 鉴权唯一入口纪律：`_require_bearer`（main.py）；v0.79 收口后 cancel/statistics/progress/store/health/logistics-quote 无 Bearer 一律 401。
+- 鉴权唯一入口纪律：`_require_bearer`（`api/security.py`）；v0.79 收口后 cancel/statistics/progress/store/health/logistics-quote 无 Bearer 一律 401。
 
 ## 9. 疑点 / 坏味道（详情并入 09-findings）
 
 1. **进度条倒退**：`_NODE_STAGE_MAP` 缺 assemble_ozon_product/scene_generation_llm/visual_vars_llm/check_quota/fetch_back/validation_retry_wrapper/follow_sell_import/variant_primary_loop → `update_progress` stage_idx=0 → **percent 归 0**（assemble 每单必现一次）。
-2. **set_graph docstring 与代码相反**（main.py:280-282 vs :566-572）：/run 族实际写 checkpoint，靠清理器兜底。
+2. **set_graph docstring 与代码相反**（`runtime/graph_service.py` docstring vs `runtime/lifespan.py` 实际接线）：/run 族实际写 checkpoint，靠清理器兜底。（/run 族已随 2026-10 platform-compat 退役删除，本条存档。）
 3. `should_handle_error` 内 errors/product_id 变量重复声明（graph.py:351-359，v0.11 残留）。
 4. follow_sell_import 无专用 Input（吃整个 GlobalState）——GlobalState 改名不会被 channel 机制暴露。
 5. **image_gen_plan 通道断链**：生图 Input 都声明了，GlobalState 无此字段，队列路径恒 DEFAULT_PLAN——「预留接口」而非活通道。

@@ -34,7 +34,7 @@
 | 8 个 webhook PATH 常量（PIPELINE/INGEST/FOLLOW_SELL/REFRESH/IMAGE_GEN/ATTR_LEARN/TASK_STATUS/CAT_LOOKUP） | 197-202, 391-392 | 除 PIPELINE（仅 deprecated submit_task 用）与 CAT_LOOKUP（仅降级分支用）外全部零消费 |
 | `submit_task()`（deprecated webhook POST） | 605-625 | docstring 自标 DEPRECATED；grep 全仓零调用方 |
 | `_cloud_post()` | 250-? | 仅两个死调用方（submit_task、cat-lookup 降级） |
-| `lookup_category_webhook()` 的 n8n 降级段 | ~420-444 | 函数本身活（L3746 调用方），只删降级分支——生产 webhook 404 永不生效 |
+| `lookup_category_webhook()` 的 n8n 降级段 | ~420-444 | 函数本身活（L3746 调用方），只删降级分支——生产 webhook 404 永不生效（注：2026-10 已随死代码清扫移除——该函数与其唯一调用方 publish_product_new 同期退役） |
 | `refresh_product` 历史注释 | ~3526 | 函数已不存在，注释残留 |
 
 ### worker/assets/

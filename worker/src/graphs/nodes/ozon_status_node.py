@@ -23,6 +23,46 @@ MAX_MODERATE_POLL_ATTEMPTS = 120  # ✅ v0.11: 60→120 (10 分钟，覆盖多�
 MODERATE_POLL_INTERVAL_SECONDS = 5
 
 
+def _learn_doc_requirement(state, fatal_errors: list) -> None:
+    """✅ v0.83.2: 文档缺失类拒单 → category_doc_requirements 学习（非致命）。
+
+    触发条件：fatal errors 含 DOC_REQUIREMENT_DECLINE_CODES（当前
+    PDF_SRC_URL_IS_EMPTY——2026-10-02 生产 da284d0e 实锤：袜子类目省略
+    pdf_list 仍被 Ozon 复审拒，证明类目级硬要求）。dc/tp 从 state 读
+    （**必须声明进 OzonStatusInput**，否则被 langgraph channel 过滤剥掉，
+    同 v0.27 moderation_status 教训）；缺失/非法 → 跳过不学。
+    学习写入失败只告警（唯一入口 utils/category_doc_gate.record_doc_requirement）。
+    """
+    from utils.category_doc_gate import (
+        DOC_REQUIREMENT_DECLINE_CODES,
+        record_doc_requirement,
+    )
+
+    codes = {str((e or {}).get("code") or "") for e in (fatal_errors or [])
+             if isinstance(e, dict)}
+    if not codes & DOC_REQUIREMENT_DECLINE_CODES:
+        return
+    try:
+        dc = int(str(getattr(state, "description_category_id", "") or "0") or 0)
+        tp = int(str(getattr(state, "type_id", "") or "0") or 0)
+    except (TypeError, ValueError):
+        logger.warning("文档硬要求学习跳过：dc/tp 非法 (%r/%r)",
+                       getattr(state, "description_category_id", None),
+                       getattr(state, "type_id", None))
+        return
+    if dc <= 0 or tp <= 0:
+        logger.warning("文档硬要求学习跳过：dc/tp 缺失（state 通道未声明或未定稿）")
+        return
+    try:
+        record_doc_requirement(dc, tp, evidence={
+            "codes": sorted(codes),
+            "product_id": str(getattr(state, "product_id", "") or ""),
+            "task_hint": "ozon_status validation_failed",
+        })
+    except Exception as e:
+        logger.warning("文档硬要求学习失败（非致命）dc/tp=%s/%s: %s", dc, tp, e)
+
+
 def ozon_status_node(
     state: OzonStatusInput,
     config: RunnableConfig,
@@ -395,6 +435,9 @@ def ozon_status_node(
                                         for e in _fatal
                                     )
                                     logger.error("❌ Ozon validation 失败: %s", _detail)
+                                    # ✅ v0.83.2: 文档缺失类拒单 → 类目文档硬要求
+                                    # decline 学习（下次同类目 assemble 预检直接入箱）
+                                    _learn_doc_requirement(state, _fatal)
                                     return OzonStatusOutput(
                                         # ✅ v0.25: 用解析出的真实 product_id（product_id 可能是 import 任务 ID）
                                         product_id=str(all_pids_int[0]) if all_pids_int else product_id,

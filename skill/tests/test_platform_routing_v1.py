@@ -226,8 +226,6 @@ class TestCmdGraphRouting:
                            return_value=(True, "ok")), \
                 mock.patch("scripts.cloud_probe.build_graph_envelope_with_retry",
                            _fake_graph), \
-                mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                           return_value=None), \
                 mock.patch.object(cli, "_out",
                                   lambda payload: payloads.append(payload)):
             rc = cli.cmd_graph(self._args())

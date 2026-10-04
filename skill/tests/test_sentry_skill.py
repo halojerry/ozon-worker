@@ -109,6 +109,38 @@ def test_capture_exception_tags_contain_no_credentials():
         _teardown_mock_sentry()
 
 
+def test_is_sentry_test_process_pytest_main_module_v0832():
+    """✅ v0.83.2 补洞：`python -m pytest` 形态（argv[0]=pytest/__main__.py，
+    PYTEST_CURRENT_TEST 未设）也必须判 True——CI Skill Tests job 用此形态，
+    旧判定在 collection 阶段全不中 → 测试假错误直灌生产 Sentry。"""
+    # 形态①：CI Docker 实测 argv[0]（Sentry 事件 sys.argv 留证）
+    argv0 = "/usr/local/lib/python3.12/site-packages/pytest/__main__.py"
+    with mock.patch.object(sys, "argv", [argv0, "tests/", "-q"]), \
+         mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("PYTEST_CURRENT_TEST", None)
+        assert cli._is_sentry_test_process() is True
+    # 形态②：裸 pytest
+    with mock.patch.object(sys, "argv", ["pytest"]), \
+         mock.patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("PYTEST_CURRENT_TEST", None)
+        assert cli._is_sentry_test_process() is True
+    # 形态③：正常用户命令（graph 等）——pytest 未 import 时不误伤
+    import importlib.util as _ilu
+    _had = "pytest" in sys.modules
+    if _had:
+        # 测试进程内 pytest 恒在 sys.modules——只验「basename 干净 + 无环境变量」
+        # 的路径分支，pytest-in-sys.modules 分支由形态①②与真实验证覆盖。
+        pass
+    else:
+        with mock.patch.object(sys, "argv", ["/opt/skill/scripts/cli.py", "graph"]), \
+             mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PYTEST_CURRENT_TEST", None)
+            assert cli._is_sentry_test_process() is False
+    # 形态④：PYTEST_CURRENT_TEST 执行期兜底
+    with mock.patch.dict(os.environ, {"PYTEST_CURRENT_TEST": "x::y"}, clear=False):
+        assert cli._is_sentry_test_process() is True
+
+
 def test_init_sentry_skips_in_test_process():
     """测试进程（sys.argv[0] 含 test_）→ 跳过 init 返回 False。"""
     m = _install_mock_sentry()

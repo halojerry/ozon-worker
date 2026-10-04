@@ -41,7 +41,7 @@ def test_structured_reject_reason():
     """Worker 统一错误格式（ok/error_code/message/detail）→ 结构化透传。"""
     patched = _patched_env()
     try:
-        with mock.patch("scripts.cloud_probe.requests.post") as m_post:
+        with mock.patch("requests.post") as m_post:
             m_post.return_value = _Resp(400, {
                 "ok": False,
                 "error_code": "INVALID_REQUEST",
@@ -62,7 +62,7 @@ def test_fastapi_detail_reason():
     """FastAPI HTTPException 默认格式（detail 字符串）→ 取 detail 作为原因。"""
     patched = _patched_env()
     try:
-        with mock.patch("scripts.cloud_probe.requests.post") as m_post:
+        with mock.patch("requests.post") as m_post:
             m_post.return_value = _Resp(402, {"detail": "Insufficient balance (current: 0.0). Please top up your MXOU account."})
             out = submit_envelope({"envelope": {"draft": {}}})
     finally:
@@ -77,7 +77,7 @@ def test_success_passthrough():
     """2xx → 原样返回 task_id。"""
     patched = _patched_env()
     try:
-        with mock.patch("scripts.cloud_probe.requests.post") as m_post:
+        with mock.patch("requests.post") as m_post:
             m_post.return_value = _Resp(200, {"ok": True, "task_id": "t1"})
             out = submit_envelope({"envelope": {"draft": {}}})
     finally:

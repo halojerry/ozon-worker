@@ -127,28 +127,6 @@ def reference_priority(url: str) -> tuple[int, int, str]:
     return (white_background_hint, preferred_host, length_score)
 
 
-def select_reference_images(urls: Iterable[str], limit: int = 10) -> list[str]:
-    """选择最佳参考图片"""
-    deduped = dedupe_reference_images(urls)
-    filtered = [url for url in deduped if is_likely_product_image(url)]
-    # 如果过滤后没有图片，使用原始列表
-    if not filtered:
-        filtered = deduped
-    ordered = sorted(filtered, key=reference_priority)
-    return ordered[:limit]
-
-
-def merge_followup_reference_images(white_background_url: str, source_urls: Iterable[str], limit: int = 4) -> list[str]:
-    """合并白底图和源图片"""
-    merged = [white_background_url] + list(source_urls)
-    deduped = dedupe_reference_images(merged)
-    if not deduped:
-        return []
-    primary = deduped[0]
-    rest = select_reference_images(deduped[1:], limit=max(0, limit - 1))
-    return [primary] + rest
-
-
 def get_best_product_images(images: list[str], limit: int = 10,
                             platform: str = "1688") -> list[str]:
     """获取最佳产品图片（用于 n8n 管线）。

@@ -151,14 +151,19 @@ VALID_BODIES = {
 def _call(kind, body, monkeypatch, rowcounts=None, supabase=None):
     """直接调用端点函数（FakeRequest + mock get_supabase_client/get_engine）。"""
     import main
+    from api import security as _api_security  # ✅ W3b: _verify/_require_bearer 内部读 security 早绑定
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点已迁此模块
 
     if supabase is None:
         monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: None)
     else:
         monkeypatch.setattr(main, "get_supabase_client", lambda: supabase)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: supabase)
     engine = FakeEngine(rowcounts or [])
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    fn = getattr(main, ENDPOINTS[kind])
+    # R3a: 路由模块级 from storage import get_engine → 打路由模块命名空间
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    fn = getattr(_ingest, ENDPOINTS[kind])
     result = asyncio.run(fn(FakeRequest(body)))
     return result, engine
 
@@ -287,6 +292,7 @@ def test_bestsellers_get_global_sharing(monkeypatch):
     import main
     from services import analytics_service
     from services.tenant_service import token_fingerprint
+    from routes.analytics_ingest_routes import v1_analytics_list_bestsellers
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     rows = [
         ("sku-a", "品牌A", "宠物用品", 100.0, 10, 99.9, "tok-a"),
@@ -294,7 +300,7 @@ def test_bestsellers_get_global_sharing(monkeypatch):
     ]
     engine = FakeReadEngine(rows)
     monkeypatch.setattr(analytics_service, "get_engine", lambda: engine)
-    resp = asyncio.run(main.v1_analytics_list_bestsellers(
+    resp = asyncio.run(v1_analytics_list_bestsellers(
         FakeGetRequest("sk-ok", {"limit": "50"})))
     assert resp["total"] == 2
     assert {i["sku_or_id"] for i in resp["items"]} == {"sku-a", "sku-b"}
@@ -310,7 +316,8 @@ def test_bestsellers_get_global_sharing(monkeypatch):
 def test_bestsellers_get_requires_token(monkeypatch):
     """无 token → 401。"""
     import main
+    from routes.analytics_ingest_routes import v1_analytics_list_bestsellers
     monkeypatch.setattr(main, "get_supabase_client", lambda: None)
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(main.v1_analytics_list_bestsellers(FakeGetRequest("")))
+        asyncio.run(v1_analytics_list_bestsellers(FakeGetRequest("")))
     assert ei.value.status_code == 401

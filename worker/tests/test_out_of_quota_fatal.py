@@ -7,7 +7,7 @@ R1/R4 闭环：MxouOutOfQuotaError（MXOU 401/403，余额/鉴权/额度永久�
 覆盖（17 处全部）：
 - 生图节点 10 个（含 main_image/social_proof 内层降级模型循环不再尝试）
 - 前置 chat 节点 2 个（scene_generation_llm / visual_vars_llm）
-- assemble 类目 LLM 2 个函数（_llm_match_category / _llm_rank_categories）
+- assemble 类目 LLM 1 个函数（_llm_rank_categories）
 - 富文本描述 / 类目翻译 / 去拉丁 / 属性消歧 4 处
 - 反向锁定：generic 异常（RuntimeError）仍走原降级路径，只对永久错误 fatal
 """
@@ -260,25 +260,8 @@ def test_visual_vars_llm_out_of_quota_fatal(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════
-# Group 3: assemble 类目 LLM 2 个函数
+# Group 3: assemble 类目 LLM 1 个函数
 # ═══════════════════════════════════════════════════════════
-
-def test_llm_match_category_out_of_quota_fatal(monkeypatch):
-    """_llm_match_category：401 → 不降级到下一匹配层，异常穿透。"""
-    import graphs.nodes.assemble_ozon_product_node as mod
-
-    def _boom(*a, **k):
-        raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
-
-    monkeypatch.setattr(mod, "call_mxou_chat_api", _boom)
-    with _workspace():
-        _raises_out_of_quota(
-            mod._llm_match_category,
-            "轮毂", "汽车轮毂", {},
-            [{"description_category_id": "17028758", "full_path": "汽车用品 > 轮辋"}],
-            "tok",
-        )
-
 
 def test_llm_rank_categories_out_of_quota_fatal(monkeypatch):
     """_llm_rank_categories：401 → 不返回 None，异常穿透。"""
@@ -303,13 +286,18 @@ def test_llm_rank_categories_out_of_quota_fatal(monkeypatch):
 # ═══════════════════════════════════════════════════════════
 
 def test_rich_description_out_of_quota_fatal(monkeypatch):
-    """prepare._generate_rich_description：401 → 不回退兜底 HTML，异常穿透。"""
+    """prepare._generate_rich_description：401 → 不回退兜底 HTML，异常穿透。
+
+    ✅ W3b 靶点修正：_generate_rich_description 内部是函数级
+    ``from utils.mxou_api import call_mxou_chat_api``（调用时解析）——patch
+    prepare 模块级绑定（mxou_llm）拦不到该出口，CI 断网守卫实锤此用例
+    此前一直在打真 MXOU。改钉 utils.mxou_api 源头。"""
     import graphs.nodes.prepare_ozon_upload_node as mod
 
     def _boom(*a, **k):
         raise MxouOutOfQuotaError("OUT_OF_QUOTA: MXOU chat API rejected (HTTP 401)")
 
-    monkeypatch.setattr(mod, "call_mxou_chat_api", _boom)
+    monkeypatch.setattr("utils.mxou_api.call_mxou_chat_api", _boom)
     with _workspace():
         _raises_out_of_quota(mod._generate_rich_description, "Товар", {}, "tok")
 

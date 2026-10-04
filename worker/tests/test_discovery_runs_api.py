@@ -159,27 +159,36 @@ def _param(compiled_params, col):
 def _post(body, monkeypatch, rowcounts=None, supabase=None):
     """直接调用 POST 端点（FakeRequest + mock get_supabase_client/get_engine）。"""
     import main
+    from api import security as _api_security  # ✅ W3b: _verify/_require_bearer 内部读 security 早绑定
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点已迁此模块
 
     if supabase is None:
         monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: None)
     else:
         monkeypatch.setattr(main, "get_supabase_client", lambda: supabase)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: supabase)
     engine = FakeEngine(rowcounts or [1])
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    result = asyncio.run(main.v1_discovery_report_run(FakeRequest(body)))
+    # R3a: 路由模块级 from storage import get_engine → 打路由模块命名空间
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    result = asyncio.run(_ingest.v1_discovery_report_run(FakeRequest(body)))
     return result, engine
 
 
 def _get(token, monkeypatch, rows_by_tenant, supabase=None):
     import main
+    from api import security as _api_security  # ✅ W3b
+    from routes import analytics_ingest_routes as _ingest  # R3a
 
     if supabase is None:
         monkeypatch.setattr(main, "get_supabase_client", lambda: None)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: None)
     else:
         monkeypatch.setattr(main, "get_supabase_client", lambda: supabase)
+        monkeypatch.setattr(_api_security, "get_supabase_client", lambda: supabase)
     engine = FakeReadEngine(rows_by_tenant)
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
-    return asyncio.run(main.v1_discovery_list_runs(FakeGetRequest(token)))
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
+    return asyncio.run(_ingest.v1_discovery_list_runs(FakeGetRequest(token)))
 
 
 def test_post_inserts_row(monkeypatch):
@@ -255,9 +264,10 @@ def test_get_global_sharing(monkeypatch):
 
 def test_get_requires_token(monkeypatch):
     import main
+    from routes import analytics_ingest_routes as _ingest
 
     engine = FakeReadEngine({})
-    monkeypatch.setattr(main, "get_engine", lambda: engine)
+    monkeypatch.setattr(_ingest, "get_engine", lambda: engine)
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(main.v1_discovery_list_runs(FakeGetRequest("")))
+        asyncio.run(_ingest.v1_discovery_list_runs(FakeGetRequest("")))
     assert ei.value.status_code == 401

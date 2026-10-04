@@ -142,7 +142,7 @@ def test_import_submitted_pending_kept():
 # ── ⑧ T0.4 闸语义不变：新形态（product_id=None + task_id 通道）与旧污染形态同样
 #      过不了终态佐证闸；真实 product_id 回填后照样通过 ──
 def test_t04_gate_semantics_unchanged():
-    from utils.task_processor import _has_real_product_evidence
+    from orchestrator.task_processor import _has_real_product_evidence
 
     # 改动后：upload success 尚未轮询回填 → 无真实商品佐证 → failed（更早更干净）
     assert _has_real_product_evidence({

@@ -14,6 +14,7 @@ os.environ["SKIP_FAILED_REVIVE"] = "1"
 os.environ["SKIP_STORE_SYNC"] = "1"
 
 import main as main_mod  # noqa: E402
+from api import security as api_security  # noqa: E402  # ✅ W3b: _check_mxou_balance 内部读 security 命名空间
 
 
 class _Exec:
@@ -59,7 +60,7 @@ def test_balance_fallback_resolves_real_user(monkeypatch):
     """
     monkeypatch.setattr("utils.mxou_api._check_balance_cached", lambda token, ttl=30.0: float("inf"))
     monkeypatch.setattr(
-        main_mod,
+        api_security,
         "get_supabase_client",
         lambda: _FakeSupabase(
             token_rows=[{"user_id": 113, "unlimited_quota": True, "status": 1}],
@@ -80,7 +81,7 @@ def test_balance_fallback_unlimited_zero_quota(monkeypatch):
     """unlimited_quota=True + users.quota=0：应仍放行（unlimited 优先于 quota）。"""
     monkeypatch.setattr("utils.mxou_api._check_balance_cached", lambda token, ttl=30.0: float("inf"))
     monkeypatch.setattr(
-        main_mod,
+        api_security,
         "get_supabase_client",
         lambda: _FakeSupabase(
             token_rows=[{"user_id": 113, "unlimited_quota": True, "status": 1}],

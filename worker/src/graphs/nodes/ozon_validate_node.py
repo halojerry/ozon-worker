@@ -13,6 +13,7 @@ from utils.category_consistency_lexicon import is_generic_word, sets_overlap
 from utils.cos_uploader import is_cos_url
 from utils.secure_fetch import safe_fetch
 from utils.title_sanitizer import has_cyrillic_word  # v0.81 名称结构闸（与标题结构闸同源判定）
+from utils.volume_weight_guard import compute_density_kg_m3  # ✅ W3a SoT: 密度公式唯一化
 from utils.weight_dimension_normalizer import OZON_DIM_BOUNDS_MM
 
 logger = logging.getLogger(__name__)
@@ -390,7 +391,9 @@ def ozon_validate_node(
             height = item.get("height", 0)
             if weight_g > 0 and depth > 0 and width > 0 and height > 0:
                 volume_m3 = (depth * width * height) / 1e9
-                density = (weight_g / 1000.0) / volume_m3 if volume_m3 > 0 else 0
+                # ✅ W3a SoT: 密度公式统一 volume_weight_guard.compute_density_kg_m3
+                # （外层 if 保证四值均正，None 不可能；or 0.0 保原有 fallback 语义）
+                density = compute_density_kg_m3(weight_g, depth, width, height) or 0.0
                 max_dim = max(depth, width, height)
                 # 密度极低（< 1.0 kg/m³）说明尺寸被错误放大（典型的cm→mm二次转换）
                 if density < 1.0:
@@ -405,7 +408,7 @@ def ozon_validate_node(
                         item["height"] = height
                         auto_fixed = True
                         new_vol = (depth * width * height) / 1e9
-                        new_dens = (weight_g / 1000.0) / new_vol if new_vol > 0 else 0
+                        new_dens = compute_density_kg_m3(weight_g, depth, width, height) or 0.0
                         logger.warning(
                             f"🔧 密度自修复: {density:.2f}→{new_dens:.1f} kg/m³, "
                             f"尺寸 {old_d}×{old_w}×{old_h} → {depth}×{width}×{height}mm"

@@ -16,6 +16,9 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_submit_task  # noqa: E402
+
 # 夹具假 token：非关键词常量 + f-string 拼接（leak-scan 纪律）
 _TK = "k" + "x" * 16
 
@@ -103,15 +106,14 @@ class _FakeProcessor:
 
 
 def _run_submit(body):
-    import main as main_mod
-
+    # R3a: submit 端点已迁 routes/task_queue_routes.py
     fake_proc = _FakeProcessor()
     with patch("main.get_supabase_client", return_value=_fake_supabase()), patch(
-        "main._check_mxou_balance", return_value=(100.0, True)
-    ), patch("main.get_engine", return_value=_FakeEngine()), patch.object(
-        main_mod, "task_processor", fake_proc
+        "routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)
+    ), patch("routes.task_queue_routes.get_engine", return_value=_FakeEngine()), patch.object(
+        task_processor_mod, "_task_processor", fake_proc
     ):
-        resp = asyncio.run(main_mod.http_submit_task(FakeRequest(body)))
+        resp = asyncio.run(http_submit_task(FakeRequest(body)))
     assert resp.get("ok") is True, resp
     assert len(fake_proc.calls) == 1
     return fake_proc.calls[0]

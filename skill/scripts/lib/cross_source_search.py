@@ -177,27 +177,6 @@ _TAOBAO_ID_RE = re.compile(_TAOBAO_ID_PATTERN)
 _PDD_ID_RE = re.compile(_PDD_ID_PATTERN)
 
 
-def dig_taobao_ids(html: str) -> list[str]:
-    """innerHTML 正则挖淘宝 item id（去重保序——JS 兜底阶段的 Python 镜像）。"""
-    return _dig_ids(_TAOBAO_ID_RE, html)
-
-
-def dig_pdd_ids(html: str) -> list[str]:
-    """innerHTML 正则挖拼多多 goods_id（去重保序，实机验证 pattern）。"""
-    return _dig_ids(_PDD_ID_RE, html)
-
-
-def _dig_ids(compiled: re.Pattern, html: str) -> list[str]:
-    out: list[str] = []
-    for m in compiled.finditer(str(html or "")):
-        value = m.group(1)
-        if value not in out:
-            out.append(value)
-        if len(out) >= MAX_OFFERS:
-            break
-    return out
-
-
 def _https_url(value: Any) -> str:
     """协议相对 URL（//img.pddpic.com/...）→ https 绝对化。"""
     u = str(value or "").strip()

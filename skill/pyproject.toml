@@ -1,6 +1,6 @@
 [project]
 name = "pounding-ozon-probe"
-version = "0.3.0"
+version = "0.83.1"
 description = "1688 API + CDP browser probe → GraphInput envelope assembler"
 requires-python = ">=3.12"
 dependencies = [

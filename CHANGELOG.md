@@ -1,5 +1,227 @@
 # Changelog
 
+## [0.84.0] 2026-10-04 — 维护性治理战役（W0-W3c，PR #110-#119）+ 实机 Gate 50 单
+
+> 动因：维护成本失控（出问题无法精确定位 / agent 接手成本 / 续开发成本）。
+> 方案四波治理 + 模块化收尾 + 死代码清扫，每波独立 PR CI 绿合入；发版前实机
+> gate 50 单双店验证。下方三个「同车批」为 v0.83.2 系列未发版修复。
+
+### 架构治理：main.py 4081 → 181 行（-95.6%，纯 composition root）
+
+- **composition root 拆解（#114/#117/#118）**：四族共享设施归位——
+  进度/任务上下文 `runtime/progress`、限流 `runtime/rate_limit`、图执行
+  `runtime/graph_service`、鉴权族 `api/security`；task_processor 归
+  `orchestrator`（holder 单例，lifespan 注入）；lifespan/startup_checks/
+  maintenance/app_factory 全拆；路由四族迁 `routes/`（task_queue /
+  analytics_ingest / catalog / ops，**API 面零漂移**，gen_api_docs 自证）。
+  main 只留引导 + 兼容 re-export + Dockerfile 启动契约
+  （`python -m src.main -m http`）。**新逻辑禁写回 main**（AGENTS 冻结条款）。
+- **依赖方向立法（#113）**：`test_import_direction` R1 硬零（utils↛graphs/api
+  等向上边）+ R2 棘轮（只减不增）+ R3 main 消费方冻结；task_processor 归位
+  orchestrator（模块级 import graphs 唯一合法居民）。
+- **platform-compat 调试面退役（#115）**：/run /stream_run /node_run
+  /async_run /cancel/{run_id} /v1/chat/completions 六端点删除（生产零消费
+  实证：routes/mcp/skill/pounding-mcp/webui 全零调用方）；`GET /task/{id}`
+  410 墓碑保留；API 面 139 path。
+
+### 契约与闸（「字段静默丢失」类事故消音）
+
+- **state 通道纪律检测器进 CI（#111）**：AST 扫两图 builder——节点/路由读
+  未声明字段即红；langgraph Input 过滤纪律从散文变硬闸（首跑抓 28 处存量，
+  含 2 个潜伏生产 bug）。
+- **信封契约硬化（#112）**：`EnvelopeExtensions extra="forbid"`（30 键权威）
+  + provenance 反向闸 + 键表生成链（CONTRACT-v4/envelope-keys.json 由模型
+  生成，CI --check 漂移即红）——「改键三处手工同步」废止。未知键提交层/ingest
+  fail-closed 点名（`ENVELOPE_STRICT=0` 逃生门）。
+- **单测默认断网守卫（#114）**：conftest 只许 loopback
+  （`TEST_NET_ALLOWLIST` 加白 / `@pytest.mark.external_network` +
+  `RUN_EXTERNAL_TESTS=1` 逃生门）——套件正确性不再依赖机器网络状态（事故
+  链：代理 fake-IP DNS 破坏外呼 TLS 致全量假死 13 分钟）。
+- **测试隔离**：orchestrator holder 快照恢复 fixture（`with TestClient`
+  lifespan 真实单例进程级驻留污染根治）。
+
+### 死代码清扫（#116，净删 ~4400 行）
+
+- worker 51 符号 + skill 53 DEAD + 25 链式死 + 陪葬测试；整模块退役
+  `skill/scripts/lib/electron_ops.py`（compile 登记退役）；
+- expert-tool-map 补齐 30 工具（原 21 缺 9：job_* 五件套/错误上报三件套/
+  session_sync）；8 处 docs 活能力断言更正；
+- 信封三键降级 legacy（store_id/shipping_provider/shipping_service——唯一
+  写入方在已删 build_envelope 死链，worker 零消费，存量草稿 resubmit 兼容），
+  **provenance 闸首次实战执法即抓出**。
+
+### 实机 Gate（2026-10-04，本地 Docker 新镜像 + 测试店 5371047 主力 / 5381204 拓店）
+
+- **54 提交 → 50 卡 Ozon 实存验证 50/50**：31 approved + 12 在审 +
+  5 拒审 + 2 带卡失败；双店（主力 37 卡 / 拓店 13 卡）；
+- 产品线：graph 直提 48 + **discover 蓝海词→1688 匹配→上架闭环 2**（鞋垫对）
+  + discover 如实拒 2 词（睡衣词利润闸 6/6 全拒、窄词粗筛清零——选品闸执法）；
+- **定价/运费审计**：成本 = 采购 + 物流（RETS_Economy 按重计）+ 包装（实测
+  ¥4.5 货 → 12.48 运 + 2 包）；跨境 CNY 结算店口径自洽（ozon_api 权威
+  currency，fx 1.0）；
+- **生图环节**：gpt-image-2.5 当日上游堵塞 82% 轮询超时（183s 空耗），三级
+  降级链全兜零缺图；本地热加载切 nano-banana-fast 后 **96.7% 成功 / 均值
+  47s / 零空耗**。生产 config 未动（登记观察项）；
+- **拒审样本库**：ML_INCORRECT_VOLUME_WEIGHT ×3（泡货大件——v0.73 密度
+  守卫兜了一部分没兜全，拒后反推链加固登记 follow-up）、FB_DROPSHIPPING ×1；
+- **零基础设施故障**：main 181 行新架构承载 54 提交 + 6 discover session，
+  全程无 infra error；1688 反爬概率劣化 ~40% 由节奏重试消化。
+
+### ⚠️ 行为变更（升级必读）
+
+1. compat 六端点**已删除**（历史客户端如有调用将 404；`/task/{id}` 410 墓碑保留）
+2. 信封 extensions 未知键 fail-closed（`ENVELOPE_STRICT=0` 降级 warn）；三键降 legacy
+3. 单测默认断网（外呼用例需 marker + env 逃生门）
+4. gpt-image-2.5 上游偶堵观察项（降级链已兜底，无需动作）
+5. 测试 patch 靶点迁移：鉴权族/限流/holder 打权威模块（api.security /
+  runtime.rate_limit / orchestrator.task_processor._task_processor）
+
+### 升级
+
+- 需重建镜像（代码结构大迁移）；worker 测试基线 **3784** / skill **1828** /
+  pounding-mcp **138**
+- defer 登记：main re-export 兼容面与 routes→main 27 处懒导入最终清退；
+  ozon_seller 半死模块；fx_rates 只读表（BL-01 同型）；泡货
+  ML_INCORRECT_VOLUME_WEIGHT 反推链加固
+
+## [0.84.0 同车批] fix/v0832-review-findings-v1 — 验收修复批：curated 恒赢文档闸豁免阶梯 + card_audit A/B 同轮双 POST 洗补根治
+
+> 动因（2026-10-03 v0.83.1..dev 合并后验收 review）：PR #106/#107 合入后
+> review 揪出两处缺陷，本批修复。
+
+- **P1 类目文档闸优先级（行为变更，改 assemble/类目闸前必读）**：判定顺序改
+  curated（人工确认）**先于** `_doc_gate_exempt` 豁免阶梯——discover 主流源
+  what_to_sell/page 此前连同 curated/学习表一起绕过闸：需文档类目每单白烧
+  import+生图，且上一批升级指引「运营人工登记 requires_doc_categories.json
+  兜底」对该源静默无效。学习表仍在豁免阶梯之内（自动链路保护口径不变）。
+  新公共入口 `utils/category_doc_gate.curated_doc_requirement`（零 DB 单层
+  判定）；`_doc_gate_exempt`/模块 docstring 优先级注释同步。
+- **P2 card_audit A/B 同卡同轮双 POST**：B auto_repair 成功发出 UPDATE 后
+  本轮跳过 A（`_apply_declined_repair` 返回 `bool`）——A 的全量回显基是
+  POST 前拉的 echo、不含 B 定向补丁，二连发把修复洗掉、下轮再修再洗永不
+  收敛（每轮白烧一次 import）。D/E 只读不受影响。
+- 测试：+4（curated 层判定 / curated 压过豁免源码锚 / 学习表不越豁免 /
+  B 修复后跳过 A 且非修复卡 A 照常）+1 更新（主流程源码锚改 curated 顺序）。
+
+## [0.84.0 同车批] fix(tier-b-0832) — admin 面两处修复 + skill 测试遥测隔离补洞
+
+- **`/admin/users/{id}` ResponseValidationError 500 修复**（生产实锤
+  Sentry 0b623dff，2026-10-02）：`get_user_detail` stores 出参缺
+  `tenant_id`（AdminStoreOut 必填）→ SELECT 补列。
+- **`/admin/tasks?tenant_id=` 接通**：task_processor.get_task_statistics
+  本就支持租户过滤，路由层此前静默忽略该参数（事故排查时发现）。
+- **skill `_is_sentry_test_process` 补洞**：CI 以 `python -m pytest` 跑时
+  argv[0]=`pytest/__main__.py`，旧三条件 collection 阶段全不中 → 测试假
+  错误直灌生产 Sentry（POUDING_OZON-DM 等，Phoenix/Azure 指纹）。补
+  basename 含 pytest / pytest in sys.modules 两分支。
+
+## [0.84.0 同车批] fix/card-audit-declined-v1 — B 不变量升级：declined 卡分级终态处置（自动修 / 自动归档 / 保守报告）
+
+> 动因（2026-10-02 生产 4718259 店实盘对账，67 张问题卡）：v0.82 拍板 B 不变量
+> 「declined 只报告」（修复=归档+重上破坏性→人工）——**半年人工未至**：declined
+> 卡零处置累积（41→67 张），店铺后台被死卡淹没成为用户新困惑源。根因不是
+> 「报告不够响」而是「declined 没有终态出路」；本批给它一条（用户 2026-10-02
+> 拍板），存量 67 张即首批工作量。
+
+### 分级处置（唯一决策源 `utils/declined_disposition.py`，纯函数）
+
+- **可修拒因族 + 标题健康 → 自动修**：VALUE_MUST_DECIMAL/INTEGER、MIN/MAX_LIMIT、
+  out_of_range、ML_INCORRECT_VOLUME_WEIGHT、INCORRECT_DIMENSION、
+  DESCRIPTION_DECLINE、attribute_values_empty。回显先过
+  `patch_echo_for_declines` **定向补丁**（按错误点名的 attribute_id 数值清洗 /
+  重量密度兜底 / 维度 clamp / 空值剔除——只修点名问题，其余字节不动，A6 精神），
+  再经唯一构造器 `build_enrich_update_body` 全量回显 UPDATE
+  （DESCRIPTION_DECLINE 走 `allow_annotation_replace` 重建 4191）。
+- **标题残壳 / 资质族（BR_ASSORTMENT/BR_hazard_class1/image_not_upload）→ 自动归档**
+  （/v1/product/archive ≤100/批，可逆 unarchive，逐卡 finding 留痕）；
+  kill-switch `CARD_AUDIT_DECLINED_AUTO_ARCHIVE=0` 降级 archive_suggested 报告。
+- **无错误码 / 未知混码 → 只报告**（保守人工，对齐 v081 语义）；
+  `erased_attribute_value` 为噪音码不计入判级。
+- 触发面扩 `validation_status=fail`（校验失败卡同死卡，4718259 实盘 11 张）；
+  跟卖卡零写入（含归档）。
+- 修复失败 → finding open 留痕，finding 幂等挡下轮重试（设计内熔断，同 A 闸）。
+
+### 纪律红线修订
+
+- 模块头部「B 绝不 archive/重上」废除，替换为上述分级（废除依据：67 张零处置
+  累积实证 + 归档可逆 + kill-switch + 全程 finding 留痕）；「自动修只经
+  content_enrich 家族构造器」红线不变（回显补丁只修点名问题，不改写其余卡面）。
+
+### 行为变更
+
+- 首轮巡检起，各店 declined/validation-fail 死卡按分级自动处置：可修的重传、
+  救不活的归档（可 unarchive 恢复）、判不动的报告。finding 表可全程审计。
+- 部署即清存量：4718259 的 67 张（54 declined + 11 fail + 2 无状态）首轮消化。
+
+## [开发中] fix/category-doc-gate-v1 — 类目文档硬要求闸 + decline 学习（PDF_SRC_URL_IS_EMPTY 根治）+ 采集箱提交空 token 边界闸
+
+> 动因（2026-10-02 生产 Sentry burst，release 0.83.1，task da284d0e 实锤）：
+> 袜子类目 CREATE 在 v0.83.1 整键省略 pdf_list（7e4d095d）之后，卡建到 Ozon
+> 仍被 validation 拒 `PDF_SRC_URL_IS_EMPTY`（«Ссылка на pdf не может быть
+> пустая»）——证明该类目的商品文档要求是**平台侧硬要求**，发 `[]` 与不发都
+> 过不了。载荷层补丁（0.83.1）治标不治本；根因是「类目硬性要求」我们用
+> **试错**（上传→拒→3 分钟看 failed→白烧 import+生图配额）发现，而不是
+> **预检**。本批把已经付过学费的事实固化成预检闸 + 拒单自动学习闭环。
+
+### 类目文档硬要求闸（worker，改类目闸/assemble 前必读）
+
+- **新表 `category_doc_requirements`**（`storage/database/shared/model.py`，
+  全局共享无 tenant，对齐 category_commission/attr_bounds_learned W11）：
+  `(description_category_id, type_id)` 唯一，decline 学习自动积累，
+  evidence 留拒单原文供人工复核，人工确认后可晋升 curated 配置。
+- **唯一读写入口 `utils/category_doc_gate.py`**：
+  `requires_document(dc,tp)`（curated 恒赢——精确 (dc,tp) > (dc,0) 类目级
+  通配——> 学习表；任何 DB 异常 fail-open 返回 None，闸失能不制造新阻断）
+  + `record_doc_requirement(dc,tp,evidence)`（幂等 upsert，times_seen 累加，
+  **非致命**——学习写失败只告警）。curated 配置
+  `config/requires_doc_categories.json` 热加载（语义对齐 restricted_keywords）。
+- **assemble 预检闸**（`_doc_gate_exempt` + `_doc_required_exit`，插在
+  Step6.5 无解出口之后、Step 7 汇出之前）：类目定稿后判定，命中即入采集箱
+  终态（error_code=`LOCAL_CATEGORY_REQUIRES_DOCUMENT`，failed_stage=
+  category_match），省掉属性补全后的生图/上传全程。**豁免阶梯**（与受限
+  品类闸 v0.69 拍板同一哲学——闸只保护自动链路）：manual/page/what_to_sell/
+  widget 可信来源（**刻意不含 mapping**——那是我们自己学习表的自动化结论，
+  恰是本闸要兜的反复撞墙面）+ box_reviewed（采集箱即权威）+ update_product_id
+  （编辑更新）。刻意不写 category_match_log/不触发 mapping 负反馈：类目匹配
+  本身是对的，阻断的是类目适配事实。
+- **ozon_status decline 学习**（`_learn_doc_requirement`）：validation 失败
+  fatal errors 含 `PDF_SRC_URL_IS_EMPTY`（DOC_REQUIREMENT_DECLINE_CODES 唯一
+  信号源，新码在此追加）→ 自动 upsert 学习表 → **下一个同类目任务在
+  assemble 预检直接入箱，同类拒单只烧一次**。`OzonStatusInput` 补声明
+  description_category_id/type_id（langgraph channel 过滤纪律，v0.27 教训）。
+
+### 采集箱提交空 token 边界闸（worker）
+
+- **`draft_service.submit_draft` 空 token → 401 "Token is required"**：四条
+  消费方（submit/resubmit/batch-submit/定时上架）的单一咽点。主链
+  `/submit_task` 早有同款闸（main.py http_submit_task），采集箱链此前直插
+  队列 → auth 节点才失败（生产 0ae38a84 实锤：Bearer 鉴权过、body 无 token
+  → 白排队 + failed 噪音 + Sentry 噪音）。`schedule_listing` 同款（调度时
+  拒，不放行「到点才 401」的定时炸弹）。语义对齐 v0.76 终审 Fix-1：拒绝，
+  不静默代填。
+
+### 可观测性补口
+
+- assemble 必填字典回源失败 debug→warning（2026-10-02 生产：4 个必填字典
+  属性同时「无法获取任何字典值」，回源异常被 debug 吞掉无法定位限流/凭证/
+  负缓存；搜索 no-hit 属正常业务仍 debug）。
+
+### 存量测试时间腐烂修复（顺车）
+
+- `test_metrics_aggregation::test_profit_amount_session_timezone_consistent`：
+  硬编码 `snapshot_at=2026-09-01` 滑出 `METRICS_RETENTION_DAYS=30` 聚合窗
+  （2026-10-02 起基线必红）——显式放宽本用例聚合窗到 3650 天（与 prune 用例
+  monkeypatch 保留天数同一惯例），日期字面量保留（跨界语义依赖具体日期可读性）。
+
+### 升级必读
+
+- 需跑 `init_data.py`（新表幂等创建；cos-update 自带）。首次部署后学习表为
+  空 → 已知需文档类目（如袜子/内衣）**还会再撞一次**拒单完成自学习；运营
+  可提前人工登记 `config/requires_doc_categories.json`（type_id=0 类目级通配）。
+- 行为变更：自动链路（L0/L1/R2b/search_kw 匹配）命中已学习/已登记的需文档
+  类目 → 不再上传，直接 failed 入采集箱（notice 带「需合规文档」文案与
+  处理建议）；manual/page/采集箱复核/编辑更新路径不受影响。
+
 ## [0.83.1] — 2026-09-29（类目真值链修复批：信封 1688 cid 兜底 + estimate scid 佣金反查 + CREATE 空键省略 + 低置信归因闸 + safe_fetch fake-ip 逃生门）
 
 > 动因（2026-09-28 店铺 4718259 节日 17 单批量：2 approved / 1 pending / 14 failed）：

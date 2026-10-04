@@ -435,7 +435,7 @@ def test_notify_on_findings(cred, monkeypatch):
     notified = []
     handler, _ = _make_handler()  # 101 低分（自动修）+ 102 declined
     with patch("utils.ozon_client.ozon_post", side_effect=handler), \
-         patch("utils.task_processor._send_task_notify",
+         patch("orchestrator.task_processor._send_task_notify",
                side_effect=lambda *a, **k: notified.append((a, k))):
         summary = svc.run_card_audit_if_due(tenant, cid)
         assert summary is not None
@@ -468,7 +468,7 @@ def test_run_if_due_respects_watermark_and_switch(cred, monkeypatch):
 
     # 首轮：无水位 → due → 跑并推进水位
     with patch("utils.ozon_client.ozon_post", side_effect=handler), \
-         patch("utils.task_processor._send_task_notify"):
+         patch("orchestrator.task_processor._send_task_notify"):
         s1 = svc.run_card_audit_if_due(tenant, cid)
     assert s1 is not None and s1["total_cards"] == 2
     with eng.connect() as conn:

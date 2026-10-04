@@ -62,7 +62,7 @@ class _BearerAuthMiddleware:
 
     def __init__(self, app):
         self.app = app
-        # 透传内层 FastMCP ASGI app 的 lifespan：main._root_lifespan 要靠它把
+        # 透传内层 FastMCP ASGI app 的 lifespan：app_factory._root_lifespan 要靠它把
         # streamable-http session manager 并进主 lifespan（否则握手报 task group 未初始化）
         self.lifespan = getattr(app, "lifespan", None)
 
@@ -74,7 +74,7 @@ class _BearerAuthMiddleware:
         auth = headers.get("authorization", "")
         token = auth[7:].strip() if auth.startswith("Bearer ") else ""
         try:
-            from main import _authenticate_token
+            from api.security import _authenticate_token  # ✅ W3b: 鉴权唯一入口（不再 from main）
 
             tenant = _authenticate_token(token)
         except Exception as exc:

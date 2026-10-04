@@ -56,7 +56,7 @@ b64 产物 → `_b64_to_cos_url`（稳定 key `mxou-b64/{tid}_{digest}.png` 幂�
 ## 5. 上卡组装
 
 - **assemble**：跟卖 items `images=[]` 锁（:1067，AI 图由 prepare 注入）；无图补位收窄（:3183-3203）——补位子集只保留 `classify=="ai"`，draft 图全外链→诚实不补。
-- **prepare**：`_IMG_ORDER:1884` = main → **social_proof → detail** → scene×3 → comparison → multi_angle → white_bg（主图第一、white_bg 恒最后）。⚠️ docs/WORKER-TOPOLOGY.md:239 的顺序与此不一致（文档漂移）。
+- **prepare**：`_IMG_ORDER:1884` = main → **social_proof → detail** → scene×3 → comparison → multi_angle → white_bg（主图第一、white_bg 恒最后）。⚠️ 前代文档 WORKER-TOPOLOGY.md:239 的顺序与此不一致（该文档 v0.27 口径，已归档 `archive/docs/legacy/`）。
   - 多 SKU 主图优先级：main_image → variant_primary_images[0] → white_bg → multi_angle → scene（⚠️ 代码与注释矛盾：注释称变体图优先，09-#7-图片）；变体 items = [变体主图] + 共享营销图[:15]。
   - 跟卖：AI 图 <3 只告警不补竞品图；绝不把 ir.ozone.ru 图放进上传数组。
   - COS 加速域名改写 `_to_ozon_image_url`（区域→cos.accelerate.myqcloud.com，幂等）。

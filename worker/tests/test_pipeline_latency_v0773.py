@@ -16,7 +16,7 @@ import requests
 
 from graphs.nodes.auth_node import auth_node
 from graphs.state import AuthInput
-from utils.task_processor import _is_permanent_task_error
+from orchestrator.task_processor import _is_permanent_task_error
 
 
 # ────────────────────────────────────────────────
@@ -164,14 +164,14 @@ def test_config_guard_flags_missing_critical(tmp_path, caplog):
     Then: ERROR 日志点名缺失文件（不抛异常——只报不拦）。"""
     import logging as _logging
 
-    import main as main_mod
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
 
     fake_dir = tmp_path / "config"
     fake_dir.mkdir()
     # 只放一个关键文件（imagegen.json）——其余关键文件缺失
     (fake_dir / "imagegen.json").write_text("{}")
-    with caplog.at_level(_logging.ERROR, logger="main"):
-        main_mod._assert_critical_configs(base_dir=str(fake_dir))
+    with caplog.at_level(_logging.ERROR, logger="runtime.startup_checks"):
+        startup_checks._assert_critical_configs(base_dir=str(fake_dir))
     assert any("关键配置文件缺失" in r.message for r in caplog.records)
 
 
@@ -179,14 +179,14 @@ def test_config_guard_all_present_quiet(tmp_path, caplog):
     """Given: 全部关键+可选文件在位。When: _assert_critical_configs。Then: 无 ERROR。"""
     import logging as _logging
 
-    import main as main_mod
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
 
     fake_dir = tmp_path / "config"
     fake_dir.mkdir()
-    for f in main_mod._CRITICAL_CONFIG_FILES + main_mod._OPTIONAL_CONFIG_FILES:
+    for f in startup_checks._CRITICAL_CONFIG_FILES + startup_checks._OPTIONAL_CONFIG_FILES:
         (fake_dir / f).write_text("{}")
-    with caplog.at_level(_logging.ERROR, logger="main"):
-        main_mod._assert_critical_configs(base_dir=str(fake_dir))
+    with caplog.at_level(_logging.ERROR, logger="runtime.startup_checks"):
+        startup_checks._assert_critical_configs(base_dir=str(fake_dir))
     assert not any("关键配置文件缺失" in r.message for r in caplog.records)
 
 
@@ -195,8 +195,8 @@ def test_config_guard_no_dir_is_silent(tmp_path, caplog):
     Then: WARNING 提示后直接 return 不炸。"""
     import logging as _logging
 
-    import main as main_mod
+    import runtime.startup_checks as startup_checks  # W3c: 靶点自 main 迁出
 
-    with caplog.at_level(_logging.WARNING, logger="main"):
-        main_mod._assert_critical_configs(base_dir=str(tmp_path / "nope"))
+    with caplog.at_level(_logging.WARNING, logger="runtime.startup_checks"):
+        startup_checks._assert_critical_configs(base_dir=str(tmp_path / "nope"))
     assert any("不存在" in r.message for r in caplog.records)

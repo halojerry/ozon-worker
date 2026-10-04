@@ -935,38 +935,6 @@ def get_product_details(item_ids: list[str]) -> dict[str, dict[str, Any]]:
     return details
 
 
-def parse_product_url(url: str) -> Optional[dict[str, str]]:
-    """Parse 1688 product URL to extract offer ID."""
-    value = str(url or "").strip()
-    if not value:
-        return None
-    # Pure numeric ID
-    if re.fullmatch(r"\d{6,18}", value):
-        return {
-            "platform": "1688",
-            "product_id": value,
-            "canonical_url": f"https://detail.1688.com/offer/{value}.html",
-        }
-    # URL parsing
-    parsed = urlparse(value)
-    path = parsed.path or ""
-    m = re.search(r"/offer/(\d+)", path)
-    if m:
-        pid = m.group(1)
-        return {
-            "platform": "1688",
-            "product_id": pid,
-            "canonical_url": f"https://detail.1688.com/offer/{pid}.html",
-        }
-    # Query param
-    for key in ("id", "offerId", "offer_id"):
-        m = re.search(rf"{key}=(\d+)", parsed.query or "")
-        if m:
-            pid = m.group(1)
-            return {"platform": "1688", "product_id": pid, "canonical_url": value}
-    return None
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Product enrichment — API + CDP merge (one call, all edge cases handled)
 # ═══════════════════════════════════════════════════════════════════════════════

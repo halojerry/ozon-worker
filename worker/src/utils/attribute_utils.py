@@ -51,7 +51,6 @@ HAZARD_SAFE_VALUE_KEYWORDS = (
 # 本模块 has_chinese 是 retry/prepare 链唯一事实源（attr_value_matcher.py:67 的
 # 同名函数尚未统一，勿在其处复制本正则）。
 _CJK_RE = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\u3400-\u4dbf]")
-_CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 
 
 def is_customs_attr(attr_id: int | None, attr_name: str = "") -> bool:
@@ -204,8 +203,3 @@ def match_attr_name_synonym(ozon_name, product_attr_names, synonyms) -> str | No
 def has_chinese(text: str | None) -> bool:
     """是否含 CJK 字符（汉字 + 假名 + CJK 扩展 A——Ozon 禁中文/日文字符）"""
     return bool(text) and bool(_CJK_RE.search(str(text)))
-
-
-def has_cyrillic(text: str | None) -> bool:
-    """是否含西里尔字母"""
-    return bool(text) and bool(_CYRILLIC_RE.search(str(text)))

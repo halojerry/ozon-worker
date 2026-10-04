@@ -97,8 +97,6 @@ def _run_cli(args, graph=None, submit_result=None, draft_result=None):
          mock.patch("scripts.cloud_probe.build_graph_envelope_with_retry", _fake_graph), \
          mock.patch("scripts.cloud_probe.submit_envelope", side_effect=_submit), \
          mock.patch("scripts.cloud_probe.submit_draft", side_effect=_draft_submit), \
-         mock.patch("scripts.lib.ozon_discovery._query_logistics_from_worker",
-                    return_value=None), \
          mock.patch.object(cli, "_out", lambda payload: payloads.append(payload)):
         rc = cli.cmd_graph(args)
     return rc, payloads, submit_calls

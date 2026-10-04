@@ -35,7 +35,7 @@ status: archived
 | 同源网关 | pounding-harness 8766（`docs/ui-structure/app.js:212-214`「RPC APIs live on the local gateway (8766)」） | 页面与网关同源，可由网关转发到 8901 |
 | skill CLI | `skill/scripts/cli.py:1926-2140` | 19 个子命令（set_store/list_stores/set_token/set_ak/check/search/category/probe/graph/image_search/get_ak/follow/discover/discover-multi/update/query/seller/queries/cleanup），**无 ask 命令** |
 | 意图路由 | `skill/SKILL.md:24-39` + `references/command-reference.md:24-53` | A/B/C/D/E/F 决策树，**是文档不是代码**（由 Agent LLM 消费） |
-| worker chat | `worker/src/main.py:917` → `runtime/openai_handler.py` | `/v1/chat/completions` 是 **stub**（`handle()` 抛 `NotImplementedError`），无业务对话 |
+| worker chat | `worker/src/main.py:917` → `runtime/openai_handler.py` | `/v1/chat/completions` 是 **stub**（`handle()` 抛 `NotImplementedError`），无业务对话（该端点已随 2026-10 platform-compat 退役删除） |
 
 **结论：对话驱动所需的地基（本地 MCP 网关、skill CLI、意图决策树文档）全部已存在，缺的只是「把自然语言目标路由到具体 skill 命令」的那一层。**
 

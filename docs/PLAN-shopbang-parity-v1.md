@@ -323,7 +323,7 @@ git commit -m "feat(skill): discover --to-box 支持 --note 采集备注（不�
 ### Task B1: candidate 字段 + 跟卖利润测算
 
 **Files:**
-- Modify: `skill/scripts/lib/ozon_discovery.py`（ProductCandidate 字段区 + `_calculate_profit` 尾部）
+- Modify: `skill/scripts/lib/ozon_discovery.py`（ProductCandidate 字段区 + `_calculate_profit` 尾部）（注：2026-10 已随死代码清扫移除——算价唯一出口为 worker batch，测试改直调 `_estimate_candidates`/`_apply_estimate_row`）
 - Test: `skill/tests/test_discovery_export_csv.py`（追加）或新建 `test_discover_follow_profit.py`
 
 **Interfaces:**
@@ -335,7 +335,7 @@ git commit -m "feat(skill): discover --to-box 支持 --note 采集备注（不�
 # skill/tests/test_discover_follow_profit.py
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from scripts.lib.ozon_discovery import ProductCandidate, _calculate_profit
+from scripts.lib.ozon_discovery import ProductCandidate, _calculate_profit  # （注：2026-10 已随死代码清扫移除）
 
 
 def _cand(**kw):
@@ -377,7 +377,7 @@ def test_follow_profit_zero_without_competitors():
 ```
 
 ```python
-# _calculate_profit 末尾（candidate.profit_margin 赋值后）追加：
+# _calculate_profit 末尾（candidate.profit_margin 赋值后）追加：（注：2026-10 已随死代码清扫移除）
     # 跟卖利润空间：跟到跟卖最低价还能剩多少（同一成本链，仅换收入口径）
     if candidate.min_competing_price > 0:
         follow_revenue = candidate.min_competing_price * fx_rate

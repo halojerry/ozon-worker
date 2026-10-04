@@ -1,6 +1,8 @@
 # worker/tests/test_metrics_retention_v0772.py
 """v0.77.2 运维修复（任务二）：store_metrics_history 保留策略（纯 mock，无 PG 依赖）。
 
+W3c: 保留清理族自 main.py 迁出 → runtime.maintenance（本测试靶点跟迁）。
+
 背景（生产实数据）：store_metrics_history 每次同步 append 一条快照，是唯一高速
 增长表（生产 15,557 行 / ~650 行/店/天；327MB 库中它 12MB 且增速最快），无保留策略。
 
@@ -16,7 +18,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import main  # noqa: E402
+import runtime.maintenance as maintenance  # noqa: E402 — W3c: 保留清理族自 main 迁出（靶点跟迁）
 
 
 def _conn(rowcount: int = 0) -> mock.MagicMock:
@@ -40,7 +42,7 @@ def test_sweep_default_90_days(monkeypatch):
     """默认保留 90 天：DELETE store_metrics_history，绑定参数 days=90，返回行数。"""
     monkeypatch.delenv("STORE_METRICS_RETENTION_DAYS", raising=False)
     conn = _conn(rowcount=123)
-    n = main._sweep_store_metrics_history(conn)
+    n = maintenance._sweep_store_metrics_history(conn)
     assert n == 123
     sql, params = _last_sql_params(conn)
     assert "DELETE FROM store_metrics_history" in sql
@@ -53,7 +55,7 @@ def test_sweep_env_override(monkeypatch):
     """env STORE_METRICS_RETENTION_DAYS=30 → 清理 30 天口径生效。"""
     monkeypatch.setenv("STORE_METRICS_RETENTION_DAYS", "30")
     conn = _conn(rowcount=5)
-    main._sweep_store_metrics_history(conn)
+    maintenance._sweep_store_metrics_history(conn)
     _, params = _last_sql_params(conn)
     assert params == {"days": 30}
 
@@ -62,7 +64,7 @@ def test_sweep_invalid_env_falls_back_90(monkeypatch):
     """非法 env（非整数）→ 回落 90，绝不因配置手滑删太多或崩。"""
     monkeypatch.setenv("STORE_METRICS_RETENTION_DAYS", "not-a-number")
     conn = _conn()
-    main._sweep_store_metrics_history(conn)
+    maintenance._sweep_store_metrics_history(conn)
     _, params = _last_sql_params(conn)
     assert params == {"days": 90}
 
@@ -70,7 +72,7 @@ def test_sweep_invalid_env_falls_back_90(monkeypatch):
 def test_sweep_explicit_days_arg_wins(monkeypatch):
     monkeypatch.setenv("STORE_METRICS_RETENTION_DAYS", "30")
     conn = _conn()
-    main._sweep_store_metrics_history(conn, retention_days=180)
+    maintenance._sweep_store_metrics_history(conn, retention_days=180)
     _, params = _last_sql_params(conn)
     assert params == {"days": 180}
 
@@ -82,7 +84,7 @@ def test_sweep_explicit_days_arg_wins(monkeypatch):
 def test_maybe_sweep_executes_and_returns_count(monkeypatch):
     monkeypatch.delenv("STORE_METRICS_RETENTION_DAYS", raising=False)
     conn = _conn(rowcount=7)
-    assert main._maybe_sweep_store_metrics(conn) == 7
+    assert maintenance._maybe_sweep_store_metrics(conn) == 7
     conn.execute.assert_called_once()
 
 
@@ -91,11 +93,11 @@ def test_maybe_sweep_failure_swallowed(monkeypatch):
     conn = mock.MagicMock()
     conn.execute.side_effect = RuntimeError("db down")
     conn.begin_nested.return_value.__exit__.return_value = False
-    assert main._maybe_sweep_store_metrics(conn) == 0  # 不抛即过
+    assert maintenance._maybe_sweep_store_metrics(conn) == 0  # 不抛即过
 
 
 def test_maybe_sweep_uses_savepoint_isolation(monkeypatch):
     """sweep 走 SAVEPOINT 隔离——失败只回滚本语句，不污染同轮其它清理写入。"""
     conn = _conn()
-    main._maybe_sweep_store_metrics(conn)
+    maintenance._maybe_sweep_store_metrics(conn)
     conn.begin_nested.assert_called_once()

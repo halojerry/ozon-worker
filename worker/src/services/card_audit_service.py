@@ -5,15 +5,25 @@
 终态之后。本服务把「人工发现 + 脚本救」变成 store_sync_jobs 的一个日级域：
 每店每日一轮，四不变量体检 + 动作分级落 card_audit_finding。
 
-四不变量与动作分级（§3）：
+四不变量与动作分级（§3；B 于 v0.83.2 升级为分级处置）：
   A rating_gap       评级 <90 且缺口 ⊆ 保守白名单 → 自动修（build_enrich_update_body
                      全量回显 UPDATE）；构造器保守放弃 → 只落 finding（不重试熔断）
-  B declined         statuses.moderate_status == declined → 只报告（零写操作；
-                     修复 = 归档 + 重上，破坏性，永远人工）
+  B declined         ✅ v0.83.2（fix/card-audit-declined-v1，2026-10-02 用户拍板）：
+                     declined/validation-fail 卡分级终态处置（唯一决策源
+                     utils/declined_disposition.declined_disposition）——
+                     a) 可修拒因族 + 标题健康 → 自动修（patch_echo_for_declines
+                        定向补丁 + 唯一构造器全量回显 UPDATE；DESCRIPTION_DECLINE
+                        经 allow_annotation_replace 重建 4191）；
+                     b) 标题残壳 / 资质族（BR_* 等）→ 自动归档（/v1/product/archive，
+                        可逆 unarchive；kill-switch CARD_AUDIT_DECLINED_AUTO_ARCHIVE=0
+                        降级为只报告 archive_suggested）；
+                     c) 无错误码 / 未知混码 → 只报告（保守人工）。
+                     旧「只报告」拍板废除依据：半年人工未至，4718259 店 41→67 张
+                     declined 零处置累积实证；declined 卡不可售，归档可逆且全程留痕。
   C source_mismatch  现卡名称 vs listing_result_log 源侧事实 LLM 语义比对 →
                      只报告（错货卡唯一系统内检测通道；cap N/日成本闸）
   D price_sanity     old_price 缺失/低于现价/差价不足 → 阈值内自动修
-                     （build_price_update_body 单字段口径）；min_price 关系异常
+                    （build_price_update_body 单字段口径）；min_price 关系异常
                      等其余 → 只报告
   E profit_reality   v0.83 批⑥ 第 5 不变量：预估利润 vs 当前 /v5 实盘利润
                      （utils/profit_reality 重算）差超双门阈值（PCT+ABS）→ 只报告
@@ -22,8 +32,9 @@
 
 纪律红线（违者返工）：
 - 自动修只允许经 utils/content_enrich 家族构造器（全量回显防洗卡，A6 纪律），
-  绝不裸拼 /v3/product/import POST；
-- C 绝不自动改卡；B 绝不 archive/重上；
+  绝不裸拼 /v3/product/import POST（B 的回显补丁只修 Ozon 点名问题，其余字节不动）；
+- C 绝不自动改卡；B 的归档仅限「标题残壳/资质族」决策命中且开关开启，
+  可逆（unarchive）、逐卡 finding 留痕、kill-switch 可整体关闭；
 - 全程单卡 try/except 隔离：一张卡异常不拖垮整店轮次；
 - 服务零业务逻辑外溢：不碰 mcp_server.py / langgraph 节点。
 
@@ -553,18 +564,174 @@ def _check_rating_gap(state: dict, pid: str, rating_p: dict, stored: Optional[di
     summary["auto_fixed"] += 1
 
 
+def _declined_auto_archive_enabled() -> bool:
+    """B 归档动作 kill-switch：CARD_AUDIT_DECLINED_AUTO_ARCHIVE（缺省开）。
+
+    归档仅限决策器判「标题残壳/资质族」的卡（可逆 unarchive、逐卡留痕）；
+    置 0 → 该分支降级为只报告（action=archive_suggested）。
+    """
+    return os.getenv("CARD_AUDIT_DECLINED_AUTO_ARCHIVE", "1").strip() not in ("0", "false", "False")
+
+
 def _check_declined(state: dict, pid: str, info: dict) -> None:
-    """B declined：moderate_status == declined → 只报告，零写操作。"""
-    statuses = info.get("statuses") if isinstance(info.get("statuses"), dict) else {}
+    """B declined（pass 1）：分级决策（唯一决策源 declined_disposition）。
+
+    - report → 立即落 finding（保守人工：无错误码/未知混码）；
+    - archive → 入 state["declined_archive"]，轮末批量 POST /v1/product/archive
+      （_flush_declined_archives；kill-switch 关 → 落 archive_suggested finding）；
+    - auto_repair → 入 state["declined_repair"][pid]，等回显（pass 2
+      _apply_declined_repair 经唯一构造器全量回显 UPDATE）。
+    - 跟卖卡：跟卖 = 竞品卡，我方零字节写入（含归档）——只计数（同 A 闸）。
+    """
+    summary = state["summary"]
+    summary["declined"] = summary.get("declined", 0) + 1
+
+    if pid in (state.get("follow_ids") or set()):
+        summary["declined_follow_skipped"] = summary.get("declined_follow_skipped", 0) + 1
+        logger.info("card_audit B 跳过跟卖卡 pid=%s（零写入含归档）", pid)
+        return
+
+    from utils.declined_disposition import declined_disposition
+
+    decision = declined_disposition(info)
+    action = decision.get("action")
     detail = {
-        "moderate_status": str(statuses.get("moderate_status") or ""),
-        "status_name": str(statuses.get("status_name") or ""),
+        "moderate_status": str((info.get("statuses") or {}).get("moderate_status") or ""),
+        "validation_status": str((info.get("statuses") or {}).get("validation_status") or ""),
+        "codes": decision.get("codes") or [],
+        "reason": decision.get("reason") or "",
         "action": "report_only",
-        "reason": "declined_needs_manual_relist",
     }
-    _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
-    state["summary"]["declined"] += 1
-    state["summary"]["findings_open"] += 1
+
+    if action == "report":
+        _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+        summary["findings_open"] += 1
+        summary["declined_reported"] = summary.get("declined_reported", 0) + 1
+        return
+
+    if action == "archive":
+        if not _declined_auto_archive_enabled():
+            detail["action"] = "archive_suggested"
+            detail["reason2"] = "auto_archive_disabled"
+            _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+            summary["findings_open"] += 1
+            summary["declined_reported"] = summary.get("declined_reported", 0) + 1
+            return
+        state.setdefault("declined_archive", []).append(
+            {"pid": pid, "detail": detail})
+        return
+
+    # auto_repair：等 pass 2 回显
+    state.setdefault("declined_repair", {})[pid] = decision
+    summary["declined_repair_attempted"] = summary.get("declined_repair_attempted", 0) + 1
+
+
+def _apply_declined_repair(state: dict, pid: str, info: dict, echo: Optional[dict],
+                           px: dict) -> bool:
+    """B declined（pass 2）：可修族经唯一构造器全量回显 UPDATE。
+
+    回显先过 patch_echo_for_declines 定向补丁（数值清洗/重量密度/维度 clamp/
+    空值剔除——只修 Ozon 点名问题，其余字节不动）；DESCRIPTION_DECLINE 经
+    allow_annotation_replace 重建 4191（构造器内部「更长才替换」防降级）。
+    失败 → finding open 留痕（finding 幂等挡下轮重试 = 设计内熔断，同 A 闸）。
+    返回 True **仅当** UPDATE POST 成功发出——调用方据此本轮跳过 A（✅
+    v0.83.2 验收修复：A 的全量回显基是 POST 前拉的 echo、不含本函数的定向
+    补丁，同卡同轮二连发会把修复洗掉、下轮再修再洗永不收敛）。
+    """
+    from utils.content_enrich import build_enrich_update_body
+    from utils.declined_disposition import patch_echo_for_declines
+    from utils.ozon_client import ozon_post
+
+    summary = state["summary"]
+    decision = (state.get("declined_repair") or {}).get(pid) or {}
+    detail = {
+        "codes": decision.get("codes") or [],
+        "reason": decision.get("reason") or "",
+    }
+
+    if not echo:
+        detail.update(action="report_only", reason="no_card_echo")
+        _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+        summary["findings_open"] += 1
+        summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
+        return False
+
+    patched, changes = patch_echo_for_declines(echo, info)
+    detail["patched"] = changes
+    if patched is None:
+        detail.update(action="report_only", reason="echo_shape_invalid")
+        _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+        summary["findings_open"] += 1
+        summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
+        return False
+
+    body, audit = build_enrich_update_body(
+        pid, patched, [], {}, {},
+        price=px.get("price"), old_price=px.get("old_price"),
+        currency_code=px.get("currency_code") or "CNY",
+        vat=info.get("vat"), images360=info.get("images360"),
+        allow_annotation_replace=("DESCRIPTION_DECLINE" in (decision.get("codes") or [])),
+    )
+    detail["filled"] = audit.get("filled", [])
+    if not body:
+        detail.update(action="report_only", reason=audit.get("reason") or "constructor_abstained")
+        _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+        summary["findings_open"] += 1
+        summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
+        return False
+
+    try:
+        ozon_post(state["client_id"], state["api_key"], "/v3/product/import",
+                  body, timeout=60)
+    except Exception as exc:
+        detail.update(action="report_only", reason=f"import_failed:{str(exc)[:120]}")
+        _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "high", detail)
+        summary["findings_open"] += 1
+        summary["declined_repair_failed"] = summary.get("declined_repair_failed", 0) + 1
+        return False
+
+    detail["action"] = "auto_repaired"
+    _record_finding(state["tenant"], state["cid"], pid, INVARIANT_DECLINED, "low",
+                    detail, resolved=True)
+    summary["declined_repaired"] = summary.get("declined_repaired", 0) + 1
+    return True
+
+
+def _flush_declined_archives(state: dict) -> None:
+    """B 归档批量出口：/v1/product/archive（≤100/批，可逆 unarchive）。
+
+    只处理 pass 1 决策器判 archive 的卡；逐卡 finding 留痕（成功 resolved
+    action=auto_archived / 失败 open action=report_only）。批量失败不中断
+    后续批（单批 try/except 隔离，同整域纪律）。
+    """
+    from utils.ozon_client import ozon_post
+
+    batch = state.get("declined_archive") or []
+    summary = state["summary"]
+    for i in range(0, len(batch), 100):
+        chunk = batch[i:i + 100]
+        try:
+            ozon_post(state["client_id"], state["api_key"], "/v1/product/archive",
+                      {"product_id": [int(c["pid"]) for c in chunk]}, timeout=60)
+            ok = {c["pid"] for c in chunk}
+        except Exception as exc:
+            logger.warning("card_audit B 归档批次失败（%s 张降级报告）: %s",
+                           len(chunk), str(exc)[:150])
+            ok = set()
+        for c in chunk:
+            detail = dict(c["detail"])
+            if c["pid"] in ok:
+                detail["action"] = "auto_archived"
+                _record_finding(state["tenant"], state["cid"], c["pid"],
+                                INVARIANT_DECLINED, "low", detail, resolved=True)
+                summary["declined_archived"] = summary.get("declined_archived", 0) + 1
+            else:
+                detail["action"] = "report_only"
+                detail["reason2"] = "archive_failed"
+                _record_finding(state["tenant"], state["cid"], c["pid"],
+                                INVARIANT_DECLINED, "high", detail)
+                summary["findings_open"] += 1
+                summary["declined_archive_failed"] = summary.get("declined_archive_failed", 0) + 1
 
 
 def _price_violations(price: Optional[float], old_price: Optional[float],
@@ -877,6 +1044,11 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
             "rated": 0, "rating_below": 0,
             "auto_fixed": 0, "autofix_failed_open": 0,
             "declined": 0,
+            # ✅ v0.83.2 B 分级处置计数（declined 总数之外的动作分布）
+            "declined_reported": 0, "declined_repair_attempted": 0,
+            "declined_repaired": 0, "declined_repair_failed": 0,
+            "declined_archived": 0, "declined_archive_failed": 0,
+            "declined_follow_skipped": 0,
             "source_skipped_no_source": 0, "source_checked": 0,
             "source_mismatch": 0, "capped": False, "llm_skipped_no_token": False,
             "price_fixed": 0, "price_reported": 0,
@@ -937,10 +1109,17 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
     need_echo: list[str] = []
     for pid, info in live:
         try:
-            # B declined（零写操作；先于 A——declined 卡不需要再补评分）
+            # B declined/validation-fail（分级处置 pass 1；先于 A——declined 卡
+            # 不需要再补评分）。✅ v0.83.2 触发面扩 validation_status=fail：
+            # 校验失败卡与 declined 同为不可售死卡（4718259 实盘 11 张），同路处置。
             statuses = info.get("statuses") if isinstance(info.get("statuses"), dict) else {}
-            if str(statuses.get("moderate_status") or "").strip() == "declined":
+            _b_mod = str(statuses.get("moderate_status") or "").strip()
+            _b_val = str(statuses.get("validation_status") or "").strip()
+            if _b_mod == "declined" or (_b_val == "fail"):
                 _check_declined(state, pid, info)
+                # auto_repair 决策的卡需要回显（pass 2 修复用）
+                if pid in (state.get("declined_repair") or {}):
+                    need_echo.append(pid)
         except Exception as exc:
             summary["card_errors"] += 1
             logger.warning("card_audit B 不变量异常 pid=%s: %s", pid, str(exc)[:150])
@@ -972,10 +1151,22 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
     echoes = _fetch_card_echoes(client_id, api_key, sorted(set(need_echo))) if need_echo else {}
 
     for pid, info in live:
+        _b_repaired = False
+        try:
+            # ✅ v0.83.2 B pass 2：可修族 declined 修复（回显补丁 + 唯一构造器）
+            # ✅ v0.83.2 验收修复：B 成功发出 UPDATE 后本轮**跳过 A**——A 的
+            # 全量回显基（POST 前拉的 echo）不含 B 的定向补丁，同卡同轮二连发
+            # 会把修复洗掉、下轮再修再洗永不收敛（D/E 只读，不受影响照常跑）。
+            if pid in (state.get("declined_repair") or {}):
+                _b_repaired = _apply_declined_repair(state, pid, info, echoes.get(pid),
+                                                     price_map.get(pid) or {})
+        except Exception as exc:
+            summary["card_errors"] += 1
+            logger.warning("card_audit B 修复异常 pid=%s: %s", pid, str(exc)[:150])
         try:
             rating_p = ratings.get(pid)
             rating = float(rating_p.get("rating") or 0) if rating_p else None
-            if rating is not None and rating < _RATING_THRESHOLD:
+            if rating is not None and rating < _RATING_THRESHOLD and not _b_repaired:
                 _check_rating_gap(state, pid, rating_p, echoes.get(pid),
                                   price_map.get(pid) or {}, info)
         except Exception as exc:
@@ -997,6 +1188,13 @@ def run_card_audit(tenant_id: str, credential_id: str) -> dict:
         except Exception as exc:
             summary["card_errors"] += 1
             logger.warning("card_audit E 不变量异常 pid=%s: %s", pid, str(exc)[:150])
+
+    # ✅ v0.83.2 B 轮末：归档批量出口（决策器判 archive 的卡，≤100/批可逆）
+    try:
+        _flush_declined_archives(state)
+    except Exception as exc:
+        summary["card_errors"] += 1
+        logger.warning("card_audit B 归档出口异常: %s", str(exc)[:150])
 
     # ⑤ C source_mismatch（LLM；无 token / 超 cap → 本轮跳过并如实标记）
     if not state["llm_token"]:
@@ -1084,7 +1282,7 @@ def _notify_summary(tenant_id: str, credential_id: str, summary: dict) -> None:
     if not found and not summary.get("error"):
         return
     try:
-        from utils.task_processor import _send_task_notify
+        from orchestrator.task_processor import _send_task_notify  # ✅ W3a: 编排器归位
         _send_task_notify(
             task_id=f"card_audit:{credential_id}",
             status="card_audit_sweep",

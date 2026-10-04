@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 # draft.attributes 键候选（按优先级首个命中）
 _MATERIAL_KEYS = ("材质", "材料", "material")
-_COLOR_KEYS = ("颜色", "color")
 
 # ⚠️ v0.32: 1688 属性值清洗上限（防脏值污染 prompt）
 # 实测「X13桌面迷你风扇-黑色,X13桌面迷你风扇-白色,...」多选逗号串原样进 prompt

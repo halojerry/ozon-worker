@@ -11,7 +11,6 @@
 - process_ozon_url 命中 discover 缓存 → 复用直上（不调 follow_sell_cloud）
 - process_ozon_url 未命中 → 走 follow 图搜链路
 - discover 缓存无 match_1688_url / 非 profitable → 降级 follow
-- estimate_shipping_cny 与 cloud_probe price_estimate 分段一致（防漂移）
 
 运行:
     cd skill && .venv314/bin/python -m pytest tests/test_batch_test_reuse_discover.py -q
@@ -25,7 +24,6 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import batch_test  # noqa: E402
-from scripts.lib.ozon_discovery import estimate_shipping_cny  # noqa: E402
 
 
 def _discover_entry(pid="4767514314", url="https://detail.1688.com/offer/1001.html",
@@ -168,91 +166,14 @@ def test_find_discover_source_empty_cache():
         assert batch_test._find_discover_source("111") is None
 
 
-def test_estimate_shipping_cny_consistency():
-    """默认重量/运费与 cloud_probe price_estimate 分段一致（防漂移）。
+def test_default_weight_g_pinned():
+    """无重量查费率表的兜底维度恒 500g（与 cloud_probe 上架管线同源，防漂移）。
 
-    无重量 → 500g → ¥6；≤500g → ¥6；≤1000g → ¥8；>1000g → ¥15。
+    v0.83 批① 运费/定价估算唯一出口是 worker `/estimate`；本地分段公式
+    estimate_shipping_cny 已随死代码清退，此处只钉 DEFAULT_WEIGHT_G。
     """
     from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G
     assert DEFAULT_WEIGHT_G == 500
-    assert estimate_shipping_cny(None) == 6.0
-    assert estimate_shipping_cny(0) == 6.0
-    assert estimate_shipping_cny(300) == 6.0
-    assert estimate_shipping_cny(500) == 6.0
-    assert estimate_shipping_cny(501) == 8.0
-    assert estimate_shipping_cny(1000) == 8.0
-    assert estimate_shipping_cny(1001) == 15.0
-    assert estimate_shipping_cny(5000) == 15.0
-
-
-def test_calculate_profit_sends_weight_to_batch():
-    """v0.83 批①：_calculate_profit 把候选重量透传进 worker batch item。
-
-    回归（原 P1-5 语义）：无重量候选也进 batch（worker 侧按缺省兜底），不再本地
-    跳过落 ¥15；worker 不可达 → estimate_source=unavailable（无预估），绝不假运费。
-    """
-    import scripts.lib.ozon_discovery as od
-    from scripts.lib.ozon_discovery import (
-        ProductCandidate,
-        _calculate_profit,
-    )
-
-    c = ProductCandidate(ozon_product_id="1", ozon_title="t", ozon_price=1000.0)
-    c.match_1688_price = 20.0
-    c.weight_g = 0
-    seen = {}
-
-    def _fake(items):
-        seen["items"] = items
-        return [{
-            "ok": True, "profit_rate": 0.2, "commission_rate": 0.1,
-            "commission_source": "cache:leq_5000", "profit_cny": 1.0,
-            "logistics_cost_cny": 8.5, "price": 100, "logistics_source": "store",
-        }]
-
-    with mock.patch.object(od, "estimate_batch", side_effect=_fake):
-        _calculate_profit(c)
-    assert c.estimated_logistics_cny == 8.5, "应使用 worker 回填的物流费"
-    assert c.logistics_fallback_chain == "store"
-    assert seen["items"][0].get("weight_g") is None, "无重量 → 省略键（worker 缺省兜底）"
-
-    # worker 不可达 → 无预估（不回落本地公式）
-    c2 = ProductCandidate(ozon_product_id="2", ozon_title="t", ozon_price=1000.0)
-    c2.match_1688_price = 20.0
-    c2.weight_g = 0
-    with mock.patch.object(od, "estimate_batch", return_value=None):
-        _calculate_profit(c2)
-    assert c2.estimate_source == "unavailable"
-    assert c2.estimated_logistics_cny == 0.0
-
-
-def test_query_logistics_from_worker_missing_weight_queries_default():
-    """_query_logistics_from_worker 无重量 → 按 DEFAULT_WEIGHT_G 查费率表（不再 return None）。"""
-    from scripts.lib.ozon_discovery import DEFAULT_WEIGHT_G, _query_logistics_from_worker
-
-    with mock.patch("scripts.lib.config_store.get_mxou_token",
-                    return_value="tok"), \
-         mock.patch("requests.post") as m_post, \
-         mock.patch.dict("scripts.lib.ozon_discovery._LOGISTICS_QUOTE_CACHE",
-                         {}, clear=True):
-        m_post.return_value.status_code = 200
-        m_post.return_value.json.return_value = {"logistics_cost_cny": 8.5}
-        q = _query_logistics_from_worker(0)
-    assert q is not None, "无重量也应按默认重量查费率表"
-    assert q.cost == 8.5
-    assert m_post.call_args[1]["json"]["weight_g"] == DEFAULT_WEIGHT_G, \
-        f"payload 应按默认 {DEFAULT_WEIGHT_G}g, got {m_post.call_args[1]['json']['weight_g']}"
-
-    with mock.patch("scripts.lib.config_store.get_mxou_token",
-                    return_value="tok"), \
-         mock.patch("requests.post") as m_post, \
-         mock.patch.dict("scripts.lib.ozon_discovery._LOGISTICS_QUOTE_CACHE",
-                         {}, clear=True):
-        m_post.return_value.status_code = 200
-        m_post.return_value.json.return_value = {"logistics_cost_cny": 7.0}
-        q = _query_logistics_from_worker(None)
-    assert q is not None
-    assert q.cost == 7.0
 
 
 if __name__ == "__main__":

@@ -79,9 +79,16 @@ def has_active_submission(tenant_id: str, draft_id: str,
 
 def schedule_listing(tenant_id: str, draft_id: str, credential_id: str,
                      token: str, scheduled_at: str) -> dict:
-    """定时上架:落 scheduled_listings(token 加密存 token_enc,aad=tenant)。"""
+    """定时上架:落 scheduled_listings(token 加密存 token_enc,aad=tenant)。
+
+    ✅ v0.83.2 空 token 边界闸：调度时拒，不放行「到点才在 submit_draft 处 401」
+    的定时炸弹（空 token 加密存到 token_enc → 到点解密空串 → submit_draft 401 →
+    定时任务标记失败，用户等到点才发现白配）。
+    """
     import datetime as _dt
     from utils.credential_cipher import encrypt
+    if not str(token or "").strip():
+        raise HTTPException(status_code=401, detail="Token is required")
     try:
         scheduled_dt = _dt.datetime.fromisoformat(scheduled_at)
         if scheduled_dt.tzinfo is None:
@@ -743,8 +750,10 @@ def _cross_store_scan(tenant_id: str, draft_id: str, current_client_id: str) -> 
 
 
 async def _submit_task(tenant_id: str, graph_payload: dict, sku_key: str) -> str:
-    """入队（延迟 import main 防循环；main.task_processor 由 lifespan 初始化）。"""
-    from main import task_processor
+    """入队（✅ W3b: 经 orchestrator holder 取单例，不再 from main 反向依赖；
+    实例由 runtime.lifespan 创建后 set_task_processor 注入）。"""
+    from orchestrator.task_processor import get_task_processor
+    task_processor = get_task_processor()
     if task_processor is None:
         raise HTTPException(status_code=503, detail="Task processor not initialized")
     return await task_processor.submit_task(
@@ -823,7 +832,15 @@ async def submit_draft(
     template_id（P0-1 上架配置模板）：显式指定 → 校验归属后注入；
     未指定 → 租户默认模板兜底。注入语义：模板补缺省，草稿 extensions 已有值优先；
     update_product_id（更新模式）→ 忽略 offer_id_prefix（重上不变式）。
+
+    ✅ v0.83.2 空 token 边界闸：四条消费方（submit/resubmit/batch-submit/定时
+    上架）的单一咽点。主链 /submit_task 早有同款闸（main.py http_submit_task
+    401 "Token is required"），采集箱链此前直插队列 → auth 节点才失败（生产
+    0ae38a84 实锤：Bearer 鉴权过、body 无 token → 白排队 + failed 噪音）。
+    语义对齐 v0.76 终审 Fix-1：拒绝，不静默代填。
     """
+    if not str(token or "").strip():
+        raise HTTPException(status_code=401, detail="Token is required")
     draft = get_draft(tenant_id, draft_id)
     envelope = draft["payload"]
     # v0.69 镜像闸：外链必须镜像成功才能提交（详见 helper 注释）

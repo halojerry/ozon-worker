@@ -33,6 +33,7 @@ from utils.ozon_client import ozon_post
 from utils.ozon_errors import OzonError
 from utils.title_sanitizer import sanitize_title, sanitize_title_structure
 from utils.safe_template import render_safe_mapping
+from utils.volume_weight_guard import compute_density_kg_m3  # ✅ W3a SoT: 密度公式唯一化
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
@@ -2738,8 +2739,10 @@ def repair_dimensions_node(state: ValidationRetryLoopState) -> ValidationRetryLo
             _volume_m3 = (depth * width * height) / 1e9
             _v069_inferred = False
             if _volume_m3 > 0:
-                _density = (weight_g / 1000.0) / _volume_m3
-                if 0 < _density < MIN_PHYSICAL_DENSITY_KG_M3:
+                # ✅ W3a SoT: 密度公式统一 volume_weight_guard.compute_density_kg_m3
+                # （50/300 阈值是 v0.73 密度阶梯的 repair 档，见该模块注释）
+                _density = compute_density_kg_m3(weight_g, depth, width, height)
+                if _density is not None and 0 < _density < MIN_PHYSICAL_DENSITY_KG_M3:
                     _v069_inferred = True
                     _inferred_g = int(_volume_m3 * VOLUME_WEIGHT_DENSITY_KG_M3 * 1000)
                     _inferred_g = max(

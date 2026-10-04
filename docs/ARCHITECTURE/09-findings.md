@@ -16,7 +16,7 @@
 | # | 级 | 问题 | 锚点 | 一句话修法 |
 |---|---|---|---|---|
 | 1 | 🔴 | **变体生图失败回退 1688 原图 → 撞出口硬闸 → 整单 IMAGE_GEN_ALL_FAILED**。variant_primary_loop 失败时把 `variant.image`（alicdn）当产物返回（v0.60 决策）；v0.78 批A 后 `_enforce_payload_image_policy` 判它 external → 即使其余 5 张 AI 图全成功也整单失败重试，兜底已从「救缺图」变质为「毒化整单」 | variant_primary_loop_node.py:148-158,166-176 + prepare:4136 | 失败置 None 走缺图语义（单变体缺图靠主图顶），删原图兜底；同步改注释 |
-| 2 | 🔴 | **进度条从高位跳回 0%**。`_NODE_STAGE_MAP` 缺 assemble_ozon_product/scene_generation_llm/visual_vars_llm/check_quota/fetch_back/validation_retry_wrapper/follow_sell_import/variant_primary_loop → `update_progress` stage_idx=0。assemble 恰在管线中段，**每单必现一次倒退** | task_processor.py:289-300（已抽查实锤）+ main.py:91-95 | 补全 map（assemble→category_match、follow_sell_import→ingest、variant→image_generation…）；stage 缺失时保持上一阶段而非归 0 |
+| 2 | 🔴 | **进度条从高位跳回 0%**。`_NODE_STAGE_MAP` 缺 assemble_ozon_product/scene_generation_llm/visual_vars_llm/check_quota/fetch_back/validation_retry_wrapper/follow_sell_import/variant_primary_loop → `update_progress` stage_idx=0。assemble 恰在管线中段，**每单必现一次倒退** | `orchestrator/task_processor.py` `_NODE_STAGE_MAP`（已抽查实锤）+ `runtime/progress.py` `STAGE_ORDER` | 补全 map（assemble→category_match、follow_sell_import→ingest、variant→image_generation…）；stage 缺失时保持上一阶段而非归 0 |
 | 3 | 🔴 | **UnboundLocalError**：`items_title` 只在 `if repaired_title:` 块内赋值（:2053），:2054 兄弟行直接引用。强制翻译失败/box_reviewed 清空 repaired_title 后必炸；是否静默取决于外层 try——标题修复支路可被打断 | validation_retry_loop.py:2051-2054（grep 全文件仅 3 处，无更早绑定，已实锤） | `items_title` 取值移到 `if repaired_title:` 外，或把 2054 并进该块 |
 | 4 | 🟠 | **OutOfQuota 吞异常回归口 ×5**（v0.63.1 修复被新代码重新引入）：A5 整段（prepare:4043）、_translate_ru（attr_fill_extras:639）、revalidate 两处翻译（retry:3167/3193）、ai_field_service（无特判→500）。余额耗尽时静默降级而非明确失败 | 各锚点 | 统一 `except MxouOutOfQuotaError: raise` 前置（仓库已有 30 处先例） |
 | 5 | 🟠 | **信封注入口径三裂**：graph/跨平台走 `_merge_config_tiers`（含模板 9048 前缀/三档键），follow 腿手工只注 7 数值键，discover 降级腿只注 3 键；且 follow 腿**无 `_source_preflight`**、search 批量 `_submit_one` 绕过全部门禁（preflight/min-margin/density）且失败不影响 exit 0、batch_test 进程内直调不进 heavy 闸 | cloud_probe.py:4479-4484/3096-3099 vs 1490；cli.py:455-476；batch_test.py:238/384 | `_merge_config_tiers` 提为唯一注入入口（三腿同源）；follow 接 preflight；search/batch_test 对齐 graph 门禁语义 |
@@ -81,7 +81,7 @@
 - 🟡 ingest task_id（uuid4）与 DB 任务 id 双轨（部分位置可能误用第二真相源）。
 - 🟡 PrepareOzonUploadOutput.failed_stage 默认值非空（state.py:527，唯一违反「默认值归零」纪律的 Output）——异常路径留非空 error_message 时会放大成 failed。
 - 🟠 **check_quota 定时炸弹**：无 Input 注解 + `route_after_early_quota` 路由读 `state.envelope`——谁按纪律补 Input 注解，路由立刻 AttributeError/恒走 full 分支。
-- 📚 set_graph docstring 与代码相反（/run 族实际写 checkpoint）。
+- 📚 set_graph docstring 与代码相反（/run 族实际写 checkpoint）。（/run 族已随 2026-10 platform-compat 退役删除，本条存档。）
 - 🟡 MCP 限流双计（一次调用计 2 次，有效配额减半，无文档提示）。
 - 🟡 `should_handle_error` 内变量重复声明（graph.py:351-359 残留）。
 - 🟡 has_pending 把 status="skipped" 当处理中（最坏空转 10 分钟，ozon_status:224）。
@@ -106,7 +106,7 @@
 - 🟡 DEFAULT_WEIGHT_G 注释与实现漂移：选品运费缺重按 500g 分段、信封缺重兜底 50g——同一商品选品期估 ¥6、上架按 50g 进 worker，两链口径不同（ozon_discovery.py:45 vs cloud_probe.py:1050）。
 - 🟡 match_1688_freight_cny 占位键：唯一读者读 `match["freightCny"]`，全库无通道产出——CSV「1688 国内运费」列恒空（ozon_discovery.py:1332）。
 - 🟡 ai 档阈值双份维护（cli.py:2745 `_AI_DEFAULT_RULES` vs ozon_discovery.py:1577 `AI_PRESET` 字面重复）——改阈值需双改。
-- 📚 死代码：publish_product_new / build_variant_envelope（cloud_probe:3377/3291）；ozon_seller.py 三导出无生产调用。
+- 📚 死代码：publish_product_new / build_variant_envelope（cloud_probe:3377/3291）；ozon_seller.py 三导出无生产调用。（2026-10 已清除，见死代码清扫 PR；ozon_seller.py 因 compile AUX 登记的可选能力 fetch_analytics_via_premium_spoof 保留，见 PR 说明）
 - 📚 envelope_example.json 仍示例 `draft.stock:100`（stock 已退役）。
 
 ### 生态线
@@ -120,10 +120,10 @@
 - 🟡 webui 提交错误归因过粗（400/422 一律「请先选择有效店铺凭证」，吞 sanity 拒单真实原因）。
 
 ### 文档与口径漂移（集中清）
-- 📚 WORKER-TOPOLOGY.md:239 图片顺序与 `_IMG_ORDER` 不一致（social_proof/detail 对调）；头部更新日期 2026-08-05 落后多版路由变更。
+- 📚 WORKER-TOPOLOGY.md:239 图片顺序与 `_IMG_ORDER` 不一致（social_proof/detail 对调）；头部更新日期 2026-08-05 落后多版路由变更。（该文档 2026-10 已归档 `archive/docs/legacy/`）
 - 📚 CONTRACT-v4.md：auth 字段清单缺 failed_stage、失败示例 progress_counter=0（代码 1）；check_quota「复用 OzonUploadInput」与代码不符；ingest status=running（代码 accepted）且缺 error_message/failed_stage。
 - 📚 AGENTS「category_cache 90d」vs 代码 TTL≈10 年（L:330，读侧当持久化）。
-- 📚 ARCHITECTURE-TOPOLOGY.md 自认 v0.27 口径——本目录文档集可作为其 v0.80 替代素材。
+- 📚 ARCHITECTURE-TOPOLOGY.md 自认 v0.27 口径——本目录文档集可作为其 v0.80 替代素材。（2026-10 已归档 `archive/docs/legacy/`，本目录为现行替代）
 
 ### ✅ 已知 defer 确认（非新发现，现状核实仍在）
 - variant_v2 真值链三段断链（fetch_variant_truth 零生产调用/variant_payloads 无人传/needs_variant_sync 零消费）。

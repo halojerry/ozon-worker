@@ -32,9 +32,12 @@ def test_list_bestsellers_service_strips_plaintext(monkeypatch):
 def test_discovery_runs_http_response_has_no_plaintext(monkeypatch):
     from fastapi.testclient import TestClient
     import main as m
+    from routes import analytics_ingest_routes as _ingest  # R3a: 端点/行查询封装已迁此模块
+    # 鉴权：verify_bearer_from_request 经 api/deps_tenant 惰性 from main import
+    # _verify_analytics_token → 打 main 命名空间照常生效（兼容面保留）。
     monkeypatch.setattr("main._verify_analytics_token", lambda t: None)
     monkeypatch.setattr(
-        m, "_fetch_discovery_runs_rows",
+        _ingest, "_fetch_discovery_runs_rows",
         lambda **kw: ([("t1", "宠物饮水机", {"min_margin": 0.25}, [],
                         datetime(2026, 9, 16, 10, 0, 0), PLAIN)], 1),
     )

@@ -25,6 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from sqlalchemy.exc import IntegrityError  # noqa: E402
 
+import orchestrator.task_processor as task_processor_mod  # noqa: E402
+from routes.task_queue_routes import http_resubmit_task  # noqa: E402
+
 
 # ============================================================
 # 复用 test_moderation_rejected.py 的替身形态
@@ -86,8 +89,6 @@ def _rejected_task_status(payload=None, tenant_id="u1"):
 
 def test_resubmit_low_balance_402():
     """欠费 token 重提交 → 402 INSUFFICIENT_BALANCE，不入队（余额函数同参形态）。"""
-    import main as main_mod
-
     proc = _FakeTaskStatusProcessor(_rejected_task_status())
     balance_calls = []
 
@@ -95,11 +96,14 @@ def test_resubmit_low_balance_402():
         balance_calls.append(dict(token_record))
         return -5.0, False
 
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", side_effect=_fake_balance):
+    # R3a: resubmit 端点已迁 routes/task_queue_routes.py——直调 import 路由函数，
+    # task_processor 打 orchestrator holder，_authenticate_token/_check_mxou_balance
+    # 为路由模块级 from-import → 打路由模块命名空间。
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", side_effect=_fake_balance):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 402
@@ -119,8 +123,6 @@ def test_resubmit_low_balance_402():
 
 def test_resubmit_concurrent_duplicate_409():
     """submit_task 抛 IntegrityError（并发撞唯一索引）→ 409 DUPLICATE_SUBMIT，不是 500。"""
-    import main as main_mod
-
     proc = _FakeTaskStatusProcessor(_rejected_task_status())
 
     async def _boom(**kwargs):
@@ -128,11 +130,11 @@ def test_resubmit_concurrent_duplicate_409():
                              "uq_ozon_product_tasks_tenant_sku", None, None)
 
     proc.submit_task = _boom
-    with patch.object(main_mod, "task_processor", proc), patch(
-        "main._authenticate_token", return_value="u1"
-    ), patch("main._check_mxou_balance", return_value=(100.0, True)):
+    with patch.object(task_processor_mod, "_task_processor", proc), patch(
+        "routes.task_queue_routes._authenticate_token", return_value="u1"
+    ), patch("routes.task_queue_routes._check_mxou_balance", return_value=(100.0, True)):
         resp = asyncio.run(
-            main_mod.http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
+            http_resubmit_task("task-old", _ResubmitRequest(_resubmit_body()))
         )
 
     assert resp.status_code == 409

@@ -63,6 +63,27 @@ def compute_density_g_cc(weight_g: Any, dims_mm: Any) -> Optional[float]:
     return round(w / vol, 3)
 
 
+# ── ✅ W3a SoT：密度公式唯一化 + 阈值阶梯集中登记 ──
+# 此前同一物理量有三处内联实现（(weight_g/1000)/volume_m3，单位换算各写一遍），
+# 公式统一到本模块；阈值是 v0.73 起文档化的「密度阶梯」，语义各不相同、刻意不归一：
+#   ① ozon_validate:  < 1.0 kg/m³   → 尺寸放大错（cm→mm 双转）自修复/拦截
+#   ② retry(repair):  < 50 kg/m³    → ML_INCORRECT_VOLUME_WEIGHT 拒后按 300 kg/m³ 反推
+#   ③ prepare(guard): < 0.40 g/cm³  → 首传兜底提重（ensure_volume_weight_floor，只兜底不拒）
+# 阈值改动纪律：各阈值的接线测试在各自调用方；改阶梯必须三处同步复查。
+
+
+def compute_density_kg_m3(weight_g: Any, depth_mm: Any, width_mm: Any, height_mm: Any) -> Optional[float]:
+    """密度（kg/m³）——validate/retry 侧口径（= compute_density_g_cc × 1000）。
+
+    weight<=0 或任一维缺失/非法/非正 → None（调用方自行决定 fallback 语义）。
+    """
+    if any(not isinstance(d, (int, float)) or isinstance(d, bool) or d <= 0
+           for d in (depth_mm, width_mm, height_mm)):
+        return None
+    g_cc = compute_density_g_cc(weight_g, {"length": depth_mm, "width": width_mm, "height": height_mm})
+    return None if g_cc is None else round(g_cc * 1000, 2)
+
+
 def ensure_volume_weight_floor(weight_g: Any, dims_mm: Any) -> Tuple[int, bool]:
     """按最小密度 0.40 g/cm³ 兜底提升重量（只上调、cap 原值×3、永不拒）。
 

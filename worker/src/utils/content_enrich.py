@@ -60,7 +60,6 @@ RICH_CONTENT_MAX_IMAGES = 4
 # 目标区间 500–1500 字符（<100 视为无分，validate 拦截）。
 ANNOTATION_HARD_MIN = 100      # 硬下限（<100 无评级分，validate 拦截线）
 ANNOTATION_TARGET_MIN = 500    # 满分线（>500 满文本分）
-ANNOTATION_TARGET_MAX = 1500   # 撰写目标上限（超长截断）
 AUTHOR_MAX_DRAFT_ATTRS = 40    # 喂给撰写的 draft 中文属性条数上限
 AUTHOR_MAX_SOURCE_CHARS = 5000  # 喂给撰写的 1688 详情文本字符上限
 VISION_MAX_IMAGES = 4          # vision 真图上限（call_mxou_chat_api 契约 ≤4）

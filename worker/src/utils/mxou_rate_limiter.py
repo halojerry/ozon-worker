@@ -64,30 +64,14 @@ class TokenRateLimiter:
                 logger.info(f"⏳ MXOU 限流等待: token={token[:8]}..., {wait_time:.1f}s ({len(timestamps)}/{self.rpm} RPM)")
                 time.sleep(wait_time)
 
-    def get_usage(self, token: str) -> tuple[int, int]:
-        """获取该 token 当前 RPM 使用情况。返回 (当前请求数, 上限)。"""
-        with self._lock:
-            now = time.monotonic()
-            window_start = now - 60.0
-            count = len([t for t in self._requests.get(token, []) if t > window_start])
-        return count, self.rpm
-
 
 # 全局单例
 _rate_limiter = TokenRateLimiter()
 
 
-def get_rate_limiter() -> TokenRateLimiter:
-    return _rate_limiter
-
-
 def mxou_acquire(token: str):
     """MXOU 请求前调用，等待到速率允许。"""
     _rate_limiter.acquire(token)
-
-
-def mxou_usage(token: str) -> tuple[int, int]:
-    return _rate_limiter.get_usage(token)
 
 
 def handle_mxou_429(token: str, attempt: int, max_retries: int = 3) -> bool:

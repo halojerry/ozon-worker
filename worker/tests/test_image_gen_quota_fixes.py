@@ -156,8 +156,11 @@ def test_primary_fail_degrade_to_fallback():
 
 
 def test_stale_cleanup_sql_has_retry_guard():
-    """stale 清理 SQL 必须带 retry_count < max_retries 守卫（有界重跑，v0.26 防无限重跑）。"""
-    src_path = os.path.join(os.path.dirname(__file__), "..", "src", "main.py")
+    """stale 清理 SQL 必须带 retry_count < max_retries 守卫（有界重跑，v0.26 防无限重跑）。
+
+    W3c: 僵尸恢复块自 main.py 迁出 → runtime/startup_checks.py（靶点跟迁）。
+    """
+    src_path = os.path.join(os.path.dirname(__file__), "..", "src", "runtime", "startup_checks.py")
     with open(src_path, encoding="utf-8") as fd:
         src = fd.read()
     assert "retry_count < max_retries" in src, "stale→pending 必须守卫 retry_count"

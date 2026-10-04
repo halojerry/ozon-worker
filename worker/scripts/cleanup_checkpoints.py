@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """v0.75 C2（BL-25 Phase 1-2 漏项）: memory.checkpoints 三表存量孤儿一次性清理。
 
-背景：A9 S9-06 任务表 30 天归档删除（main._periodic_task_cleanup）此前不清理
-langgraph checkpoint——thread_id == ozon_product_tasks.id（task_processor.py:970
-``configurable={"thread_id": task_id}``），任务行物理删除后 checkpoint 行 join
-不上任何任务，只能按「孤儿 thread_id」清。运行期增量清理已由
-main._purge_checkpoints 接管（删任务行前同 WHERE 收集 id），本脚本只做
+背景：A9 S9-06 任务表 30 天归档删除（runtime.maintenance._periodic_task_cleanup）
+此前不清理 langgraph checkpoint——thread_id == ozon_product_tasks.id
+（task_processor.py:970 ``configurable={"thread_id": task_id}``），任务行物理删除后
+checkpoint 行 join 不上任何任务，只能按「孤儿 thread_id」清。运行期增量清理已由
+runtime.maintenance._purge_checkpoints 接管（删任务行前同 WHERE 收集 id），本脚本只做
 一次性存量清理，部署 v0.75 后跑一次即可。
 
 孤儿判定：thread_id 出现于三表任一、且 NOT IN (SELECT id::text FROM
@@ -35,7 +35,7 @@ from sqlalchemy import text  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("cleanup_checkpoints")
 
-# 清理序：语义父表先删（与 main._CHECKPOINT_PURGE_TABLES 同序）；migrations 绝不进列
+# 清理序：语义父表先删（与 runtime.maintenance._CHECKPOINT_PURGE_TABLES 同序）；migrations 绝不进列
 _PURGE_TABLES = ("checkpoints", "checkpoint_blobs", "checkpoint_writes")
 
 # 孤儿集物化为临时表（连接会话级——批删循环中要 commit，勿用 ON COMMIT DROP，

@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
 
+from routes.catalog_routes import v1_mappings_lookup  # noqa: E402  (R3a: 端点已迁 routes/catalog_routes.py)
+
 
 class FakeQueryParams:
     def __init__(self, q):
@@ -41,7 +43,7 @@ def _call(monkeypatch, *, query=None, headers=None, lookup=None, kw_rows=None):
     with mock.patch("utils.category_mapping_learn.lookup_mapping", return_value=lookup), \
          mock.patch("utils.ozon_category_query.OzonCategoryQuery.get_category_mapping_by_keywords",
                     return_value=kw_rows if kw_rows is not None else []):
-        return asyncio.run(main.v1_mappings_lookup(
+        return asyncio.run(v1_mappings_lookup(
             FakeRequest(query=query, headers=headers or {"Authorization": "Bearer sk-test"})))
 
 
@@ -50,7 +52,7 @@ def test_no_token_returns_401(monkeypatch):
     import main
 
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(main.v1_mappings_lookup(FakeRequest(query={"keyword": "宠物用品"}, headers={})))
+        asyncio.run(v1_mappings_lookup(FakeRequest(query={"keyword": "宠物用品"}, headers={})))
     assert ei.value.status_code == 401
 
 
@@ -63,7 +65,7 @@ def test_invalid_token_returns_401(monkeypatch):
 
     monkeypatch.setattr(main, "_verify_analytics_token", _reject)
     with pytest.raises(main.HTTPException) as ei:
-        asyncio.run(main.v1_mappings_lookup(FakeRequest(
+        asyncio.run(v1_mappings_lookup(FakeRequest(
             query={"keyword": "宠物用品"}, headers={"Authorization": "Bearer sk-bad"})))
     assert ei.value.status_code == 401
 

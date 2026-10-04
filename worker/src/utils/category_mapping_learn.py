@@ -80,33 +80,6 @@ def lookup_mapping(
     }
 
 
-def record_mapping(
-    source_category_id: Optional[int],
-    leaf_name: str,
-    dc: int,
-    tp: int,
-    path_zh: str = "",
-    path_ru: str = "",
-) -> None:
-    """上传成功（approved）后回写/累计映射。"""
-    from utils.local_db_manager import LocalDBManager
-    try:
-        LocalDBManager().add_category_mapping(
-            source_category_leaf=leaf_name,
-            source_category_id=int(source_category_id) if source_category_id else None,
-            description_category_id=int(dc),
-            type_id=int(tp),
-            source_category_path=leaf_name or "",
-            category_path_zh=path_zh or None,
-            category_path_ru=path_ru or None,
-            confidence=0.85,
-            source="learned_approved",
-        )
-        logger.info("📝 类目映射已记录: %s(%s) → dc=%s tp=%s", leaf_name, source_category_id, dc, tp)
-    except Exception as e:
-        logger.warning("类目映射回写失败（非致命）: %s", e)
-
-
 # ── v0.63: curated 1688→Ozon 类目映射种子 ─────────────────────────
 # 高冲突品类（汽车/摩托轮毂等）预置高置信映射，让 `source_category_id`/`leaf_name`
 # 第一次就能命中，不必等 L0 学习累计 3 次。只收无歧义项，避免污染。

@@ -26,11 +26,6 @@ from scripts.lib.ozon_discovery import ProductCandidate
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CACHE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "data", "discovery",
-)
-
 
 def normalize_seller_id(raw: Any) -> Optional[str]:
     """从 seller_url / seller_id 提取规范化卖家 ID。
@@ -56,19 +51,6 @@ def normalize_seller_id(raw: Any) -> Optional[str]:
     if re.fullmatch(r"\d+", s) and len(s) < 5:
         return None
     return s
-
-
-@dataclass
-class FissionBudget:
-    max_depth: int = 2
-    max_total_products: int = 300
-    time_budget: float = 600.0
-    max_sellers_per_product: int = 20
-    max_products_per_seller: int = 15
-
-    @property
-    def budget_exceeded(self) -> bool:
-        return False
 
 
 @dataclass
@@ -141,12 +123,6 @@ class FissionState:
             visited_sellers=set(payload.get("visited_sellers", [])),
             frontier=payload.get("frontier", []),
         )
-
-
-def rank_by_consensus(candidates: list[dict], top_k: int = 10) -> list[dict]:
-    """共识排名：按被多少个不同一跳卖家售卖降序，取 top-K（非硬阈值 ≥2）。"""
-    ranked = sorted(candidates, key=lambda c: len(c.get("sellers", set())), reverse=True)
-    return ranked[:top_k]
 
 
 def _parallel_workers() -> int:
