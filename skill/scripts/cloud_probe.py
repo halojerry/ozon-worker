@@ -3472,7 +3472,10 @@ def check_task_status(task_id: str, token: str = "") -> dict[str, Any]:
             result = {}
 
     # Map Worker statuses to skill terminal statuses
-    terminal = status in ("completed", "failed", "cancelled")
+    # ✅ v0.85.1 首战修正（2026-10-04）：补 "rejected"（Ozon 拒审终态，worker
+    # task_progress_service 同口径）——漏判曾让 follow --wait 对已拒任务按 10s
+    # 空转到 900s 超时，占死重采集闸。
+    terminal = status in ("completed", "failed", "cancelled", "rejected")
     ok = status == "completed"
 
     return {

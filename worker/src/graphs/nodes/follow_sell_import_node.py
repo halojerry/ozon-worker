@@ -21,6 +21,8 @@ from typing import Any
 # F-F01（2026-09-09 审计）：Ozon 直连收敛 ozon_post（全局限流 + 429/5xx 重试 +
 # 类型化错误），移除裸 requests 直发
 from utils.ozon_client import ozon_post
+# ✅ v0.85.1: 新建/复制卡 /v4 索引延迟 404 识别（A6 读回有界重试的唯一口径）
+from utils.ozon_errors import is_index_latency_404 as _is_v4_index_latency
 # ✅ fix/dedupe-batch1 A1（v0.81.1 立法）：划线价唯一规则出口——占位 old_price
 # 不得手写倍率（旧 int(*1.3) 低价卡差价 <20 被 Ozon 拒，见下）
 from utils.pricing_estimate import MIN_OLD_PRICE_GAP, enforce_old_price_rule
@@ -149,12 +151,20 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         dc_raw, type_raw = "", ""
     # v0.69 P-B: 确定性失败/无 dc → 门控仲裁（搜索词=面包屑末两段+1688 来源类目末两段）
     if not dc_raw or not type_raw:
-        _terms = _gate_search_terms(ozon_cat, _src, extra=_gate_extra)
-        if _terms:
-            _g_dc, _g_tp = _gated_category_arbitration(
-                _terms, " ".join(_terms), draft, state)
-            if _g_dc and _g_tp:
-                dc_raw, type_raw = _g_dc, _g_tp
+        # ✅ v0.85.1 clone 模式零 LLM：门控仲裁（vision LLM）整段跳过——首战实录
+        # （2026-10-04 测试店 5371047）单均烧 1 次 vision，且仲裁结果随后被
+        # import-by-sku 复制卡反查（ibs）同值覆盖，纯浪费。clone 的权威类目 =
+        # 复制卡反查 / clone_card 真值（竞品在售事实），两者都不在 → 走既有
+        # 失败链诚实拒（绝不编造类目）。
+        if follow_type == "clone":
+            logger.info("🧬 clone 模式：跳过类目门控仲裁（零 LLM）——类目由复制卡反查/clone_card 定稿")
+        else:
+            _terms = _gate_search_terms(ozon_cat, _src, extra=_gate_extra)
+            if _terms:
+                _g_dc, _g_tp = _gated_category_arbitration(
+                    _terms, " ".join(_terms), draft, state)
+                if _g_dc and _g_tp:
+                    dc_raw, type_raw = _g_dc, _g_tp
 
     # 拉取属性 schema
     client_id = state.ozon_client_id
@@ -276,34 +286,54 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                                 # payload 里的特征全部洗掉。此处先 /v4 读回原表存 state，
                                 # prepare 合并回 payload（我们已填的属性我方权威，其余
                                 # 竞品值照抄）。非致命：读不到只丢填满率，不阻断主流程。
+                                # ✅ v0.85.1 首战修正（2026-10-04 测试店 5371047 五单实录：
+                                # 复制确认后 +5s 读恒 404 "item not found"，+15s 即 200）：
+                                # 新建/复制卡 /v4 有索引延迟（B0-D 同款实录）——有界重试
+                                # 3 次 × 5s；只对 404（索引延迟）重试，其他异常照旧一次
+                                # 放弃不阻断；200 但无匹配 item（空表）同样按延迟重试。
                                 try:
-                                    _ibs_v4 = ozon_post(
-                                        state.ozon_client_id, state.ozon_api_key,
-                                        "/v4/product/info/attributes",
-                                        {"filter": {"product_id": [str(_pid)],
-                                                    "visibility": "ALL"},
-                                         "limit": 10},
-                                        timeout=15,
-                                    )
-                                    _ibs_v4_items = (_ibs_v4.get("result") or {}).get("items") \
-                                        if isinstance(_ibs_v4.get("result"), dict) \
-                                        else _ibs_v4.get("result")
-                                    for _ibs_it in (_ibs_v4_items or []):
-                                        if int((_ibs_it or {}).get("id") or 0) != int(_pid):
-                                            continue
-                                        _copied = [
-                                            {"complex_id": int(a.get("complex_id") or 0),
-                                             "id": int(a.get("id") or 0),
-                                             "values": a.get("values") or []}
-                                            for a in (_ibs_it.get("attributes") or [])
-                                            if isinstance(a, dict) and int(a.get("id") or 0) > 0
-                                        ]
-                                        if _copied:
-                                            ibs_attrs = _copied
+                                    for _v4_attempt in range(3):
+                                        _v4_matched = False
+                                        try:
+                                            _ibs_v4 = ozon_post(
+                                                state.ozon_client_id, state.ozon_api_key,
+                                                "/v4/product/info/attributes",
+                                                {"filter": {"product_id": [str(_pid)],
+                                                            "visibility": "ALL"},
+                                                 "limit": 10},
+                                                timeout=15,
+                                            )
+                                            _ibs_v4_items = (_ibs_v4.get("result") or {}).get("items") \
+                                                if isinstance(_ibs_v4.get("result"), dict) \
+                                                else _ibs_v4.get("result")
+                                            for _ibs_it in (_ibs_v4_items or []):
+                                                if int((_ibs_it or {}).get("id") or 0) != int(_pid):
+                                                    continue
+                                                _v4_matched = True
+                                                _copied = [
+                                                    {"complex_id": int(a.get("complex_id") or 0),
+                                                     "id": int(a.get("id") or 0),
+                                                     "values": a.get("values") or []}
+                                                    for a in (_ibs_it.get("attributes") or [])
+                                                    if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                                                ]
+                                                if _copied:
+                                                    ibs_attrs = _copied
+                                                    logger.info(
+                                                        "✅ 复制卡原带特征表读回: %d 个属性"
+                                                        "（prepare 合并防 import 洗卡）", len(_copied))
+                                                break
+                                        except Exception as _cp_err:
+                                            if not _is_v4_index_latency(_cp_err):
+                                                logger.warning("⚠️ 复制卡特征表读回失败（不阻断）: %s", _cp_err)
+                                                break
+                                        if ibs_attrs or _v4_matched:
+                                            break
+                                        if _v4_attempt < 2:
                                             logger.info(
-                                                "✅ 复制卡原带特征表读回: %d 个属性"
-                                                "（prepare 合并防 import 洗卡）", len(_copied))
-                                        break
+                                                "⏳ 复制卡 /v4 索引延迟（第 %d/3 次无 404 命中），5s 后重试",
+                                                _v4_attempt + 1)
+                                            time.sleep(5)
                                 except Exception as _cp_err:
                                     logger.warning("⚠️ 复制卡特征表读回失败（不阻断）: %s", _cp_err)
                                 break
