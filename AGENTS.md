@@ -22,7 +22,7 @@
 | **改 API 后必跑** | `python worker/scripts/gen_api_docs.py`（重生成 `docs/API-REFERENCE.md` + openapi 快照；`--check` 即 CI 门禁） |
 | 本地 worker | `cd deploy && docker compose up -d --build` → `http://localhost:8080`（Swagger `/docs`） |
 
-**测试基线（v0.83.0 终验）**：worker **3764 passed / 2 skipped** · skill **1828 passed** · pounding-mcp **144 passed**。
+**测试基线（v0.84.0 终验）**：worker **3784 passed / 2 skipped** · skill **1828 passed** · pounding-mcp **138 passed**；实机 gate（2026-10-04）54 提交 50 卡双店验证（CHANGELOG 0.84.0）。
 
 **边界（改代码前的硬规则）**
 - skill 不调任何 Ozon 上架 API；worker 不抓 1688。信封契约 `docs/CONTRACT-v4.md`；**键集合唯一权威 = `worker/src/utils/envelope_contract.py`**（EnvelopeExtensions extra="forbid"；2026-10 W2 起「改字段三处同步」废止）——改键 = 改模型字段+来源表 → 跑 `worker/scripts/gen_contract_docs.py`（CI `--check` 漂移即红；未知键提交层/ingest fail-closed，`ENVELOPE_STRICT=0` 降级 warn）。

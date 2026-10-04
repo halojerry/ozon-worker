@@ -1,6 +1,90 @@
 # Changelog
 
-## [开发中] fix/v0832-review-findings-v1 — 验收修复批：curated 恒赢文档闸豁免阶梯 + card_audit A/B 同轮双 POST 洗补根治
+## [0.84.0] 2026-10-04 — 维护性治理战役（W0-W3c，PR #110-#119）+ 实机 Gate 50 单
+
+> 动因：维护成本失控（出问题无法精确定位 / agent 接手成本 / 续开发成本）。
+> 方案四波治理 + 模块化收尾 + 死代码清扫，每波独立 PR CI 绿合入；发版前实机
+> gate 50 单双店验证。下方三个「同车批」为 v0.83.2 系列未发版修复。
+
+### 架构治理：main.py 4081 → 181 行（-95.6%，纯 composition root）
+
+- **composition root 拆解（#114/#117/#118）**：四族共享设施归位——
+  进度/任务上下文 `runtime/progress`、限流 `runtime/rate_limit`、图执行
+  `runtime/graph_service`、鉴权族 `api/security`；task_processor 归
+  `orchestrator`（holder 单例，lifespan 注入）；lifespan/startup_checks/
+  maintenance/app_factory 全拆；路由四族迁 `routes/`（task_queue /
+  analytics_ingest / catalog / ops，**API 面零漂移**，gen_api_docs 自证）。
+  main 只留引导 + 兼容 re-export + Dockerfile 启动契约
+  （`python -m src.main -m http`）。**新逻辑禁写回 main**（AGENTS 冻结条款）。
+- **依赖方向立法（#113）**：`test_import_direction` R1 硬零（utils↛graphs/api
+  等向上边）+ R2 棘轮（只减不增）+ R3 main 消费方冻结；task_processor 归位
+  orchestrator（模块级 import graphs 唯一合法居民）。
+- **platform-compat 调试面退役（#115）**：/run /stream_run /node_run
+  /async_run /cancel/{run_id} /v1/chat/completions 六端点删除（生产零消费
+  实证：routes/mcp/skill/pounding-mcp/webui 全零调用方）；`GET /task/{id}`
+  410 墓碑保留；API 面 139 path。
+
+### 契约与闸（「字段静默丢失」类事故消音）
+
+- **state 通道纪律检测器进 CI（#111）**：AST 扫两图 builder——节点/路由读
+  未声明字段即红；langgraph Input 过滤纪律从散文变硬闸（首跑抓 28 处存量，
+  含 2 个潜伏生产 bug）。
+- **信封契约硬化（#112）**：`EnvelopeExtensions extra="forbid"`（30 键权威）
+  + provenance 反向闸 + 键表生成链（CONTRACT-v4/envelope-keys.json 由模型
+  生成，CI --check 漂移即红）——「改键三处手工同步」废止。未知键提交层/ingest
+  fail-closed 点名（`ENVELOPE_STRICT=0` 逃生门）。
+- **单测默认断网守卫（#114）**：conftest 只许 loopback
+  （`TEST_NET_ALLOWLIST` 加白 / `@pytest.mark.external_network` +
+  `RUN_EXTERNAL_TESTS=1` 逃生门）——套件正确性不再依赖机器网络状态（事故
+  链：代理 fake-IP DNS 破坏外呼 TLS 致全量假死 13 分钟）。
+- **测试隔离**：orchestrator holder 快照恢复 fixture（`with TestClient`
+  lifespan 真实单例进程级驻留污染根治）。
+
+### 死代码清扫（#116，净删 ~4400 行）
+
+- worker 51 符号 + skill 53 DEAD + 25 链式死 + 陪葬测试；整模块退役
+  `skill/scripts/lib/electron_ops.py`（compile 登记退役）；
+- expert-tool-map 补齐 30 工具（原 21 缺 9：job_* 五件套/错误上报三件套/
+  session_sync）；8 处 docs 活能力断言更正；
+- 信封三键降级 legacy（store_id/shipping_provider/shipping_service——唯一
+  写入方在已删 build_envelope 死链，worker 零消费，存量草稿 resubmit 兼容），
+  **provenance 闸首次实战执法即抓出**。
+
+### 实机 Gate（2026-10-04，本地 Docker 新镜像 + 测试店 5371047 主力 / 5381204 拓店）
+
+- **54 提交 → 50 卡 Ozon 实存验证 50/50**：31 approved + 12 在审 +
+  5 拒审 + 2 带卡失败；双店（主力 37 卡 / 拓店 13 卡）；
+- 产品线：graph 直提 48 + **discover 蓝海词→1688 匹配→上架闭环 2**（鞋垫对）
+  + discover 如实拒 2 词（睡衣词利润闸 6/6 全拒、窄词粗筛清零——选品闸执法）；
+- **定价/运费审计**：成本 = 采购 + 物流（RETS_Economy 按重计）+ 包装（实测
+  ¥4.5 货 → 12.48 运 + 2 包）；跨境 CNY 结算店口径自洽（ozon_api 权威
+  currency，fx 1.0）；
+- **生图环节**：gpt-image-2.5 当日上游堵塞 82% 轮询超时（183s 空耗），三级
+  降级链全兜零缺图；本地热加载切 nano-banana-fast 后 **96.7% 成功 / 均值
+  47s / 零空耗**。生产 config 未动（登记观察项）；
+- **拒审样本库**：ML_INCORRECT_VOLUME_WEIGHT ×3（泡货大件——v0.73 密度
+  守卫兜了一部分没兜全，拒后反推链加固登记 follow-up）、FB_DROPSHIPPING ×1；
+- **零基础设施故障**：main 181 行新架构承载 54 提交 + 6 discover session，
+  全程无 infra error；1688 反爬概率劣化 ~40% 由节奏重试消化。
+
+### ⚠️ 行为变更（升级必读）
+
+1. compat 六端点**已删除**（历史客户端如有调用将 404；`/task/{id}` 410 墓碑保留）
+2. 信封 extensions 未知键 fail-closed（`ENVELOPE_STRICT=0` 降级 warn）；三键降 legacy
+3. 单测默认断网（外呼用例需 marker + env 逃生门）
+4. gpt-image-2.5 上游偶堵观察项（降级链已兜底，无需动作）
+5. 测试 patch 靶点迁移：鉴权族/限流/holder 打权威模块（api.security /
+  runtime.rate_limit / orchestrator.task_processor._task_processor）
+
+### 升级
+
+- 需重建镜像（代码结构大迁移）；worker 测试基线 **3784** / skill **1828** /
+  pounding-mcp **138**
+- defer 登记：main re-export 兼容面与 routes→main 27 处懒导入最终清退；
+  ozon_seller 半死模块；fx_rates 只读表（BL-01 同型）；泡货
+  ML_INCORRECT_VOLUME_WEIGHT 反推链加固
+
+## [0.84.0 同车批] fix/v0832-review-findings-v1 — 验收修复批：curated 恒赢文档闸豁免阶梯 + card_audit A/B 同轮双 POST 洗补根治
 
 > 动因（2026-10-03 v0.83.1..dev 合并后验收 review）：PR #106/#107 合入后
 > review 揪出两处缺陷，本批修复。
@@ -19,7 +103,7 @@
 - 测试：+4（curated 层判定 / curated 压过豁免源码锚 / 学习表不越豁免 /
   B 修复后跳过 A 且非修复卡 A 照常）+1 更新（主流程源码锚改 curated 顺序）。
 
-## [开发中] fix(tier-b-0832) — admin 面两处修复 + skill 测试遥测隔离补洞
+## [0.84.0 同车批] fix(tier-b-0832) — admin 面两处修复 + skill 测试遥测隔离补洞
 
 - **`/admin/users/{id}` ResponseValidationError 500 修复**（生产实锤
   Sentry 0b623dff，2026-10-02）：`get_user_detail` stores 出参缺
@@ -31,7 +115,7 @@
   错误直灌生产 Sentry（POUDING_OZON-DM 等，Phoenix/Azure 指纹）。补
   basename 含 pytest / pytest in sys.modules 两分支。
 
-## [开发中] fix/card-audit-declined-v1 — B 不变量升级：declined 卡分级终态处置（自动修 / 自动归档 / 保守报告）
+## [0.84.0 同车批] fix/card-audit-declined-v1 — B 不变量升级：declined 卡分级终态处置（自动修 / 自动归档 / 保守报告）
 
 > 动因（2026-10-02 生产 4718259 店实盘对账，67 张问题卡）：v0.82 拍板 B 不变量
 > 「declined 只报告」（修复=归档+重上破坏性→人工）——**半年人工未至**：declined
