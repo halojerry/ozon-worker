@@ -116,6 +116,24 @@ def _parse_retry_after(header_value: Optional[str]) -> Optional[float]:
     return max(0.0, delta)
 
 
+def is_index_latency_404(exc: BaseException) -> bool:
+    """新建/复制卡索引延迟期 404 识别（A6 /v4 读回有界重试用，v0.85.1 首战修正）。
+
+    B0-D / 首战实录（2026-10-04 测试店 5371047）：product/import-by-sku 复制确认
+    后立即读 /v4/product/info/attributes 恒 404（"item not found"），+15s 即 200
+    ——Ozon 读侧对新建卡有索引延迟。识别口径：OzonNotFoundError / status_code=404，
+    或错误文案含 "404"/"not found"（ozon_post 历史 mock 与网关裸文案兜底）。
+    其他异常（超时/401/5xx/连接重置）一律 False——调用方按原语义一次放弃。
+    """
+    if isinstance(exc, OzonNotFoundError):
+        return True
+    sc = getattr(exc, "status_code", None)
+    if sc == 404:
+        return True
+    msg = str(exc or "").lower()
+    return "404" in msg or "not found" in msg
+
+
 def _raise_for_status(resp: Any, endpoint: Optional[str]) -> None:
     """Map an HTTP response's status code to a typed OzonError; 2xx → None.
     ``resp`` duck-types httpx/requests Response (status_code/json/headers/text).

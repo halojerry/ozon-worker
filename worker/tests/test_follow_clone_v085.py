@@ -141,14 +141,38 @@ def test_22_policy_clone_lane_allows_cdn_original_only():
 # ═══════════════════ 4. prepare 图覆写纯函数 ═══════════════════
 
 
-def test_31_apply_images_update_lock():
+def test_31_apply_images_update_backfills_from_envelope():
+    """✅ v0.85.1 语义变更（首战实录 5/5 images缺失拒）：UPDATE 分支（复制卡
+    天生零图——复制请求不带图）改为信封图源回填：clone_card.images 优先，
+    competitor_ref_images 兜底，同过 extract_clone_images 质量过滤。"""
     from graphs.nodes.prepare_ozon_upload_node import _apply_follow_clone_images
     payload = {"items": [{"offer_id": "1", "product_id": 6515871405,
-                          "images": ["https://cos/img.jpg"], "primary_image": "https://cos/p.jpg"}]}
+                          "images": [], "primary_image": "https://cos/p.jpg"}]}
+    mode = _apply_follow_clone_images(
+        payload, {"follow_clone": True, "clone_card": {"images": [_CDN_IMG]}})
+    assert mode == "update"
+    assert payload["items"][0]["images"] == [_CDN_IMG], "UPDATE 零图 → 信封图源回填"
+    assert "primary_image" not in payload["items"][0]
+
+
+def test_31b_apply_images_update_falls_back_to_ref_images():
+    from graphs.nodes.prepare_ozon_upload_node import _apply_follow_clone_images
+    payload = {"items": [{"offer_id": "1", "product_id": 6515871405, "images": []}]}
+    mode = _apply_follow_clone_images(
+        payload, {"follow_clone": True,
+                  "clone_card": {"images": ["https://cbu01.alicdn.com/img/ibank/1.jpg"]},
+                  "competitor_ref_images": [_CDN_IMG]})
+    assert mode == "update"
+    assert payload["items"][0]["images"] == [_CDN_IMG], "clone_card 无合格图 → ref_images 兜底"
+
+
+def test_31c_apply_images_update_no_source_keeps_empty():
+    """确无图源 → 维持 []（下游图片闸如实拒，诚实失败不伪造）。"""
+    from graphs.nodes.prepare_ozon_upload_node import _apply_follow_clone_images
+    payload = {"items": [{"offer_id": "1", "product_id": 6515871405, "images": []}]}
     mode = _apply_follow_clone_images(payload, {"follow_clone": True})
     assert mode == "update"
-    assert payload["items"][0]["images"] == [], "UPDATE 铁锁：绝不动复制卡图"
-    assert "primary_image" not in payload["items"][0]
+    assert payload["items"][0]["images"] == []
 
 
 def test_32_apply_images_create_fallback_cdn():
@@ -336,7 +360,7 @@ def _pricing_state(extensions, competitor_price):
 
 def _patch_pricing(monkeypatch):
     from graphs.nodes import pricing_node as pn
-    from utils import logistics_quote
+    from utils import logistics_quote, fx_rate_service
 
     monkeypatch.setattr(logistics_quote, "query_logistics_cost",
                         lambda *a, **k: (10.0, "mock_channel", {}))
@@ -344,6 +368,10 @@ def _patch_pricing(monkeypatch):
                         lambda *a, **k: ("RETS", "Standard"))
     monkeypatch.setattr(pn, "get_category_commission", lambda *a, **k: None)
     monkeypatch.setattr(pn, "_get_exchange_rate", lambda *a, **k: 12.0)
+    # ✅ v0.85.1: CNY 店克隆锚价换算走 resolve_cny_rub_rate（fx 三级链只在
+    # clone+CNY 需要时拉）——测试统一 mock，缺省 12.0（与主链 mock 同值）。
+    monkeypatch.setattr(fx_rate_service, "resolve_cny_rub_rate",
+                        lambda: (12.0, "pg_cache"), raising=True)
     return pn
 
 
