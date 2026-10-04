@@ -6,19 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, Any
 from sqlalchemy import text
 
+from api.security import authenticate_admin as _authenticate_admin  # ✅ B5 批②：守卫唯一链（原本地实现收编）
 from storage.database.db import get_engine
-from services import admin_service
 
 router = APIRouter(prefix="/api/v1/admin/audit-logs", tags=["admin"])
-
-
-async def _authenticate_admin(request: Request) -> str:
-    from main import _authenticate_token
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    user_id = _authenticate_token(token)
-    admin_service.require_admin(user_id)
-    return user_id
 
 
 class AuditCreateIn(BaseModel):

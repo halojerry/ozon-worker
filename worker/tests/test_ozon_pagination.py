@@ -198,3 +198,65 @@ def test_offset_exact_total_match():
 
     assert len(items) == 2
     assert len(fake.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 11. on_page（B6 收敛批②）：逐页回调语义
+# ---------------------------------------------------------------------------
+
+def test_on_page_called_per_page_with_page_items():
+    """offset 分页两页 → on_page 逐页各调一次，入参=该页 items（非累计）。"""
+    fake = _fake_ozon_factory([
+        {"result": {"items": [{"id": 1}, {"id": 2}], "total": 3}},
+        {"result": {"items": [{"id": 3}], "total": 3}},
+    ])
+    pages: list[list] = []
+
+    items = paginate("cid", "key", "/v3/product/list",
+                     {"limit": 2, "offset": 0}, post_fn=fake,
+                     on_page=pages.append)
+
+    assert pages == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+    assert items == [{"id": 1}, {"id": 2}, {"id": 3}]  # 返回值仍为全量合并
+    assert len(fake.calls) == 2
+    assert fake.calls[1]["body"]["offset"] == 2  # 逐页推进不受回调影响
+
+
+def test_on_page_none_default_zero_change():
+    """缺省 on_page=None → 既有 shelf/order 调用方零变化（不报错、结果同）。"""
+    fake = _fake_ozon_factory([
+        {"result": {"items": [{"id": 1}], "total": 1}},
+    ])
+    items = paginate("cid", "key", "/v3/product/list", {"limit": 10}, post_fn=fake)
+    assert items == [{"id": 1}]
+
+
+def test_on_page_empty_page_not_called_and_stops():
+    """空页即止（旧手写循环 if-not-items-break 语义迁入）：on_page 不收到空页、
+    不以相同 offset 空转 max_pages。"""
+    fake = _fake_ozon_factory([
+        {"result": {"items": [{"id": 1}], "total": 999}},  # total 偏大
+        {"result": {"items": [], "total": 999}},           # 空页
+    ])
+    pages: list[list] = []
+
+    items = paginate("cid", "key", "/v3/product/list",
+                     {"limit": 1, "offset": 0}, post_fn=fake, on_page=pages.append)
+
+    assert pages == [[{"id": 1}]]       # 空页不回调
+    assert items == [{"id": 1}]
+    assert len(fake.calls) == 2         # 空页后停止，不空转
+
+
+def test_on_page_exception_propagates_and_stops():
+    """on_page 抛异常 → 中止遍历向上抛（调用方决定降级；已落页保留）。"""
+    fake = _fake_ozon_factory([
+        {"result": {"items": [{"id": 1}], "total": 99}},
+    ])
+
+    def _boom(_items):
+        raise RuntimeError("upsert boom")
+
+    with pytest.raises(RuntimeError, match="upsert boom"):
+        paginate("cid", "key", "/v3/product/list", {"limit": 10}, post_fn=fake, on_page=_boom)
+    assert len(fake.calls) == 1

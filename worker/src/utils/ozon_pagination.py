@@ -5,7 +5,7 @@ Styles: "last" (last_id/has_next), "offset" (offset/total),
 """
 from __future__ import annotations
 import logging
-from typing import Any
+from typing import Any, Callable, Optional
 from utils.ozon_client import ozon_post as _default_post_fn
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ def paginate(
     cursor_style: str = "auto",
     max_pages: int = 100,
     post_fn: Any = None,
+    on_page: Optional[Callable[[list], None]] = None,
     **ozon_kwargs: Any,
 ) -> list[dict]:
     """Walk all pages of a cursor-paginated Ozon endpoint and merge items.
@@ -47,6 +48,10 @@ def paginate(
     Args:
         post_fn: Injectable callable for ozon_post (default: import from utils.ozon_client).
             Pass the service's own imported reference so mocks at the service namespace intercept.
+        on_page: ✅ B6（2026-10 收敛批②）逐页回调——每页 items 合入 all_items 后
+            以本页 items 调用一次（None 缺省，既有调用方 shelf/order 零变化）。
+            用途：大结果集逐页 upsert 落库（如 store_sync._sync_products），
+            避免全量攒内存 + 中途失败保留已落页。回调抛异常即中止遍历并向上抛。
     """
     if post_fn is None:
         post_fn = _default_post_fn
@@ -62,6 +67,14 @@ def paginate(
         items = _extract_items(parsed)
         if items:
             all_items.extend(items)
+            if on_page is not None:
+                on_page(items)
+
+        # ✅ B6: 空页即止——offset/total 语义下空页+total 偏大继续翻会以相同
+        # offset 空转到 max_pages（旧手写循环「if not items: break」语义，
+        # 迁移进通用 walker；shelf/order 既有行为只会更早停止，输出不变）。
+        if not items:
+            break
 
         if detected_style is None:
             if cursor_style == "auto":
