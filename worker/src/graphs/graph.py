@@ -249,6 +249,13 @@ def route_after_assemble(state):
     if match_conf is not None and match_conf < MIN_CONF_BOX:  # ✅ v0.73: 常量唯一化（原裸 0.3）
         logger.warning(f"🛑 类目匹配置信度过低({match_conf})，阻断上架")
         return "失败"
+    # ✅ v0.85 follow_clone：零 LLM 零生图——跳过 scene_generation_llm → 生图
+    # 整链，直达 prepare（复制成功=UPDATE images=[] 不动卡图；回退=clone_card
+    # 逐字克隆 CREATE。信封 extensions.follow_clone 标记，skill 采集腿写入）。
+    _fc_ext = ((getattr(state, 'envelope', {}) or {}).get("extensions") or {})
+    if isinstance(_fc_ext, dict) and _fc_ext.get("follow_clone"):
+        logger.info("🧬 follow_clone：跳过生图链（零 LLM 零生图），直达 prepare_ozon_upload")
+        return "克隆"
     return "成功"
 
 
@@ -293,6 +300,7 @@ builder.add_conditional_edges(
     path=route_after_assemble,
     path_map={
         "成功": "scene_generation_llm",
+        "克隆": "prepare_ozon_upload",  # ✅ v0.85 follow_clone：跳过生图链直达 prepare
         "失败": END,
     }
 )

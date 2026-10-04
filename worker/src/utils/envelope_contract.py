@@ -79,6 +79,8 @@ EXTENSION_KEY_ORIGINS: Dict[str, str] = {
     "follow_type": "skill-injectable",
     # 采集腿写入（follow/discover/graph）
     "follow_sell": "skill-collect",
+    "follow_clone": "skill-collect",
+    "clone_card": "skill-collect",
     "competitor_weight_g": "skill-collect",
     "competitor_dimensions_mm": "skill-collect",
     "competitor_ref_images": "skill-collect",
@@ -117,8 +119,10 @@ _KEY_DESCRIPTIONS: Dict[str, str] = {
     "promo_variable_cost_rate": "促销变动成本率",
     "traffic_keywords": "SEO 流量词（标题提示词增强）",
     "offer_id_prefix": "offer_id 前缀覆盖",
-    "follow_type": "跟卖模式 hand|api",
+    "follow_type": "跟卖模式 hand|api|clone",
     "follow_sell": "跟卖标记（路由分流）",
+    "follow_clone": "跟卖克隆标记（follow_clone 模式：零 LLM 零生图——跳撰写/生图链，复制卡 images=[] 不动卡图或回退克隆图 CDN 直传）",
+    "clone_card": "克隆回退载荷（import-by-sku 不可复制时逐字克隆数据：product_id/name/dc/tp/attributes/images/weight_g/dims_mm，CDP 读卡产物）",
     "competitor_weight_g": "竞品重量 g（draft.weight 缺失兜底）",
     "competitor_dimensions_mm": "竞品尺寸 mm（缺失兜底）",
     "competitor_ref_images": "跟卖竞品主图快照（生图参考，绝不进 draft.images）",
@@ -162,6 +166,8 @@ class EnvelopeExtensions(BaseModel):
     offer_id_prefix: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["offer_id_prefix"])
     follow_type: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["follow_type"])
     follow_sell: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["follow_sell"])
+    follow_clone: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["follow_clone"])
+    clone_card: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["clone_card"])
     competitor_weight_g: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["competitor_weight_g"])
     competitor_dimensions_mm: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["competitor_dimensions_mm"])
     competitor_ref_images: Optional[Any] = Field(default=None, description=_KEY_DESCRIPTIONS["competitor_ref_images"])
