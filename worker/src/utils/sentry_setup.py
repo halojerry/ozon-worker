@@ -18,6 +18,9 @@
 | ozon-upload-error | v0.63.1 | ozon_upload_node logger.error（"Ozon API错误"/"完整错误响应"）| 单一 fingerprint + level warning |
 | attribute-translate-skip | v0.63.1 | prepare_ozon_upload_node 属性翻译失败跳过（每属性 1 条）| 单一 fingerprint + level warning |
 | validation-detail | v0.63.1 | ozon_validate_node 预检测严重错误汇总 | 单一 fingerprint + level warning |
+| weight-dim-suspect | v0.84.0 | "[WEIGHT_DIM_SUSPECT]"（正主=pricing_info.wd_audit 落 PG）| **丢弃**（配额保护）|
+| image-gen-transient | v0.84.0 | 生图轮询超时/无图 URL（正主=mxou_call_ledger 台账）| **丢弃**（配额保护）|
+| dict-attr-skip | v0.84.0 | 必填字典属性取值失败跳过（正主=日志+attr_match_log）| **丢弃**（配额保护）|
 
 发版修复 Sentry 问题后，按本表在 Sentry 后台 resolve（已修）/archive（已知聚合噪音），
 流程见 docs/LOGGING.md「Sentry 错误监测」节。
@@ -80,6 +83,23 @@ _ATTR_TRANSLATE_MSG_KEYWORDS = ("俄语翻译失败或非俄语，跳过该属�
 
 _VALIDATION_DETAIL_FINGERPRINT = "validation-detail"
 _VALIDATION_DETAIL_MSG_KEYWORDS = ("Ozon预检测发现严重错误",)
+
+# ============================================================
+# v0.84.0: 配额保护批——高基数/高频遥测聚合（Sentry 额度防打穿）
+# 2026-10-04 实机 gate + Sentry 清账实录：以下三类「每任务必现且消息含变化数值」
+# 的事件在 Sentry 后台按消息哈希各开新 issue（一套尺寸组合 = 一个新 issue），
+# 生产放量即额度雪崩。命中 → 单一 fingerprint + level warning（数据保留在
+# message/extra，聚合可见总量，不再裂 issue）。
+# ============================================================
+
+_WEIGHT_DIM_FINGERPRINT = "weight-dim-suspect"
+_WEIGHT_DIM_MSG_KEYWORDS = ("[WEIGHT_DIM_SUSPECT]",)
+
+_IMAGE_GEN_TRANSIENT_FINGERPRINT = "image-gen-transient"
+_IMAGE_GEN_TRANSIENT_MSG_KEYWORDS = ("生图轮询超时", "grsai轮询超时", "API未返回有效图片URL")
+
+_DICT_SKIP_FINGERPRINT = "dict-attr-skip"
+_DICT_SKIP_MSG_KEYWORDS = ("无法获取任何字典值，跳过写入空值",)
 
 
 def _is_ozon_upload_error_event(event: dict) -> bool:
@@ -216,6 +236,19 @@ def _before_send(event: dict, hint: Optional[dict] = None) -> dict:
             event["extra"] = extra
         extra["noise_group"] = "validation_detail"
         return event
+    # ── v0.84.0 配额保护批（消息级匹配）——直接丢弃（return None），非聚合：
+    # Sentry 配额按「事件数」计费，指纹聚合只防 issue 裂变不省额度。以下三族
+    # 每任务必现且数据另有正主（PG/台账/日志），Sentry 副本纯冗余：
+    # · WEIGHT_DIM_SUSPECT → pricing_info.wd_audit（listing_result_log 落库）
+    # · 生图轮询超时/无图 URL → mxou_call_ledger（model/outcome/duration_ms）
+    # · 字典值获取失败跳过 → 运行日志 + attr_match_log
+    msg = _event_message(event)
+    if any(kw in msg for kw in _WEIGHT_DIM_MSG_KEYWORDS):
+        return None
+    if any(kw in msg for kw in _IMAGE_GEN_TRANSIENT_MSG_KEYWORDS):
+        return None
+    if any(kw in msg for kw in _DICT_SKIP_MSG_KEYWORDS):
+        return None
     return event
 
 
