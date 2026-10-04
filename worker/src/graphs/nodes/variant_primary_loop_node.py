@@ -80,7 +80,11 @@ def variant_primary_loop_node(
         """生成单个变体主图（线程内执行，失败隔离）"""
         try:
             sku_name = variant.get("name", f"variant_{idx}")
-            sku_image_url = variant.get("image", "")
+            # ✅ feat/multi-sku-worker-v1（PLAN-multi-sku-v1 §V2）：参考图键契约面 =
+            # variant.ref_image（skill V1 采集腿：该色 1688 图）> legacy variant.image。
+            # 1688 图=生图参考非上卡（image_source 分类 external，payload 图源闸拦截），
+            # 生成产物走 mxou COS（ai），per-variant 主图 3:4（aspect_ratio 固定）。
+            sku_image_url = str(variant.get("ref_image") or variant.get("image") or "")
 
             # ✅ v0.26/v0.41: 重跑不重烧生图 + force_regen 绕过缓存读（webui 重生成）
             _tid = _task_id_from_config(config)

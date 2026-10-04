@@ -161,3 +161,41 @@ def verify_card_images(
             )
         return VERIFY_OK, f"卡片图与 AI 载荷一致（首图 {w}x{h} 3:4，卡 {len(cards)} 张）"
     return VERIFY_OK, f"卡片图数量一致（{len(cards)} 张，载荷非 AI 路径仅数量校验）"
+
+
+def verify_card_images_by_variant(
+    payload_items: List[dict],
+    info_items: List[dict],
+    fetch_size: Callable[[str], Optional[Tuple[int, int]]] = _default_fetch_size,
+) -> Tuple[str, str]:
+    """多变体合卡逐 variant 断言（feat/multi-sku-worker-v1）。
+
+    多 SKU 卡每 item 是独立 product（/v3/product/info/list 按 product_id 逐个回传），
+    3:4 主图断言必须按 variant 维度：payload_items[i].images ↔ info_items[i].images
+    （查询 pid 序 = import 序 = 载荷序）。任一 variant mismatch → 整体 mismatch
+    （detail 带 variant 序号定位）；单 variant 无图= skipped 不拦（同单卡语义）；
+    unverified 聚合上报不拦任务（诚实降级，与单卡口径一致）。
+    """
+    payloads = [it for it in (payload_items or []) if isinstance(it, dict)]
+    infos = [it for it in (info_items or []) if isinstance(it, dict)]
+    if not payloads:
+        return VERIFY_SKIPPED, "payload 无 items，跳过逐变体校验"
+    if len(infos) < len(payloads):
+        return VERIFY_MISMATCH, (
+            f"卡片变体数 {len(infos)} < 载荷变体数 {len(payloads)}（部分变体缺失/未合卡）"
+        )
+    mismatched: List[str] = []
+    unverified: List[str] = []
+    for i in range(len(payloads)):
+        p_imgs = [str(u) for u in (payloads[i].get("images") or []) if str(u).strip()]
+        c_imgs = [str(u) for u in (infos[i].get("images") or []) if str(u).strip()]
+        status, detail = verify_card_images(p_imgs, c_imgs, fetch_size)
+        if status == VERIFY_MISMATCH:
+            mismatched.append(f"variant#{i}: {detail}")
+        elif status == VERIFY_UNVERIFIED:
+            unverified.append(f"variant#{i}: {detail}")
+    if mismatched:
+        return VERIFY_MISMATCH, "; ".join(mismatched)
+    if unverified:
+        return VERIFY_UNVERIFIED, "; ".join(unverified[:3])
+    return VERIFY_OK, f"{len(payloads)} 个变体逐项校验一致（数量+AI 首图 3:4）"
