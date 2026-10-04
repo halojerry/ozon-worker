@@ -25,6 +25,9 @@ LOCAL_TITLE_CATEGORY_MISMATCH = "LOCAL_TITLE_CATEGORY_MISMATCH"  # 标题-类目
 LOCAL_CATEGORY_INVALID_REQUEST = "LOCAL_CATEGORY_INVALID_REQUEST"  # 请求级类目 400（unfixable，禁 LLM 修复重传）
 LOCAL_CATEGORY_RECATEGORIZE_FAILED = "LOCAL_CATEGORY_RECATEGORIZE_FAILED"  # 自动重配类目无解 → 终态失败
 
+# ── 标题域（validation_retry_loop，follow_clone 模式作用域）──
+LOCAL_NAME_LATIN = "LOCAL_NAME_LATIN"  # clone 模式 name 拉丁错快速终态（零 LLM 不可译，禁中文属性翻译空转）
+
 # ── 重传/状态域（validation_retry_loop reupload/recheck）──
 LOCAL_REUPLOAD_FAILED = "LOCAL_REUPLOAD_FAILED"        # 重新上传失败（import UPDATE/CREATE 异常，保留更具体 Ozon 码时省略）
 LOCAL_UPLOAD_NO_TASK_ID = "LOCAL_UPLOAD_NO_TASK_ID"    # 上传未取回 Ozon task_id（空/系统 UUID/格式错）
@@ -36,6 +39,7 @@ __all__ = [
     "LOCAL_TITLE_CATEGORY_MISMATCH",
     "LOCAL_CATEGORY_INVALID_REQUEST",
     "LOCAL_CATEGORY_RECATEGORIZE_FAILED",
+    "LOCAL_NAME_LATIN",
     "LOCAL_REUPLOAD_FAILED",
     "LOCAL_UPLOAD_NO_TASK_ID",
     "LOCAL_STATUS_QUERY_FAILED",
