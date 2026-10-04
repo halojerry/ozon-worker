@@ -1,5 +1,33 @@
 # Changelog
 
+## [未发版 dev] — 9048-only 合卡终验两处管线侧根因修复：retry 标题抹平变体盲 + 5646 颜色属性子串误选
+
+### fix(multi-sku): multi_sku 标题修复变体盲守卫 + resolve_color_attr_id 词形收紧（fix/multi-sku-9048-fixes）
+
+- **① retry-loop 标题修复变体盲（主因，终验实录：7 变体「✅ 标题已修复（所有
+  变体）」→ 6 张独立卡）**：`validation_retry_loop.error_repair_llm_node` 的
+  「LLM 重生成标题 / 强制俄语标题」两处写回点把**所有 items 的 name 整体抹平
+  成同一标题**——9048-only 模式的变体区分恰恰靠 prepare 展开写入的 per-item
+  色尾缀，抹平后 items 同质 Ozon 不并卡。新守卫 `utils/multi_sku_title_repair`
+  （纯函数层，god file 冻结纪律新逻辑出 lib）：multi_sku（items>1）只修报错
+  item（错误文本 `item[N]`/offer_id 引用定位）且修复产物保留该 item 原尾缀
+  （公共前缀收口「, 」边界 → 末段兜底两级还原）；报错 item 不可定位/尾缀不可
+  还原 → 降级 per-item 确定性清理（删拉丁字符/归并残留分隔/去尾空白），绝不
+  抹平重生成；弃用标题不同步 4180。单 SKU 路径逐字不变（回归锁）。
+- **② resolve_color_attr_id 子串误选（终验实录：类目 17028935 启发选中 5646
+  «Количество цветов»——颜色计数属性 dict_id=0 → 7/7 color_no_match 且
+  schema_has_color_dict_attr 保守 True 否决 9048-only 降级）**：
+  `utils/multi_sku_expand` 颜色属性判定收紧为名称词形 «цвет» 单数主格独立词
+  （`\bцвет\b`，«Цвет»/«Цвет товара» 命中；«Количество цветов» 复数词形/
+  «Название цвета»/派生词形不命中）+ schema 显式 `dictionary_id > 0`（resolve
+  路径键缺失/畸形一并出局，缺省 10096 兜底不变）。实录 schema 端到端：降级
+  不再被否决。
+- **测试**：`tests/test_multi_sku_9048_fixes.py` 17 用例（targeted 保尾缀/降级
+  绝不抹平/error_repair_llm 行为级 multi_sku+单 SKU 回归锁/item[N]+offer 定位
+  与 base offer 词边界防误配/词形辨析真值表/5646 拒选/实录 schema 降级放行）；
+  `test_multi_sku_expand_v1` schema fixture 对齐新不变量（字典属性补
+  dictionary_id）。
+
 ## [未发版 dev] — 多 SKU 合卡 V1 skill 腿：graph --variants 颜色 SKU 展开（worker V2 契约面就位）
 
 ### feat(skill): 多 SKU 合卡 V1（PLAN-multi-sku-v1）——1688 颜色维度 SKU → draft.variants + draft.multi_sku

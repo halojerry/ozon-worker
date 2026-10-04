@@ -32,6 +32,7 @@ import logging
 from utils.ozon_client import ozon_post
 from utils.ozon_errors import OzonError
 from utils.title_sanitizer import sanitize_title, sanitize_title_structure
+from utils.multi_sku_title_repair import apply_title_repair  # ✅ fix/multi-sku-9048-fixes
 from utils.safe_template import render_safe_mapping
 from utils.volume_weight_guard import compute_density_kg_m3  # ✅ W3a SoT: 密度公式唯一化
 from typing import Dict, List, Any, Optional
@@ -2197,30 +2198,56 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     # 未绑定变量抛 UnboundLocalError（本 try 只捕获 JSONDecodeError，
                     # 异常会打断整个 error_repair_llm 修复支路，标题修复路径必炸）。
                     # 仅 repaired_title 真值时写 name/4180，空标题不动卡（宁缺毋滥）。
+                    # ✅ fix/multi-sku-9048-fixes: multi_sku（items>1）标题修复变体
+                    # 盲守卫——9048-only 合卡的变体区分 = per-item 色尾缀，旧逻辑把
+                    # 所有 items name 整体抹平成同一标题 → 尾缀丢失 items 同质
+                    # Ozon 不并卡（终验实录：7 变体「标题已修复（所有变体）」→
+                    # 6 张独立卡）。items>1 走 utils/multi_sku_title_repair 唯一
+                    # 入口（只修报错 item + 保原尾缀；不可定位/不可还原 → 降级
+                    # per-item 确定性清理，绝不抹平）；单 SKU 路径逐字不变（回归锁）。
                     ozon_payload_title: Dict[str, Any] = state.ozon_payload
                     items_title: list = ozon_payload_title.get("items", [])
+                    _title_adopted: bool = bool(
+                        repaired_title and items_title and len(items_title) > 0
+                    )
                     if repaired_title and items_title and len(items_title) > 0:
-                        # 修复所有变体的name字段
-                        for it in items_title:
-                            if isinstance(it, dict):
-                                it["name"] = repaired_title
-                        logger.info(f"✅ 标题已修复（所有变体）：{repaired_title[:80]}")
+                        if len(items_title) > 1:
+                            _ms_act = apply_title_repair(
+                                items_title, repaired_title,
+                                error_message=state.error_message,
+                                errors=state.errors,
+                                decline_errors=state.decline_errors,
+                            )
+                            # 仅 targeted（报错 item 修复且尾缀保留）才采纳 LLM 标题
+                            # 同步 4180；降级确定性清理路径残标题整体弃用。
+                            _title_adopted = (_ms_act == "targeted")
+                            if _ms_act == "targeted":
+                                logger.info("✅ 标题已修复（multi_sku 只修报错 item，保留变体尾缀）：%s", repaired_title[:80])
+                            elif _ms_act == "deterministic":
+                                logger.warning("⚠️ multi_sku 标题修复降级确定性清理（拒绝抹平重生成，LLM 标题弃用）")
+                        else:
+                            # 修复所有变体的name字段
+                            for it in items_title:
+                                if isinstance(it, dict):
+                                    it["name"] = repaired_title
+                            logger.info(f"✅ 标题已修复（所有变体）：{repaired_title[:80]}")
                         # 同步修复final_attributes中的4180（空标题不清既有4180值）
-                        updated_title_attrs: list = []
-                        for attr in state.final_attributes:
-                            if not isinstance(attr, dict):
+                        if _title_adopted:
+                            updated_title_attrs: list = []
+                            for attr in state.final_attributes:
+                                if not isinstance(attr, dict):
+                                    updated_title_attrs.append(attr)
+                                    continue
+                                aid_val: Any = attr.get("id") or attr.get("attribute_id")
+                                if aid_val is not None:
+                                    try:
+                                        if int(aid_val) == 4180:
+                                            attr["value"] = repaired_title
+                                            logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
+                                    except (ValueError, TypeError):
+                                        pass
                                 updated_title_attrs.append(attr)
-                                continue
-                            aid_val: Any = attr.get("id") or attr.get("attribute_id")
-                            if aid_val is not None:
-                                try:
-                                    if int(aid_val) == 4180:
-                                        attr["value"] = repaired_title
-                                        logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
-                                except (ValueError, TypeError):
-                                    pass
-                            updated_title_attrs.append(attr)
-                        state.final_attributes = updated_title_attrs
+                            state.final_attributes = updated_title_attrs
 
                 # 自动判断修复类型
                 if repaired_desc:
@@ -2286,18 +2313,36 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         logger.warning(f"⚠️ 强制俄语标题生成失败: {_force_e}")
                 
                 # 应用强制生成的标题
+                # ✅ fix/multi-sku-9048-fixes: items>1 走 multi_sku 守卫（同写回点
+                # ①：只修报错 item + 保尾缀，不可定位/不可还原 → 降级确定性清理
+                # 绝不抹平，且弃用标题不同步 4180）；单 SKU 路径逐字不变（回归锁）。
                 if repaired_title and repair_type == "title":
                     ozon_payload_t: Dict[str, Any] = state.ozon_payload
                     items_t: list = ozon_payload_t.get("items", [])
+                    _t_adopt: str = repaired_title
                     if items_t and len(items_t) > 0:
-                        for it in items_t:
-                            if isinstance(it, dict):
-                                it["name"] = repaired_title
-                        logger.info(f"✅ 标题已强制修复（所有变体）：{repaired_title[:80]}")
-                    # 同步 final_attributes 中的 4180
-                    for attr in state.final_attributes:
-                        if isinstance(attr, dict) and int(attr.get("id") or attr.get("attribute_id") or 0) == 4180:
-                            attr["value"] = repaired_title
+                        if len(items_t) > 1:
+                            _ms_act2 = apply_title_repair(
+                                items_t, repaired_title,
+                                error_message=state.error_message,
+                                errors=state.errors,
+                                decline_errors=state.decline_errors,
+                            )
+                            if _ms_act2 == "targeted":
+                                logger.info("✅ 标题已强制修复（multi_sku 只修报错 item，保留变体尾缀）：%s", repaired_title[:80])
+                            else:
+                                _t_adopt = ""
+                                logger.warning("⚠️ multi_sku 强制标题降级确定性清理（拒绝抹平重生成，标题弃用）")
+                        else:
+                            for it in items_t:
+                                if isinstance(it, dict):
+                                    it["name"] = repaired_title
+                            logger.info(f"✅ 标题已强制修复（所有变体）：{repaired_title[:80]}")
+                    # 同步 final_attributes 中的 4180（降级弃用路径不同步残标题）
+                    if _t_adopt:
+                        for attr in state.final_attributes:
+                            if isinstance(attr, dict) and int(attr.get("id") or attr.get("attribute_id") or 0) == 4180:
+                                attr["value"] = _t_adopt
 
                 logger.info(f"✅ LLM修复结果: type={repair_type}, value={repaired_value[:50] if repaired_value else '(empty)'}")
 

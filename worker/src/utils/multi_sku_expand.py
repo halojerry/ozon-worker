@@ -75,6 +75,30 @@ _CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 
 # ────────────────────────── 颜色属性定位 ──────────────────────────
 
+# ✅ fix/multi-sku-9048-fixes（2026-10 9048-only 合卡终验实录）：类目 17028935
+# schema 的 «Количество цветов»（attr 5646，颜色**计数**属性，dictionary_id=0）
+# 名字含 цвет 子串，被旧启发 `"цвет" in name` 误选为颜色属性 → 字典匹配
+# 7/7 color_no_match 全剔除，且 schema_has_color_dict_attr 对其保守 True 否决
+# 9048-only 降级 → 合卡整链死。颜色属性判定收紧为两条（5646 实录案例）：
+# ① 名称命中独立词形 «цвет»（\b 词边界，**单数主格**主词）——«Цвет» /
+#    «Цвет товара» / «Цвет производителя» 命中；«Количество цветов»（复数
+#    词形 цветов）/«Название цвета»/«цветной» 等派生词形不命中；
+# ② schema 显式 dictionary_id > 0（计数/自由文本属性 dict_id=0 直接出局）。
+_COLOR_ATTR_NAME_RE = re.compile(r"\bцвет\b")
+
+
+def _is_color_attr_name(name: Any) -> bool:
+    """颜色属性名判定（词形收紧；5646 实录案例见上方注释块）。"""
+    n = str(name or "").lower()
+    return bool(_COLOR_ATTR_NAME_RE.search(n)) or "颜色" in n
+
+
+def _safe_int(v: Any) -> Optional[int]:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
 
 def resolve_color_attr_id(
     base_attributes: List[Dict[str, Any]],
@@ -83,44 +107,44 @@ def resolve_color_attr_id(
     """定位颜色属性 id。
 
     信任序：base item 既有属性命中已知颜色 id（主链已填色 = 最直接证据）
-    > schema 属性名含 цвет/颜色 > 缺省 10096（与 prepare 既有默认一致）。
+    > schema 颜色属性（名称词形收紧 + **显式 dictionary_id > 0**，5646 实录
+    案例见上方注释块；键缺失/畸形无法证明是字典属性 → 一并出局，宁缺毋滥）
+    > 缺省 10096（与 prepare 既有默认一致）。
     """
     for attr in base_attributes or []:
         if not isinstance(attr, dict):
             continue
-        try:
-            aid = int(attr.get("id") or 0)
-        except (TypeError, ValueError):
-            continue
+        aid = _safe_int(attr.get("id")) or 0
         if aid in COLOR_ATTR_IDS:
             return aid
     for schema_attr in attributes_schema or []:
         if not isinstance(schema_attr, dict):
             continue
-        name = str(schema_attr.get("name") or "").lower()
-        if "цвет" in name or "颜色" in name:
-            try:
-                aid = int(schema_attr.get("id") or 0)
-                if aid > 0:
-                    return aid
-            except (TypeError, ValueError):
-                continue
+        if not _is_color_attr_name(schema_attr.get("name")):
+            continue
+        if (_safe_int(schema_attr.get("dictionary_id")) or 0) <= 0:
+            continue
+        aid = _safe_int(schema_attr.get("id")) or 0
+        if aid > 0:
+            return aid
     return 10096
 
 
 def schema_has_color_dict_attr(attributes_schema: List[Dict[str, Any]]) -> bool:
     """类目 schema 是否**确有**颜色字典属性（9048-only 降级触发判据之一）。
 
-    判据与 resolve_color_attr_id 同一命名启发（属性名含 цвет/颜色），
-    另要求是字典属性（dictionary_id>0；键缺失无法证伪 → 保守视为有，
-    误降级=上无颜色区分的 items 比「不降级维持单 SKU」风险高）。
-    3D 耗材类目（17028935/*）schema 无此类属性 → False（双 gate 实证）。
+    判据与 resolve_color_attr_id 同一收紧口径（名称词形 «цвет» 单数主词 +
+    dictionary_id>0；5646 «Количество цветов» 实录案例见上方注释块——旧
+    `"цвет" in name` 子串启发把它当颜色属性，dictionary_id 键缺失时的保守
+    True 曾否决降级）。键缺失保守视为有的语义保留，但只对**名称真命中**
+    的颜色属性生效（误降级=上无颜色区分的 items 比「不降级维持单 SKU」
+    风险高）。3D 耗材类目（17028935/*）schema 无此类属性 → False（双 gate
+    实证）。
     """
     for schema_attr in attributes_schema or []:
         if not isinstance(schema_attr, dict):
             continue
-        name = str(schema_attr.get("name") or "").lower()
-        if "цвет" not in name and "颜色" not in name:
+        if not _is_color_attr_name(schema_attr.get("name")):
             continue
         if "dictionary_id" not in schema_attr:
             return True
