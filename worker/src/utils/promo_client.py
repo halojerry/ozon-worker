@@ -21,9 +21,29 @@ transport）——**不调用 ozon-mcp 的异步 BaseClient**（服务端约束�
 API spec v2.1 移除（deprecated_methods.yaml），**本模块永不使用** —— Ozon Card
 折扣管理已迁至卖家 UI，无公开 API。
 
+⚠️ 促销活动商品管理 v2 迁移（2026-10-13 大限，2026-09-22 Ozon 公告）：
+    `/v1/actions/products/activate` 与 `/v1/actions/products`（v1 商品列表）自
+    2026-10-13 起**停用**，由四方法取代：
+      - POST /v1/actions/products/update      —— 取代 activate 的通用方法：
+        添加与移除同一请求完成（action_price ≤ 活动限价 → 加入；
+        > 限价 → 移除，仅「弹性提升/库存折扣」自动移除）。
+        响应 {active_product_ids, deactivated_product_ids, rejected, warnings}
+        （不再返回统一 product_ids 数组）。
+      - POST /v2/actions/products/deactivate  —— 仅「促销码」类活动强制排除，
+        {action_id, product_ids≤1000}，响应为扁平 product_ids（无 result 对象嵌套）。
+      - POST /v2/actions/products             —— 活动商品信息（财务字段统一 Money 格式，
+        扩展 recommended_stock/marketplace_seller_price/website_prices/
+        min_seller_price/is_quarantined）。本模块 `action_products` 已迁此端点。
+      - POST /v2/actions/candidates           —— 候选商品扩展信息（分页 limit≤100 +
+        last_id 指针；含 action_price/max_action_price/add_mode/库存/提升参数）。
+    auto-add v2 族（/v2/actions/auto-add/products/update|delete|list|candidates）
+    本模块未封装（无调用方，需要时按公告四方法补）。
+    ⚠️ 本地 swagger 快照（docs/refs/ozon-mcp）尚未收录 v2 端点（仍列 v1 旧方法）——
+    上表契约以 2026-09-22 公告为准；**首次生产调用前对一次线上 swagger 实证**。
+
 参数/必填字段以 swagger schema 为准（req body `required` 数组）：
     list_actions:            GET 无 body 参数（旧 {limit?, offset?} 形参保留但不再发出）
-    action_products:         {action_id必填, offset, limit?}
+    action_products:         {action_id必填, offset?, limit?}（已迁 /v2/actions/products）
     create_discount:         {date_end必填, date_start必填, min_action_percent必填, title?}
     create_voucher:          {title必填, budget必填, date_start必填, date_end必填,
                               discount_type必填(PERCENT|CURRENCY), discount_value必填,
@@ -32,6 +52,9 @@ API spec v2.1 移除（deprecated_methods.yaml），**本模块永不使用** �
     list_seller_actions:     {limit必填, offset?, search?, action_type?[DISCOUNT|VOUCHER_DISCOUNT|...],
                               status?[ACTIVE|ENDED|PLANNED|PAUSED], action_ids?}
     add_action_products:     {action_id必填, products必填[{sku必填, discount_percent?, currency?[RUB..CNY]}]}
+    update_action_products:  {action_id必填, products必填[{product_id必填, action_price必填, stock?}]}
+    deactivate_action_products: {action_id必填, product_ids必填≤1000}
+    list_action_candidates:  {action_id必填, limit?≤100, last_id?}
 
 Performance API 前缀：promo_client 白名单禁止任何 `api/client` 端点（专指广告投放）。
 """
@@ -41,7 +64,11 @@ from typing import Any
 
 # 本模块允许使用的 Seller 端点白名单（测试 test_no_performance_api_called 锁定）
 ENDPOINT_LIST_ACTIONS = "/v1/actions"
-ENDPOINT_ACTION_PRODUCTS = "/v1/actions/products"
+# ⚠️ 2026-10-13 v2 迁移：v1 商品列表 /v1/actions/products 停用 → /v2/actions/products
+ENDPOINT_ACTION_PRODUCTS = "/v2/actions/products"
+ENDPOINT_UPDATE_ACTION_PRODUCTS = "/v1/actions/products/update"
+ENDPOINT_DEACTIVATE_ACTION_PRODUCTS = "/v2/actions/products/deactivate"
+ENDPOINT_ACTION_CANDIDATES = "/v2/actions/candidates"
 ENDPOINT_CREATE_DISCOUNT = "/v1/seller-actions/create/discount"
 ENDPOINT_CREATE_VOUCHER = "/v1/seller-actions/create/voucher"
 ENDPOINT_LIST_SELLER_ACTIONS = "/v1/seller-actions/list"
@@ -50,6 +77,9 @@ ENDPOINT_ADD_ACTION_PRODUCTS = "/v1/seller-actions/products/add"
 ALLOWED_ENDPOINTS = frozenset({
     ENDPOINT_LIST_ACTIONS,
     ENDPOINT_ACTION_PRODUCTS,
+    ENDPOINT_UPDATE_ACTION_PRODUCTS,
+    ENDPOINT_DEACTIVATE_ACTION_PRODUCTS,
+    ENDPOINT_ACTION_CANDIDATES,
     ENDPOINT_CREATE_DISCOUNT,
     ENDPOINT_CREATE_VOUCHER,
     ENDPOINT_LIST_SELLER_ACTIONS,
@@ -60,11 +90,19 @@ ALLOWED_ENDPOINTS = frozenset({
 METHOD_ENDPOINTS: dict[str, str] = {
     "list_actions": ENDPOINT_LIST_ACTIONS,
     "action_products": ENDPOINT_ACTION_PRODUCTS,
+    "update_action_products": ENDPOINT_UPDATE_ACTION_PRODUCTS,
+    "deactivate_action_products": ENDPOINT_DEACTIVATE_ACTION_PRODUCTS,
+    "list_action_candidates": ENDPOINT_ACTION_CANDIDATES,
     "create_discount": ENDPOINT_CREATE_DISCOUNT,
     "create_voucher": ENDPOINT_CREATE_VOUCHER,
     "list_seller_actions": ENDPOINT_LIST_SELLER_ACTIONS,
     "add_action_products": ENDPOINT_ADD_ACTION_PRODUCTS,
 }
+
+# v2 deactivate product_ids 上限（2026-09-22 公告：标识符数组最多 1000）
+DEACTIVATE_PRODUCT_IDS_MAX = 1000
+# v2 candidates 分页单页上限（公告：limit 最多 100）
+CANDIDATES_PAGE_LIMIT_MAX = 100
 
 # Ozon 字典属性/枚举硬约束（swagger enum，勿放行枚举外值）
 DISCOUNT_TYPES = frozenset({"PERCENT", "CURRENCY"})
@@ -118,11 +156,84 @@ def action_products(
     limit: int | None = None,
     timeout: int = 30,
 ) -> dict:
-    """某活动下的商品列表（/v1/actions/products）。action_id 必填。"""
-    body: dict[str, Any] = {"action_id": action_id, "offset": offset}
+    """某活动下的商品列表（✅ 2026-10-13 迁 /v2/actions/products）。
+
+    v2 响应财务字段统一 Money 格式，并扩展 recommended_stock /
+    marketplace_seller_price / website_prices / min_seller_price / is_quarantined——
+    原样返回，消费方自行解构。⚠️ 首次生产调用前对线上 swagger 实证分页参数形状
+    （v1 是 offset/limit；公告只对 candidates 明示 limit≤100 + last_id）。
+    """
+    body: dict[str, Any] = {"action_id": action_id}
+    if offset:
+        body["offset"] = offset
     if limit is not None:
         body["limit"] = limit
     return _post(client_id, api_key, ENDPOINT_ACTION_PRODUCTS, body, timeout=timeout)
+
+
+def update_action_products(
+    client_id: str,
+    api_key: str,
+    action_id: int,
+    products: list[dict[str, Any]],
+    timeout: int = 30,
+) -> dict:
+    """促销活动商品通用增删（✅ v2 迁移：取代 /v1/actions/products/activate）。
+
+    语义（2026-09-22 公告）：action_price 是活动中商品**最高限价**——
+      ≤ 活动限价 → 加入活动（全类型）；> 限价 → 移除（仅「弹性提升/库存折扣」自动移除）。
+    products 每项 {product_id 必填, action_price 必填(Money), stock?（仅促销码类生效)}。
+    响应 {active_product_ids, deactivated_product_ids, rejected, warnings}——不再有统一
+    product_ids 数组，消费方必须分拣两个列表。
+    """
+    body: dict[str, Any] = {"action_id": action_id, "products": products}
+    return _post(client_id, api_key, ENDPOINT_UPDATE_ACTION_PRODUCTS, body, timeout=timeout)
+
+
+def deactivate_action_products(
+    client_id: str,
+    api_key: str,
+    action_id: int,
+    product_ids: list[int],
+    timeout: int = 30,
+) -> dict | list:
+    """从「促销码」类活动强制排除商品（/v2/actions/products/deactivate）。
+
+    仅适用于促销码类；「弹性提升/库存折扣」的移除走 update_action_products 抬价实现。
+    product_ids ≤1000（公告契约，超限本地拒）。响应是扁平 product_ids 数组（无
+    result 对象嵌套），原样返回。
+    """
+    if len(product_ids) > DEACTIVATE_PRODUCT_IDS_MAX:
+        raise ValueError(
+            f"product_ids 上限 {DEACTIVATE_PRODUCT_IDS_MAX}，收到 {len(product_ids)}"
+        )
+    body: dict[str, Any] = {"action_id": action_id, "product_ids": product_ids}
+    return _post(client_id, api_key, ENDPOINT_DEACTIVATE_ACTION_PRODUCTS, body, timeout=timeout)
+
+
+def list_action_candidates(
+    client_id: str,
+    api_key: str,
+    action_id: int,
+    limit: int | None = None,
+    last_id: int | None = None,
+    timeout: int = 30,
+) -> dict:
+    """促销活动候选商品（/v2/actions/candidates）。
+
+    加入活动前预读财务条件：每候选含 id/price(Money)/action_price/max_action_price/
+    add_mode(auto|manual)/stock/min_stock/recommended_stock/alert_max_action_price/
+    提升参数(current/min/max_boost)/price_min_elastic/price_max_elastic/min_seller_price/
+    is_quarantined/website_prices。分页 limit≤100 + last_id 指针（无 offset）。
+    """
+    if limit is not None and not 1 <= limit <= CANDIDATES_PAGE_LIMIT_MAX:
+        raise ValueError(f"limit 须 1..{CANDIDATES_PAGE_LIMIT_MAX}，收到 {limit}")
+    body: dict[str, Any] = {"action_id": action_id}
+    if limit is not None:
+        body["limit"] = limit
+    if last_id is not None:
+        body["last_id"] = last_id
+    return _post(client_id, api_key, ENDPOINT_ACTION_CANDIDATES, body, timeout=timeout)
 
 
 def create_discount(

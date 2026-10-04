@@ -1,5 +1,32 @@
 # Changelog
 
+## [未发版 dev] — 促销活动商品管理 v2 迁移（2026-10-13 Ozon 停用大限）
+
+### fix(promo): promo_client 迁 v2 四方法 + v1 死端点绝迹
+
+- **背景**：Ozon 2026-09-22 公告——`/v1/actions/products/activate` 与 v1
+  `/v1/actions/products` 自 **2026-10-13** 起停用，由 v2 族取代。全仓扫描实证：
+  **我仓零调用方**（actions_register/seller_action_discount 全走 `/v1/seller-actions/*`
+  自建促销族，本次公告未触及；store 同步 `GET /v1/actions` 活动列表亦不在停用范围）
+  ——本批是卫生批非止血批。
+- **迁移**：`action_products` → `POST /v2/actions/products`（响应财务字段统一
+  Money 格式，扩展 recommended_stock/marketplace_seller_price/website_prices/
+  min_seller_price/is_quarantined）；缺省请求体只发 `action_id`（v1 硬塞
+  offset=0 的行为废除，v2 分页形状待线上 swagger 实证）。
+- **新登记三方法**：`update_action_products`（/v1/actions/products/update，
+  取代 activate 的通用增删——action_price 是**最高限价**，≤ 限价加入、> 限价
+  移除；响应 `{active_product_ids, deactivated_product_ids, rejected, warnings}`
+  两列表分拣，无统一 product_ids）、`deactivate_action_products`
+  （/v2/actions/products/deactivate，仅促销码类强制排除，product_ids≤1000
+  本地拒，响应扁平数组）、`list_action_candidates`（/v2/actions/candidates，
+  limit≤100 + last_id 指针分页，加入前预读财务条件）。
+- **auto-add v2 族未封装**（无调用方，需要时按公告补）。
+- ⚠️ 本地 swagger 快照未收录 v2 端点——契约以公告为准，**首次生产调用前对线上
+  swagger 实证一次**（模块 docstring 已注明）。
+- 测试：`test_promo_actions_v2.py` 8 用例锁请求体/端点/上限契约 +
+  `test_dead_v1_endpoints_absent`（activate/v1 商品列表永不复用）；store_actions
+  13 用例全绿（白名单扩容不破坏 Performance API 隔离闸）。
+
 ## [0.84.0] 2026-10-04 — 维护性治理战役（W0-W3c，PR #110-#119）+ 实机 Gate 50 单
 
 > 动因：维护成本失控（出问题无法精确定位 / agent 接手成本 / 续开发成本）。
