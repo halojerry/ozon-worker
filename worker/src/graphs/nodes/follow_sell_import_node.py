@@ -464,22 +464,21 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # （品牌85/5076+产地4389+型号9048+数量8962），真实竞品属性(draft.ozon_attributes)全丢。
     # 合并链在 attr_defaults.build_follow_attr_merge: 字典属性 /values/search 解析 dict_id,
     # 竞品文本值无字典匹配 → 跳过(绝不注入原文)；硬编码 5 属性仅作双无兜底。
-    # ✅ v0.85 follow_clone 回退：clone_card.attributes 逐字透传（{"id","values"}
-    # 形状即管线形状）——竞品值自带 dictionary_value_id，零字典解析零 LLM（模式本意）。
+    # ✅ v0.85 follow_clone 回退：clone_card.attributes 经 normalize_clone_attributes
+    # → 生产 prepare 同形状（complex_id+id 主键+两键值；2026-10-04 留观卡实测：
+    # attribute_id 键无 complex_id 的形状 required 属性被判 error_attribute_values_empty）
+    # 逐字透传——零字典解析零 LLM（模式本意）。
     _clone_attrs_passed = False
     if follow_type == "clone" and not import_by_sku_ok:
         _cc_obj = extensions.get("clone_card")
         _cc_attrs = _cc_obj.get("attributes") if isinstance(_cc_obj, dict) else None
         if isinstance(_cc_attrs, list) and _cc_attrs:
-            final_attrs = [
-                {"id": int(a.get("id") or 0), "values": a.get("values") or []}
-                for a in _cc_attrs
-                if isinstance(a, dict) and int(a.get("id") or 0) > 0
-            ]
+            from utils.clone_card_builder import normalize_clone_attributes
+            final_attrs, _cc_skipped = normalize_clone_attributes(_cc_attrs)
             _clone_attrs_passed = bool(final_attrs)
             if _clone_attrs_passed:
-                logger.info("🧬 克隆回退：clone_card 属性逐字透传 %d 个（跳过字典解析链）",
-                            len(final_attrs))
+                logger.info("🧬 克隆回退：clone_card 属性逐字透传 %d 个（生产形状，"
+                            "skipped=%s）", len(final_attrs), _cc_skipped)
     if not _clone_attrs_passed:
         try:
             from utils.attr_defaults import build_follow_attr_merge

@@ -1,5 +1,27 @@
 # Changelog
 
+## [未发版 dev] — follow_clone 克隆属性形状根修（留观卡六错→清零实测）
+
+### fix(follow-clone): 克隆属性对齐生产 prepare 形状——required 属性不再被判空
+
+- **现象**：B0 留观卡 6515871405 及全部探针卡报 `error_attribute_values_empty`×4
+  + `missing_dimension`——测试店不可售错误卡堆积（用户巡店发现）。
+- **根因（六轮对照实测）**：#122 初版 `clone_card_builder` 发明平行属性形状
+  `{"attribute_id": N}`（无 complex_id）——**optional 属性能绑、required 属性
+  （10096/4295/9163/8292）被 Ozon 校验路径丢弃判空**；且字典值单发
+  `dictionary_value_id` 丢 `value` 同样判空；v3 回显无 weight/dims 字段致
+  `missing_dimension`。
+- **根修**：属性对象 = 生产 prepare 同形状 `{"complex_id": 0, "id": N,
+  "values": [两键恒发]}`（v4 回显 `complex_id` 原样透传）；重量从 4497
+  （Вес товара）属性兜底；probe 脚本同步修正（保持可复跑正确）；
+  follow_sell_import 克隆透传收敛到 `normalize_clone_attributes` 唯一实现
+  （消平行代码）。
+- **实机验证**：留观卡 UPDATE 修复 → **errors 清零**（四 required 全绑），
+  审核观察继续在有效样本上；测试店不可售错误卡全部处置（1-3 轮已归档、
+  第 4 轮修复复活）。
+- 教训入册：克隆回显**形状与值都逐字对齐生产管线**，不发明平行形状
+  （PLAN-follow-clone-v1 B0-E 节 + 模块 docstring + 测试断言三处锁定）。
+
 ## [未发版 dev] — 跟卖克隆模式 v1（follow_clone：零 LLM 零生图，PLAN-follow-clone-v1 B2+B3）
 
 > 方案 `docs/PLAN-follow-clone-v1.md`（B0 探针四轮实录驱动）+ 姊妹篇

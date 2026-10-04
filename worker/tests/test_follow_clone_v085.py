@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """follow_clone 模式 v0.85 — worker 侧实现锁定（PLAN-follow-clone-v1 B2）。
 
 B0 探针实录（2026-10-03，worker/scripts/probe_clone_card.py 四轮）驱动的回归：
@@ -24,14 +23,14 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from graphs.graph import route_after_assemble  # noqa: E402
-from utils.clone_card_builder import (  # noqa: E402
+from graphs.graph import route_after_assemble
+from utils.clone_card_builder import (
     build_clone_import_item,
     extract_clone_images,
     normalize_clone_attributes,
     validate_clone_card,
 )
-from utils.image_source import enforce_upload_policy  # noqa: E402
+from utils.image_source import enforce_upload_policy
 
 # ═══════════════════ 1. 信封契约 ═══════════════════
 
@@ -68,14 +67,17 @@ _CDN_IMG = "https://ir-20.ozone.ru/s3/multimedia-1-e/11833245914.jpg"
 
 def test_11_normalize_maps_id_to_attribute_id():
     out, skipped = normalize_clone_attributes(_V4_ATTRS)
-    ids = [a["attribute_id"] for a in out]
+    ids = [a["id"] for a in out]
     assert 85 in ids and 9048 in ids
     assert 21841 not in ids, "媒体类属性必须跳过"
     assert 23171 not in ids, "空值属性必须跳过"
     assert skipped == {"media": 1, "no_id": 1, "no_values": 1}
-    by_id = {a["attribute_id"]: a for a in out}
-    assert by_id[85]["values"] == [{"dictionary_value_id": 126745801}]
-    assert by_id[9048]["values"] == [{"value": "630526852010"}]
+    by_id = {a["id"]: a for a in out}
+    # ✅ 生产 prepare 同形状（2026-10-04 留观卡实测：attribute_id 键无 complex_id
+    # 的形状 required 属性被丢 → error_attribute_values_empty；两键值恒发）
+    assert by_id[85] == {"complex_id": 0, "id": 85,
+                         "values": [{"dictionary_value_id": 126745801, "value": "Нет бренда"}]}
+    assert by_id[9048]["values"] == [{"dictionary_value_id": 0, "value": "630526852010"}]
 
 
 def test_12_extract_images_quality_line():
@@ -108,7 +110,7 @@ def test_14_build_item_full_shape():
     assert item["images"] == [_CDN_IMG]
     assert item["weight"] == 120 and item["depth"] == 300
     assert item["old_price"] == "29"
-    assert {a["attribute_id"] for a in item["attributes"]} == {85, 9048}
+    assert {a["id"] for a in item["attributes"]} == {85, 9048}
 
 
 def test_15_build_item_rejects_empty_attrs():

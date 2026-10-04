@@ -106,8 +106,11 @@ def build_clone_item(target_pid: int, item: dict | None, v4item: dict | None,
                      offer_id: str, price: int) -> tuple[dict, dict]:
     """从回读数据构造 /v3/product/import item。
 
-    v4 回显属性主键 `id`（B0-D 实录），import 请求主键 attribute_id；值形状
-    dictionary_value_id snake_case（camelCase 旧口径按实录修正）。
+    属性对象 = 生产 prepare 同形状 {"complex_id": 0, "id": N, "values": [两键]}
+    （B0-E 实录 2026-10-04：attribute_id 键无 complex_id 的形状对 optional 属性
+    可绑、required 属性被判 error_attribute_values_empty 丢弃；两键值恒发——
+    单发 dictionary_value_id 同样判空）。重量尺寸：v3 回显无 weight 字段
+    （B0-D），从 4497 类属性取或信封 weight_g。
     """
     name = (item or {}).get("name") or (v4item or {}).get("name") or f"probe-clone-{target_pid}"
     dc = (v4item or item or {}).get("description_category_id")
@@ -129,13 +132,15 @@ def build_clone_item(target_pid: int, item: dict | None, v4item: dict | None,
             continue
         vout = []
         for v in vals:
-            did = v.get("dictionaryValueId") or v.get("dictionary_value_id")
-            if did:
-                vout.append({"dictionary_value_id": did})
-            elif v.get("value") not in (None, ""):
-                vout.append({"value": str(v["value"])})
+            did = v.get("dictionaryValueId") or v.get("dictionary_value_id") or 0
+            val = v.get("value")
+            if not did and val in (None, ""):
+                continue
+            vout.append({"dictionary_value_id": did,
+                         **({"value": str(val)} if val not in (None, "") else {})})
         if vout:
-            attrs_out.append({"attribute_id": aid, "values": vout})
+            attrs_out.append({"complex_id": int(a.get("complex_id") or 0),
+                              "id": aid, "values": vout})
     imp_item = {
         "name": name,
         "offer_id": offer_id,
@@ -147,7 +152,20 @@ def build_clone_item(target_pid: int, item: dict | None, v4item: dict | None,
         "images": images[:8],
         "attributes": attrs_out,
     }
-    # 重量尺寸透传（v3 回显原值原单位，Ozon 自家口径闭环）
+    # 重量尺寸：v3 回显无 weight/dims 字段（B0-D 实录）——4497（Вес товара）属性
+    # 兜底取重量；尺寸信封/CDP 侧提供。
+    if all(k not in imp_item for k in ("weight",)) and attrs_out:
+        for a in attrs_out:
+            if a["id"] == 4497 and a["values"]:
+                try:
+                    w4497 = int(float(a["values"][0].get("value") or 0))
+                    if w4497 > 0:
+                        imp_item["weight"] = w4497
+                        imp_item["weight_unit"] = "g"
+                except (TypeError, ValueError):
+                    pass
+                break
+    # v3 若有回显（老形状兼容）原值透传
     for dim_key in ("weight", "depth", "width", "height"):
         v = (item or {}).get(dim_key)
         if v not in (None, "", 0, "0"):
