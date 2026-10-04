@@ -3701,15 +3701,22 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     """生图全失败导致首传空载荷时，从信封 draft 图恢复图片到上传载荷。
 
     实机 gate 实证（2026-09-08）：采集箱路径 draft 图非 alicdn → 生图参考链全跳过 →
-    prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。R4 整卡重配路径已证明
-    draft 图可过 Ozon import + 审核approved（同批任务实证）——本恢复让 pictures-only
-    死端复用同一来源。恢复成功返回 True（payload 已就地更新）。
+    prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。恢复成功返回 True
+    （payload 已就地更新）。
 
     ✅ fix/retry-image-restore-v1 双保险（2026-09-18 商品 6381680593 实证）：
     ① 载荷已含 AI 生成图（file/images/）→ 拒绝恢复（生成图是卡图最高优先来源，
-    本函数只救「空载荷」，绝不覆盖已有图）；② 入箱预镜像停用后 draft 图是裸
-    1688 链（Ozon 抓不到）→ 恢复前经 COS 同步转存（cos_enabled 时），转存失败
-    保留原 URL（诚实降级）。
+    本函数只救「空载荷」，绝不覆盖已有图）。
+
+    ✅ fix/sentry-ga-retransmit-leak（2026-10-04，POUDING_OZON-GA 写入口根修）：
+    ② 恢复源在**写入 ozon_payload 之前**过 ``image_source.filter_uploadable_images``
+    ——draft.images 里的 mirror_draft（draft-images/ 镜像）/salvage（逃生门关时）/
+    external（裸 1688 链）在此剔除，绝不进载荷。v0.78 出口闸只能拦 POST，拦不住
+    「先写后拦」：白写一轮重传 + 「⛔ 重传出口闸拦截」Sentry 噪音。draft 有图但
+    全部不可上卡 → 置 IMAGE_GEN_ALL_FAILED（与出口闸同语义，非永久 → 整任务重试
+    重跑生图）后返回 False；draft 真无图 → 仍走既有无图语义（False，调用方
+    rejected_unfixable）。原「裸链先同步转存 COS」块随之删除：过滤幸存者恒为本方
+    COS（ai/salvage），已无裸链可转存（转存是镜像服务 spawn_image_mirror 的职责）。
     """
     # ① 载荷已有生成图 → 不动（调用方据 False 走既有分支语义）
     if _payload_has_generated_images(state):
@@ -3728,26 +3735,14 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     images = [str(u) for u in images if str(u).strip()]
     if not images:
         return False
-    # ② 裸链 1688 图先同步转存 COS（Ozon 侧可访问；入箱预镜像停用后的必要步骤）
-    try:
-        from utils.cos_uploader import cos_enabled as _cos_enabled
-        from utils.cos_uploader import is_cos_url as _is_cos_url
-        if _cos_enabled():
-            from services.draft_image_mirror import _mirror_one
-            _hosted: list[str] = []
-            for _u in images:
-                if _is_cos_url(_u):
-                    _hosted.append(_u)
-                    continue
-                _mirrored = _mirror_one(_u)
-                _hosted.append(_mirrored or _u)
-            images = _hosted
-    except Exception as _sync_err:
-        logger.warning("⚠️ draft 图同步转存失败（保留原 URL 继续恢复）: %s", _sync_err)
-    items = state.ozon_payload.get("items") or []
-    images = [str(u) for u in images if str(u).strip()]
-    if not images:
+    # ② 写入口净化：非可上卡来源在进载荷前剔除（根修，见 docstring fix/sentry-ga-retransmit-leak）
+    uploadable = image_source.filter_uploadable_images(images)
+    if not uploadable:
+        logger.error(
+            "⛔ draft 恢复源全部不可上卡（写入口剔除，不进载荷不 POST）: %s", images)
+        _mark_image_gen_all_failed(state, images)
         return False
+    images = uploadable
     items = state.ozon_payload.get("items") or []
     if not items or not isinstance(items[0], dict):
         return False
@@ -3814,7 +3809,7 @@ def regen_main_image_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     用严格合规 prompt（REGEN_MAIN_IMAGE_PROMPT，白底/单品居中/无文字·角标·水印）
     + 合格参考图重生成主图；成功 → 替换 payload items[0].primary_image（旧主图从
-    图廊移除、新图插首位、其余槽位不动）→ repair_node=reupload 走既有重传链；
+    图廊移除、新图插首位、其余槽位净化后保留）→ repair_node=reupload 走既有重传链；
     失败（任何异常/None/产物非本方 AI 图）→ logger.error + 回落 warn-and-pass。
     防循环：入口即置 regen_main_image_done=True（成功失败都置位，一次任务只做一次）。
     """
@@ -3850,12 +3845,15 @@ def regen_main_image_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if not image_source.has_generated_images((new_url,)):
             raise ValueError(f"重生成产物非本方 AI 图（拒绝入载荷）: {new_url[:80]}")
 
-        # 载荷手术：旧主图（不合规 AI 图）从图廊整体移除（防二次 4194），新图插首位，
-        # 图廊其余槽位保持不动
+        # 载荷手术：旧主图（不合规 AI 图）从图廊整体移除（防二次 4194），新图插首位。
+        # ✅ fix/sentry-ga-retransmit-leak：其余槽位写回前同样过写入口净化——mirror/
+        # salvage(逃生门关)/external 残余在此剔除（历史轮次 restore 泄漏的载荷在
+        # regen 重写时被顺手洗净），不给出口闸留「先写后拦」的机会。
         old_primary = str(item0.get("primary_image") or "").strip()
         images = [str(u).strip() for u in (item0.get("images") or []) if str(u).strip()]
         if old_primary:
             images = [u for u in images if u != old_primary]
+        images = image_source.filter_uploadable_images(images)
         images.insert(0, new_url)
         item0["primary_image"] = new_url
         item0["images"] = images
@@ -3916,9 +3914,17 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             if _payload_has_generated_images(state):
                 logger.info("📦 图片错误且无 product_id：载荷已含 AI 生成图，跳过 draft 恢复直接全量重导")
                 return _full_import_create(state)
+            _code_before_restore = state.error_code
             if _restore_draft_images_to_payload(state):
                 logger.info("📦 图片错误且无 product_id：draft 图已恢复，全量 CREATE 重导")
                 return _full_import_create(state)
+            # ✅ fix/sentry-ga-retransmit-leak: 恢复失败分两态——restore 置了
+            # IMAGE_GEN_ALL_FAILED（draft 有图但全部不可上卡，写入口已剔除）与出口闸
+            # 同语义按 failed 收口（非永久 → 整任务重试重跑生图）；仅 draft 真无图
+            # 才落 rejected_unfixable（诚实不硬修，不烧重试）。
+            if (state.error_code == WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+                    and _code_before_restore != state.error_code):
+                return state
             logger.warning("⚠️ 图片错误且无 product_id 且无可用 draft 图，标记 rejected_unfixable")
             state.upload_status = "rejected_unfixable"
             state.is_valid = True
@@ -4002,6 +4008,21 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     return _full_import_create(state)
 
 
+def _mark_image_gen_all_failed(state: ValidationRetryLoopState, violations: list) -> None:
+    """IMAGE_GEN_ALL_FAILED 失败语义统一出口（fix/sentry-ga-retransmit-leak）。
+
+    出口闸（_reupload_gate_blocked）与写入口净化（_restore_draft_images_to_payload）
+    共用同一失败收口：非永久码 → task_processor 整任务重试一轮重跑生图。
+    """
+    state.upload_status = "failed"
+    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+    state.error_message = (
+        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
+        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
+        f"（违规图: {'; '.join(str(v) for v in violations)}）"
+    )
+
+
 def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
     """重传出口闸统一封装（✅ v0.78 fix round 1, fix/attr4194-regen-v1）。
 
@@ -4011,6 +4032,8 @@ def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
     IMAGE_SALVAGE_FALLBACK 时并入 salvage）。违规 → 不 POST，置 IMAGE_GEN_ALL_FAILED
     语义（复用批E 错误码与消息；非永久 → task_processor 整任务重试一轮），
     返回 True 表示已拦截（调用方直接收口返回）。
+    ✅ fix/sentry-ga-retransmit-leak：本闸降级为最后防线——restore/regen 写入口
+    已前置 filter_uploadable_images 净化，违规图进不了载荷（本闸只兜外部注入）。
     """
     items: list = (
         state.ozon_payload.get("items", [])
@@ -4042,13 +4065,7 @@ def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
     if ok:
         return False
     logger.error("⛔ 重传出口闸拦截（非 ai 来源混入重传载荷，不 POST）: %s", violations)
-    state.upload_status = "failed"
-    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
-    state.error_message = (
-        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
-        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
-        f"（违规图: {'; '.join(violations)}）"
-    )
+    _mark_image_gen_all_failed(state, violations)
     return True
 
 
