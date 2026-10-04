@@ -58,6 +58,16 @@ from utils.volume_weight_guard import (
 # _payload_has_generated_images / _prefer_generated_payload_images 消费，
 # mxou-b64/ 从 marker 盲区转明；禁止再内联 "/file/images/" 字面子串）
 from utils import image_source
+# ✅ fix/dedupe-batch1 C7: 管线本地码唯一事实源（赋值/路由表键/比较点禁裸字符串）
+from utils.pipeline_error_codes import (
+    LOCAL_CATEGORY_INVALID_REQUEST,
+    LOCAL_CATEGORY_RECATEGORIZE_FAILED,
+    LOCAL_PRICING_FAILED,
+    LOCAL_REUPLOAD_FAILED,
+    LOCAL_STATUS_QUERY_FAILED,
+    LOCAL_TITLE_CATEGORY_MISMATCH,
+    LOCAL_UPLOAD_NO_TASK_ID,
+)
 # ✅ v0.78 批H (fix/attr4194-regen-v1): H2 重传出口闸复用批E 错误码与消息
 # （IMAGE_GEN_ALL_FAILED 语义——见 errors.py PIPELINE_ERROR_MESSAGES 注释）
 from api.errors import PIPELINE_ERROR_MESSAGES, WorkerErrorCode
@@ -263,7 +273,7 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
     "BR_hashtag_brand": "标签与品牌冲突被拒:已移除违规标签",
     "FB_INSTA": "描述含 Instagram/Facebook 等社交媒体，俄政府认定极端组织，已自动过滤重试",
     # ✅ fix/category-bridge-v1: 请求级类目 400 人话（非审核拒绝，勿再标「审核拒绝」）
-    "LOCAL_CATEGORY_INVALID_REQUEST": "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
+    LOCAL_CATEGORY_INVALID_REQUEST: "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
     "description_category_invalid": "类目无效:Ozon 未识别该类目 ID,请人工改配后重提",
     "description_category_has_no_description_type": "类目与类型不匹配:type_id 不属于该类目,请人工改配后重提",
 }
@@ -396,7 +406,7 @@ REPAIR_STRATEGY: Dict[str, str] = {
     # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入采集箱（final_result 直达，
     # 不进任何 repair/reupload 节点——错配中文/重写支路修不了类目错，重传只会
     # 再被拒或错货过审）。入箱文案见 final_result 的 block_to_box 出口。
-    "LOCAL_TITLE_CATEGORY_MISMATCH": "block_to_box",
+    LOCAL_TITLE_CATEGORY_MISMATCH: "block_to_box",
     # ✅ fix/category-bridge-v1（2026-09-24 follow ×5 事故）：类目无效是**请求级
     # 400**（非审核拒绝）——LLM/属性修复都改不了 import item 的 dc/tp，重传必再炸
     # 且白烧额度。官方 code（description_category_invalid / has_no_description_type）
@@ -406,7 +416,7 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "DESCRIPTION_CATEGORY_INVALID": "unfixable",
     "description_category_has_no_description_type": "unfixable",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE": "unfixable",
-    "LOCAL_CATEGORY_INVALID_REQUEST": "unfixable",
+    LOCAL_CATEGORY_INVALID_REQUEST: "unfixable",
 }
 
 
@@ -470,7 +480,7 @@ FIX_TYPE_UNFIXABLE: set = {
     "description_category_invalid", "DESCRIPTION_CATEGORY_INVALID",
     "description_category_has_no_description_type",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE",
-    "LOCAL_CATEGORY_INVALID_REQUEST",
+    LOCAL_CATEGORY_INVALID_REQUEST,
 }
 
 
@@ -802,7 +812,7 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
                     # 属性批量翻译修复支路（对本错误无效）→ revalidate 放行 →
                     # 错货重传。该错只能人工改配类目（入采集箱，见 final_result
                     # 的 block_to_box 出口），任何自动修复都不该碰。
-                    _code = "LOCAL_TITLE_CATEGORY_MISMATCH"
+                    _code = LOCAL_TITLE_CATEGORY_MISMATCH
                 elif any(kw in _le_lower for kw in ("名称", "标题", "name", "title", "латиниц")):
                     _code = "BR_chinese_hieroglyphs_in_attribute"
                 elif any(kw in _le_lower for kw in ("价格", "price", "цен")):
@@ -827,7 +837,7 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
                 and "type=" in _em_l)  # schema API 400 模板（level_3_id=X and type=Y is not found）
         )
         if _is_cat_req_400:
-            state.error_code = "LOCAL_CATEGORY_INVALID_REQUEST"
+            state.error_code = LOCAL_CATEGORY_INVALID_REQUEST
             state.attribute_id = 0
             state.error_type = "unfixable"
             state.repair_node = "final_result"
@@ -2599,7 +2609,7 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error("❌ repair_pricing: pricing_info 无有效价格，阻断修复")
                 state.error_message = "[PRICING_FAILED] 无有效定价信息，无法修复价格"
                 state.failed_stage = "pricing"
-                state.error_code = state.error_code or "LOCAL_PRICING_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_PRICING_FAILED  # v0.77.2
                 return state
 
             # F-F02（2026-09-09 审计）：划线价/促销底线派生收敛唯一入口
@@ -3642,7 +3652,7 @@ def should_continue(state: ValidationRetryLoopState) -> str:
         state.is_valid = False
         state.upload_status = "failed"
         # ✅ v0.77.2: 终态失败必须带码（此前只写 error_message → 留存表 error_code 空）
-        state.error_code = "LOCAL_CATEGORY_RECATEGORIZE_FAILED"
+        state.error_code = LOCAL_CATEGORY_RECATEGORIZE_FAILED
         if not state.error_message:
             state.error_message = "类目需人工确认：自动重配类目无解，已停止重传"
         logger.warning(
@@ -3993,7 +4003,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             if state.error_code != WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
                 state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
                 # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
-                state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
+                state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED
             return state
 
     # 类型 4: 不可修复 → 直接标记成功
@@ -4107,12 +4117,12 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
         state.upload_status = "failed"
         state.error_message = f"重新上传失败: {error_msg}"
-        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED  # v0.77.2
     except Exception as e:
         logger.error(f"❌ 全量 import(CREATE) 异常: {e}")
         state.upload_status = "failed"
         state.error_message = f"重新上传异常: {str(e)}"
-        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED  # v0.77.2
 
     return state
 
@@ -4148,7 +4158,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error("❌ task_id为空，无法查询状态")
         state.upload_status = "failed"
         state.error_message = "task_id为空"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     # ✅ 防御：检测 UUID 格式（ingest_node 生成的系统 task_id）
@@ -4157,7 +4167,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id 仍为系统 UUID（上传失败未覆盖）: {task_id}")
         state.upload_status = "failed"
         state.error_message = "Ozon 上传失败，未获取到 Ozon task_id"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     try:
@@ -4166,7 +4176,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id转换失败：{task_id}")
         state.upload_status = "failed"
         state.error_message = f"task_id格式错误: {task_id}"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     payload: Dict[str, Any] = {"task_id": task_id_int}
@@ -4190,7 +4200,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error(f"❌ 响应中无items数据(attempt {attempt}/{max_polls})")
                 if attempt == max_polls:
                     state.upload_status = "failed"
-                    state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                    state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
                 continue
 
             first_item: Dict[str, Any] = result_items[0]
@@ -4269,13 +4279,13 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态失败: {_oe}"
-                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
         except Exception as e:
             logger.error(f"❌ 查询状态异常(attempt {attempt}/{max_polls}): {e}")
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态异常: {str(e)}"
-                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
 
     return state
 
@@ -4421,7 +4431,7 @@ def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationR
         error_message=LOCAL_TITLE_MISMATCH_BLOCK_REASON,
         # ✅ v0.77.2: 本出口码必须显式透出（此前只写子图 state，被 output_schema 吞掉
         # → 生产 listing_result_log.error_code 全空串的根因）
-        error_code="LOCAL_TITLE_CATEGORY_MISMATCH",
+        error_code=LOCAL_TITLE_CATEGORY_MISMATCH,
         product_id=state.product_id if state.product_id else None,
         upload_status="blocked",
         moderation_status=state.moderation_status,
@@ -4451,7 +4461,7 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         logger.info("✅ 重新上传成功，清除之前的错误消息")
     # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入箱（REPAIR_STRATEGY block_to_box
     # 路由直达本节点）。分支置于负反馈之前：该码刻意不记 L0 负反馈（见 helper 注释）
-    if str(getattr(state, "error_code", "") or "") == "LOCAL_TITLE_CATEGORY_MISMATCH":
+    if str(getattr(state, "error_code", "") or "") == LOCAL_TITLE_CATEGORY_MISMATCH:
         return _final_result_blocked_to_box(state)
     # ✅ v0.66 L0 declined 负反馈挂点：final_result 每任务仅执行一次（子图收尾，
     # 不随 parse_error 循环重复计数）——终态 failed + 类目错特征 → L0 学习行 fail+1。

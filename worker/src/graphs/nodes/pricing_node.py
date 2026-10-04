@@ -19,6 +19,8 @@ from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
 from utils.price_sanity_guard import check_price_sanity  # ✅ v0.73: 价差守卫（Issue5b，锚价在场时校验终价倍数）
 # 佣金缓存查询注入点（core 经注入点调用，既保 patch 语义又保持 core 纯净）
 from utils.commission_resolver import get_category_commission
+# ✅ fix/dedupe-batch1 C7: 管线本地码唯一事实源（禁裸字符串，见 utils/pipeline_error_codes.py）
+from utils.pipeline_error_codes import LOCAL_PRICE_GAP_BLOCKED, LOCAL_PRICING_FAILED
 import time as _time
 
 
@@ -231,7 +233,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                             f"×{_fc_factor} = {_fc_price} {currency_unit} 低于底线价 "
                             f"{_fc_floor}（利润闸拒绝，换货源或调 factor）"
                         ),
-                        error_code="LOCAL_PRICING_FAILED",
+                        error_code=LOCAL_PRICING_FAILED,
                         failed_stage="pricing",
                     )
                 from utils.pricing_estimate import enforce_old_price_rule
@@ -413,7 +415,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price="",
                 notice=_notice,
                 error_message=_error,
-                error_code="LOCAL_PRICE_GAP_BLOCKED",
+                error_code=LOCAL_PRICE_GAP_BLOCKED,
                 failed_stage="pricing",
             )
         if _verdict == "warn":
@@ -439,7 +441,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             # ⚠️ v0.14 P1-4: [PRICING_FAILED] 标记，graph 检测后阻断管线，不再用 ¥1000 兜底上架
             error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}",
             # ✅ v0.77.2: 错误码透出（留存表 error_code 列）
-            error_code="LOCAL_PRICING_FAILED",
+            error_code=LOCAL_PRICING_FAILED,
             # ✅ v0.73 Task8: 失败出口显式带 failed_stage（默认值已归零，见上）
             failed_stage="pricing",
         )
