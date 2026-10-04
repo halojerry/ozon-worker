@@ -127,6 +127,9 @@ AUX_FILES = [
     "scripts/lib/vault_writer.py",       # cli report 导出（stores markdown 渲染）
     "scripts/lib/discovery_session.py",  # v0.83 批⑥ discover session 落盘（discover 主链）
     "scripts/lib/detach.py",             # v0.83 批⑥ 后台任务注册表（jobs/--detach/jobs 收割）
+    # multi-SKU 合卡 V1（PLAN-multi-sku-v1）：1688 颜色 SKU → draft.variants 展开
+    # （纯函数，cloud_probe/cli 薄调用；无源码保护诉求，match_scoring 同款明文）。
+    "scripts/lib/variants_expander.py",
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代

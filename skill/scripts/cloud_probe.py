@@ -1878,6 +1878,7 @@ def build_graph_envelope(
     template_id: str = "",
     category_id: str = "",
     type_id: str = "",
+    multi_sku: bool = False,
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -1893,6 +1894,10 @@ def build_graph_envelope(
         category_id/type_id: v0.69 T0.1b 人工指定 Ozon 类目（source="manual"）。
             两者同时非空才生效——直传信封覆盖任何 search_kw 猜测并跳过自校验；
             缺一回落自动匹配。
+        multi_sku: 多 SKU 合卡模式（PLAN-multi-sku-v1 V1，cli --variants）。
+            True 时颜色维度 SKU 展开 draft.variants（≤15）+ draft.multi_sku=True；
+            展开逻辑全在 lib/variants_expander.py（本函数只留薄调用点）。
+            缺省 False = 单 SKU 现状零变化。
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
@@ -2475,6 +2480,9 @@ def build_graph_envelope(
     # ⚠️ v0.14 P0-4: 无条件调用（_collapse_variants_to_single 内部已兼容 0/1/N 个变体）
     # 旧守卫 if len(variants) > 1 导致单SKU/跟卖/发现商品跳过折叠 → cost_cny 不含国内运费(freightCny)，
     # 采购成本偏低 → 定价利润失真（每单必现）。
+    # multi-SKU V1（PLAN-multi-sku-v1）: multi_sku=True 时先留折叠前快照——
+    # 合卡展开吃的是过滤后的整色卡列表，折叠只管单产品成本锚（两条通道互不干扰）。
+    _msku_pre_variants: list[dict] = list(variants) if multi_sku else []
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
     # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
@@ -2570,6 +2578,22 @@ def build_graph_envelope(
         draft["sku_id"] = v0["sku_id"]
         draft["price"] = v0["price"]
         draft["original_price"] = v0["original_price"]
+
+    # ── 6.1 多 SKU 合卡展开（PLAN-multi-sku-v1 V1；multi_sku 缺省 False 时本块整体跳过，
+    # 单 SKU 现状零变化）。逻辑全在 lib/variants_expander.py（cloud_probe 冻结增长，
+    # 此处只留薄调用点）；draft.variants/draft.multi_sku 是 draft 键——不进 extensions
+    # 契约闸（envelope_contract 只类型化 extensions，draft 自由 dict），worker V2 读
+    # multi_sku 切 9048 合卡语义。放在 6 的 is_multi/else 之后：合卡形状覆盖 legacy
+    # 全量 variants 形状（折叠后 is_multi 实际恒 False，防御性后置保序）。
+    if multi_sku and _msku_pre_variants:
+        from scripts.lib.variants_expander import expand_multi_sku_variants
+        _msku = expand_multi_sku_variants(
+            _msku_pre_variants,
+            base_sku_id=str((variants[0] if variants else {}).get("sku_id") or ""),
+        )
+        if _msku["variants"]:
+            draft["multi_sku"] = True
+            draft["variants"] = _msku["variants"]
 
     envelope: dict[str, Any] = {
         "draft": draft,
@@ -3334,6 +3358,7 @@ def build_graph_envelope_with_retry(
     template_id: str = "",
     category_id: str = "",
     type_id: str = "",
+    multi_sku: bool = False,
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -3358,6 +3383,8 @@ def build_graph_envelope_with_retry(
             template_id=template_id,
             category_id=category_id,
             type_id=type_id,
+            # multi-SKU V1: 跨平台腿暂不支持合卡展开（1688 采集腿专属）——
+            # 显式丢弃 multi_sku 保持该腿零变化（V1 范围裁剪，PLAN-multi-sku-v1）
         )
     import random as _random
 
@@ -3378,6 +3405,8 @@ def build_graph_envelope_with_retry(
                 # ✅ v0.69 T0.1b: manual 类目直传透传（默认 ""，不传=自动匹配）
                 category_id=category_id,
                 type_id=type_id,
+                # multi-SKU V1（PLAN-multi-sku-v1）: cli --variants 透传（缺省 False 零变化）
+                multi_sku=multi_sku,
             )
         except RuntimeError as exc:
             last_error = exc
