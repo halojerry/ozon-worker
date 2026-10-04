@@ -1819,7 +1819,8 @@ def cmd_follow(args) -> int:
                                    review=getattr(args, "review", False),
                                    notify=getattr(args, "notify", False),
                                    to_box=getattr(args, "to_box", False),
-                                   min_margin=float(getattr(args, "min_margin", 0.0) or 0.0))
+                                   min_margin=float(getattr(args, "min_margin", 0.0) or 0.0),
+                                   clone=bool(getattr(args, "clone", False)))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -4137,6 +4138,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="预估利润率下限 %%（默认 0=不拦截；提交前按预估打印，"
                          "低于阈值 → 打印拦截原因并 exit 3。预估非终价，"
                          "以 Worker 实算为准）")
+    # ✅ v0.85 跟卖克隆（PLAN-follow-clone-v1）：import-by-sku 复制竞品卡 +
+    # 零 LLM 零生图（复制成功 images=[] 不动卡图；不可复制走 clone_card 回退）
+    fp.add_argument("--clone", action="store_true",
+                    help="跟卖克隆模式：官方复制竞品卡，不生图不写文案，"
+                         "上架价卡跟卖列表前 20 均值（B1 批接入选品筛选）")
     _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 

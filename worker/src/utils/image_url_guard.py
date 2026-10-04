@@ -207,3 +207,18 @@ def filter_reference_images(urls: Iterable[object], allow_competitor: bool = Fal
                 allow_competitor and _is_competitor_reference_candidate(u)):
             out.append(u.strip())
     return out
+
+
+def filter_competitor_cdn_images(urls: Iterable[object]) -> List[str]:
+    """✅ v0.85 follow_clone 克隆上卡专用：仅 Ozon 自家 CDN 原尺寸图。
+
+    与 filter_reference_images(allow_competitor=True) 的区别：后者是**并集**
+    （货源白名单图 alicdn 等也放行——生图参考语义）；克隆卡图只认竞品 CDN——
+    货源图/外站图混入 clone_card.images 即拒（防串图防污染，批I 质量红线同源：
+    缩略/.webp 恒拒）。
+    """
+    out: List[str] = []
+    for u in urls:
+        if isinstance(u, str) and u.strip() and _is_competitor_reference_candidate(u):
+            out.append(u.strip())
+    return out

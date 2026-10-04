@@ -2085,10 +2085,47 @@ def _apply_no_primary_fallback(state: Any, ozon_payload: Dict[str, Any],
         ozon_payload["items"][0]["images"] = []
 
 
-def _enforce_payload_image_policy(ozon_payload: Dict[str, Any], allow_salvage: bool) -> None:
+def _apply_follow_clone_images(ozon_payload: Dict[str, Any], extensions: Any) -> str:
+    """✅ v0.85 follow_clone 图片覆写（纯函数，PLAN-follow-clone-v1 §2，零生图模式）。
+
+    - UPDATE（import-by-sku 复制成功，item 带 product_id）：images=[] 铁锁——
+      官方复制已把竞品全套图带上卡，绝不动；LOCAL_IMAGES_MISSING 对 UPDATE 项
+      豁免（0 图=不动卡上图片，合法语义）；
+    - CREATE 回退（不可复制）：images=clone_card 竞品 CDN 原尺寸图直传（B0-C
+      探针实锤 import 接受；extract_clone_images 复用批I 红线——缩略/.webp 恒拒）；
+      空图如实放行到下游 LOCAL_IMAGES_MISSING 闸拦截（诚实失败，不伪造）。
+
+    返回 "update" / "create" / "skip"（非 clone 载荷零动作）。
+    """
+    if not isinstance(extensions, dict) or not extensions.get("follow_clone"):
+        return "skip"
+    items = (ozon_payload or {}).get("items") or []
+    item0 = items[0] if items else None
+    if not isinstance(item0, dict):
+        return "skip"
+    item0.pop("primary_image", None)
+    if item0.get("product_id"):
+        item0["images"] = []
+        logger.info("🧬 follow_clone UPDATE：images=[] 铁锁（复制卡图保持原样）")
+        return "update"
+    from utils.clone_card_builder import extract_clone_images
+    cc = extensions.get("clone_card")
+    cc = cc if isinstance(cc, dict) else {}
+    imgs = extract_clone_images(cc.get("images"))
+    item0["images"] = imgs
+    logger.info("🧬 follow_clone CREATE 回退：竞品 CDN 图直传 %d 张", len(imgs))
+    return "create"
+
+
+def _enforce_payload_image_policy(
+    ozon_payload: Dict[str, Any],
+    allow_salvage: bool,
+    allow_competitor_cdn: bool = False,
+) -> None:
     """payload 出口硬闸（批A：所有单/多 SKU 分支收口处的最后闸）。
 
-    items 内全部 primary_image+images 必须 ∈ {ai}（逃生门开时 ∪ {salvage}）——
+    items 内全部 primary_image+images 必须 ∈ {ai}（逃生门开时 ∪ {salvage}；
+    follow_clone 模式开时 ∪ Ozon CDN 原尺寸竞品图——v0.85 模式作用域口）——
     防 restore/镜像残余路径把草稿原图（draft-images/）或外链塞进上传载荷。
     不通过 → IMAGE_GEN_ALL_FAILED + 违规清单 log（同 _raise_image_gen_all_failed，
     非永久，任务级失败重试）。空图列表不在本闸管辖（空图走既有空图分支语义）。
@@ -2107,7 +2144,8 @@ def _enforce_payload_image_policy(ozon_payload: Dict[str, Any], allow_salvage: b
                     str(_u).strip() for _u in _val
                     if isinstance(_u, str) and _u.strip()
                 )
-    _ok, _violations = enforce_upload_policy(urls, allow_salvage=allow_salvage)
+    _ok, _violations = enforce_upload_policy(
+        urls, allow_salvage=allow_salvage, allow_competitor_cdn=allow_competitor_cdn)
     if not _ok:
         logger.error("⛔ 上架图来源硬闸拦截（非 ai 来源混入上传载荷）: %s", _violations)
         _raise_image_gen_all_failed(_violations)
@@ -2340,6 +2378,10 @@ def prepare_ozon_upload_node(
         isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img
         for img in original_images
     )
+    # ✅ v0.85 follow_clone 模式标记（信封 extensions.follow_clone，skill 采集腿
+    # 写入）：零 LLM 零生图——图走「UPDATE images=[] 铁锁」或「clone_card CDN
+    # 原尺寸直传」，下方图片组装分支与 payload 图片闸据此切模式作用域。
+    follow_clone_mode = bool(_ext.get("follow_clone"))
     shared_marketing_images, main_image = _build_shared_marketing_images(state, is_follow_sell)
     
     # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告
@@ -3624,8 +3666,13 @@ def prepare_ozon_upload_node(
     # 多 SKU 分支（2804 行）仍会引用 main_img，未定义则 UnboundLocalError 崩溃
     # （实测：variant_primary_loop 全失败 → has_variant_images=False → 多 SKU 分支崩溃）
     main_img = getattr(state, "main_image", None)
-    
-    if has_variant_images:
+
+    # ✅ v0.85 follow_clone 图片分支（零生图模式）：UPDATE images=[] 铁锁 /
+    # CREATE 回退 CDN 直传——纯函数 _apply_follow_clone_images（测试锁定），
+    # 非 clone 载荷零动作（elif 保持既有单/多 SKU 分支原样）。
+    if follow_clone_mode:
+        _apply_follow_clone_images(ozon_payload, _ext)
+    elif has_variant_images:
         # ✅ 修复：变体主图优先级 — variant_primary > main_image > white_bg
         # 原则：变体产品必须用变体专属图片做主图，不能用共享营销图
         white_bg_url = getattr(state, "white_bg_image", None)
@@ -4307,7 +4354,10 @@ def prepare_ozon_upload_node(
     # 分支收口处的最后闸）——全部 primary_image+images 必须 ∈ {ai}（逃生门开时
     # ∪ {salvage}），防 restore/镜像残余路径把草稿原图塞进上传载荷。
     # 不通过 → IMAGE_GEN_ALL_FAILED（非永久，任务级失败重试）。
-    _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled())
+    # ✅ v0.85 follow_clone：模式作用域放行 Ozon CDN 原尺寸竞品图（仅 clone 模式，
+    # PLAN-follow-clone-v1；非 clone 载荷语义零变化）。
+    _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled(),
+                                  allow_competitor_cdn=follow_clone_mode)
 
     # ✅ v0.81 内容评分闭环（预防层）：4191/11254 出口恒填——最终图定型后
     # 确定性补齐（文本描述组占内容评级 50% 权重，缺失卡分 42-57，补齐 90+）。

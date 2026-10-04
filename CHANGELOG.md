@@ -1,5 +1,46 @@
 # Changelog
 
+## [未发版 dev] — 跟卖克隆模式 v1（follow_clone：零 LLM 零生图，PLAN-follow-clone-v1 B2+B3）
+
+> 方案 `docs/PLAN-follow-clone-v1.md`（B0 探针四轮实录驱动）+ 姊妹篇
+> `docs/PLAN-product-refresh-v1.md`（存量卡翻新，后续批）。
+
+### feat(follow-clone): follow --clone——官方复制竞品卡，不生图不写文案
+
+- **B0 探针实录（2026-10-03，`worker/scripts/probe_clone_card.py` 入库）**：
+  A. Seller API 读不到竞品卡（/v3 空集 + /v4 404）→ 竞品取数走 CDP 链；
+  B. 跨店逐字克隆三轮全 INDEPENDENT（弱克隆/全属性/全属性+图）——「挂 offer
+  白嫖竞品卡」无 API 通道，**克隆独立卡是唯一路径**（原两分支收敛为单分支）；
+  C. Ozon 自家 CDN 图 URL 直传 import 被接受并挂图（primary_image → 新卡
+  images_n=1）——零下载零 COS；D. 回读形状四条（pid 字符串数组/顶层 items/
+  主键 id/images 恒空主图在 primary_image）。
+- **worker 侧五件**：
+  - 信封新键 `follow_clone`/`clone_card`（envelope_contract 登记 + 契约文档
+    重生成 32 键；skill 侧薄写入片同步——出处闸强制两侧一起动，W2 治理生效实录）；
+  - `follow_sell_import`：follow_type=clone 走 import-by-sku（官方复制）；
+    不可复制 → clone_card 类目/属性**逐字采**（跳字典解析链，零 LLM 本意），
+    无 clone_card 绝不编造类目（走既有失败链）；
+  - 路由：`route_after_assemble` follow_clone → 「克隆」直达 prepare——
+    **整条生图链 + scene LLM 链跳过**（零 LLM 零生图；质量闸优先级高于模式分支，
+    低置信仍阻断）；
+  - prepare 图覆写纯函数：UPDATE（复制成功）**images=[] 铁锁**（不动复制卡图，
+    LOCAL_IMAGES_MISSING 对 UPDATE 豁免）/ CREATE 回退 CDN 原尺寸直传；
+  - 图片闸模式作用域口：`enforce_upload_policy(allow_competitor_cdn=)` 仅放行
+    Ozon 自家 CDN 原尺寸图（`filter_competitor_cdn_images` 专用过滤——与生图
+    参考语义区分：alicdn 货源图混入即拒）；**全局闸对非 clone 载荷语义零变化**
+    （回归测试锁定）+ retry 重传闸同参数贯通。
+- **定价（B3 同车）**：follow_clone 锚价覆盖——上架价 = 前 20 报价均值
+  （`draft.competitor_price`，skill 选品时物化，恒 RUB）× `FOLLOW_CLONE_PRICE_FACTOR`
+  （缺省 1.0）；CNY 跨境店按汇率换算；**锚价低于 core 底线价 → LOCAL_PRICING_FAILED
+  如实拒绝**（利润闸宁缺毋滥）；价差守卫同锚槽（discovery_meta.ozon_price）自动覆盖。
+- **skill 侧薄写入片**：`follow --clone`（follow_sell_cloud clone 参数 + 信封
+  follow_clone/clone_card 最小回退载荷；B1 批补 CDP 全量读卡/选品筛选/均值计算）。
+- 测试：`test_follow_clone_v085.py` 22 用例（构造器/图片红线/闸回归锁/路由/
+  follow 节点/pricing 锚价）；worker 全量 **3814 passed / 2 skipped**；skill
+  follow/envelope/parity 族 203 passed；双面 ruff CI 口径零告警。
+- ⚠️ 实机 gate（B5）待 B1 后跑：测试店 ≥5 单克隆路径 + 观察样本 6515871405
+  （B0 第 4 轮渔夫帽克隆卡，48h 审核结论待回填 PLAN）。
+
 ## [未发版 dev] — 促销活动商品管理 v2 迁移（2026-10-13 Ozon 停用大限）
 
 ### fix(promo): promo_client 迁 v2 四方法 + v1 死端点绝迹

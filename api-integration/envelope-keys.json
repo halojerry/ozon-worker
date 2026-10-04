@@ -66,11 +66,19 @@
     },
     "follow_type": {
       "origin": "skill-injectable",
-      "description": "跟卖模式 hand|api"
+      "description": "跟卖模式 hand|api|clone"
     },
     "follow_sell": {
       "origin": "skill-collect",
       "description": "跟卖标记（路由分流）"
+    },
+    "follow_clone": {
+      "origin": "skill-collect",
+      "description": "跟卖克隆标记（follow_clone 模式：零 LLM 零生图——跳撰写/生图链，复制卡 images=[] 不动卡图或回退克隆图 CDN 直传）"
+    },
+    "clone_card": {
+      "origin": "skill-collect",
+      "description": "克隆回退载荷（import-by-sku 不可复制时逐字克隆数据：product_id/name/dc/tp/attributes/images/weight_g/dims_mm，CDP 读卡产物）"
     },
     "competitor_weight_g": {
       "origin": "skill-collect",

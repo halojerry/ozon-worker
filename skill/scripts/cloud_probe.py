@@ -3687,7 +3687,8 @@ def _cached_ozon_scrape(
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
                       review: bool = False, notify: bool = False,
-                      to_box: bool = False, min_margin: float = 0.0) -> dict[str, Any]:
+                      to_box: bool = False, min_margin: float = 0.0,
+                      clone: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
@@ -4156,8 +4157,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         extensions["competitor_ref_images"] = list(ozon_images[:1])
                     # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
-                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
-                    extensions["follow_type"] = extensions.get("follow_type") or "hand"
+                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制；
+                    # ✅ v0.85 clone=跟卖克隆（--clone，PLAN-follow-clone-v1）：
+                    # import-by-sku 复制 + 零 LLM 零生图（worker 侧跳撰写/生图链，
+                    # 复制卡 images=[] 不动卡图；不可复制走 clone_card 逐字回退）。
+                    extensions["follow_type"] = extensions.get("follow_type") or \
+                        ("clone" if clone else "hand")
+                    if clone:
+                        extensions["follow_clone"] = True
+                        # clone_card 最小回退载荷（B1 批补 CDP 全量读卡——
+                        # webCharacteristics 属性表/dc/tp/重量尺寸；worker 侧
+                        # validate_clone_card 逐字校验，缺 dc/tp 时克隆回退
+                        # 诚实不启用，import-by-sku 主路径不受影响）。
+                        extensions["clone_card"] = {
+                            "product_id": str(product_id),
+                            "name": str(draft.get("title") or slug or "").strip(),
+                            "images": [u for u in (ozon_images or []) if isinstance(u, str)],
+                        }
                     # ⚠️ arch-findings #5 信封三腿统一：定价参数注入改走与 graph 主链
                     # 同一 _merge_config_tiers 三段降级（显式 > worker 模板
                     # get_template_profile > stores.json；数值键非零纪律同源）——

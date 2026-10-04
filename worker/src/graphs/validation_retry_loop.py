@@ -4030,8 +4030,14 @@ def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
                     str(u).strip() for u in val
                     if isinstance(u, str) and u.strip()
                 )
+    # ✅ v0.85 follow_clone：模式作用域放行 Ozon CDN 原尺寸竞品图（克隆 CREATE
+    # 回退载荷重传场景；信封 extensions.follow_clone 标记，非 clone 语义零变化）。
+    _fc_ext = ((getattr(state, "envelope", None) or {}).get("extensions") or {})
+    _fc_mode = isinstance(_fc_ext, dict) and bool(_fc_ext.get("follow_clone"))
     ok, violations = image_source.enforce_upload_policy(
-        gate_urls, allow_salvage=image_source.salvage_fallback_enabled()
+        gate_urls,
+        allow_salvage=image_source.salvage_fallback_enabled(),
+        allow_competitor_cdn=_fc_mode,
     )
     if ok:
         return False

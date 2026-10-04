@@ -229,8 +229,10 @@ status: active
 | `promo_variable_cost_rate` | skill-injectable | 促销变动成本率 |
 | `traffic_keywords` | skill-injectable | SEO 流量词（标题提示词增强） |
 | `offer_id_prefix` | skill-injectable | offer_id 前缀覆盖 |
-| `follow_type` | skill-injectable | 跟卖模式 hand\|api |
+| `follow_type` | skill-injectable | 跟卖模式 hand\|api\|clone |
 | `follow_sell` | skill-collect | 跟卖标记（路由分流） |
+| `follow_clone` | skill-collect | 跟卖克隆标记（follow_clone 模式：零 LLM 零生图——跳撰写/生图链，复制卡 images=[] 不动卡图或回退克隆图 CDN 直传） |
+| `clone_card` | skill-collect | 克隆回退载荷（import-by-sku 不可复制时逐字克隆数据：product_id/name/dc/tp/attributes/images/weight_g/dims_mm，CDP 读卡产物） |
 | `competitor_weight_g` | skill-collect | 竞品重量 g（draft.weight 缺失兜底） |
 | `competitor_dimensions_mm` | skill-collect | 竞品尺寸 mm（缺失兜底） |
 | `competitor_ref_images` | skill-collect | 跟卖竞品主图快照（生图参考，绝不进 draft.images） |

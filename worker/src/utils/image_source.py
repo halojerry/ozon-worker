@@ -103,12 +103,22 @@ def has_generated_images(urls: Iterable[object]) -> bool:
     return any(classify_image_source(u) == "ai" for u in urls)
 
 
-def enforce_upload_policy(urls: Iterable[object], allow_salvage: bool = False) -> Tuple[bool, List[str]]:
+def enforce_upload_policy(
+    urls: Iterable[object],
+    allow_salvage: bool = False,
+    allow_competitor_cdn: bool = False,
+) -> Tuple[bool, List[str]]:
     """上架上传载荷 policy 闸：全部 URL ∈ {ai}∪({salvage} if allow_salvage) 才放行。
 
     返回 (True, []) 或 (False, 违规清单)；违规清单每项形如 ``"<来源>:<URL>"``
     （来源标签便于取证定位写入链）。空列表恒放行（空图走既有空图分支语义，
     不在本闸管辖）。
+
+    ✅ v0.85 follow_clone 模式作用域口（用户拍板 2026-10-03，PLAN-follow-clone-v1）：
+    allow_competitor_cdn=True 时额外放行 **Ozon 自家 CDN 原尺寸图**（external 类中
+    过批I 质量红线者——缩略/.webp 恒拒）。**只对 follow_clone 模式的 CREATE 回退
+    开**：克隆卡图=竞品图直传（B0-C 探针实锤 import 接受）；全局闸对非 clone 载荷
+    语义零变化（调用方不传即关，测试锁定）。
     """
     allowed = set(IMAGE_SOURCE_ALLOWLIST_UPLOAD)
     if allow_salvage:
@@ -116,9 +126,23 @@ def enforce_upload_policy(urls: Iterable[object], allow_salvage: bool = False) -
     violations: List[str] = []
     for u in (urls or []):
         src = classify_image_source(u)
-        if src not in allowed:
-            violations.append(f"{src}:{u}")
+        if src in allowed:
+            continue
+        if allow_competitor_cdn and src == "external" and _is_competitor_cdn_image(u):
+            continue
+        violations.append(f"{src}:{u}")
     return (len(violations) == 0, violations)
+
+
+def _is_competitor_cdn_image(url: object) -> bool:
+    """external 中的 Ozon 自家 CDN 原尺寸图（批I 红线复用——域后缀判定 + 缩略/.webp 恒拒）。
+
+    image_url_guard._is_competitor_reference_candidate 的薄转发（同一条质量红线，
+    两处消费：生图参考链 + follow_clone 克隆上卡链）。
+    """
+    from utils.image_url_guard import _is_competitor_reference_candidate
+
+    return isinstance(url, str) and _is_competitor_reference_candidate(url)
 
 
 def salvage_fallback_enabled() -> bool:

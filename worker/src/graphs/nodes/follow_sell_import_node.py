@@ -37,7 +37,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # ⚠️ v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，跳过
     # import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做类目/属性/生图，
     # 天然防同款/侵权检测）；api=强制跟卖（import-by-sku 1:1 复制竞品卡片，
-    # 快但可能报错/被下架）。默认 hand。
+    # 快但可能报错/被下架）；**clone=跟卖克隆（v0.85 follow_clone）**——
+    # import-by-sku 复制成功 → images=[] 不动卡图零生图零 LLM；不可复制 →
+    # 信封 clone_card 逐字克隆回退（CDP 读卡，PLAN-follow-clone-v1）。
     follow_type = str(extensions.get("follow_type") or "hand").lower()
 
     # ── 局部变量（替代 state.xxx 直接赋值）──
@@ -185,7 +187,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         # 会把竞品卡 1:1 建进店铺（wave D 测试店 5 卡实证）+ 每单 180s 轮询白等，
         # discover 场景有百害无一利。类目未定稿 → 置空交由 assemble 全闸链。
         logger.info("🧭 discover 变体：跳过 import-by-sku/api 复制，走 CREATE 重建")
-    elif follow_type == "api":
+    elif follow_type in ("api", "clone"):
+        # ✅ v0.85: clone 同走 import-by-sku（官方复制通道）；差异在下游——
+        # 复制成功 → 跳生图 + UPDATE images=[] 不动卡图（route/prepare 分支）；
+        # 复制失败 → clone_card 逐字克隆回退（prepare 构造，不走 hand 重建）。
         try:
             import_body = {
                 "items": [{
@@ -343,6 +348,23 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # 2) Fallback CREATE 才需要类目：缺失时用 1688 来源类目/标题 pg_trgm 兜底
     #    （复用 direct 管线现成引擎）
     import_by_sku_ok = bool(product_id)
+
+    # ✅ v0.85 follow_clone 回退：import-by-sku 未成（无 product_id）且信封带
+    # clone_card → dc/tp 直接采竞品卡真值（竞品在售事实，比任何解析都权威）；
+    # 无 clone_card 或 dc/tp 非法 → 不采，走既有失败链（绝不裸奔空类目）。
+    if follow_type == "clone" and not import_by_sku_ok:
+        _cc = extensions.get("clone_card") or {}
+        if isinstance(_cc, dict):
+            _cc_dc = str(_cc.get("dc") or "").strip()
+            _cc_tp = str(_cc.get("tp") or "").strip()
+            if _cc_dc.isdigit() and _cc_tp.isdigit() and int(_cc_dc) > 0 and int(_cc_tp) > 0:
+                dc_id, tp_id = _cc_dc, _cc_tp
+                logger.info("🧬 克隆回退：采用 clone_card 类目 dc=%s tp=%s（竞品卡真值）",
+                            _cc_dc, _cc_tp)
+            else:
+                logger.warning("🧬 克隆回退：clone_card 类目缺失/非法（dc=%r tp=%r），"
+                               "走既有类目失败链", _cc_dc, _cc_tp)
+
     if not dc_id or not tp_id:
         if import_by_sku_ok:
             logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
@@ -442,26 +464,43 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # （品牌85/5076+产地4389+型号9048+数量8962），真实竞品属性(draft.ozon_attributes)全丢。
     # 合并链在 attr_defaults.build_follow_attr_merge: 字典属性 /values/search 解析 dict_id,
     # 竞品文本值无字典匹配 → 跳过(绝不注入原文)；硬编码 5 属性仅作双无兜底。
-    try:
-        from utils.attr_defaults import build_follow_attr_merge
-        final_attrs = build_follow_attr_merge(
-            draft=draft,
-            schema=attrs_schema,
-            dc_id=dc_id,
-            tp_id=tp_id,
-            client_id=client_id,
-            api_key=api_key,
-            product_id=ozon_product_id,
-        )
-    except Exception as _merge_err:
-        logger.warning("跟卖属性合并链异常，回退硬编码 5 属性: %s", _merge_err)
-        final_attrs = [
-            {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-            {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-            {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
-            {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
-            {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
-        ]
+    # ✅ v0.85 follow_clone 回退：clone_card.attributes 逐字透传（{"id","values"}
+    # 形状即管线形状）——竞品值自带 dictionary_value_id，零字典解析零 LLM（模式本意）。
+    _clone_attrs_passed = False
+    if follow_type == "clone" and not import_by_sku_ok:
+        _cc_obj = extensions.get("clone_card")
+        _cc_attrs = _cc_obj.get("attributes") if isinstance(_cc_obj, dict) else None
+        if isinstance(_cc_attrs, list) and _cc_attrs:
+            final_attrs = [
+                {"id": int(a.get("id") or 0), "values": a.get("values") or []}
+                for a in _cc_attrs
+                if isinstance(a, dict) and int(a.get("id") or 0) > 0
+            ]
+            _clone_attrs_passed = bool(final_attrs)
+            if _clone_attrs_passed:
+                logger.info("🧬 克隆回退：clone_card 属性逐字透传 %d 个（跳过字典解析链）",
+                            len(final_attrs))
+    if not _clone_attrs_passed:
+        try:
+            from utils.attr_defaults import build_follow_attr_merge
+            final_attrs = build_follow_attr_merge(
+                draft=draft,
+                schema=attrs_schema,
+                dc_id=dc_id,
+                tp_id=tp_id,
+                client_id=client_id,
+                api_key=api_key,
+                product_id=ozon_product_id,
+            )
+        except Exception as _merge_err:
+            logger.warning("跟卖属性合并链异常，回退硬编码 5 属性: %s", _merge_err)
+            final_attrs = [
+                {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+                {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+                {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
+                {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
+                {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
+            ]
     up_status = "pending"
 
     logger.info("✅ 跟卖 v5: product_id=%s, cat=%s/%s, imgs=%d",

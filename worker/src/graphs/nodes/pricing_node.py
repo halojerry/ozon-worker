@@ -177,6 +177,77 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 供排查「价格为何是该币种」（此前静默 RUB 无法回溯币种从哪来）。
         pricing_info["currency_source"] = currency_source
 
+        price: int = pricing_info["price"]
+        old_price: int = pricing_info["old_price"]
+        currency_unit: str = pricing_info["currency_unit"]
+        logistics_cost: float = pricing_info["logistics_cost_cny"]
+        packaging_cost: float = pricing_info["packaging_cost_cny"]
+        margin_rate: float = pricing_info["margin_rate"]
+        commission_rate: float = pricing_info["commission_rate"]
+        _dual_margin: bool = bool(_audit.get("dual_margin"))
+
+        # ✅ v0.85 follow_clone 锚价覆盖（PLAN-follow-clone-v1 §3，用户拍板
+        # 2026-10-03）：上架价卡「跟卖列表前 20 报价均值」×factor（缺省 1.0，
+        # env FOLLOW_CLONE_PRICE_FACTOR 可调——「比竞品增幅可调/出单后自改」）。
+        # - 锚价 = draft.competitor_price（skill 选品时**物化**均值，恒 RUB——
+        #   price_sanity 红线：绝不引用化/延迟解析）；
+        # - 利润闸：锚价换算后低于 core 底线价（promo_price 档）→ 如实拒绝
+        #   （宁缺毋滥，同 commission_fallback_not_profitable 语义）；
+        # - 价差守卫自动覆盖：均值同时物化进 discovery_meta.ozon_price（同锚槽）。
+        _fc_ext = extensions if isinstance(extensions, dict) else {}
+        if _fc_ext.get("follow_clone"):
+            try:
+                _fc_anchor_rub = float(draft.get("competitor_price") or 0)
+            except (TypeError, ValueError):
+                _fc_anchor_rub = 0.0
+            if _fc_anchor_rub > 0:
+                import os as _os
+                try:
+                    _fc_factor = float(_os.getenv("FOLLOW_CLONE_PRICE_FACTOR", "1.0") or 1.0)
+                except ValueError:
+                    _fc_factor = 1.0
+                if _fc_factor <= 0:
+                    logger.warning("FOLLOW_CLONE_PRICE_FACTOR 非法（%.4g），回落 1.0", _fc_factor)
+                    _fc_factor = 1.0
+                _fc_target_rub = _fc_anchor_rub * _fc_factor
+                # CNY 跨境店：锚价 RUB → CNY（exchange_rate = 1 CNY 兑多少 RUB）
+                _fc_price = (round(_fc_target_rub / exchange_rate)
+                             if currency_code == "CNY" and exchange_rate > 0
+                             else round(_fc_target_rub))
+                _fc_price = max(1, _fc_price)
+                _fc_floor = int(pricing_info.get("promo_price") or pricing_info.get("price") or 0)
+                if _fc_floor > 0 and _fc_price < _fc_floor:
+                    logger.error(
+                        "⛔ follow_clone 利润闸拒绝：锚价 %s RUB×%.4g → %s %s 低于底线价 %s"
+                        "（成本链 compute_pricing_core 权威），宁缺毋滥",
+                        _fc_anchor_rub, _fc_factor, _fc_price, currency_unit, _fc_floor)
+                    return PricingOutput(
+                        pricing_info={"follow_clone_anchor_rub": _fc_anchor_rub,
+                                      "floor_price": _fc_floor},
+                        price="",
+                        old_price="",
+                        error_message=(
+                            f"[PRICING_FAILED] follow_clone 锚价 {round(_fc_anchor_rub)} RUB "
+                            f"×{_fc_factor} = {_fc_price} {currency_unit} 低于底线价 "
+                            f"{_fc_floor}（利润闸拒绝，换货源或调 factor）"
+                        ),
+                        error_code="LOCAL_PRICING_FAILED",
+                        failed_stage="pricing",
+                    )
+                from utils.pricing_estimate import enforce_old_price_rule
+                _fc_old = enforce_old_price_rule(_fc_price, round(_fc_price * 1.3))
+                pricing_info["price_source"] = "follow_clone_anchor"
+                pricing_info["anchor_price_rub"] = round(_fc_anchor_rub)
+                pricing_info["anchor_factor"] = _fc_factor
+                price = _fc_price
+                old_price = _fc_old
+                pricing_info["price"] = price
+                pricing_info["old_price"] = old_price
+                logger.info(
+                    "🧬 follow_clone 锚价覆盖：anchor=%s RUB ×%.4g → price=%s %s "
+                    "(old=%s, floor=%s)",
+                    round(_fc_anchor_rub), _fc_factor, price, currency_unit, old_price, _fc_floor)
+
         # ✅ v0.37 A2/B2: 重量/尺寸标疑放行但上报 Sentry（留痕，不阻断定价）
         _wd_audit = _audit.get("wd_audit") or {}
         if _wd_audit.get("reasons"):
@@ -197,14 +268,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             except Exception:
                 pass
 
-        price: int = pricing_info["price"]
-        old_price: int = pricing_info["old_price"]
-        currency_unit: str = pricing_info["currency_unit"]
-        logistics_cost: float = pricing_info["logistics_cost_cny"]
-        packaging_cost: float = pricing_info["packaging_cost_cny"]
-        margin_rate: float = pricing_info["margin_rate"]
-        commission_rate: float = pricing_info["commission_rate"]
-        _dual_margin: bool = bool(_audit.get("dual_margin"))
 
         _price_log = (
             f"价格计算成功(三档): price(日常)={price} {currency_unit}, "
