@@ -74,7 +74,7 @@
     },
     "follow_clone": {
       "origin": "skill-collect",
-      "description": "跟卖克隆标记（follow_clone 模式：零 LLM 零生图——跳撰写/生图链，复制卡 images=[] 不动卡图或回退克隆图 CDN 直传）"
+      "description": "跟卖克隆标记（follow_clone 模式：零 LLM 零生图——跳撰写/生图链，复制卡零图时信封图源回填（clone_card.images/competitor_ref_images CDN 直传）或克隆回退直传）"
     },
     "clone_card": {
       "origin": "skill-collect",
