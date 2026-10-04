@@ -1322,6 +1322,30 @@ def _chrome_profile_dir() -> str:
                / "data" / "browser" / "profiles" / "1688" / "default")
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """整体体检：六区红绿清单（配置语义/版本/文档/契约/MCP/CDP 轻探）。
+
+    v0.84.0：与 ``check`` 的分工——check 是**运行前环境诊断**（拉 Chrome、探
+    Ozon DataDome、验凭证有效性）；doctor 是**安装/升级后的整体体检**（零
+    副作用：不拉 Chrome 不写文件，3s 级网络轻探）。动因：Sentry 实录两台病机
+    （WORKER_URL=http://x、AK 过期）各灌 80+ 事件——检查面分散无单一入口，
+    用户装完/升级完没有「跑一次全查」的习惯位。出口码 0=全 PASS/SKIP。
+    """
+    from scripts.lib.doctor import render_json, render_text, run_doctor
+
+    results, exit_code = run_doctor()
+    if getattr(args, "as_json", False):
+        print(render_json(results, exit_code))
+    else:
+        print("🩺 skill 整体体检（doctor）——零副作用；运行前完整诊断请跑 `check`")
+        print(render_text(results))
+        if exit_code == 0:
+            _print_next("体检无阻塞项；涉及 Chrome/Ozon 会话的深度诊断跑 `check`")
+        else:
+            _print_next("按上方各 FAIL 项的 NEXT 逐个修复，修完重跑 `doctor` 直至全绿")
+    return exit_code
+
+
 def cmd_check(args) -> int:
     """诊断前置条件：浏览器 / CDP / 1688 / Ozon / 凭证 / Worker
 
@@ -3998,6 +4022,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="只读日志（不跑环境诊断）：`--logs <task_id>` 打印该任务 "
                          "JSONL 事件；`--logs`（不带值）列 data/logs/ 最近 5 个日志文件")
     cp.set_defaults(func=cmd_check)
+
+    # doctor (整体体检) — v0.84.0：一条命令端到端红绿清单（配置语义/版本/文档/契约/MCP/CDP 轻探）
+    dp = sub.add_parser(
+        "doctor", help="整体体检：WORKER_URL 语义/版本一致性/文档同步/信封契约 parity/MCP 工具对账/CDP 轻探（零副作用，不拉 Chrome）")
+    dp.add_argument("--json", action="store_true", dest="as_json",
+                    help="机器可读 JSON 输出（agent 消费）；出口码 0=全 PASS/SKIP，1=存在 FAIL")
+    dp.set_defaults(func=cmd_doctor)
 
     # search
     sp = sub.add_parser("search", help="搜索 1688 商品")

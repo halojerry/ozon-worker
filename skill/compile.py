@@ -68,6 +68,9 @@ COPY_FILES = [
     # 逻辑反复调整（v0.28.3→v0.28.6 独立 profile 改造），编译态 .so/.pyd 无法
     # 热迭代，且跨平台 Cython 编译风险（cloud_probe 同款）。明文跨平台一致。
     "scripts/lib/chrome_launcher.py",
+    # ⚠️ doctor.py 明文（v0.84.0）：整体体检工具——纯诊断零业务，用户/审计
+    # 需直接读它的检查逻辑（六区红绿清单），明文同 probe_win_cookies 先例。
+    "scripts/lib/doctor.py",
     # ⚠️ stealth.py 明文（2026-08-07 从编译移回）：v0.28.7 极简化（真实指纹
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。

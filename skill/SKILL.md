@@ -57,6 +57,7 @@ description: >
 | 查任务进度/完成了吗 | `query <task_id> --watch`（云端）· 本地后台任务 `job-status <job_id>` |
 | 后台跑起来/别干等 | 六重命令加 `--detach` → `job-status <job_id>` → `job-result <job_id>`；`jobs` 列全部 |
 | 环境报错/首次使用 | `check` |
+| 装完/升级后整体体检 | `doctor`（六区红绿清单：WORKER_URL 语义/版本/文档/契约 parity/MCP 对账/CDP 轻探；`--json` 机器可读） |
 
 ### 关键规则（压缩版，细则全在 references/）
 
@@ -92,6 +93,7 @@ description: >
 | `query` | 查 Worker 任务状态 | [照抄] |
 | `jobs` / `job-status` / `job-result` | 本机后台任务：列表 / 单任务进度 / 完整结果 | [照抄] |
 | `check` | 环境诊断 / `--logs` 看运行轨迹 | [可调] |
+| `doctor` | 安装/升级后整体体检（零副作用，不拉 Chrome） | [照抄] |
 | `report` | 上报问题到 worker | [照抄] |
 | `session-sync` | 收割 seller 会话上传 worker | [照抄] |
 | `sync-sessions` | 补传本地未上报的 discover session（v0.83，幂等） | [照抄] |
