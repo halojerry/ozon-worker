@@ -777,6 +777,7 @@ def ozon_status_node(
                                     VERIFY_SKIPPED,
                                     VERIFY_UNVERIFIED,
                                     verify_card_images,
+                                    verify_card_images_by_variant,
                                 )
 
                                 _payload_items = (getattr(state, "ozon_payload", None) or {}).get("items") or []
@@ -784,9 +785,21 @@ def ozon_status_node(
                                     [str(u) for u in (_payload_items[0].get("images") or []) if str(u).strip()]
                                     if _payload_items and isinstance(_payload_items[0], dict) else []
                                 )
-                                _card_urls = [str(u) for u in (info_items[0].get("images") or []) if str(u).strip()] \
-                                    if info_items and isinstance(info_items[0], dict) else []
-                                _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+
+                                def _run_card_assert(_cards: list, _pi=list(_payload_items),
+                                                     _pm=list(_payload_imgs)) -> tuple:
+                                    """单 item 走既有首卡断言；多 SKU 合卡逐 variant 断言
+                                    （feat/multi-sku-worker-v1：每变体主图 3:4 按 variant 维度，
+                                    载荷序=import 序=info 回传 pid 序）。_cards 可为首次
+                                    info_items 或复查回传（同 pid 序）。默认参绑定循环变量
+                                    （B023——本闭包定义在轮询循环体内）。"""
+                                    if len(_pi) > 1:
+                                        return verify_card_images_by_variant(_pi, _cards)
+                                    _card_urls0 = [str(u) for u in (_cards[0].get("images") or []) if str(u).strip()] \
+                                        if _cards and isinstance(_cards[0], dict) else []
+                                    return verify_card_images(_pm, _card_urls0)
+
+                                _v_status, _v_detail = _run_card_assert(info_items)
                                 # ✅ 批C fix/card-assert-cos-v1（2026-09-19 取证 I4）：mismatch/unverified
                                 # 复查从 1 次 15s 升级为 CARD_ASSERT_RETRIES 次 × CARD_ASSERT_INTERVAL_S 秒
                                 # （默认 3×20，env 可覆写）。动因：①import 刚完成时 info/list 先返回我方
@@ -799,6 +812,10 @@ def ozon_status_node(
                                 except ValueError:
                                     _card_retries, _card_interval = 3, 20.0
                                 _recheck_used = 0
+                                _card_urls: list = (
+                                    [str(u) for u in (info_items[0].get("images") or []) if str(u).strip()]
+                                    if info_items and isinstance(info_items[0], dict) else []
+                                )
                                 while (
                                     _v_status in (VERIFY_MISMATCH, VERIFY_UNVERIFIED)
                                     and _payload_imgs
@@ -814,9 +831,21 @@ def ozon_status_node(
                                         )
                                     except OzonError:
                                         pass
-                                    _ri = (_recheck.get("items") or [{}])[0] if isinstance(_recheck, dict) else {}
-                                    _card_urls = [str(u) for u in (_ri.get("images") or []) if str(u).strip()]
-                                    _v_status, _v_detail = verify_card_images(_payload_imgs, _card_urls)
+                                    # 多 SKU 合卡：复查取全量 items（逐 variant）；单卡取首 item
+                                    _ri_items = (
+                                        [it for it in (_recheck.get("items") or []) if isinstance(it, dict)]
+                                        if isinstance(_recheck, dict) else []
+                                    )
+                                    if _ri_items:
+                                        _v_status, _v_detail = _run_card_assert(_ri_items)
+                                    if len(_payload_items) > 1:
+                                        _card_urls = (
+                                            [str(u) for u in (_ri_items[0].get("images") or []) if str(u).strip()]
+                                            if _ri_items else []
+                                        )
+                                    else:
+                                        _ri = _ri_items[0] if _ri_items else {}
+                                        _card_urls = [str(u) for u in (_ri.get("images") or []) if str(u).strip()]
                                     if _v_status == VERIFY_OK:
                                         break
                                 logger.info(

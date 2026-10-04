@@ -2507,7 +2507,19 @@ def prepare_ozon_upload_node(
     item_id = draft.get("item_id", "")  # 1688商品ID（用于变体绑定）
     variants = state.variants if state.variants else []
     variant_primary_images = state.variant_primary_images if state.variant_primary_images else []
-    
+
+    # ✅ feat/multi-sku-worker-v1（PLAN-multi-sku-v1 §V2）：多 SKU 合卡模式开关。
+    # 契约面 = draft.variants[]（ingest 透传 state.variants，与 pricing 同源）+
+    # draft.multi_sku=true。缺省（无标记）恒 False → 既有单 SKU 路径逐字不变
+    # （防并卡 9048 派生照旧，回归测试锁定）。draft 是普通 dict（信封契约只闸
+    # extensions 键集，draft 深层不做类型化——utils/envelope_contract.py 模块注释）。
+    multi_sku_mode = (
+        bool(draft.get("multi_sku"))
+        and isinstance(variants, list) and len(variants) > 0
+    )
+    if multi_sku_mode:
+        logger.info(f"🧩 multi_sku 模式激活：{len(variants)} 个 variant 将展开为合卡 items")
+
     logger.info(f"商品ID（item_id）：{item_id}")
     logger.info(f"变体SKU数量：{len(variants)}")
     logger.info(f"已生成变体主图数量：{len(variant_primary_images)}")
@@ -3387,8 +3399,11 @@ def prepare_ozon_upload_node(
     # → 不并入竞品卡（Q4 修复）。自家多 SKU 同 item+同 supplier+同标题 → 同 hash
     # → 变体仍并入自家卡。跟卖（UPDATE 到竞品卡）刻意不加前缀（本就要并卡）。
     # hash 只用信封确定性字段（防 retry/repair 拆卡），绝不用 LLM 翻译后标题。
+    # ✅ feat/multi-sku-worker-v1：multi_sku 模式同样用裸 item_id（合卡键——全部
+    # items 同值，Ozon 据此+同 dc/tp 并卡；跟卖 9048 同值先例），展开后每 item
+    # 经 deepcopy 继承同值，utils/multi_sku_expand._set_9048 再兜底覆写。
     if item_id and item_id.strip():
-        if is_follow_sell:
+        if is_follow_sell or multi_sku_mode:
             model_name_9048 = item_id.strip()
         else:
             model_name_9048 = _derive_model_name_9048(
@@ -3877,9 +3892,50 @@ def prepare_ozon_upload_node(
                 break
     is_quantity_split = (first_vt == "quantity")
     logger.info(f"🔍 变体类型: variant_type={first_vt}, is_quantity_split={is_quantity_split}")
-    
+
+    # ⚠️ multi_sku 模式优先：draft.multi_sku+variants → 合卡展开（每色一 SKU 合一张卡，
+    # utils/multi_sku_expand 唯一实现：9048 全 items 同值=主 item_id、颜色匹配走
+    # attr_value_matcher 唯一入口无匹配剔除、price=主定价±delta 不重算公式），
+    # 与下方 legacy 数量拆分/变体分支互斥——legacy 分支不感知 multi_sku，行为零变化。
+    # multi_sku 与跟卖/克隆/编辑更新互斥（合卡是 CREATE 流特性； misuse 如实降级走既有路由）。
+    if (
+        multi_sku_mode and variants
+        and not is_follow_sell and not follow_clone_mode and not is_update_mode
+        and str(item_id or "").strip()
+    ):
+        from utils.multi_sku_expand import expand_multi_sku_items, resolve_color_attr_id
+        _ms_fx = float(pricing_info.get("exchange_rate") or 0)
+        if _ms_fx <= 0:
+            # pricing_core 恒回吐 RUB 真汇率/CNY=1.0；此处兜底同 fx fallback_12 语义
+            _ms_fx = 1.0 if str(currency_code or "").upper() == "CNY" else 12.0
+        _ms = expand_multi_sku_items(
+            ozon_payload["items"][0],
+            variants,
+            color_attr_id=resolve_color_attr_id(
+                ozon_payload["items"][0].get("attributes") or [], attributes_schema),
+            dictionary_values=dictionary_values,
+            shared_images=shared_marketing_images,
+            variant_primary_images=variant_primary_images_list,
+            main_price=price,
+            main_old_price=old_price,
+            fx_rate=_ms_fx,
+            merge_9048=str(item_id).strip(),
+            base_offer_id=str(sku_id),
+        )
+        if _ms.items:
+            ozon_payload["items"] = _ms.items
+            logger.info(
+                "🧩 multi_sku 展开: %s（9048 合卡键=%s，剔除 %d 个）",
+                _ms.marks, str(item_id).strip()[:40], _ms.marks.get("dropped", 0),
+            )
+        else:
+            # 全部 variant 被剔除（颜色全无匹配等）→ 如实回退单 SKU 主 item，绝不传空 items
+            logger.warning(
+                "⚠️ multi_sku: 全部 %d 个 variant 被剔除（%s），回退单 SKU 主 item",
+                len(variants), [d.get("reason") for d in _ms.dropped][:5],
+            )
     # ✅ 数量变体拆分：每个数量 SKU 作为独立 Ozon 产品
-    if is_quantity_split and variants and len(variants) > 1:
+    elif is_quantity_split and variants and len(variants) > 1:
         logger.info(f"🔀 数量变体拆分：将{len(variants)}个数量SKU拆分为独立产品")
         quantity_items: List[Dict[str, Any]] = []
         base_item_qty: Dict[str, Any] = ozon_payload["items"][0]
