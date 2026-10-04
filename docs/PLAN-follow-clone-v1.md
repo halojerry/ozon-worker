@@ -137,6 +137,21 @@ follow 同款）。
   `dictionary_value_id` snake_case（card_echo 注释的 camelCase 口径按此修正）；
 - 新建卡 v4 立即读 404（索引延迟），验证读走 v3。
 
+**E. 克隆属性必须用生产形状（2026-10-04 留观卡六错→清零实测，第 5/6 轮）**：
+- 属性对象 `{"complex_id": 0, "id": N, "values": [...]}`（= prepare 生产形状）——
+  用 `attribute_id` 键且无 `complex_id` 的形状，**optional 属性能绑上、required
+  属性被校验路径丢弃 → `error_attribute_values_empty`**（10096/4295/9163/8292
+  四个 required 实锤；换生产形状后四属性全绑、六错全清）；
+- 值对象**两键恒发**（`dictionary_value_id` + `value` 同发）——单发 dict_id
+  同样被判空；
+- **v3 回显无 weight/dims 字段**（`missing_dimension` 根因）——重量从 4497
+  （Вес товара）属性取或 CDP/信封 weight_g；尺寸同理走属性或 CDP；
+- 留观卡 6515871405 经生产形状修复后 **errors 清零**，审核观察在有效样本上
+  继续（此前样本带错不可售，观察无意义）。
+- **教训（B2 评审自责）**：clone_card_builder 初版发明了与生产 prepare 平行的
+  属性形状——「零 LLM 逐字回显」的正确姿势是**形状也逐字对齐生产管线**，
+  不是只对齐值。此教训已进模块 docstring + 测试断言。
+
 ### B1 skill 侧：选品 + 均值锚 + 信封（Tier A worktree）
 
 - `follow --clone`（复用 follow 源匹配链）+ discover 挑选腿出 clone 出口；
