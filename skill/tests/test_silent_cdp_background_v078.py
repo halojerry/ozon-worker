@@ -57,11 +57,15 @@ class _FakeTab:
         self.navigated: list[str] = []
         self.closed = False
         self.url = url
+        self.activated = False  # v0.85：collect 契约要求滚动采集前 force_active
         self._evaluate_value = evaluate_value
         self._cookies_resp = cookies_resp or {"result": {"cookies": []}}
 
     def navigate(self, url, **kw):
         self.navigated.append(url)
+
+    def force_active(self):
+        self.activated = True
 
     def wait_for_load(self, timeout=15):
         pass
@@ -188,6 +192,8 @@ def test_discover_collect_stage1_uses_background_tab(monkeypatch):
     candidates = od.collect_and_analyze("http://127.0.0.1:9222", url=url)
     assert candidates == []
     assert conn.calls == [(url, True)], "discover 阶段① 采集 tab 必须后台"
+    # v0.85 修「采集池恒 8」：后台 tab 滚动采集前必须 force_active（rAF 解冻）
+    assert conn.tab.activated, "collect 阶段① 滚动采集前必须 force_active"
 
 
 def test_taobao_fetch_product_uses_background_tab(monkeypatch):

@@ -12,6 +12,37 @@
   漂移源）——本批转正，`test_main_and_social_use_image25` 同步更新，本地
   漂移失败清零。
 
+## [未发版 dev] — discover 实机波次双 bug 根修：profit_margin 恒 4.18% + 采集池恒 8
+
+### fix(skill): discover 利润率与采集池双真 bug（2026-10-04 四类目实机波次实锤）
+
+- **Bug 1「profit_margin 恒 4.18-4.19%」**：`ozon_discovery._build_estimate_item` 曾传
+  `currency_code="RUB"` → worker 三档 RUB 路径 `profit_rate = profit_cny / price`
+  分子 CNY/分母 RUB 售价（量纲错位），净利率被 CNY→RUB 汇率整除（44.9% → ~4.2%），
+  且比值只依赖 margin/佣金/vcr/汇率常数、与成本无关 → 所有候选恒同一个数，利润闸
+  （≥15%）全灭。修法：batch item **不传 currency**（worker schema 契约「缺省按 CNY」
+  ＝货币中性净利率，与 `/api/v1/estimate/batch` 直调参考 profit_rate=0.4493 一致；
+  worker 侧同口径自锁 test_estimate_batch_parity_v083.py:214 期望 0.4484）。
+  实证（真实 `compute_price`）：RUB tag 三个不同成本候选全 3.84% vs 去 tag 后
+  44.76-45.05%。`_apply_estimate_row` 的 ratio→percent ×100 映射本身正确，未改。
+- **Bug 2「采集池恒 8（--max-products 50 也 8）」**：`collect_and_analyze` 后台 tab
+  创建后从未 `force_active` → Chrome 冻结后台 tab 的 rAF → 缓动滚动
+  `_EASE_SCROLL_JS`（requestAnimationFrame 驱动）永不执行 → 懒加载不触发 →
+  采集恒首屏 ~8 卡（highlight 与 /search 同病；搜索页无 `#paginator` 翻页兜底也
+  不触发）。回归源：v0.81 静默化批删 `discover_from_url` 时把 force_active 一并
+  带走，`collect_and_analyze` 接棒没补（`cli._collect_keyword_pids` /
+  `ozon_scraper` 同批都有）。修法：new_tab 后立即 `force_active()`（失败静默）。
+- **测试**：新 `tests/test_discover_margin_v085.py`（6 用例：请求形状锁 / ratio×100
+  恰一次 / 恒定签名消失 / 4.18 算术文档化 / force_active 先于滚动采集 / max_products
+  传透）；`test_silent_cdp_default_v081` 补 collect_and_analyze force_active 源码锁；
+  `test_silent_cdp_background_v078` 假 tab 补 force_active 契约；
+  `test_query_commission_worker` 旧 RUB 断言翻转。skill 全量 **1852 passed**；
+  ruff CI 口径 `ruff check scripts/ --select F` 绿。
+- **实机验证受限说明**：本机 9222 Chrome 未复现 rAF 冻结（环境相关；冻结证据为
+  cdp_client.py 2026-09-26 实机实证 + 同批两处先例），且本机 Ozon 当前会话被
+  Antibot Captcha 拦截（title 实锤），真跑 pool>8 留待客户端环境复验；翻页参数
+  传透链已单测锁定。
+
 ## [未发版 dev] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
 
 ### fix(security): 4 真 finding 根修 + 1 连带 bug（repair_cards 丢 import time）
