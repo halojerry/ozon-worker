@@ -5,7 +5,8 @@ B0 探针实录（2026-10-03，worker/scripts/probe_clone_card.py 四轮）驱�
 - follow_sell_import：follow_type=clone 走 import-by-sku（官方复制）；不可复制 →
   clone_card 类目/属性逐字采（零字典解析零 LLM，模式本意）；
 - route_after_assemble：follow_clone → 「克隆」（跳过生图链——零 LLM 零生图）；
-- prepare 图覆写纯函数：UPDATE images=[] 铁锁（不动复制卡图）/ CREATE 回退 CDN 直传；
+- prepare 图覆写纯函数：UPDATE 复制卡零图 → 信封图源回填（✅ v0.85.1 首战修正，
+  旧 images=[] 铁锁对「复制请求不带图」的复制卡不成立）/ CREATE 回退 CDN 直传；
 - 图片闸：对外链恒拒的**全局语义零变化**（回归锁）+ allow_competitor_cdn 模式
   作用域口仅放行 Ozon 自家 CDN 原尺寸图；
 - pricing 锚价覆盖：draft.competitor_price（前 20 均值，恒 RUB，选品时物化）×
