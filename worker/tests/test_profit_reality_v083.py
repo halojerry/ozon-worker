@@ -191,7 +191,7 @@ def _lr_state(**kw):
     base = dict(
         product_id="123456",
         description_category_id="17028929",
-        ozon_client_id="4718259",
+        ozon_client_id="1234567",  # 2026-10-04 安全批：原为真店编号，换假值（fixture 恒用假店号）
         ozon_api_key="mock-key",
         pricing_info={
             "currency_code": "RUB", "price": 3000, "exchange_rate": 12.0,
