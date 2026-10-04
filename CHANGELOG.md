@@ -1,5 +1,33 @@
 # Changelog
 
+## [未发版 dev] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
+
+### fix(security): 4 真 finding 根修 + 1 连带 bug（repair_cards 丢 import time）
+
+- **背景**：Mimosa 扫描器对本仓 L3 项目级拦截，逐行核实后确认 4 个真问题
+  （其余为误报），本批收敛。
+- **argv 凭证 ×2**：`worker/scripts/probe_clone_card.py` 删 `--client-id/--api-key`
+  形参改只读环境变量（OZON_CID/OZON_KEY；读卡方 OZON_READ_CID/OZON_READ_KEY，
+  缺失退出码 2）——凭证挂进程列表与 shell history（当天真店 key 实跑三轮后根修）；
+  `worker/scripts/repair_cards.py` 同款（删 --client-id/--api-key，只认
+  OZON_CLIENT_ID/OZON_API_KEY）。
+- **裸出站**：repair_cards 裸 `requests.post` 三连重试收敛 `utils.ozon_client.ozon_post`
+  唯一出口（类型化 OzonError + 429/5xx 重试）；连带修**旧重试循环删除时误删
+  `import time`** 的 F821（归档/删除/重建轮询 4 处 `time.sleep` 运行时 NameError）。
+- **裸渲染**：`worker/scripts/image_prompt_ab_test.py` 裸 `jinja2.Template` 收敛
+  `utils.safe_template.render_safe_mapping`（SSTI finding；良性模板渲染逐字一致，
+  dry-run 实测通过）。
+- **示例真店号**：`worker/src/api/schemas.py` SubmitTaskRequest 示例删
+  `ozon_client_id: "5381204"`（真店铺编号）/`ozon_api_key` 键值对——凭证扫描器
+  连 mock 字面量都拦，示例语境无法分辨真伪；`docs/API-REFERENCE.md` +
+  `api-integration/openapi.json` + `webui/src/imports/openapi.json` 随
+  gen_api_docs.py 重生成（漂移即上述两行删除）。
+- **测试 fixture 卫生**：`tests/test_profit_reality_v083.py` `_lr_state` 的
+  `ozon_client_id="4718259"` 真店编号换 "1234567"。
+- **全量回归**：worker 3813 passed / 1 failed（test_main_and_social_use_image25
+  —— 本地 imagegen.json 故意调参 main/social_proof → nano-banana-fast，不提交，
+  CI 检出仓内版本即绿）/ 2 skipped；ruff CI 口径 `ruff check src/` 全绿。
+
 ## [未发版 dev] — follow_clone 克隆属性形状根修（留观卡六错→清零实测）
 
 ### fix(follow-clone): 克隆属性对齐生产 prepare 形状——required 属性不再被判空

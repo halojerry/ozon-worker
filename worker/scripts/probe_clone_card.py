@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 
@@ -247,17 +248,27 @@ def inspect(c: httpx.Client, args) -> int:
 
 
 def main() -> int:
+    """凭证只从环境变量读（OZON_CID/OZON_KEY；读卡方 OZON_READ_CID/OZON_READ_KEY）。
+
+    ⚠️ 2026-10-04 安全批：曾有 --client-id/--api-key argv 形参——凭证挂进程列表
+    与 shell history（当天真店 key 实跑三轮后按 Mimosa finding 根修）。argv 形态
+    不复活；跑法：
+        OZON_CID=... OZON_KEY=... python probe_clone_card.py inspect --pid N
+        （docker exec 传 -e，勿 -e KEY=value 明文落在命令行）"""
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["inspect", "clone"])
-    ap.add_argument("--client-id", required=True)
-    ap.add_argument("--api-key", required=True)
     ap.add_argument("--pid", type=int, required=True)
     ap.add_argument("--price", type=int, default=154)
     ap.add_argument("--offer-id", default="")
-    ap.add_argument("--read-client-id", default="")
-    ap.add_argument("--read-api-key", default="")
     ap.add_argument("--archive-if-merged", action="store_true")
     args = ap.parse_args()
+    args.client_id = os.environ.get("OZON_CID", "")
+    args.api_key = os.environ.get("OZON_KEY", "")
+    args.read_client_id = os.environ.get("OZON_READ_CID", "")
+    args.read_api_key = os.environ.get("OZON_READ_KEY", "")
+    if not args.client_id or not args.api_key:
+        print("缺少凭证：export OZON_CID / OZON_KEY（读卡方另配 OZON_READ_CID/OZON_READ_KEY）")
+        return 2
     with httpx.Client(headers={"Client-Id": args.client_id, "Api-Key": args.api_key}) as c:
         return inspect(c, args) if args.action == "inspect" else clone(c, args)
 

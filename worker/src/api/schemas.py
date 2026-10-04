@@ -62,8 +62,9 @@ class SubmitTaskRequest(BaseModel):
     """
     model_config = _examples({
         "token": "__TOKEN_EXAMPLE__",
-        "ozon_client_id": "5381204",
-        "ozon_api_key": "mock-key-not-a-credential",
+        # 2026-10-04 安全批（Mimosa finding 根修）：示例不放任何凭证形键值对
+        # （ozon_client_id/ozon_api_key 连 mock 字面量都被凭证扫描拦截——示例
+        # 语境扫描器无法分辨真伪）；字段语义见下方 Field description。
         "envelope": _ENVELOPE_EXAMPLE,
         "timeout_seconds": 1800,
         "max_retries": 3,
