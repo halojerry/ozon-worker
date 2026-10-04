@@ -22,19 +22,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from api.schemas import _examples
-from services import admin_service, site_service
+from api.security import authenticate_admin as _authenticate_admin  # ✅ B5 批②：守卫唯一链（原本地实现收编）
+from services import site_service
 
 router = APIRouter(prefix="/admin/site", tags=["admin"])
-
-
-async def _authenticate_admin(request: Request) -> str:
-    from main import _authenticate_token  # 延迟导入防循环
-
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    user_id = _authenticate_token(token)
-    admin_service.require_admin(user_id)
-    return user_id
 
 
 # ──────────────────────────────────────────────

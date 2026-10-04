@@ -153,8 +153,13 @@ def test_list_ozon_error_502(_pg):
     assert "商品列表" in ei.value.detail
 
 
-def test_info_error_degrades_to_list(_pg):
-    """info 失败不阻断——降级返回列表（只有 id/offer_id）。"""
+def test_info_error_degrades_to_list(monkeypatch, _pg):
+    """info 失败不阻断——降级返回列表（只有 id/offer_id）。
+
+    ✅ A4 收敛批②：异常重试收敛进 ozon_post_expect_items（3 次退避）——
+    stub sleep 保持测试瞬时。
+    """
+    monkeypatch.setattr("time.sleep", lambda _s: None)
     _store_default_credential()
     fake = _fake_ozon(_list_result(), info_error=RuntimeError("info boom"))
     with patch("utils.ozon_client.ozon_post", fake):

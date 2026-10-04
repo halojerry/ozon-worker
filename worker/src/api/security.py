@@ -300,6 +300,33 @@ def _require_bearer(request) -> str:
     return clean
 
 
+async def authenticate_admin(request) -> str:
+    """admin 路由鉴权唯一链（B5，2026-10 收敛批②）：Bearer 解析 → _authenticate_token
+    → require_admin → user_id。
+
+    此前九份拷贝散落 routes/admin_*_routes ×8 + store_sync_routes 内联 +
+    credentials_routes 跨文件引用；本函数收编为唯一权威。链路/不变量（自
+    admin_routes 原实现收编，改前必读）：
+    - 无/失效 Bearer → ``_authenticate_token`` 401（发生在 require_admin 之前
+      ——无 token 恒 401，不泄漏端点存在性）；
+    - 非 admin → ``require_admin`` 403（本地 local_dev 放行）；
+    - 每个 admin handler 首行强制 ``await authenticate_admin(request)``，无旁路
+      ——勿改为可选调用或移到条件分支内。⚠️ v0.81 安全收尾留痕：鉴权在 handler
+      函数体内 ``await`` 调用而非 FastAPI ``Depends``，静态扫描常漏判
+      （Mimosa medium「敏感操作未观察到角色检查」= 该误报，非缺陷）。
+
+    Returns:
+        鉴权通过的 user_id（租户面语义与 _authenticate_token 一致）。
+    """
+    from services.admin_service import require_admin  # 懒导入防循环（同 _authenticate_token 模式）
+
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    user_id = _authenticate_token(token)
+    require_admin(user_id)
+    return user_id
+
+
 def _task_status_guard(request, task_row: dict) -> None:
     """鉴权 + 租户校验（v0.73 为 GET /task_status 收口；v0.76 T6(api-H2) 起
     cancel_task 同源复用——语义完全一致，见下）。
