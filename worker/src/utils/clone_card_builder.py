@@ -47,7 +47,13 @@ def normalize_clone_attributes(attrs: Any) -> Tuple[List[Dict[str, Any]], Dict[s
     """v4 回显属性（id 主键）→ import 属性（attribute_id 主键）。
 
     - 无 id / 空值 / 媒体类属性跳过（计数留痕）；
-    - 值形状保持 Ozon 原样（dictionary_value_id>0 → dict 引用；否则 value 自由文本）；
+    - **属性对象 = 生产 prepare 同形状（2026-10-04 留观卡 6515871405 六错→清零
+      实测）**：``{"complex_id": 0, "id": N, "values": [...]}``——用 ``attribute_id``
+      键且无 complex_id 的形状，optional 属性能绑、**required 属性被校验路径
+      丢弃 → error_attribute_values_empty**（10096/4295/9163/8292 四个 required
+      实锤；换生产形状后四属性全绑、六错全清）。不发明平行形状；
+    - **值对象两键恒发**：Ozon 必填校验按 ``value`` 判空（同批实锤）——
+      Ozon 自家回显两键原样照抄；
     - 绝不改写值内容（零 LLM 红线）。
     """
     out: List[Dict[str, Any]] = []
@@ -69,16 +75,19 @@ def normalize_clone_attributes(attrs: Any) -> Tuple[List[Dict[str, Any]], Dict[s
         for v in a.get("values") or []:
             if not isinstance(v, dict):
                 continue
-            did = v.get("dictionary_value_id")
+            did = v.get("dictionary_value_id") or 0
             val = v.get("value")
-            if did:
-                values.append({"dictionary_value_id": did})
-            elif val not in (None, ""):
-                values.append({"value": str(val)})
+            if not did and val in (None, ""):
+                continue
+            values.append({
+                "dictionary_value_id": did,
+                **({"value": str(val)} if val not in (None, "") else {}),
+            })
         if not values:
             skipped["no_values"] += 1
             continue
-        out.append({"attribute_id": int(aid), "values": values})
+        out.append({"complex_id": int(a.get("complex_id") or 0),
+                    "id": int(aid), "values": values})
     return out, skipped
 
 
@@ -150,11 +159,17 @@ def build_clone_import_item(
         item["old_price"] = str(old_price)
     weight = clone_card.get("weight_g")
     if isinstance(weight, (int, float)) and weight > 0:
+        # 单位显式声明对齐生产管线 prepare 形状（weight g / dims mm 恒定）
         item["weight"] = int(weight)
+        item["weight_unit"] = "g"
+    dims = []
     for src, dst in (("depth_mm", "depth"), ("width_mm", "width"), ("height_mm", "height")):
         v = clone_card.get(src)
         if isinstance(v, (int, float)) and v > 0:
             item[dst] = int(v)
+            dims.append(dst)
+    if dims:
+        item["dimension_unit"] = "mm"
     logger.info(
         "🧬 克隆 import item 构造: attrs=%d（skipped=%s） images=%d weight=%s",
         len(attrs), skipped, len(images), item.get("weight", "-"),
