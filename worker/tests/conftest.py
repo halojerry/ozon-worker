@@ -22,6 +22,33 @@ from scripts.prod_db_guard import enforce_not_production  # noqa: E402
 
 enforce_not_production()
 
+# ── ✅ Sentry 断源闸（2026-10-04 实锤事故）──
+# 事故链：worker/.env（本地开发）带生产 SENTRY_DSN → 测试进程 import main 时
+# init_sentry 读到 → **每次全量测试把 fixture 错误灌进生产 Sentry**（假凭证
+# b2cfc99f 解密失败/断网守卫拦截/validate fixture 失败等 20+ issue 被打活，
+# 配额烧 + 真问题被淹）。规则：测试进程**永不外发 Sentry**——
+# - collection 前清 SENTRY_DSN（比 import main 的 init 链更早）；
+# - 已初始化的 SDK 强制关（对先 import 的用例兜底）；
+# - 要真上报的调试场景：显式 `SENTRY_FORCE=1 pytest`（逃生门，勿进 CI）。
+if os.environ.get("SENTRY_FORCE", "") != "1":
+    os.environ.pop("SENTRY_DSN", None)
+    os.environ["SENTRY_DSN"] = ""
+    try:
+        import sentry_sdk as _sentry_sdk  # noqa: E402
+
+        _c = _sentry_sdk.Hub.current.client
+        if _c is not None and _c.dsn:
+            _sentry_sdk.init(dsn=None)  # 置空已初始化客户端（events 立即停止外发）
+    except Exception:
+        pass
+    try:
+        from utils import sentry_setup as _ss  # noqa: E402
+
+        _ss._SENTRY_ENABLED = False      # capture/before_send 全静音
+        _ss._SENTRY_INITIALIZED = True   # 后置 import main 的 init_sentry 直接短路
+    except ImportError:  # 无 PYTHONPATH=src 的非标调用不炸 conftest
+        pass
+
 
 # ── ✅ W3b 外呼立法：单测默认断网（loopback 白名单） ──
 # 事故链（2026-09 W3a 全量验证）：本机代理 fake-IP DNS 破坏 Ozon TLS →
