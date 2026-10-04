@@ -3,6 +3,8 @@ import json
 import time
 import logging
 from typing import Dict, Any, List, Optional
+
+import requests
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 from runtime.context import Context
@@ -21,6 +23,39 @@ POLL_INTERVAL_SECONDS = 3
 # Phase 2: 审核状态轮询（Ozon审核需要较长时间，300s足够覆盖绝大多数产品）
 MAX_MODERATE_POLL_ATTEMPTS = 120  # ✅ v0.11: 60→120 (10 分钟，覆盖多数审核)
 MODERATE_POLL_INTERVAL_SECONDS = 5
+
+# ✅ 2026-10-04 事故 6516590295（「假失败真在架」，对照 2026-09-24 follow×5 口径）：
+# 空/异常回传 ≠ 失败。语义分层（本节点统一纪律）：
+#   ① 轮询空 / 瞬时异常（5xx·429 耗尽 ozon_client 内部重试后的 OzonError、
+#      网络 Timeout/ConnectionError 裸异常、非预期响应结构）→ 有界重试；
+#   ② 重试耗尽 → 「存疑」复核一次：直查 /v3/product/info/list 拿 moderate_status
+#      定生死（approved→成功出口 / rejected→真实拒绝出口 / pending→软出口）；
+#   ③ 复核仍取不到 → failed，error_message 写明「状态不可得」
+#      （OZON_STATUS_UNAVAILABLE），绝不伪造成 Ozon 拒绝。
+# 终态闸语义不变：_has_real_product_evidence（completed 判定）与各失败出口
+# 错误码纪律照旧。env 在节点函数内读取（同 card assert 先例），回归测试可按 case 调参。
+STATUS_UNAVAILABLE_CODE = "OZON_STATUS_UNAVAILABLE"
+
+
+def _transient_poll_retries() -> int:
+    try:
+        return max(1, int(os.getenv("OZON_STATUS_TRANSIENT_RETRIES", "3")))
+    except ValueError:
+        return 3
+
+
+def _transient_poll_interval() -> float:
+    try:
+        return max(0.0, float(os.getenv("OZON_STATUS_TRANSIENT_INTERVAL_S", "3")))
+    except ValueError:
+        return 3.0
+
+
+def _fallback_empty_retries() -> int:
+    try:
+        return max(1, int(os.getenv("OZON_STATUS_FALLBACK_EMPTY_RETRIES", "3")))
+    except ValueError:
+        return 3
 
 
 def _learn_doc_requirement(state, fatal_errors: list) -> None:
@@ -63,6 +98,126 @@ def _learn_doc_requirement(state, fatal_errors: list) -> None:
         logger.warning("文档硬要求学习失败（非致命）dc/tp=%s/%s: %s", dc, tp, e)
 
 
+def _arbitrate_uncertain_by_info_list(
+    ozon_client_id: str,
+    ozon_api_key: str,
+    candidate_pids: List[str],
+    purchase_url: str,
+    purchase_cost: str,
+    sku_id: str,
+    profit_estimation: Dict[str, Any],
+    context: str = "",
+) -> Optional[OzonStatusOutput]:
+    """分层② 存疑复核（2026-10-04 事故 6516590295「假失败真在架」）。
+
+    轮询空/瞬时异常重试耗尽后，绝不直接 failed——直查一次 /v3/product/info/list
+    拿 moderate_status 定生死：
+      - 全部 approved → 成功出口（卡真实存活，轮询异常不是 Ozon 拒绝）
+      - 任一 rejected/declined → 真实被拒出口（此时 failed 才是事实）
+      - pending/in-moderating 等中间态 → pending 软出口（审核仍在进行）
+      - 查无 items / 调用失败 / 无可查 pid → None（调用方落状态不可得 failed）
+    候选 pid 只取数字形态（import 任务 ID 混入时 info/list 返回空 → 自然 None，
+    不会产出假成功）。注：复核出口不走收尾卡片图断言（该断言自身是
+    unverified→放行 的尽力语义，运输层降级路径不阻塞「卡存活」这一事实）。
+    """
+    pids_int: List[int] = []
+    for _p in (candidate_pids or []):
+        _s = str(_p).strip()
+        if _s.isdigit() and int(_s) > 0 and int(_s) not in pids_int:
+            pids_int.append(int(_s))
+    if not pids_int:
+        return None
+    try:
+        info = ozon_post(
+            ozon_client_id, ozon_api_key,
+            "/v3/product/info/list", {"product_id": pids_int, "seller_tag": []},
+            timeout=60,
+        )
+    except Exception as _arb_exc:
+        logger.warning("存疑复核调用失败(%s): %s", context or "-", str(_arb_exc)[:200])
+        return None
+    _raw = info.get("items") if isinstance(info, dict) else None
+    items = [it for it in _raw if isinstance(it, dict)] if isinstance(_raw, list) else []
+    if not items:
+        return None
+    statuses: Dict[str, str] = {}
+    rejected_errs: List[Dict[str, Any]] = []
+    for it in items:
+        _st = it.get("statuses") if isinstance(it.get("statuses"), dict) else {}
+        _ms = str(_st.get("moderate_status") or "")
+        statuses[str(it.get("id", ""))] = _ms
+        if _ms in ("rejected", "declined"):
+            rejected_errs.extend(e for e in (it.get("errors") or []) if isinstance(e, dict))
+    pids_str = [str(p) for p in pids_int]
+
+    def _out(**kw) -> OzonStatusOutput:
+        base = dict(
+            product_id=pids_str[0], product_ids=pids_str,
+            purchase_url=purchase_url, purchase_cost=purchase_cost,
+            sku_id=sku_id, profit_estimation=profit_estimation,
+        )
+        base.update(kw)
+        return OzonStatusOutput(**base)
+
+    if all(ms == "approved" for ms in statuses.values()):
+        logger.info("✅ 存疑复核确认全部 approved(%s): pids=%s", context or "-", pids_str)
+        return _out(
+            status="imported", moderation_status="approved",
+            upload_status="success", errors=[], error_message="",
+            stages={"ozon_status": "success_arbitrated"},
+        )
+    if any(ms in ("rejected", "declined") for ms in statuses.values()):
+        detail = "; ".join(f"product_id={p}:{statuses[p]}" for p in statuses)
+        logger.warning("存疑复核确认被拒(%s): %s", context or "-", detail)
+        return _out(
+            status="error", moderation_status="error",
+            upload_status="error", errors=rejected_errs,
+            error_message=f"存疑复核确认审核被拒: {detail}",
+            error_code="VARIANT_MODERATE_REJECTED",
+            failed_stage="ozon_status",
+            stages={"ozon_status": "failed"},
+        )
+    # pending / in-moderating / 其他中间态 → 审核仍在进行，pending 软出口（非失败）
+    logger.info("⏳ 存疑复核读到中间态(%s): %s", context or "-", statuses)
+    return _out(
+        status="pending", moderation_status="pending",
+        upload_status="pending", errors=[], error_message="",
+        stages={"ozon_status": "pending"},
+    )
+
+
+def _status_unavailable_output(
+    product_id: Optional[str],
+    purchase_url: str,
+    purchase_cost: str,
+    sku_id: str,
+    profit_estimation: Dict[str, Any],
+    reason: str,
+) -> OzonStatusOutput:
+    """分层③ 终态：有界重试 + 存疑复核后状态仍不可得 → failed。
+
+    error_message/error_code 写明「状态不可得」（OZON_STATUS_UNAVAILABLE），
+    绝不伪造成 Ozon 拒绝——「假失败真在架」事故的语义收口：此后查 error_code
+    即知该 failed 是「查不到」而不是「被拒绝」。"""
+    msg = (
+        f"[{STATUS_UNAVAILABLE_CODE}] Ozon 状态轮询空/异常回传，有界重试与存疑复核后"
+        f"状态不可得（非 Ozon 拒绝，卡可能真实存活，建议用测试店凭证回查"
+        f" /v3/product/info/list 后再定处置）: {reason}"
+    )
+    logger.error("❌ %s", msg)
+    return OzonStatusOutput(
+        product_id=product_id, product_ids=[],
+        status="failed", moderation_status="error",
+        upload_status="failed",
+        errors=[{"error": STATUS_UNAVAILABLE_CODE, "message": msg}],
+        purchase_url=purchase_url, purchase_cost=purchase_cost,
+        sku_id=sku_id, profit_estimation=profit_estimation,
+        error_message=msg, error_code=STATUS_UNAVAILABLE_CODE,
+        failed_stage="ozon_status",
+        stages={"ozon_status": "status_unavailable"},
+    )
+
+
 def ozon_status_node(
     state: OzonStatusInput,
     config: RunnableConfig,
@@ -103,6 +258,8 @@ def ozon_status_node(
 
     errors: List[Dict[str, Any]] = []
     status: str = ""
+    # ✅ 预初始化在 try 外——兜底 except 的存疑复核要读（避免早期异常 NameError）
+    real_product_ids: List[str] = []
 
     try:
         if not product_id:
@@ -146,7 +303,6 @@ def ozon_status_node(
             )
 
         # ===== 阶段1: 轮询 /v1/product/import/info（仅当存在 import 任务 ID）=====
-        real_product_ids: List[str] = []
         all_item_errors: List[Dict[str, Any]] = []
         total_item_count: int = 0
         has_pending: bool = False
@@ -164,6 +320,10 @@ def ozon_status_node(
         # 真实运行中 ozon_status 可能被图重试并以 product_id 充当 task_id 轮询，
         # import/info 必然 404 → 之前直接判失败触发修复循环（wave4 浴刷/面具实证）。
         _fallback_from_404: bool = False
+        # ✅ 2026-10-04 事故 6516590295: 瞬时异常连击计数（成功读到响应即归零）——
+        # 此前任何非 404 OzonError / 网络裸异常（Timeout/ConnectionError，ozon_client
+        # 不包装不重试直接上抛）都在首次命中时立刻 failed 终态 → 假失败真在架。
+        _transient_strikes: int = 0
         for attempt in range(MAX_POLL_ATTEMPTS if task_id_to_poll else 0):
             logger.info(f"轮询第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
             progress.log_node_action(f"轮询Ozon状态第{attempt + 1}/{MAX_POLL_ATTEMPTS}次...")
@@ -201,25 +361,51 @@ def ozon_status_node(
                     failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
                     stages={"ozon_status": "api_error"}
                 )
-            except OzonError as e:
-                logger.error(f"Ozon API调用失败: {e.status_code}, {str(e)[:200]}")
-                return OzonStatusOutput(
-                    product_id=product_id,
-                    product_ids=[],
-                    status="failed",
-                    moderation_status="error",
-                    errors=[{"error": f"Ozon API错误: {e.status_code}"}],
-                    purchase_url=purchase_url,
-                    purchase_cost=purchase_cost,
-                    sku_id=sku_id,
-                    profit_estimation=profit_estimation,
-                    error_message=f"Ozon API错误: {e.status_code}",
-                    failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
-                    stages={"ozon_status": "api_error"}
+            except (OzonError, requests.exceptions.RequestException) as _poll_exc:
+                # ✅ 分层①（事故 6516590295）: 瞬时异常 ≠ 失败。5xx/429 耗尽
+                # ozon_client 内部重试后的 OzonError、网络 Timeout/ConnectionError
+                # 裸异常、JSON 解析异常——一律有界重试；耗尽 → 存疑复核（分层②），
+                # 仍取不到才落 OZON_STATUS_UNAVAILABLE（分层③），绝不立刻 failed。
+                _transient_strikes += 1
+                _sc = getattr(_poll_exc, "status_code", None)
+                _kind = type(_poll_exc).__name__
+                if _transient_strikes <= _transient_poll_retries():
+                    logger.warning(
+                        "轮询瞬时异常(status=%s, %s/%s次, %s)，%ss后有界重试...",
+                        _sc, _transient_strikes, _transient_poll_retries(), _kind,
+                        _transient_poll_interval(),
+                    )
+                    time.sleep(_transient_poll_interval())
+                    continue
+                # 分层②: 存疑复核——直查 info/list 拿 moderate_status 定生死
+                _arb_pids = list(real_product_ids)
+                if str(product_id or "").strip().isdigit() and str(product_id) not in _arb_pids:
+                    _arb_pids.append(str(product_id))
+                _arb = _arbitrate_uncertain_by_info_list(
+                    str(ozon_client_id), str(ozon_api_key), _arb_pids,
+                    purchase_url, purchase_cost, sku_id, profit_estimation,
+                    context=f"阶段1瞬时异常耗尽 status={_sc} {_kind}",
+                )
+                if _arb is not None:
+                    return _arb
+                # 分层③: 复核仍取不到 → failed（状态不可得，非 Ozon 拒绝）
+                return _status_unavailable_output(
+                    product_id=str(product_id) if product_id else None,
+                    purchase_url=purchase_url, purchase_cost=purchase_cost,
+                    sku_id=sku_id, profit_estimation=profit_estimation,
+                    reason=f"import/info 轮询瞬时异常耗尽({_kind}, status={_sc})",
                 )
 
-            result: Dict[str, Any] = response_data
-            result_items: list = result.get("result", {}).get("items", [])
+            _transient_strikes = 0
+            # ✅ 分层①（结构防御）: 非 dict 响应 / 非 dict result / 非 list items /
+            # 非 dict item → 一律视同空回传（走下方有界 continue），绝不因
+            # AttributeError 落进兜底 except 直接 failed。
+            _result_raw = response_data.get("result") if isinstance(response_data, dict) else None
+            _raw_items = _result_raw.get("items") if isinstance(_result_raw, dict) else None
+            result_items: list = (
+                [it for it in _raw_items if isinstance(it, dict)]
+                if isinstance(_raw_items, list) else []
+            )
 
             if not result_items or len(result_items) == 0:
                 logger.warning(f"第{attempt + 1}次轮询无结果，等待重试...")
@@ -387,6 +573,11 @@ def ozon_status_node(
 
             logger.info(f"查询{len(all_pids_int)}个变体的moderate_status: product_ids={all_pids_int}")
 
+            # ✅ 分层①（事故 6516590295）: 404 回退路径的空读连击计数——此前
+            # 「首次空读即 PRODUCT_NOT_FOUND failed」，Ozon 复制延迟/瞬时空回传
+            # 会打出假失败（卡实际 approved）。改为有界重试，耗尽才终判。
+            _fb_empty_strikes: int = 0
+
             for attempt2 in range(MAX_MODERATE_POLL_ATTEMPTS):
                 logger.info(f"查询moderate_status第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次...")
                 progress.log_node_action(f"查询审核状态第{attempt2 + 1}/{MAX_MODERATE_POLL_ATTEMPTS}次（{len(all_pids_int)}个变体）...")
@@ -398,13 +589,27 @@ def ozon_status_node(
                         ozon_client_id, ozon_api_key,
                         "/v3/product/info/list", info_payload, timeout=60,
                     )
-                except OzonError as _oe:
+                except (OzonError, requests.exceptions.RequestException) as _oe:
+                    # ✅ 分层①（事故 6516590295）: 网络裸异常（Timeout/ConnectionError，
+                    # ozon_client 不包装）与 OzonError 同待遇——本层有界轮询内重试，
+                    # 循环耗尽落 pending 软出口，绝不外抛进兜底 except 直接 failed。
                     _info_ok = False
-                    logger.warning(f"查询moderate_status API返回{_oe.status_code}")
+                    logger.warning(
+                        "查询moderate_status API异常(status=%s, %s)，继续轮询...",
+                        getattr(_oe, "status_code", None), type(_oe).__name__,
+                    )
                     time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
                 if _info_ok:
-                    info_items: list = info_result.get("items", [])
+                    # ✅ 分层①（结构防御）: 非 dict 响应 / 非 list items / 非 dict item
+                    # → 视同空回传（走下方空读分支重试），绝不 AttributeError 外抛。
+                    _raw_info_items = (
+                        info_result.get("items") if isinstance(info_result, dict) else None
+                    )
+                    info_items: list = (
+                        [it for it in _raw_info_items if isinstance(it, dict)]
+                        if isinstance(_raw_info_items, list) else []
+                    )
 
                     if info_items and len(info_items) > 0:
                         # ✅ P0修复：检查所有变体的moderate_status
@@ -712,27 +917,34 @@ def ozon_status_node(
                             logger.info(f"⏳ 审核进行中(statuses={set(all_moderate_statuses.values())})，等待{MODERATE_POLL_INTERVAL_SECONDS}秒...")
                             time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
                     else:
-                        # ✅ v0.25 FIX: 404 回退路径下 info/list 查无此商品 → 立即失败，
-                        # 避免空轮询 10 分钟（product_id 是伪造的 import task_id 时发生）
-                        if _fallback_from_404 and attempt2 == 0:
-                            logger.error(
-                                f"❌ import/info 404 回退后 product_id={all_pids_int} 在 info/list 查无此商品"
-                            )
-                            return OzonStatusOutput(
-                                product_id=str(all_pids_int[0]) if all_pids_int else product_id,
-                                product_ids=all_pids_int,
-                                status="failed",
-                                moderation_status="error",
-                                upload_status="failed",
-                                errors=[{"error": "PRODUCT_NOT_FOUND", "message": f"product_id={all_pids_int} 查无此商品"}],
-                                purchase_url=purchase_url,
-                                purchase_cost=purchase_cost,
-                                sku_id=sku_id,
-                                profit_estimation=profit_estimation,
-                                error_message=f"[PRODUCT_NOT_FOUND] product_id={all_pids_int} 查无此商品",
-                                failed_stage="ozon_status",
-                                stages={"ozon_status": "product_not_found"},
-                            )
+                        # ✅ 分层①（事故 6516590295）: 空回传 ≠ 查无此商品。404 回退
+                        # 路径有界重试（FALLBACK_EMPTY_RETRIES 次内 sleep+continue）——
+                        # 此前首次空读即判 PRODUCT_NOT_FOUND，Ozon 复制延迟/瞬时空回传
+                        # 打出假失败（卡实际 approved）。注：该路径的「存疑复核」就是
+                        # info/list 本身（它已连续作答「查无」N 次才终判），故耗尽后
+                        # 直接终判，不再叠一次同形调用；非回退路径维持 120 次全量轮询。
+                        if _fallback_from_404:
+                            _fb_empty_strikes += 1
+                            if _fb_empty_strikes >= _fallback_empty_retries():
+                                logger.error(
+                                    f"❌ import/info 404 回退后 product_id={all_pids_int} "
+                                    f"在 info/list 连续{_fb_empty_strikes}次查无此商品（有界重试耗尽）"
+                                )
+                                return OzonStatusOutput(
+                                    product_id=str(all_pids_int[0]) if all_pids_int else product_id,
+                                    product_ids=all_pids_int,
+                                    status="failed",
+                                    moderation_status="error",
+                                    upload_status="failed",
+                                    errors=[{"error": "PRODUCT_NOT_FOUND", "message": f"product_id={all_pids_int} 查无此商品（已重试{_fb_empty_strikes}次）"}],
+                                    purchase_url=purchase_url,
+                                    purchase_cost=purchase_cost,
+                                    sku_id=sku_id,
+                                    profit_estimation=profit_estimation,
+                                    error_message=f"[PRODUCT_NOT_FOUND] product_id={all_pids_int} 查无此商品（已重试{_fb_empty_strikes}次）",
+                                    failed_stage="ozon_status",
+                                    stages={"ozon_status": "product_not_found"},
+                                )
                         logger.warning(f"第{attempt2 + 1}次查询moderate_status无结果")
                         time.sleep(MODERATE_POLL_INTERVAL_SECONDS)
 
@@ -774,18 +986,26 @@ def ozon_status_node(
         )
 
     except Exception as e:
-        logger.error(f"Ozon状态轮询异常: {str(e)}")
-        return OzonStatusOutput(
+        # ✅ 分层②③（事故 6516590295）: 兜底异常 ≠ 失败终态。此前任何漏网异常
+        # （含轮询层的网络裸异常、非预期结构）直接落 failed——「假失败真在架」的
+        # 最后一条假失败路径。现先存疑复核一次（直查 info/list 拿 moderate_status
+        # 定生死），复核给出裁决即按裁决出口；仍取不到才 failed，且 error_message
+        # 写明「状态不可得」（OZON_STATUS_UNAVAILABLE）而非伪造成 Ozon 拒绝。
+        logger.error(f"Ozon状态轮询异常: {str(e)}", exc_info=True)
+        _arb_pids = [p for p in real_product_ids if str(p).strip().isdigit()]
+        _in_pid = str(product_id or "").strip()
+        if _in_pid.isdigit() and _in_pid not in _arb_pids:
+            _arb_pids.append(_in_pid)
+        _arb = _arbitrate_uncertain_by_info_list(
+            str(ozon_client_id), str(ozon_api_key), _arb_pids,
+            purchase_url, purchase_cost, sku_id, profit_estimation,
+            context=f"节点兜底异常: {type(e).__name__}",
+        )
+        if _arb is not None:
+            return _arb
+        return _status_unavailable_output(
             product_id=product_id,
-            product_ids=[],
-            status="failed",
-            moderation_status="error",
-            errors=[{"error": str(e)}],
-            purchase_url=purchase_url,
-            purchase_cost=purchase_cost,
-            sku_id=sku_id,
-            profit_estimation=profit_estimation,
-            error_message=str(e),
-            failed_stage="ozon_status",  # ✅ v0.73 终审 I1: 失败出口显式带（默认值已归零）
-            stages={"ozon_status": "failed"}
+            purchase_url=purchase_url, purchase_cost=purchase_cost,
+            sku_id=sku_id, profit_estimation=profit_estimation,
+            reason=f"节点异常: {type(e).__name__}: {str(e)[:200]}",
         )
