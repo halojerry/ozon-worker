@@ -182,9 +182,16 @@ def _is_competitor_reference_candidate(url: str) -> bool:
     lowered = url.strip().lower()
     if not lowered.startswith(("http://", "https://")):
         return False
-    # Ozon CDN 域形态多变（ir / ir-N / cdn1 子域），按域后缀判定而非穷举
+    # Ozon CDN 域形态多变（ir / ir-N / cdn1 子域），按域后缀判定而非穷举。
+    # fix/ozonstatic-ref-domain（2026-10-14 生产实证）：竞品卡图实际多挂
+    # ir-N.ozonstatic.cn / *.ozonstatic.com（Ozon 中国侧静态 CDN），旧判定只认
+    # ozon.ru/ozone.ru → 跟卖信封竞品图被误拒 →「无合格参考图」→ 生图全跳过
+    # → IMAGE_GEN_ALL_FAILED（Sentry POUDING_OZON-KX/M1，13 单实锤）。
+    # 域家族口径对齐 utils/card_image_assert.py 卡图白名单（.ozonstatic.cn/.com）。
     if not (".ozon.ru/" in lowered or ".ozone.ru/" in lowered
-            or "//ozon.ru/" in lowered or "//ozone.ru/" in lowered):
+            or ".ozonstatic.cn/" in lowered or ".ozonstatic.com/" in lowered
+            or "//ozon.ru/" in lowered or "//ozone.ru/" in lowered
+            or "//ozonstatic.cn/" in lowered or "//ozonstatic.com/" in lowered):
         return False
     if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
         return False

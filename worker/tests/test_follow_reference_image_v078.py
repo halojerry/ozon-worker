@@ -75,6 +75,37 @@ def test_reference_filter_mixed_keeps_order_and_sources():
     assert out == [OZON_FULL, ALICDN_FULL]
 
 
+# ── fix/ozonstatic-ref-domain（2026-10-14 生产实证）──────────────
+# 竞品卡图实际多挂 ir-N.ozonstatic.cn（Ozon 中国侧静态 CDN），旧判定只认
+# ozon.ru/ozone.ru → 跟卖信封竞品图被误拒 → IMAGE_GEN_ALL_FAILED（13 单）。
+
+OZONSTATIC_FULL = "https://ir-20.ozonstatic.cn/s3/multimedia-1-9/14356724373.jpg"
+OZONSTATIC_COM_REAL = "https://cdn1.ozonstatic.com/s3/multimedia-1-3/7361872743.jpg"
+OZONSTATIC_THUMB = "https://ir-20.ozonstatic.cn/s3/multimedia-1-9/14356724373_460x460.jpg"
+
+
+def test_follow_allows_ozonstatic_cn_fullsize():
+    """跟卖拍板覆盖 ozonstatic.cn：原尺寸竞品图放行进参考链。"""
+    assert filter_reference_images([OZONSTATIC_FULL], allow_competitor=True) == [OZONSTATIC_FULL]
+
+
+def test_follow_allows_ozonstatic_com_fullsize():
+    """ozonstatic.com 同域家族对齐 card_image_assert 卡图白名单口径。"""
+    assert filter_reference_images(
+        [OZONSTATIC_COM_REAL], allow_competitor=True) == [OZONSTATIC_COM_REAL]
+
+
+def test_graph_mode_still_rejects_ozonstatic():
+    """非跟卖信封零变化：ozonstatic 竞品图照旧拒（防串图红线不因修复放宽）。"""
+    assert is_product_image_candidate(OZONSTATIC_FULL) is False
+    assert filter_reference_images([OZONSTATIC_FULL]) == []
+
+
+def test_ozonstatic_thumbnail_never_passes():
+    """缩略恒拒对 ozonstatic 域同样生效。"""
+    assert filter_reference_images([OZONSTATIC_THUMB], allow_competitor=True) == []
+
+
 # ── 节点层：follow 单不再跳过生图（mock mxou API） ─────────────
 
 
