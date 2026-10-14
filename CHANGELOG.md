@@ -1,6 +1,45 @@
 # Changelog
 
-## [未发版 dev] — 9048-only 合卡终验两处管线侧根因修复：retry 标题抹平变体盲 + 5646 颜色属性子串误选
+## [0.85.0] — 2026-10-14（multi-sku 合卡战役 + follow-clone v1 + 跟卖竞品参考域修复 + 稳定性六批）
+
+发版内容 = dev 43 提交全量（PR #121-#136）+ 跟卖参考域热修。**实机 gate 状态：未跑**
+（本机工具 Chrome DataDome/1688 登录未过，被用户拍板跳过、生产部署自行掌控——0.85.0
+第一个生产跟卖单建议实机核对 category_match_log/listing_result_log/终态后再放量）。
+
+- **fix(image) 跟卖竞品参考域白名单（本版动因，Sentry POUDING_OZON-KX/M1 13 单实锤）**：
+  生产跟卖单信封 `extensions.follow_sell` 已带、follow_sell_import v5 分支全跑通，但
+  `_is_competitor_reference_candidate` 只认 ozon.ru/ozone.ru——竞品卡图实际挂
+  `ir-20.ozonstatic.cn`（Ozon 中国侧静态 CDN）被误拒 → 0 合格参考图 → 生图全跳过 →
+  IMAGE_GEN_ALL_FAILED 整任务重试空转。补 `.ozonstatic.cn/.com` 两后缀（对齐
+  card_image_assert 卡图家族口径），缩略/.webp 恒拒、非跟卖默认拒、参考≠上卡三红线
+  零变化；4 新用例。
+- **feat(multi-sku) 多 SKU 合卡战役**：skill 腿 `graph --variants` 颜色 SKU 展开
+  （≤15 变体 draft.variants+multi_sku）+ worker 腿合卡展开 + 9048-only 降级合卡
+  （无颜色字典类目全 no_match 不再回退单 SKU）+ 终验两处管线侧根因（retry 标题
+  抹平变体盲守卫 `utils/multi_sku_title_repair` + resolve_color_attr_id 5646
+  «Количество цветов» 子串误选词形收紧）。
+- **feat(follow-clone) 跟卖克隆模式 v1**：`follow --clone` 官方复制竞品卡零 LLM
+  零生图；信封 follow_clone+clone_card 两键、路由跳生图链、克隆卡名回读、属性形状
+  根修（留观卡六错→清零）、拉丁名竞品语言前置守卫、复测遗留三件收口。
+- **fix(discover)**：profit_margin 恒 4.18% + 采集池恒 8 双真 bug 根修（实机四类目
+  波次实锤）。
+- **fix(imagegen)**：生图主模型正式切 nano-banana-fast 全槽统一（24h 台账 97% vs
+  gpt-image-2.5 18% + 四类目 8 单实机 95% 生图 8/8 过审）。
+- **fix(ozon-status)**：ozon_status 空/异常回传分层语义（有界重试→存疑复核→状态
+  不可得）+ completed 终态剥离累积残留 failed_stage，终结「假失败真在架」。
+- **fix(sentry) 两批**：测试断源闸（conftest 三重静音 + .env DSN 默认注释——测试灌
+  生产 Sentry 事故根修）+ GA 重传载荷泄漏写入口根修（restore/regen 写入前过
+  filter_uploadable_images）。
+- **fix(security)**：Mimosa 安全批①——argv 凭证×2/裸渲染/裸出站收敛 + 示例真店号
+  清除。
+- **fix(dedupe) 两批收敛**：划线价唯一规则/汇率三级链/锁统一/错误码常量化/info批查
+  退避统一/admin守卫唯一链/分页收敛。
+- **feat(skill) doctor v1**：一条命令六区红绿体检（零副作用不拉 Chrome，--json
+  机器可读）。
+- **fix(promo)**：促销商品管理迁 /v2/actions/products（v1 2026-10-13 停用大限）。
+- **docs(agents)**：mattpocock-skills 三件套落位（issue-tracker/triage-labels/domain）。
+
+## [0.85.0 同车批] — 9048-only 合卡终验两处管线侧根因修复：retry 标题抹平变体盲 + 5646 颜色属性子串误选
 
 ### fix(multi-sku): multi_sku 标题修复变体盲守卫 + resolve_color_attr_id 词形收紧（fix/multi-sku-9048-fixes）
 
@@ -28,7 +67,7 @@
   `test_multi_sku_expand_v1` schema fixture 对齐新不变量（字典属性补
   dictionary_id）。
 
-## [未发版 dev] — 多 SKU 合卡 V1 skill 腿：graph --variants 颜色 SKU 展开（worker V2 契约面就位）
+## [0.85.0 同车批] — 多 SKU 合卡 V1 skill 腿：graph --variants 颜色 SKU 展开（worker V2 契约面就位）
 
 ### feat(skill): 多 SKU 合卡 V1（PLAN-multi-sku-v1）——1688 颜色维度 SKU → draft.variants + draft.multi_sku
 
@@ -50,7 +89,7 @@
   15 截断+剔除清单/无颜色不产/flag parser+retry 透传/信封集成 mock 全外依/
   预估逐行展示）；18/18 绿 + 相邻回归（envelope/estimate/compile_lists 等 96+87）绿。
 
-## [未发版 dev] — 生图主模型正式切 nano-banana-fast（全槽统一，数据驱动）
+## [0.85.0 同车批] — 生图主模型正式切 nano-banana-fast（全槽统一，数据驱动）
 
 ### feat(imagegen): main/social_proof gpt-image-2.5 → nano-banana-fast
 
@@ -62,7 +101,7 @@
   漂移源）——本批转正，`test_main_and_social_use_image25` 同步更新，本地
   漂移失败清零。
 
-## [未发版 dev] — discover 实机波次双 bug 根修：profit_margin 恒 4.18% + 采集池恒 8
+## [0.85.0 同车批] — discover 实机波次双 bug 根修：profit_margin 恒 4.18% + 采集池恒 8
 
 ### fix(skill): discover 利润率与采集池双真 bug（2026-10-04 四类目实机波次实锤）
 
@@ -93,7 +132,7 @@
   Antibot Captcha 拦截（title 实锤），真跑 pool>8 留待客户端环境复验；翻页参数
   传透链已单测锁定。
 
-## [未发版 dev] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
+## [0.85.0 同车批] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
 
 ### fix(security): 4 真 finding 根修 + 1 连带 bug（repair_cards 丢 import time）
 
@@ -121,7 +160,7 @@
   —— 本地 imagegen.json 故意调参 main/social_proof → nano-banana-fast，不提交，
   CI 检出仓内版本即绿）/ 2 skipped；ruff CI 口径 `ruff check src/` 全绿。
 
-## [未发版 dev] — follow_clone 克隆属性形状根修（留观卡六错→清零实测）
+## [0.85.0 同车批] — follow_clone 克隆属性形状根修（留观卡六错→清零实测）
 
 ### fix(follow-clone): 克隆属性对齐生产 prepare 形状——required 属性不再被判空
 
@@ -143,7 +182,7 @@
 - 教训入册：克隆回显**形状与值都逐字对齐生产管线**，不发明平行形状
   （PLAN-follow-clone-v1 B0-E 节 + 模块 docstring + 测试断言三处锁定）。
 
-## [未发版 dev] — 跟卖克隆模式 v1（follow_clone：零 LLM 零生图，PLAN-follow-clone-v1 B2+B3）
+## [0.85.0 同车批] — 跟卖克隆模式 v1（follow_clone：零 LLM 零生图，PLAN-follow-clone-v1 B2+B3）
 
 > 方案 `docs/PLAN-follow-clone-v1.md`（B0 探针四轮实录驱动）+ 姊妹篇
 > `docs/PLAN-product-refresh-v1.md`（存量卡翻新，后续批）。
@@ -184,7 +223,7 @@
 - ⚠️ 实机 gate（B5）待 B1 后跑：测试店 ≥5 单克隆路径 + 观察样本 6515871405
   （B0 第 4 轮渔夫帽克隆卡，48h 审核结论待回填 PLAN）。
 
-## [未发版 dev] — 促销活动商品管理 v2 迁移（2026-10-13 Ozon 停用大限）
+## [0.85.0 同车批] — 促销活动商品管理 v2 迁移（2026-10-13 Ozon 停用大限）
 
 ### fix(promo): promo_client 迁 v2 四方法 + v1 死端点绝迹
 
