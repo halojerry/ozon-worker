@@ -107,7 +107,7 @@ async def hard_delete_credential_data(credential_id: str, request: Request):
     审计:store_operation_log 落 hard_delete 记录(operator=admin user_id)。
     用户草稿/凭证吊销记录/手工 order_notes 不删(见 data_erasure_service 文档)。
     """
-    from routes.admin_routes import _authenticate_admin
+    from api.security import authenticate_admin as _authenticate_admin  # ✅ B5 批②：守卫唯一链（原跨文件引 admin_routes）
     from services.data_erasure_service import hard_delete_credential_data as _erase
 
     admin_user_id = await _authenticate_admin(request)

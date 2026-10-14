@@ -1658,6 +1658,8 @@ def preserve_existing_card_attributes(
     """
     try:
         from utils.ozon_client import find_product_by_offer, ozon_post
+        # ✅ v0.85.1: 新建/复制卡 /v4 索引延迟 404 识别（读回有界重试唯一口径）
+        from utils.ozon_errors import is_index_latency_404
         _pid_cache: dict[str, str] = {}
         for item in items or []:
             if not isinstance(item, dict):
@@ -1686,27 +1688,39 @@ def preserve_existing_card_attributes(
                     _pid_cache[offer] = pid
             if not pid:
                 continue
-            try:
-                v4 = ozon_post(
-                    client_id, api_key, "/v4/product/info/attributes",
-                    {"filter": {"product_id": [pid], "visibility": "ALL"}, "limit": 10},
-                    timeout=15,
-                )
-            except Exception:
-                continue
-            v4_items = (v4.get("result") or {}).get("items") \
-                if isinstance(v4.get("result"), dict) else v4.get("result")
-            copied = []
-            for it in (v4_items or []):
-                if int((it or {}).get("id") or 0) == int(pid):
-                    copied = [
-                        {"complex_id": int(a.get("complex_id") or 0),
-                         "id": int(a.get("id") or 0),
-                         "values": a.get("values") or []}
-                        for a in (it.get("attributes") or [])
-                        if isinstance(a, dict) and int(a.get("id") or 0) > 0
-                    ]
+            # ✅ v0.85.1 首战修正：/v4 读有界重试（2026-10-04 测试店 5371047 实录：
+            # 复制卡刚建索引未就绪，读回恒 404 "item not found"，+15s 即 200——
+            # 单发读回=防洗卡整段空转）。3 次 × 5s；只对 404（索引延迟）与
+            # 「200 但无匹配 item」重试；其他异常照旧一次放弃（不阻断 import）。
+            copied: list = []
+            for _v4_att in range(3):
+                try:
+                    v4 = ozon_post(
+                        client_id, api_key, "/v4/product/info/attributes",
+                        {"filter": {"product_id": [pid], "visibility": "ALL"}, "limit": 10},
+                        timeout=15,
+                    )
+                except Exception as _v4_e:
+                    if is_index_latency_404(_v4_e) and _v4_att < 2:
+                        time.sleep(5)
+                        continue
+                    break  # 非 404 异常：照旧放弃本 item（不阻断）
+                v4_items = (v4.get("result") or {}).get("items") \
+                    if isinstance(v4.get("result"), dict) else v4.get("result")
+                for it in (v4_items or []):
+                    if int((it or {}).get("id") or 0) == int(pid):
+                        copied = [
+                            {"complex_id": int(a.get("complex_id") or 0),
+                             "id": int(a.get("id") or 0),
+                             "values": a.get("values") or []}
+                            for a in (it.get("attributes") or [])
+                            if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                        ]
+                        break
+                if copied:
                     break
+                if _v4_att < 2:
+                    time.sleep(5)
             if copied:
                 _before = len(item.get("attributes") or [])
                 merge_copied_card_attributes([item], copied)
@@ -2085,10 +2099,65 @@ def _apply_no_primary_fallback(state: Any, ozon_payload: Dict[str, Any],
         ozon_payload["items"][0]["images"] = []
 
 
-def _enforce_payload_image_policy(ozon_payload: Dict[str, Any], allow_salvage: bool) -> None:
+def _apply_follow_clone_images(ozon_payload: Dict[str, Any], extensions: Any) -> str:
+    """✅ v0.85 follow_clone 图片覆写（纯函数，PLAN-follow-clone-v1 §2，零生图模式）。
+
+    - ✅ v0.85.1 语义变更（2026-10-04 首战实录：测试店 5371047 五单 5/5 validate
+      拒 `item[0].images缺失`）：UPDATE（import-by-sku 复制成功，item 带
+      product_id）**复制请求不带图**——复制卡天生零图，旧 images=[] 铁锁（语义
+      「卡本来有图，不动」）对复制卡不成立，锁零图必被 validate/审核拒。现改为
+      **图源回填**：信封 clone_card.images > competitor_ref_images（CDP 读卡
+      快照，Ozon CDN 原尺寸），过 extract_clone_images 同一过滤（缩略/.webp 恒
+      拒，批I 红线）——B0-C 实锤 CDN 直传 import 接受并挂图。确无图源 → 维持
+      []（下游 validate 名称族闸 `images缺失` / LOCAL_IMAGES_MISSING 如实拒，
+      诚实失败不伪造）。**不做** /v3 info/list primary_image 回查（多一次 IO +
+      索引时序坑，首战 +15s 才可读）。
+    - CREATE 回退（不可复制）：images=clone_card 竞品 CDN 原尺寸图直传（B0-C
+      探针实锤 import 接受；extract_clone_images 复用批I 红线——缩略/.webp 恒拒）；
+      空图如实放行到下游 LOCAL_IMAGES_MISSING 闸拦截（诚实失败，不伪造）。
+
+    返回 "update" / "create" / "skip"（非 clone 载荷零动作）。
+    """
+    if not isinstance(extensions, dict) or not extensions.get("follow_clone"):
+        return "skip"
+    items = (ozon_payload or {}).get("items") or []
+    item0 = items[0] if items else None
+    if not isinstance(item0, dict):
+        return "skip"
+    item0.pop("primary_image", None)
+    from utils.clone_card_builder import extract_clone_images
+    if item0.get("product_id"):
+        cc = extensions.get("clone_card")
+        cc = cc if isinstance(cc, dict) else {}
+        imgs = extract_clone_images(cc.get("images")) or extract_clone_images(
+            extensions.get("competitor_ref_images"))
+        item0["images"] = imgs
+        if imgs:
+            logger.info(
+                "🧬 follow_clone UPDATE：复制卡零图（复制请求不带图），信封图源回填 %d 张（CDN 直传）",
+                len(imgs))
+        else:
+            logger.warning(
+                "🧬 follow_clone UPDATE：复制卡零图且信封无可用图源（clone_card/"
+                "competitor_ref_images 均空）——维持 []，交下游图片闸如实拒")
+        return "update"
+    cc = extensions.get("clone_card")
+    cc = cc if isinstance(cc, dict) else {}
+    imgs = extract_clone_images(cc.get("images"))
+    item0["images"] = imgs
+    logger.info("🧬 follow_clone CREATE 回退：竞品 CDN 图直传 %d 张", len(imgs))
+    return "create"
+
+
+def _enforce_payload_image_policy(
+    ozon_payload: Dict[str, Any],
+    allow_salvage: bool,
+    allow_competitor_cdn: bool = False,
+) -> None:
     """payload 出口硬闸（批A：所有单/多 SKU 分支收口处的最后闸）。
 
-    items 内全部 primary_image+images 必须 ∈ {ai}（逃生门开时 ∪ {salvage}）——
+    items 内全部 primary_image+images 必须 ∈ {ai}（逃生门开时 ∪ {salvage}；
+    follow_clone 模式开时 ∪ Ozon CDN 原尺寸竞品图——v0.85 模式作用域口）——
     防 restore/镜像残余路径把草稿原图（draft-images/）或外链塞进上传载荷。
     不通过 → IMAGE_GEN_ALL_FAILED + 违规清单 log（同 _raise_image_gen_all_failed，
     非永久，任务级失败重试）。空图列表不在本闸管辖（空图走既有空图分支语义）。
@@ -2107,7 +2176,8 @@ def _enforce_payload_image_policy(ozon_payload: Dict[str, Any], allow_salvage: b
                     str(_u).strip() for _u in _val
                     if isinstance(_u, str) and _u.strip()
                 )
-    _ok, _violations = enforce_upload_policy(urls, allow_salvage=allow_salvage)
+    _ok, _violations = enforce_upload_policy(
+        urls, allow_salvage=allow_salvage, allow_competitor_cdn=allow_competitor_cdn)
     if not _ok:
         logger.error("⛔ 上架图来源硬闸拦截（非 ai 来源混入上传载荷）: %s", _violations)
         _raise_image_gen_all_failed(_violations)
@@ -2340,6 +2410,10 @@ def prepare_ozon_upload_node(
         isinstance(img, str) and img.strip() and 'ir.ozone.ru' in img
         for img in original_images
     )
+    # ✅ v0.85 follow_clone 模式标记（信封 extensions.follow_clone，skill 采集腿
+    # 写入）：零 LLM 零生图——图走「UPDATE images=[] 铁锁」或「clone_card CDN
+    # 原尺寸直传」，下方图片组装分支与 payload 图片闸据此切模式作用域。
+    follow_clone_mode = bool(_ext.get("follow_clone"))
     shared_marketing_images, main_image = _build_shared_marketing_images(state, is_follow_sell)
     
     # 4. 如果一张图都没有（AI 全失败 + 无竞品图），标记警告
@@ -2433,7 +2507,19 @@ def prepare_ozon_upload_node(
     item_id = draft.get("item_id", "")  # 1688商品ID（用于变体绑定）
     variants = state.variants if state.variants else []
     variant_primary_images = state.variant_primary_images if state.variant_primary_images else []
-    
+
+    # ✅ feat/multi-sku-worker-v1（PLAN-multi-sku-v1 §V2）：多 SKU 合卡模式开关。
+    # 契约面 = draft.variants[]（ingest 透传 state.variants，与 pricing 同源）+
+    # draft.multi_sku=true。缺省（无标记）恒 False → 既有单 SKU 路径逐字不变
+    # （防并卡 9048 派生照旧，回归测试锁定）。draft 是普通 dict（信封契约只闸
+    # extensions 键集，draft 深层不做类型化——utils/envelope_contract.py 模块注释）。
+    multi_sku_mode = (
+        bool(draft.get("multi_sku"))
+        and isinstance(variants, list) and len(variants) > 0
+    )
+    if multi_sku_mode:
+        logger.info(f"🧩 multi_sku 模式激活：{len(variants)} 个 variant 将展开为合卡 items")
+
     logger.info(f"商品ID（item_id）：{item_id}")
     logger.info(f"变体SKU数量：{len(variants)}")
     logger.info(f"已生成变体主图数量：{len(variant_primary_images)}")
@@ -2614,73 +2700,93 @@ def prepare_ozon_upload_node(
     # Step 5: 标题翻译成俄语（如果标题是中文或拉丁字母）
     title_ru: str = title_cn  # 默认使用原始标题
 
-    # v0.59: 标题公式流量词（envelope extensions 携带，纯西里尔 ≤3 ≤20 字符，只做提示词增强）
-    _traffic_keywords: list = _extract_traffic_keywords(state.extensions or {})
-    _traffic_kwargs: dict = {"traffic_keywords": _traffic_keywords} if _traffic_keywords else {}
-    
-    # ✅ 关键修复：如果标题包含中文字符或纯拉丁字母，调用LLM翻译为俄语
-    if _has_chinese(title_cn):
-        logger.warning(f"标题包含中文，调用LLM翻译为俄语：{title_cn[:80]}")
-        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="zh", text_type="title", **_traffic_kwargs)
-        logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
-    elif not _has_cyrillic(title_cn) and title_cn.strip():
-        logger.warning(f"标题为纯拉丁字母，调用LLM翻译为俄语：{title_cn[:80]}")
-        title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="en", text_type="title", **_traffic_kwargs)
-        logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
-    
-    # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
-    title_ru = sanitize_title(title_ru, token=mxou_token, use_llm=True)
-    # ✅ v0.81 retry-quality: box_reviewed 草稿跳过结构闸与下方重生成链整段
-    # （结构闸在 prepare 的唯一产出就是路由到重生成，跳过重生成则跳过闸；
-    # 坏标题如实交 validate 名称闸/必填闸拦截）。
-    from utils.title_sanitizer import sanitize_title_structure
-    if _box_reviewed_draft:
-        _title_struct_bad = False
-        if not title_ru:
-            logger.warning("⚠️ box_reviewed 草稿标题为空（翻译失败/原样为空），跳过重生成，如实交下游拦截")
+    # ✅ v0.85.1 clone 模式零 LLM（首战实录 2026-10-04：单均 3+ 次 LLM 纯浪费）：
+    # 克隆卡名/描述/属性就是竞品在售俄语内容——整段标题转换链（LLM 翻译/去拉丁
+    # LLM/结构闸/公式重生成）全部跳过，标题**逐字回显**（零 LLM 本意，PLAN §明确
+    # 不做翻译）；坏标题如实交 validate 名称闸拦截，绝不静默改写。
+    # ✅ v0.85.x 克隆卡名回读（复测 4/5 死因修复）：import-by-sku 复制成功后卡上
+    # name=竞品卡俄语原名（Ozon 已接受的事实），draft.title 只是 CDP 抓取的拉丁
+    # 占位（"Beanie Hat"）——copied_card_name 非空时 item name 逐字用它（回显
+    # 复制卡事实，本地拉丁预检不再拒）；空=回落 draft.title 现状。非 clone 模式
+    # 本分支不进入，语义零变化。
+    if follow_clone_mode:
+        _copied_card_name = str(getattr(state, "copied_card_name", "") or "").strip()
+        if _copied_card_name:
+            title_cn = _copied_card_name
+            title_ru = _copied_card_name
+            logger.info("🧬 clone 模式：item name 逐字回读复制卡卡上 name（%s…），"
+                        "draft.title 仅留档", _copied_card_name[:60])
+        else:
+            logger.info("🧬 clone 模式：标题逐字回显（零 LLM，跳过翻译/净化/重生成）: %s",
+                        (title_ru or "")[:80])
     else:
-        title_ru, _title_struct_bad = sanitize_title_structure(title_ru)
-        if _title_struct_bad:
-            logger.warning("⚠️ 标题结构闸判定不合格（残壳段/空槽/小数逗号），转入公式重生成: %r", title_ru[:60])
+        # v0.59: 标题公式流量词（envelope extensions 携带，纯西里尔 ≤3 ≤20 字符，只做提示词增强）
+        _traffic_keywords: list = _extract_traffic_keywords(state.extensions or {})
+        _traffic_kwargs: dict = {"traffic_keywords": _traffic_keywords} if _traffic_keywords else {}
 
-    # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
-    # ⚠️ v0.81 retry-quality: box_reviewed 草稿整段跳过（采集箱即权威，标题不重写）
-    _latin_re_title = re.compile(r'[a-zA-Z]')
-    if (
-        not _box_reviewed_draft
-        and (
-            not title_ru
-            or _title_struct_bad
-            or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru))
-        )
-    ):
-        logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
-        try:
-            from utils.mxou_api import call_mxou_chat_api
-            # ✅ 优先用1688属性关键词（比中文标题更稳定），其次用标题
-            keywords = _attr_keywords_cn if _attr_keywords_cn else title_cn[:200]
-            logger.info(f"   标题生成关键词：{keywords[:80]}")
-            gen_title = call_mxou_chat_api(
-                token=mxou_token,
-                system_prompt=build_title_formula_prompt("zh", _traffic_keywords or None),
-                user_prompt=f"产品信息：{keywords}",
-                model="deepseek-v4-flash-vision-exp",
-                temperature=0.3,
-                max_tokens=1000
-            ) or ""
-            gen_title = gen_title.strip()
-            if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):
-                title_ru = sanitize_title(gen_title, token=mxou_token, use_llm=True) or gen_title
-                logger.info(f"✅ 公式生成标题成功：{title_ru[:80]}")
-            else:
-                # 最终兜底：用 Ozon 类目名代替固定文案
-                _fallback_name = _get_category_fallback_title(state)
-                title_ru = _fallback_name if _fallback_name else "Товар для дома, универсальный"
-                logger.warning(f"⚠️ 公式生成也失败，使用类目兜底标题：{title_ru}")
-        except Exception as e:
-            logger.error(f"❌ 标题生成异常：{e}")
-            _fallback_name_ex = _get_category_fallback_title(state)
-            title_ru = _fallback_name_ex if _fallback_name_ex else "Товар для дома, универсальный"
+        # ✅ 关键修复：如果标题包含中文字符或纯拉丁字母，调用LLM翻译为俄语
+        if _has_chinese(title_cn):
+            logger.warning(f"标题包含中文，调用LLM翻译为俄语：{title_cn[:80]}")
+            title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="zh", text_type="title", **_traffic_kwargs)
+            logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
+        elif not _has_cyrillic(title_cn) and title_cn.strip():
+            logger.warning(f"标题为纯拉丁字母，调用LLM翻译为俄语：{title_cn[:80]}")
+            title_ru = _translate_to_russian_llm(title_cn, mxou_token, source_lang="en", text_type="title", **_traffic_kwargs)
+            logger.info(f"✅ 标题翻译完成：{title_ru[:80]}")
+
+        # ✅ 标题后校验：确保标题符合Ozon规范（≤50字符、含标点、无关键词堆砌）
+        title_ru = sanitize_title(title_ru, token=mxou_token, use_llm=True)
+        # ✅ v0.81 retry-quality: box_reviewed 草稿跳过结构闸与下方重生成链整段
+        # （结构闸在 prepare 的唯一产出就是路由到重生成，跳过重生成则跳过闸；
+        # 坏标题如实交 validate 名称闸/必填闸拦截）。
+        from utils.title_sanitizer import sanitize_title_structure
+        if _box_reviewed_draft:
+            _title_struct_bad = False
+            if not title_ru:
+                logger.warning("⚠️ box_reviewed 草稿标题为空（翻译失败/原样为空），跳过重生成，如实交下游拦截")
+        else:
+            title_ru, _title_struct_bad = sanitize_title_structure(title_ru)
+            if _title_struct_bad:
+                logger.warning("⚠️ 标题结构闸判定不合格（残壳段/空槽/小数逗号），转入公式重生成: %r", title_ru[:60])
+
+        # 兜底：如果标题仍为空或含拉丁字符，用「核心词+属性+场景」公式生成
+        # ⚠️ v0.81 retry-quality: box_reviewed 草稿整段跳过（采集箱即权威，标题不重写）
+        _latin_re_title = re.compile(r'[a-zA-Z]')
+        if (
+            not _box_reviewed_draft
+            and (
+                not title_ru
+                or _title_struct_bad
+                or (title_ru and _latin_re_title.search(title_ru) and not _has_cyrillic(title_ru))
+            )
+        ):
+            logger.warning(f"⚠️ 标题校验后仍不合格（空或含拉丁），用公式生成: '{title_ru[:60]}'")
+            try:
+                from utils.mxou_api import call_mxou_chat_api
+                # ✅ 优先用1688属性关键词（比中文标题更稳定），其次用标题
+                keywords = _attr_keywords_cn if _attr_keywords_cn else title_cn[:200]
+                logger.info(f"   标题生成关键词：{keywords[:80]}")
+                gen_title = call_mxou_chat_api(
+                    token=mxou_token,
+                    system_prompt=build_title_formula_prompt("zh", _traffic_keywords or None),
+                    user_prompt=f"产品信息：{keywords}",
+                    model="deepseek-v4-flash-vision-exp",
+                    temperature=0.3,
+                    max_tokens=1000
+                ) or ""
+                gen_title = gen_title.strip()
+                if gen_title and _has_cyrillic(gen_title) and not _latin_re_title.search(gen_title):
+                    title_ru = sanitize_title(gen_title, token=mxou_token, use_llm=True) or gen_title
+                    logger.info(f"✅ 公式生成标题成功：{title_ru[:80]}")
+                else:
+                    # 最终兜底：用 Ozon 类目名代替固定文案
+                    _fallback_name = _get_category_fallback_title(state)
+                    title_ru = _fallback_name if _fallback_name else "Товар для дома, универсальный"
+                    logger.warning(f"⚠️ 公式生成也失败，使用类目兜底标题：{title_ru}")
+            except Exception as e:
+                logger.error(f"❌ 标题生成异常：{e}")
+                _fallback_name_ex = _get_category_fallback_title(state)
+                title_ru = _fallback_name_ex if _fallback_name_ex else "Товар для дома, универсальный"
 
     logger.info(f"✅ 标题校验后最终值：{title_ru[:80]}")
     
@@ -2705,7 +2811,10 @@ def prepare_ozon_upload_node(
         description = title_cn  # 占位，后续翻译
     
     # ✅ 如果description不是俄语，调用LLM翻译
-    if description and not _has_cyrillic(description):
+    # ✅ v0.85.1 clone 模式跳过（零 LLM）：克隆卡描述即竞品俄语内容逐字回显，
+    # 非俄语占位（竞品名原文）也原样上卡——Ozon 对 UPDATE 描述宽容，坏值交
+    # 下游闸，绝不烧 LLM 改写。
+    if description and not _has_cyrillic(description) and not follow_clone_mode:
         logger.warning(f"⚠️ 描述不含西里尔字母，调用LLM翻译为俄语：{description[:80]}...")
         description = _translate_to_russian_llm(description, mxou_token, source_lang="auto")
         logger.info(f"✅ 描述翻译完成：{description[:80]}...")
@@ -2858,7 +2967,8 @@ def prepare_ozon_upload_node(
     _english_allowed_attrs = (9024,)
     _cn_re_b = re.compile(r'[\u4e00-\u9fff]')
     _batch_pending: List[str] = []
-    if mxou_token and final_attributes:
+    # ✅ v0.85.1 clone 模式跳过批量翻译（零 LLM）：克隆属性值即竞品俄语原文逐字回显
+    if mxou_token and final_attributes and not follow_clone_mode:
         for _bat in final_attributes:
             if not isinstance(_bat, dict):
                 continue
@@ -3016,7 +3126,10 @@ def prepare_ozon_upload_node(
         # 排除：9024(SKU编码) — 允许英文/数字（但含中文仍走下方中文检查翻译）
         # ✅ v0.25 FIX: 23487(制造商) 加入中文零容忍（同上）
         _russian_required_attrs = (4191, 4180, 4384, 4389, 23171, 23487)
-        if not _rich_html_4191 and attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str):
+        # ✅ v0.85.1 clone 模式跳过逐属性翻译（零 LLM）：克隆属性值即竞品俄语原文，
+        # 逐字回显绝不改写；非俄语值如实上卡交下游闸（Ozon 已过审值天然合规）。
+        if (not follow_clone_mode and not _rich_html_4191
+                and attribute_id_int in _russian_required_attrs and value_str and not _has_cyrillic(value_str)):
             logger.warning(f"⚠️ 属性{attribute_id_int}值为拉丁字母，翻译为俄语：{value_str[:60]}...")
             _translated_value = _translate_to_russian_llm(value_str, mxou_token, source_lang="auto")
             # ⚠️ v0.16: 翻译结果必须为俄语（含西里尔且无中文），否则跳过该属性——绝不把
@@ -3032,7 +3145,9 @@ def prepare_ozon_upload_node(
         # ⚠️ v0.13.1: 翻译失败/仍含中文 → 跳过该属性，绝不写中文或空值上传！
         # ⚠️ v0.14 B1: 优先查批量翻译映射（一次 LLM 调用翻译全部），未命中才逐条兜底
         # ⚠️ v0.16: 9024(SKU) 不再豁免中文检查——只豁免"非中文值"（拉丁/数字直传），含中文一律翻译
-        if not _rich_html_4191 and value_str and has_chinese(value_str):
+        # ✅ v0.85.1 clone 模式跳过（零 LLM，同上——竞品已过审值逐字回显）。
+        if (not follow_clone_mode and not _rich_html_4191
+                and value_str and has_chinese(value_str)):
             _cached_trans = _batch_translated.get(value_str, "")
             if _cached_trans:
                 value_str = _cached_trans
@@ -3296,8 +3411,11 @@ def prepare_ozon_upload_node(
     # → 不并入竞品卡（Q4 修复）。自家多 SKU 同 item+同 supplier+同标题 → 同 hash
     # → 变体仍并入自家卡。跟卖（UPDATE 到竞品卡）刻意不加前缀（本就要并卡）。
     # hash 只用信封确定性字段（防 retry/repair 拆卡），绝不用 LLM 翻译后标题。
+    # ✅ feat/multi-sku-worker-v1：multi_sku 模式同样用裸 item_id（合卡键——全部
+    # items 同值，Ozon 据此+同 dc/tp 并卡；跟卖 9048 同值先例），展开后每 item
+    # 经 deepcopy 继承同值，utils/multi_sku_expand._set_9048 再兜底覆写。
     if item_id and item_id.strip():
-        if is_follow_sell:
+        if is_follow_sell or multi_sku_mode:
             model_name_9048 = item_id.strip()
         else:
             model_name_9048 = _derive_model_name_9048(
@@ -3624,8 +3742,13 @@ def prepare_ozon_upload_node(
     # 多 SKU 分支（2804 行）仍会引用 main_img，未定义则 UnboundLocalError 崩溃
     # （实测：variant_primary_loop 全失败 → has_variant_images=False → 多 SKU 分支崩溃）
     main_img = getattr(state, "main_image", None)
-    
-    if has_variant_images:
+
+    # ✅ v0.85 follow_clone 图片分支（零生图模式）：UPDATE images=[] 铁锁 /
+    # CREATE 回退 CDN 直传——纯函数 _apply_follow_clone_images（测试锁定），
+    # 非 clone 载荷零动作（elif 保持既有单/多 SKU 分支原样）。
+    if follow_clone_mode:
+        _apply_follow_clone_images(ozon_payload, _ext)
+    elif has_variant_images:
         # ✅ 修复：变体主图优先级 — variant_primary > main_image > white_bg
         # 原则：变体产品必须用变体专属图片做主图，不能用共享营销图
         white_bg_url = getattr(state, "white_bg_image", None)
@@ -3781,9 +3904,88 @@ def prepare_ozon_upload_node(
                 break
     is_quantity_split = (first_vt == "quantity")
     logger.info(f"🔍 变体类型: variant_type={first_vt}, is_quantity_split={is_quantity_split}")
-    
+
+    # ⚠️ multi_sku 模式优先：draft.multi_sku+variants → 合卡展开（每色一 SKU 合一张卡，
+    # utils/multi_sku_expand 唯一实现：9048 全 items 同值=主 item_id、颜色匹配走
+    # attr_value_matcher 唯一入口无匹配剔除、price=主定价±delta 不重算公式），
+    # 与下方 legacy 数量拆分/变体分支互斥——legacy 分支不感知 multi_sku，行为零变化。
+    # multi_sku 与跟卖/克隆/编辑更新互斥（合卡是 CREATE 流特性； misuse 如实降级走既有路由）。
+    if (
+        multi_sku_mode and variants
+        and not is_follow_sell and not follow_clone_mode and not is_update_mode
+        and str(item_id or "").strip()
+    ):
+        from utils.multi_sku_expand import (
+            expand_items_9048_only,
+            expand_multi_sku_items,
+            resolve_color_attr_id,
+            should_degrade_to_9048_only,
+        )
+        _ms_fx = float(pricing_info.get("exchange_rate") or 0)
+        if _ms_fx <= 0:
+            # pricing_core 恒回吐 RUB 真汇率/CNY=1.0；此处兜底同 fx fallback_12 语义
+            _ms_fx = 1.0 if str(currency_code or "").upper() == "CNY" else 12.0
+        _ms = expand_multi_sku_items(
+            ozon_payload["items"][0],
+            variants,
+            color_attr_id=resolve_color_attr_id(
+                ozon_payload["items"][0].get("attributes") or [], attributes_schema),
+            dictionary_values=dictionary_values,
+            shared_images=shared_marketing_images,
+            variant_primary_images=variant_primary_images_list,
+            main_price=price,
+            main_old_price=old_price,
+            fx_rate=_ms_fx,
+            merge_9048=str(item_id).strip(),
+            base_offer_id=str(sku_id),
+        )
+        if _ms.items:
+            ozon_payload["items"] = _ms.items
+            logger.info(
+                "🧩 multi_sku 展开: %s（9048 合卡键=%s，剔除 %d 个）",
+                _ms.marks, str(item_id).strip()[:40], _ms.marks.get("dropped", 0),
+            )
+        else:
+            # ✅ feat/multi-sku-9048-only 降级合卡：颜色匹配全剔除（color_* 族）且
+            # 类目 schema 确无颜色字典属性（3D 耗材 17028935/* 双 gate 实证）→ 不再
+            # 整批回退单 SKU，改走 9048-only 合并（竞品 4929923490 实测形态：同
+            # 9048 多 items、无颜色属性、标题俄语色尾缀区分变体）。降级内部仍宁缺
+            # 毋滥：无法俄语化的色名剔除、保留 <2 变体放弃降级回退单 SKU。
+            _deg_ok, _deg_reason = should_degrade_to_9048_only(_ms, attributes_schema)
+            _ms2 = expand_items_9048_only(
+                ozon_payload["items"][0],
+                variants,
+                shared_images=shared_marketing_images,
+                variant_primary_images=variant_primary_images_list,
+                main_price=price,
+                main_old_price=old_price,
+                fx_rate=_ms_fx,
+                merge_9048=str(item_id).strip(),
+                base_offer_id=str(sku_id),
+            ) if _deg_ok else None
+            if _ms2 is not None and _ms2.items:
+                ozon_payload["items"] = _ms2.items
+                logger.warning(
+                    "🧩 multi_sku 9048-only 降级合卡: 原因=%s，保留 %d/%d 变体，"
+                    "剔除清单=%s（9048 合卡键=%s，无颜色属性，标题色尾缀区分）",
+                    _deg_reason, _ms2.marks.get("kept", 0), len(variants),
+                    [(d.get("sku_id"), d.get("reason")) for d in _ms2.dropped][:10],
+                    str(item_id).strip()[:40],
+                )
+            elif _ms2 is not None:
+                # 降级后仍无可用变体（可译色 <2 等）→ 如实回退单 SKU 主 item
+                logger.warning(
+                    "⚠️ multi_sku: 9048-only 降级失败（原因=%s，剔除 %s），回退单 SKU 主 item",
+                    _deg_reason, [d.get("reason") for d in _ms2.dropped][:5],
+                )
+            else:
+                # 降级闸未触发（结构性剔除/schema 有颜色字典类瞬时故障等）→ 现行回退单 SKU
+                logger.warning(
+                    "⚠️ multi_sku: 全部 %d 个 variant 被剔除（%s），回退单 SKU 主 item",
+                    len(variants), [d.get("reason") for d in _ms.dropped][:5],
+                )
     # ✅ 数量变体拆分：每个数量 SKU 作为独立 Ozon 产品
-    if is_quantity_split and variants and len(variants) > 1:
+    elif is_quantity_split and variants and len(variants) > 1:
         logger.info(f"🔀 数量变体拆分：将{len(variants)}个数量SKU拆分为独立产品")
         quantity_items: List[Dict[str, Any]] = []
         base_item_qty: Dict[str, Any] = ozon_payload["items"][0]
@@ -4152,10 +4354,14 @@ def prepare_ozon_upload_node(
             audit_task_id=_audit_task_id,
         )
         # v0.64: 视觉属性推断——用 vision 模型从产品图片推断颜色/材质/风格等
-        ozon_payload["items"] = _infer_attrs_from_vision(
-            ozon_payload.get("items", []), attributes_schema, draft, state,
-            audit_task_id=_audit_task_id,
-        )
+        # ✅ v0.85.1 clone 模式跳过（零 LLM 零 vision——克隆属性即竞品全量回显）
+        if follow_clone_mode:
+            logger.info("🧬 clone 模式：跳过 vision 属性推断（零 LLM）")
+        else:
+            ozon_payload["items"] = _infer_attrs_from_vision(
+                ozon_payload.get("items", []), attributes_schema, draft, state,
+                audit_task_id=_audit_task_id,
+            )
         # feat/attribute-fill-en-v1 T3: 同叶子自家 approved 卡属性模板继承
         # （填满证据链末端：本商品证据 > vision > 模板；个体值不抄，全程静默）
         ozon_payload["items"] = _inherit_attrs_from_template(
@@ -4188,7 +4394,9 @@ def prepare_ozon_upload_node(
             _llm_fill_env,
             "启用" if _llm_fill_env != "0" else "关闭",
         )
-        if _llm_fill_env != "0":
+        if _llm_fill_env != "0" and not follow_clone_mode:
+            # ✅ v0.85.1: clone 模式跳过 A5（零 LLM——schema-LLM 是主链兜底，
+            # 克隆属性=竞品全量回显，猜测值反而有洗掉竞品值的风险）
             try:
                 from utils.attr_fill_extras import build_llm_schema_prompt, apply_llm_schema_fill
                 _llm_prompt, _llm_todo = build_llm_schema_prompt(
@@ -4290,7 +4498,11 @@ def prepare_ozon_upload_node(
         validation_errors.append("type_id缺失或无效（TypeId must be > 0）")
     if not sku_id:
         validation_errors.append("1688 SKU_ID缺失（offer_id is required）")
-    if not shared_marketing_images:
+    # ✅ v0.85.x follow_clone 豁免（复测噪音修复）：clone 模式零生图 →
+    # shared_marketing_images 恒空，「图片列表为空」是过时误报——图已走
+    # _apply_follow_clone_images 回填通道（UPDATE 信封图源回填 / CREATE 竞品
+    # CDN 直传，见上方图片分支），校验对象不存在。非 clone 模式该行语义零变化。
+    if not shared_marketing_images and not follow_clone_mode:
         validation_errors.append("图片列表为空（images is required）")
     if price == 0:
         validation_errors.append("价格无效（price must be > 0）")
@@ -4307,7 +4519,10 @@ def prepare_ozon_upload_node(
     # 分支收口处的最后闸）——全部 primary_image+images 必须 ∈ {ai}（逃生门开时
     # ∪ {salvage}），防 restore/镜像残余路径把草稿原图塞进上传载荷。
     # 不通过 → IMAGE_GEN_ALL_FAILED（非永久，任务级失败重试）。
-    _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled())
+    # ✅ v0.85 follow_clone：模式作用域放行 Ozon CDN 原尺寸竞品图（仅 clone 模式，
+    # PLAN-follow-clone-v1；非 clone 载荷语义零变化）。
+    _enforce_payload_image_policy(ozon_payload, allow_salvage=salvage_fallback_enabled(),
+                                  allow_competitor_cdn=follow_clone_mode)
 
     # ✅ v0.81 内容评分闭环（预防层）：4191/11254 出口恒填——最终图定型后
     # 确定性补齐（文本描述组占内容评级 50% 权重，缺失卡分 42-57，补齐 90+）。

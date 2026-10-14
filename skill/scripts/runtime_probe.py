@@ -216,39 +216,27 @@ def _venv_ready(venv_dir: Path) -> bool:
     return stamp == _sha256_of_file(_requirements_path())
 
 
+# ✅ fix/dedupe-batch1 C3: 手写 fcntl/msvcrt 双实现收敛唯一实现 lib/lock_utils。
+# 明文约束复核（改前必读）：runtime_probe 是「错误解释器（3.9/3.10/3.11）下运行的
+# 第一个文件」，禁 import 编译 .so——但 lock_utils 同在 compile.py COPY 明文清单
+# 且纯 stdlib（fcntl/msvcrt 双平台，任意 3.x 可跑），import 它不破坏本文件
+# 「纯 stdlib 明文」设计约束；调用方全部经 `from scripts.runtime_probe import ...`
+# 包上下文进入，`scripts.lib` 包可解析。
+from scripts.lib import lock_utils
+
+
 def _lock_acquire(lock_path: Path, timeout_sec: float = 60.0):
-    """跨进程锁（复用 updater 模板）。⚠️ 语义=阻塞轮询等待（venv 必须等到建好，
-    不能像 update 那样跳过——agent 并行命令拿不到锁直接失败=用户可见故障）。
+    """跨进程锁（薄转发 lock_utils.try_acquire，保持原函数名零调用方破坏）。
+    ⚠️ 语义=阻塞轮询等待（venv 必须等到建好，不能像 update 那样跳过——
+    agent 并行命令拿不到锁直接失败=用户可见故障）。
 
     返回：已持有锁的 fd（调用方负责 _lock_release(fd)）；超时返回 None。
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = open(lock_path, "w")
-    import time as _t
-    deadline = _t.time() + timeout_sec
-    while True:
-        try:
-            import fcntl
-            fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd
-        except (ImportError, OSError):
-            try:
-                import msvcrt
-                msvcrt.locking(fd.fileno(), msvcrt.LK_NBLCK, 1)
-                return fd
-            except (ImportError, OSError):
-                pass
-        if _t.time() >= deadline:
-            fd.close()
-            return None
-        _t.sleep(0.5)
+    return lock_utils.try_acquire(lock_path, timeout=timeout_sec)
 
 
-def _lock_release(fd) -> None:
-    try:
-        fd.close()
-    except Exception:
-        pass
+_lock_release = lock_utils.release
 
 
 def ensure_venv(base_python: str) -> tuple[str, str]:

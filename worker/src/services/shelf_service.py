@@ -121,22 +121,14 @@ def list_ozon_products(
             # ⚠️ /v3/product/info/list 批量查询必须传整数数组（字符串数组返回空 items）
             int_ids = [int(pid) for pid in product_ids if str(pid).isdigit()]
             if int_ids:
-                # ⚠️ Ozon 对 info/list 有速率限制：高频下静默返回空 items（不报错）。
-                #    空结果时退避重试（1s/2s），避免误判「商品无详情」。
-                import time as _time
-                info_items: list = []
-                for _attempt in range(3):
-                    info_resp = ozon_post(
-                        client_id, api_key, "/v3/product/info/list",
-                        {"product_id": int_ids}, timeout=30, language="RU",
-                    )
-                    info_items = (info_resp.get("result") or {}).get("items") or []
-                    if info_items:
-                        break
-                    if _attempt < 2:
-                        _time.sleep(1 + _attempt)
-                if not info_items:
-                    logger.warning("Ozon info/list 重试 3 次仍空（疑似限流）ids=%s", int_ids[:5])
+                # ⚠️ Ozon 对 info/list 有限速：高频下静默返回空 items（不报错）。
+                #    退避重试收敛到 ozon_post_expect_items（A4 批②；空+异常 1s/2s×3，
+                #    耗尽返 []）——降级返回列表，绝不误判「商品无详情」。
+                from utils.ozon_client import ozon_post_expect_items
+                info_items = ozon_post_expect_items(
+                    client_id, api_key, "/v3/product/info/list",
+                    {"product_id": int_ids}, timeout=30, language="RU",
+                )
                 for it in info_items:
                     if isinstance(it, dict) and it.get("id"):
                         info_map[str(it.get("id"))] = it

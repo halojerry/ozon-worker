@@ -33,6 +33,7 @@ from typing import Any
 
 import requests
 
+from scripts.lib.lock_utils import file_lock
 from scripts.lib.utils import safe_rmtree, safe_unlink
 
 logger = logging.getLogger(__name__)
@@ -434,30 +435,14 @@ def apply_update(update_info: dict[str, Any], auto_confirm: bool = False) -> dic
 
     # ⚠️ PR-3 (D6): 跨进程文件锁 — 两个并发 CLI 同时 auto-update 会互相破坏备份/覆盖。
     # 拿不到锁（另一个进程正在更新）→ 直接返回，绝不阻塞或并发覆盖。
-    _lock_fd = None
-    try:
-        _lock_path = skill_dir() / "data" / ".update.lock"
-        _lock_path.parent.mkdir(parents=True, exist_ok=True)
-        _lock_fd = open(_lock_path, "w")
-        try:
-            import fcntl  # Unix
-            fcntl.flock(_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except ImportError:
-            import msvcrt  # Windows
-            msvcrt.locking(_lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
-    except OSError:
-        if _lock_fd:
-            _lock_fd.close()
-        return {**result, "error": "另一个更新正在进行中，本次跳过（稍后自动重试）"}
-
-    try:
+    # ✅ fix/dedupe-batch1 C3: 手写 fcntl/msvcrt 双实现收敛唯一实现 lib/lock_utils
+    # （blocking=False + timeout=0 即单次非阻塞尝试，与旧手写 LOCK_EX|LOCK_NB 语义一致）。
+    _lock_path = skill_dir() / "data" / ".update.lock"
+    _lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_lock(_lock_path, timeout=0.0, blocking=False) as _lock_fd:
+        if _lock_fd is None:
+            return {**result, "error": "另一个更新正在进行中，本次跳过（稍后自动重试）"}
         return _apply_update_locked(update_info, auto_confirm, result)
-    finally:
-        try:
-            if _lock_fd:
-                _lock_fd.close()
-        except Exception:
-            pass
 
 
 def _apply_update_locked(update_info: dict[str, Any], auto_confirm: bool,

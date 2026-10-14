@@ -146,6 +146,73 @@ def ozon_post(
         raise
 
 
+def _extract_items_shaped(resp: Any) -> list:
+    """info 族批量查询响应的 items 提取——三种实测形状并集（改前必读各端点注释）：
+    - 顶层 ``items``：/v3/product/info/list 新契约（store_sync T4.3 MCP 实测）
+    - ``result.items``：/v3/product/info/list 旧形状（shelf 实测，兼容保留）
+    - ``result`` 本身是列表：/v4/product/info/attributes（card_audit sweep 实测）
+    其余形状（含 resp 非 dict / 全空）一律返 []——由调用方按「空结果」处理。
+    """
+    if not isinstance(resp, dict):
+        return []
+    items = resp.get("items")
+    if isinstance(items, list) and items:
+        return items
+    result = resp.get("result")
+    if isinstance(result, list):
+        return result
+    if isinstance(result, dict):
+        inner = result.get("items")
+        if isinstance(inner, list) and inner:
+            return inner
+    return []
+
+
+def ozon_post_expect_items(
+    client_id: str,
+    api_key: str,
+    endpoint: str,
+    body: dict[str, Any],
+    timeout: int = 60,
+    language: str = "ZH_HANS",
+    attempts: int = 3,
+) -> list:
+    """批量 info 族查询唯一入口：限流静默空结果退避重试 + 网络异常重试，耗尽返 []。
+
+    ⚠️ A4（2026-10 收敛批②，改前必读）：Ozon 对 info 族（/v3/product/info/list、
+    /v4/product/info/attributes）限速时**不报错、静默返回空 items**——
+    ozon_post 内的 tenacity 只认 429/5xx，空结果不在其重试面内。此前三处各自
+    手写退避（shelf range(3) 仅空重试 / store_sync range(3) 空+异常 / card_audit
+    range(2) 仅空），本函数收敛为唯一实现：
+
+    - 空 items 或网络/HTTP 异常 → 按 1s/2s 退避重试（幂等读，重试安全）
+    - attempts 次耗尽仍空/仍异常 → 返回 **[]**（绝不 raise——空是「疑似限流」
+      不是「查询失败」，调用方按降级策略处理，绝不误判「商品不存在」）
+
+    Returns:
+        items 列表（可能为空）。item 键形状（id/product_id/...）由调用方解析。
+    """
+    last_exc: Optional[Exception] = None
+    total = max(1, int(attempts))
+    for attempt in range(total):
+        try:
+            resp = ozon_post(client_id, api_key, endpoint, body, timeout=timeout, language=language)
+            items = _extract_items_shaped(resp)
+            if items:
+                return items
+            last_exc = None
+        except Exception as exc:  # 网络/4xx/5xx 均退避，见 docstring（info 是幂等读）
+            last_exc = exc
+        if attempt < total - 1:
+            time.sleep(1 + attempt)
+    if last_exc is not None:
+        logger.warning("Ozon %s 重试 %d 次仍失败（降级空结果）: %s",
+                       endpoint, total, str(last_exc)[:200])
+    else:
+        logger.warning("Ozon %s 重试 %d 次仍空（疑似限流）", endpoint, total)
+    return []
+
+
 def ozon_get(
     client_id: str,
     api_key: str,

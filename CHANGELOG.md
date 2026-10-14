@@ -1,5 +1,255 @@
 # Changelog
 
+## [0.85.0] — 2026-10-14（multi-sku 合卡战役 + follow-clone v1 + 跟卖竞品参考域修复 + 稳定性六批）
+
+发版内容 = dev 43 提交全量（PR #121-#136）+ 跟卖参考域热修。**实机 gate 状态：未跑**
+（本机工具 Chrome DataDome/1688 登录未过，被用户拍板跳过、生产部署自行掌控——0.85.0
+第一个生产跟卖单建议实机核对 category_match_log/listing_result_log/终态后再放量）。
+
+- **fix(image) 跟卖竞品参考域白名单（本版动因，Sentry POUDING_OZON-KX/M1 13 单实锤）**：
+  生产跟卖单信封 `extensions.follow_sell` 已带、follow_sell_import v5 分支全跑通，但
+  `_is_competitor_reference_candidate` 只认 ozon.ru/ozone.ru——竞品卡图实际挂
+  `ir-20.ozonstatic.cn`（Ozon 中国侧静态 CDN）被误拒 → 0 合格参考图 → 生图全跳过 →
+  IMAGE_GEN_ALL_FAILED 整任务重试空转。补 `.ozonstatic.cn/.com` 两后缀（对齐
+  card_image_assert 卡图家族口径），缩略/.webp 恒拒、非跟卖默认拒、参考≠上卡三红线
+  零变化；4 新用例。
+- **feat(multi-sku) 多 SKU 合卡战役**：skill 腿 `graph --variants` 颜色 SKU 展开
+  （≤15 变体 draft.variants+multi_sku）+ worker 腿合卡展开 + 9048-only 降级合卡
+  （无颜色字典类目全 no_match 不再回退单 SKU）+ 终验两处管线侧根因（retry 标题
+  抹平变体盲守卫 `utils/multi_sku_title_repair` + resolve_color_attr_id 5646
+  «Количество цветов» 子串误选词形收紧）。
+- **feat(follow-clone) 跟卖克隆模式 v1**：`follow --clone` 官方复制竞品卡零 LLM
+  零生图；信封 follow_clone+clone_card 两键、路由跳生图链、克隆卡名回读、属性形状
+  根修（留观卡六错→清零）、拉丁名竞品语言前置守卫、复测遗留三件收口。
+- **fix(discover)**：profit_margin 恒 4.18% + 采集池恒 8 双真 bug 根修（实机四类目
+  波次实锤）。
+- **fix(imagegen)**：生图主模型正式切 nano-banana-fast 全槽统一（24h 台账 97% vs
+  gpt-image-2.5 18% + 四类目 8 单实机 95% 生图 8/8 过审）。
+- **fix(ozon-status)**：ozon_status 空/异常回传分层语义（有界重试→存疑复核→状态
+  不可得）+ completed 终态剥离累积残留 failed_stage，终结「假失败真在架」。
+- **fix(sentry) 两批**：测试断源闸（conftest 三重静音 + .env DSN 默认注释——测试灌
+  生产 Sentry 事故根修）+ GA 重传载荷泄漏写入口根修（restore/regen 写入前过
+  filter_uploadable_images）。
+- **fix(security)**：Mimosa 安全批①——argv 凭证×2/裸渲染/裸出站收敛 + 示例真店号
+  清除。
+- **fix(dedupe) 两批收敛**：划线价唯一规则/汇率三级链/锁统一/错误码常量化/info批查
+  退避统一/admin守卫唯一链/分页收敛。
+- **feat(skill) doctor v1**：一条命令六区红绿体检（零副作用不拉 Chrome，--json
+  机器可读）。
+- **fix(promo)**：促销商品管理迁 /v2/actions/products（v1 2026-10-13 停用大限）。
+- **docs(agents)**：mattpocock-skills 三件套落位（issue-tracker/triage-labels/domain）。
+
+## [0.85.0 同车批] — 9048-only 合卡终验两处管线侧根因修复：retry 标题抹平变体盲 + 5646 颜色属性子串误选
+
+### fix(multi-sku): multi_sku 标题修复变体盲守卫 + resolve_color_attr_id 词形收紧（fix/multi-sku-9048-fixes）
+
+- **① retry-loop 标题修复变体盲（主因，终验实录：7 变体「✅ 标题已修复（所有
+  变体）」→ 6 张独立卡）**：`validation_retry_loop.error_repair_llm_node` 的
+  「LLM 重生成标题 / 强制俄语标题」两处写回点把**所有 items 的 name 整体抹平
+  成同一标题**——9048-only 模式的变体区分恰恰靠 prepare 展开写入的 per-item
+  色尾缀，抹平后 items 同质 Ozon 不并卡。新守卫 `utils/multi_sku_title_repair`
+  （纯函数层，god file 冻结纪律新逻辑出 lib）：multi_sku（items>1）只修报错
+  item（错误文本 `item[N]`/offer_id 引用定位）且修复产物保留该 item 原尾缀
+  （公共前缀收口「, 」边界 → 末段兜底两级还原）；报错 item 不可定位/尾缀不可
+  还原 → 降级 per-item 确定性清理（删拉丁字符/归并残留分隔/去尾空白），绝不
+  抹平重生成；弃用标题不同步 4180。单 SKU 路径逐字不变（回归锁）。
+- **② resolve_color_attr_id 子串误选（终验实录：类目 17028935 启发选中 5646
+  «Количество цветов»——颜色计数属性 dict_id=0 → 7/7 color_no_match 且
+  schema_has_color_dict_attr 保守 True 否决 9048-only 降级）**：
+  `utils/multi_sku_expand` 颜色属性判定收紧为名称词形 «цвет» 单数主格独立词
+  （`\bцвет\b`，«Цвет»/«Цвет товара» 命中；«Количество цветов» 复数词形/
+  «Название цвета»/派生词形不命中）+ schema 显式 `dictionary_id > 0`（resolve
+  路径键缺失/畸形一并出局，缺省 10096 兜底不变）。实录 schema 端到端：降级
+  不再被否决。
+- **测试**：`tests/test_multi_sku_9048_fixes.py` 17 用例（targeted 保尾缀/降级
+  绝不抹平/error_repair_llm 行为级 multi_sku+单 SKU 回归锁/item[N]+offer 定位
+  与 base offer 词边界防误配/词形辨析真值表/5646 拒选/实录 schema 降级放行）；
+  `test_multi_sku_expand_v1` schema fixture 对齐新不变量（字典属性补
+  dictionary_id）。
+
+## [0.85.0 同车批] — 多 SKU 合卡 V1 skill 腿：graph --variants 颜色 SKU 展开（worker V2 契约面就位）
+
+### feat(skill): 多 SKU 合卡 V1（PLAN-multi-sku-v1）——1688 颜色维度 SKU → draft.variants + draft.multi_sku
+
+- **通道**：`graph --variants`（缺省关=单 SKU 现状零变化）→ 1688 采集腿折叠前快照
+  （bait 过滤后）经 `lib/variants_expander.py`（新模块，cloud_probe/cli 冻结增长只留
+  薄调用点）展开 `draft.variants = [{sku_id, color(中文待译), color_dict_id(None),
+  price_delta_cny(对主 SKU 1688 价差，负=减价), ref_image(该色图)}] ≤15（超限取前 15
+  + warning 剔除清单）+ `draft.multi_sku: true`。draft 键不进 extensions 契约闸
+  （envelope_contract 只类型化 extensions），worker V2 读 multi_sku 切 9048 合卡语义；
+  颜色俄语翻译/Ozon 颜色字典匹配在 worker 侧（skill 零 LLM）。
+- **预估展示**：`--variants` 信封预估按主 SKU + 每 variant delta 逐行（🎨 多SKU 行：
+  数量/delta 区间/变体售价区间≈主价+delta）；worker 不可达只打数量+区间不打售价
+  （绝不本地补公式）。跨平台/跟卖/克隆/discover 腿不适用（显式丢弃保持零变化）。
+- **登记**：variants_expander 进 compile.py AUX_FILES（纯函数明文，
+  test_compile_lists 锁定）；SKILL.md 命令名零变化（check_doc_sync 绿），
+  `--variants` flag 细则进 references/commands-listing.md；pounding-mcp graph
+  参数表未暴露该 flag（V1 范围外，无破坏）。
+- **测试**：`tests/test_multi_sku_variants_v1.py` 18 用例（展开形状逐键锁定/
+  15 截断+剔除清单/无颜色不产/flag parser+retry 透传/信封集成 mock 全外依/
+  预估逐行展示）；18/18 绿 + 相邻回归（envelope/estimate/compile_lists 等 96+87）绿。
+
+## [0.85.0 同车批] — 生图主模型正式切 nano-banana-fast（全槽统一，数据驱动）
+
+### feat(imagegen): main/social_proof gpt-image-2.5 → nano-banana-fast
+
+- **依据**：24h mxou 台账 nano-banana-fast **97%**（249 ok/7 failed）vs
+  gpt-image-2.5 **18%**（拥塞期）+ 四类目 8 单实机波次 95% 生图、8/8 Ozon
+  过审（收尾卡片图断言全过）。平台侧 gpt-image-2/2.5/banana-fast 三者均可用
+  （用户确认 2026-10-04），回滚改键即热加载生效。
+- 此前 main/social 的 nano-banana-fast 是**未提交的本地热调参**（已知测试
+  漂移源）——本批转正，`test_main_and_social_use_image25` 同步更新，本地
+  漂移失败清零。
+
+## [0.85.0 同车批] — discover 实机波次双 bug 根修：profit_margin 恒 4.18% + 采集池恒 8
+
+### fix(skill): discover 利润率与采集池双真 bug（2026-10-04 四类目实机波次实锤）
+
+- **Bug 1「profit_margin 恒 4.18-4.19%」**：`ozon_discovery._build_estimate_item` 曾传
+  `currency_code="RUB"` → worker 三档 RUB 路径 `profit_rate = profit_cny / price`
+  分子 CNY/分母 RUB 售价（量纲错位），净利率被 CNY→RUB 汇率整除（44.9% → ~4.2%），
+  且比值只依赖 margin/佣金/vcr/汇率常数、与成本无关 → 所有候选恒同一个数，利润闸
+  （≥15%）全灭。修法：batch item **不传 currency**（worker schema 契约「缺省按 CNY」
+  ＝货币中性净利率，与 `/api/v1/estimate/batch` 直调参考 profit_rate=0.4493 一致；
+  worker 侧同口径自锁 test_estimate_batch_parity_v083.py:214 期望 0.4484）。
+  实证（真实 `compute_price`）：RUB tag 三个不同成本候选全 3.84% vs 去 tag 后
+  44.76-45.05%。`_apply_estimate_row` 的 ratio→percent ×100 映射本身正确，未改。
+- **Bug 2「采集池恒 8（--max-products 50 也 8）」**：`collect_and_analyze` 后台 tab
+  创建后从未 `force_active` → Chrome 冻结后台 tab 的 rAF → 缓动滚动
+  `_EASE_SCROLL_JS`（requestAnimationFrame 驱动）永不执行 → 懒加载不触发 →
+  采集恒首屏 ~8 卡（highlight 与 /search 同病；搜索页无 `#paginator` 翻页兜底也
+  不触发）。回归源：v0.81 静默化批删 `discover_from_url` 时把 force_active 一并
+  带走，`collect_and_analyze` 接棒没补（`cli._collect_keyword_pids` /
+  `ozon_scraper` 同批都有）。修法：new_tab 后立即 `force_active()`（失败静默）。
+- **测试**：新 `tests/test_discover_margin_v085.py`（6 用例：请求形状锁 / ratio×100
+  恰一次 / 恒定签名消失 / 4.18 算术文档化 / force_active 先于滚动采集 / max_products
+  传透）；`test_silent_cdp_default_v081` 补 collect_and_analyze force_active 源码锁；
+  `test_silent_cdp_background_v078` 假 tab 补 force_active 契约；
+  `test_query_commission_worker` 旧 RUB 断言翻转。skill 全量 **1852 passed**；
+  ruff CI 口径 `ruff check scripts/ --select F` 绿。
+- **实机验证受限说明**：本机 9222 Chrome 未复现 rAF 冻结（环境相关；冻结证据为
+  cdp_client.py 2026-09-26 实机实证 + 同批两处先例），且本机 Ozon 当前会话被
+  Antibot Captcha 拦截（title 实锤），真跑 pool>8 留待客户端环境复验；翻页参数
+  传透链已单测锁定。
+
+## [0.85.0 同车批] — Mimosa 安全批①：argv 凭证/裸渲染/裸出站/示例真店号（逐行核实 L3 finding）
+
+### fix(security): 4 真 finding 根修 + 1 连带 bug（repair_cards 丢 import time）
+
+- **背景**：Mimosa 扫描器对本仓 L3 项目级拦截，逐行核实后确认 4 个真问题
+  （其余为误报），本批收敛。
+- **argv 凭证 ×2**：`worker/scripts/probe_clone_card.py` 删 `--client-id/--api-key`
+  形参改只读环境变量（OZON_CID/OZON_KEY；读卡方 OZON_READ_CID/OZON_READ_KEY，
+  缺失退出码 2）——凭证挂进程列表与 shell history（当天真店 key 实跑三轮后根修）；
+  `worker/scripts/repair_cards.py` 同款（删 --client-id/--api-key，只认
+  OZON_CLIENT_ID/OZON_API_KEY）。
+- **裸出站**：repair_cards 裸 `requests.post` 三连重试收敛 `utils.ozon_client.ozon_post`
+  唯一出口（类型化 OzonError + 429/5xx 重试）；连带修**旧重试循环删除时误删
+  `import time`** 的 F821（归档/删除/重建轮询 4 处 `time.sleep` 运行时 NameError）。
+- **裸渲染**：`worker/scripts/image_prompt_ab_test.py` 裸 `jinja2.Template` 收敛
+  `utils.safe_template.render_safe_mapping`（SSTI finding；良性模板渲染逐字一致，
+  dry-run 实测通过）。
+- **示例真店号**：`worker/src/api/schemas.py` SubmitTaskRequest 示例删
+  `ozon_client_id: "5381204"`（真店铺编号）/`ozon_api_key` 键值对——凭证扫描器
+  连 mock 字面量都拦，示例语境无法分辨真伪；`docs/API-REFERENCE.md` +
+  `api-integration/openapi.json` + `webui/src/imports/openapi.json` 随
+  gen_api_docs.py 重生成（漂移即上述两行删除）。
+- **测试 fixture 卫生**：`tests/test_profit_reality_v083.py` `_lr_state` 的
+  `ozon_client_id="4718259"` 真店编号换 "1234567"。
+- **全量回归**：worker 3813 passed / 1 failed（test_main_and_social_use_image25
+  —— 本地 imagegen.json 故意调参 main/social_proof → nano-banana-fast，不提交，
+  CI 检出仓内版本即绿）/ 2 skipped；ruff CI 口径 `ruff check src/` 全绿。
+
+## [0.85.0 同车批] — follow_clone 克隆属性形状根修（留观卡六错→清零实测）
+
+### fix(follow-clone): 克隆属性对齐生产 prepare 形状——required 属性不再被判空
+
+- **现象**：B0 留观卡 6515871405 及全部探针卡报 `error_attribute_values_empty`×4
+  + `missing_dimension`——测试店不可售错误卡堆积（用户巡店发现）。
+- **根因（六轮对照实测）**：#122 初版 `clone_card_builder` 发明平行属性形状
+  `{"attribute_id": N}`（无 complex_id）——**optional 属性能绑、required 属性
+  （10096/4295/9163/8292）被 Ozon 校验路径丢弃判空**；且字典值单发
+  `dictionary_value_id` 丢 `value` 同样判空；v3 回显无 weight/dims 字段致
+  `missing_dimension`。
+- **根修**：属性对象 = 生产 prepare 同形状 `{"complex_id": 0, "id": N,
+  "values": [两键恒发]}`（v4 回显 `complex_id` 原样透传）；重量从 4497
+  （Вес товара）属性兜底；probe 脚本同步修正（保持可复跑正确）；
+  follow_sell_import 克隆透传收敛到 `normalize_clone_attributes` 唯一实现
+  （消平行代码）。
+- **实机验证**：留观卡 UPDATE 修复 → **errors 清零**（四 required 全绑），
+  审核观察继续在有效样本上；测试店不可售错误卡全部处置（1-3 轮已归档、
+  第 4 轮修复复活）。
+- 教训入册：克隆回显**形状与值都逐字对齐生产管线**，不发明平行形状
+  （PLAN-follow-clone-v1 B0-E 节 + 模块 docstring + 测试断言三处锁定）。
+
+## [0.85.0 同车批] — 跟卖克隆模式 v1（follow_clone：零 LLM 零生图，PLAN-follow-clone-v1 B2+B3）
+
+> 方案 `docs/PLAN-follow-clone-v1.md`（B0 探针四轮实录驱动）+ 姊妹篇
+> `docs/PLAN-product-refresh-v1.md`（存量卡翻新，后续批）。
+
+### feat(follow-clone): follow --clone——官方复制竞品卡，不生图不写文案
+
+- **B0 探针实录（2026-10-03，`worker/scripts/probe_clone_card.py` 入库）**：
+  A. Seller API 读不到竞品卡（/v3 空集 + /v4 404）→ 竞品取数走 CDP 链；
+  B. 跨店逐字克隆三轮全 INDEPENDENT（弱克隆/全属性/全属性+图）——「挂 offer
+  白嫖竞品卡」无 API 通道，**克隆独立卡是唯一路径**（原两分支收敛为单分支）；
+  C. Ozon 自家 CDN 图 URL 直传 import 被接受并挂图（primary_image → 新卡
+  images_n=1）——零下载零 COS；D. 回读形状四条（pid 字符串数组/顶层 items/
+  主键 id/images 恒空主图在 primary_image）。
+- **worker 侧五件**：
+  - 信封新键 `follow_clone`/`clone_card`（envelope_contract 登记 + 契约文档
+    重生成 32 键；skill 侧薄写入片同步——出处闸强制两侧一起动，W2 治理生效实录）；
+  - `follow_sell_import`：follow_type=clone 走 import-by-sku（官方复制）；
+    不可复制 → clone_card 类目/属性**逐字采**（跳字典解析链，零 LLM 本意），
+    无 clone_card 绝不编造类目（走既有失败链）；
+  - 路由：`route_after_assemble` follow_clone → 「克隆」直达 prepare——
+    **整条生图链 + scene LLM 链跳过**（零 LLM 零生图；质量闸优先级高于模式分支，
+    低置信仍阻断）；
+  - prepare 图覆写纯函数：UPDATE（复制成功）**images=[] 铁锁**（不动复制卡图，
+    LOCAL_IMAGES_MISSING 对 UPDATE 豁免）/ CREATE 回退 CDN 原尺寸直传；
+  - 图片闸模式作用域口：`enforce_upload_policy(allow_competitor_cdn=)` 仅放行
+    Ozon 自家 CDN 原尺寸图（`filter_competitor_cdn_images` 专用过滤——与生图
+    参考语义区分：alicdn 货源图混入即拒）；**全局闸对非 clone 载荷语义零变化**
+    （回归测试锁定）+ retry 重传闸同参数贯通。
+- **定价（B3 同车）**：follow_clone 锚价覆盖——上架价 = 前 20 报价均值
+  （`draft.competitor_price`，skill 选品时物化，恒 RUB）× `FOLLOW_CLONE_PRICE_FACTOR`
+  （缺省 1.0）；CNY 跨境店按汇率换算；**锚价低于 core 底线价 → LOCAL_PRICING_FAILED
+  如实拒绝**（利润闸宁缺毋滥）；价差守卫同锚槽（discovery_meta.ozon_price）自动覆盖。
+- **skill 侧薄写入片**：`follow --clone`（follow_sell_cloud clone 参数 + 信封
+  follow_clone/clone_card 最小回退载荷；B1 批补 CDP 全量读卡/选品筛选/均值计算）。
+- 测试：`test_follow_clone_v085.py` 22 用例（构造器/图片红线/闸回归锁/路由/
+  follow 节点/pricing 锚价）；worker 全量 **3814 passed / 2 skipped**；skill
+  follow/envelope/parity 族 203 passed；双面 ruff CI 口径零告警。
+- ⚠️ 实机 gate（B5）待 B1 后跑：测试店 ≥5 单克隆路径 + 观察样本 6515871405
+  （B0 第 4 轮渔夫帽克隆卡，48h 审核结论待回填 PLAN）。
+
+## [0.85.0 同车批] — 促销活动商品管理 v2 迁移（2026-10-13 Ozon 停用大限）
+
+### fix(promo): promo_client 迁 v2 四方法 + v1 死端点绝迹
+
+- **背景**：Ozon 2026-09-22 公告——`/v1/actions/products/activate` 与 v1
+  `/v1/actions/products` 自 **2026-10-13** 起停用，由 v2 族取代。全仓扫描实证：
+  **我仓零调用方**（actions_register/seller_action_discount 全走 `/v1/seller-actions/*`
+  自建促销族，本次公告未触及；store 同步 `GET /v1/actions` 活动列表亦不在停用范围）
+  ——本批是卫生批非止血批。
+- **迁移**：`action_products` → `POST /v2/actions/products`（响应财务字段统一
+  Money 格式，扩展 recommended_stock/marketplace_seller_price/website_prices/
+  min_seller_price/is_quarantined）；缺省请求体只发 `action_id`（v1 硬塞
+  offset=0 的行为废除，v2 分页形状待线上 swagger 实证）。
+- **新登记三方法**：`update_action_products`（/v1/actions/products/update，
+  取代 activate 的通用增删——action_price 是**最高限价**，≤ 限价加入、> 限价
+  移除；响应 `{active_product_ids, deactivated_product_ids, rejected, warnings}`
+  两列表分拣，无统一 product_ids）、`deactivate_action_products`
+  （/v2/actions/products/deactivate，仅促销码类强制排除，product_ids≤1000
+  本地拒，响应扁平数组）、`list_action_candidates`（/v2/actions/candidates，
+  limit≤100 + last_id 指针分页，加入前预读财务条件）。
+- **auto-add v2 族未封装**（无调用方，需要时按公告补）。
+- ⚠️ 本地 swagger 快照未收录 v2 端点——契约以公告为准，**首次生产调用前对线上
+  swagger 实证一次**（模块 docstring 已注明）。
+- 测试：`test_promo_actions_v2.py` 8 用例锁请求体/端点/上限契约 +
+  `test_dead_v1_endpoints_absent`（activate/v1 商品列表永不复用）；store_actions
+  13 用例全绿（白名单扩容不破坏 Performance API 隔离闸）。
+
 ## [0.84.0] 2026-10-04 — 维护性治理战役（W0-W3c，PR #110-#119）+ 实机 Gate 50 单
 
 > 动因：维护成本失控（出问题无法精确定位 / agent 接手成本 / 续开发成本）。

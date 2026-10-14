@@ -106,7 +106,9 @@ def test_notice_map_truthful_lines_untouched():
     # fix/category-bridge-v1: +3 条类目无效请求级 400 人话（18→21，有意增补）
     assert "非审核拒绝" in ERROR_NOTICE_MAP["LOCAL_CATEGORY_INVALID_REQUEST"]
     assert "请人工改配" in ERROR_NOTICE_MAP["description_category_invalid"]
-    assert len(ERROR_NOTICE_MAP) == 21, "码级说明条数=21（v081 类目无效 +3）"
+    # v0.85.2 follow_clone 快速终态 +1（21→22）：name 拉丁错人话
+    assert "竞品卡名拉丁" in ERROR_NOTICE_MAP["LOCAL_NAME_LATIN"]
+    assert len(ERROR_NOTICE_MAP) == 22, "码级说明条数=22（v085.2 name 拉丁 +1）"
 
 
 # ── _task_snapshots 末次拒绝原文附带 ───────────────────────────────────────

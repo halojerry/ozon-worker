@@ -876,41 +876,39 @@ def _line_revenue(line: dict) -> Optional[float]:
 
 
 def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: str) -> dict:
-    """商品全量同步：分页拉 /v3/product/list → 批量 /v3/product/info/list 补详情 → upsert + archived。"""
+    """商品全量同步：分页拉 /v3/product/list → 批量 /v3/product/info/list 补详情 → upsert + archived。
+
+    ✅ B6（2026-10 收敛批②）：手写 offset/total while 循环迁到 utils.ozon_pagination.paginate
+    （on_page 逐页 upsert——大店不整集攒内存，中途失败保留已落页）。
+    v0.77.2 语义不变（见下归档地雷注释）：分页拉取失败 → error 落 products_error、
+    绝不 _archive_missing（空/残缺 seen_ids 会 NOT-ANY 全量误归档）。
+    """
     from utils.ozon_client import ozon_post
+    from utils.ozon_pagination import paginate
 
     seen_ids: set[str] = set()
-    offset = 0
-    total = None
     error = ""
-    while total is None or offset < total:
-        try:
-            list_resp = ozon_post(
-                client_id, api_key, "/v3/product/list",
-                {"filter": {"visibility": "ALL"}, "limit": _PRODUCT_PAGE, "offset": offset, "sort_dir": "ASC"},
-                timeout=30, language="RU",
-            )
-        except Exception as exc:
-            logger.warning("商品同步拉取失败 tenant=%s store=%s: %s",
-                           tenant_id, credential_id, str(exc)[:200])
-            error = f"拉取失败: {str(exc)[:120]}"
-            break
 
-        result = list_resp.get("result") or {}
-        items = result.get("items") or []
-        total = int(result.get("total") or (offset + len(items)))
-        if not items:
-            break
-
+    def _handle_page(items: list) -> None:
         info_map = _fetch_info_map(client_id, api_key, items)
         _upsert_products(tenant_id, credential_id, items, info_map)
         for it in items:
             if isinstance(it, dict) and it.get("product_id"):
                 seen_ids.add(str(it["product_id"]))
 
-        offset += len(items)
-        if len(items) < _PRODUCT_PAGE:
-            break
+    try:
+        paginate(
+            client_id, api_key, "/v3/product/list",
+            {"filter": {"visibility": "ALL"}, "limit": _PRODUCT_PAGE, "offset": 0, "sort_dir": "ASC"},
+            cursor_style="offset", post_fn=ozon_post, on_page=_handle_page,
+            timeout=30, language="RU",
+        )
+    except Exception as exc:
+        # 含分页拉取失败与逐页 upsert 失败——都按「同步失败」处理（v0.77.2：
+        # 宁可归档状态滞后，不可错杀；on_page 已落页保留，下轮补齐）。
+        logger.warning("商品同步拉取失败 tenant=%s store=%s: %s",
+                       tenant_id, credential_id, str(exc)[:200])
+        error = f"拉取失败: {str(exc)[:120]}"
 
     # ✅ v0.77.2（归档地雷拆除）：同步失败（含首页炸/部分分页炸）绝不归档——
     # 空/残缺 seen_ids 会让 _archive_missing 的 NOT (product_id = ANY(...)) 匹配全部，
@@ -927,7 +925,7 @@ def _sync_products(tenant_id: str, credential_id: str, client_id: str, api_key: 
 
 
 def _fetch_info_map(client_id: str, api_key: str, items: list) -> dict:
-    """批量补商品详情（复用 shelf_service 的限流退避逻辑，3 次 1s/2s）。"""
+    """批量补商品详情（限流退避唯一实现 ozon_post_expect_items，3 次 1s/2s，A4 批②）。"""
     ids = [int(it["product_id"]) for it in items
            if isinstance(it, dict) and str(it.get("product_id") or "").isdigit()]
     return _fetch_info_map_by_ids(client_id, api_key, ids)
@@ -936,39 +934,28 @@ def _fetch_info_map(client_id: str, api_key: str, items: list) -> dict:
 def _fetch_info_map_by_ids(client_id: str, api_key: str, ids: list) -> dict:
     """按 int product_id 批量拉 /v3/product/info/list → {str(product_id): info}。
 
-    与 _fetch_info_map 同源（限流退避 3 次 1s/2s）；供订单商品图按 product_id 复用（T4.3）。
+    ⚠️ A4（2026-10 收敛批②）：限流退避重试收敛到 `ozon_post_expect_items`
+    （空+异常 1s/2s×3，耗尽返 []）；本函数只做 id→info 键映射。
     PRD M0 实测:响应是顶层 items[]、商品项用 id 字段(M1 修正;兼容旧 result.items + product_id)。
     """
-    from utils.ozon_client import ozon_post
+    from utils.ozon_client import ozon_post_expect_items
 
     if not ids:
         return {}
-    import time as _time
-    for attempt in range(3):
-        try:
-            info_resp = ozon_post(
-                client_id, api_key, "/v3/product/info/list",
-                {"product_id": ids}, timeout=30, language="RU",
-            )
-        except Exception:
-            if attempt < 2:
-                _time.sleep(1 + attempt)
+    info_items = ozon_post_expect_items(
+        client_id, api_key, "/v3/product/info/list",
+        {"product_id": ids}, timeout=30, language="RU",
+    )
+    out: dict = {}
+    for it in info_items:
+        if not isinstance(it, dict):
             continue
-        info_items = (info_resp.get("items")
-                      or (info_resp.get("result") or {}).get("items") or [])
-        if info_items:
-            out: dict = {}
-            for it in info_items:
-                if not isinstance(it, dict):
-                    continue
-                pid = it.get("id") or it.get("product_id")
-                if pid is not None:
-                    out[str(pid)] = it
-            return out
-        if attempt < 2:
-            _time.sleep(1 + attempt)
-    logger.warning("Ozon info/list 同步限流（3 次空）ids=%s", ids[:5])
-    return {}
+        pid = it.get("id") or it.get("product_id")
+        if pid is not None:
+            out[str(pid)] = it
+    if not out:
+        logger.warning("Ozon info/list 同步限流（重试耗尽）ids=%s", ids[:5])
+    return out
 
 
 def _upsert_products(tenant_id: str, credential_id: str, items: list, info_map: dict) -> None:

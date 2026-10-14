@@ -346,29 +346,23 @@ def _fetch_ratings(client_id: str, api_key: str, skus: list[str]) -> dict[str, d
 def _fetch_card_echoes(client_id: str, api_key: str, product_ids: list[str]) -> dict[str, dict]:
     """/v4/product/info/attributes 批量全量回显 → {product_id: stored_item}。
 
-    Ozon 对 info 族限流下会静默返回空——空批次退避重试一次（sweep 同款）。
+    Ozon 对 info 族限流下会静默返回空——退避重试收敛到 ozon_post_expect_items
+    （A4 批②：空+异常 1s/2s×3，耗尽返 []；本文件旧实现 range(2) 仅空重试，
+    行为变更为 3 次 + 异常重试）。sweep 同源语义。
     """
-    import time as _time
-
-    from utils.ozon_client import ozon_post
+    from utils.ozon_client import ozon_post_expect_items
 
     echoes: dict[str, dict] = {}
     for i in range(0, len(product_ids), _LIST_BATCH):
         chunk = [p for p in product_ids[i:i + _LIST_BATCH] if str(p).isdigit()]
         if not chunk:
             continue
-        items: list = []
-        for attempt in range(2):
-            resp = ozon_post(
-                client_id, api_key, "/v4/product/info/attributes",
-                {"filter": {"product_id": chunk}, "limit": _LIST_BATCH,
-                 "sort_by": "id", "sort_dir": "asc"},
-                timeout=60, language="RU",
-            )
-            items = (resp or {}).get("result") or []
-            if items:
-                break
-            _time.sleep(1 + attempt)
+        items = ozon_post_expect_items(
+            client_id, api_key, "/v4/product/info/attributes",
+            {"filter": {"product_id": chunk}, "limit": _LIST_BATCH,
+             "sort_by": "id", "sort_dir": "asc"},
+            timeout=60, language="RU",
+        )
         for it in items if isinstance(items, list) else []:
             if isinstance(it, dict) and it.get("id"):
                 echoes[str(it["id"])] = it

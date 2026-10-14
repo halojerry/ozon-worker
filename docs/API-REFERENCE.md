@@ -1,6 +1,6 @@
 # Ozon Worker API 参考（自动生成）
 
-> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.84.0 · 139 个 path / 175 个操作（150 含兼容别名）/ 64 个 schema · **勿手改**（CI Step 5d 校验漂移）。
+> 由 `worker/scripts/gen_api_docs.py` 从 FastAPI `app.openapi()` 生成 · 对应 v0.85.0 · 139 个 path / 175 个操作（150 含兼容别名）/ 64 个 schema · **勿手改**（CI Step 5d 校验漂移）。
 > 对外约定（Base URL / 鉴权 / 限流 / 错误信封 / 分页 / 版本策略）见 `docs/API-OVERVIEW.md`；MCP 面见 `docs/MCP-SERVER.md`；交互式 Swagger `GET /docs`。
 
 规范路径为 `/api/v1/...`；带「兼容别名」的端点同时挂在旧裸路径，语义一致。示例 JSON 只填 required 字段（schema 声明了 `examples` 的按声明渲染）。
@@ -3357,8 +3357,6 @@ V1 Submit Task — 提交任务到队列。鉴权通过 Supabase tokens 表校�
     }
   },
   "max_retries": 3,
-  "ozon_api_key": "mock-key-not-a-credential",
-  "ozon_client_id": "5381204",
   "priority": 0,
   "timeout_seconds": 1800,
   "token": "__TOKEN_EXAMPLE__"

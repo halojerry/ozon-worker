@@ -160,6 +160,20 @@ def _mark_no_real_product_failure(graph_result: dict, message: str) -> None:
         graph_result["error_message"] = message
 
 
+def _completed_persist_view(graph_result: dict) -> dict:
+    """completed 落库视图：剥离累积残留 failed_stage（2026-10-04 事故 6516590295）。
+
+    GlobalState.failed_stage 是 operator.add 累积通道——「ozon_status 报
+    validation_failed → 修复循环成功」的任务，累积值无法被任何节点清空，
+    completed result 残留 failed_stage="ozon_status"（今日实锤 14 单），消费方读
+    result.failed_stage 误读任务失败（卡实际 approved，「假失败真在架」表象）。
+    completed 终态落库剥离该历史失败归因（v0.73「成功恒空」教义的收口）；
+    failed/rejected 终态不剥（失败归因必须留存），内存返回值与
+    listing_result_log/notify 不动（取证仍见全史）。
+    """
+    return {k: v for k, v in (graph_result or {}).items() if k != "failed_stage"}
+
+
 def _writeback_status(task_id: str, status: str, error_message: str | None = None) -> None:
     """draft_submissions 终态写回（M0.3）。必须在任务终态 conn.commit() 之后调用——
     写回独立于终态事务（该事务已含 shop_usage upsert），写回失败绝不能回滚任务状态。
@@ -838,8 +852,11 @@ class SupabaseTaskProcessor:
                         return graph_result
 
                     # F-C01: 终态守卫入口——行非 running 时为迟到写，跳过全部下游
+                    # （completed 落库视图剥离累积残留 failed_stage，见
+                    # _completed_persist_view——2026-10-04 事故 6516590295）
                     _landed = self._write_terminal_status(
-                        task_id, "completed", json.dumps(graph_result))
+                        task_id, "completed",
+                        json.dumps(_completed_persist_view(graph_result)))
 
                     if _landed:
                         # v0.34 C6: 店铺使用埋点（成功路径 common_errors/last_error 不增）

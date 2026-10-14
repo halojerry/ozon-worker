@@ -41,6 +41,11 @@ python3 scripts/cli.py graph --url "https://..." --store "主店铺" --ozon-ref-
   - `--ozon-ref-url`：Ozon 竞品参考链接（v0.29.x）——抓该竞品同类目属性复用，属性填充更准（可选）
   - `--notify`：提交时 GraphInput 顶层携带 `notify=True`，Worker 完成推送 webhook（需 Worker 配置 `TASK_NOTIFY_URL`）
   - `--min-margin <N>`：提交前预估利润率低于 N% 拦截（exit 3；预估非终价）
+  - `--variants`：多SKU合卡（PLAN-multi-sku-v1 V1）——1688 颜色维度 SKU 逐个展开
+    `draft.variants`（≤15 色，`draft.multi_sku=true`），worker 合成一张多变体卡
+    （每色可选可购，竞品 PLA 卡形态）。开启时预估按主 SKU + 每 variant 加价逐行打印
+    （🎨 多SKU 行）。**缺省关 = 单 SKU 现状零变化**；仅 1688 采集腿适用
+    （跨平台/跟卖/克隆不适用）；颜色俄语翻译与 Ozon 颜色字典匹配在 worker 侧
   - `--wait`：提交后轮询 Worker 到终态再退出（completed/failed 各打一行；failed → exit 3）
   - `--detach`：后台运行——立即返回 job 句柄（job-status/job-result 轮询，v0.83 批④）；与 `--wait` 互斥
 - **输出**：JSON `{summary, envelope, submit_result}`（字段解析见 output-schema.md）；

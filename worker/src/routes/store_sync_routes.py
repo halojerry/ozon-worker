@@ -296,12 +296,9 @@ async def sync_job_detail(job_id: int, request: Request):
 @detail_router.get("/admin/sync-health", openapi_extra=_HEALTH_OK_EXTRA)
 async def admin_sync_health(request: Request):
     """全部 active 店同步健康总览(仅 admin)。"""
-    from services.admin_service import require_admin
-    from main import _authenticate_token
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
-    user_id = _authenticate_token(token)
-    require_admin(user_id)
+    # ✅ B5 批②：守卫唯一链 api.security.authenticate_admin（原内联第 9 份拷贝收编）
+    from api.security import authenticate_admin
+    await authenticate_admin(request)
     return store_sync_service.sync_health()
 
 

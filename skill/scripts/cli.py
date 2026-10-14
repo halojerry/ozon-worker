@@ -136,7 +136,13 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
         est = estimate_envelope({"draft": draft, "extensions": ext})
         if not est:
             print("💰 预估: 无预估（worker 不可达，未回落本地公式）", flush=True)
-            return {"estimate_source": "unavailable"}
+            _res = {"estimate_source": "unavailable"}
+            # multi-SKU V1（PLAN-multi-sku-v1）: --variants 信封补变体行（无价不打售价）
+            if draft.get("multi_sku"):
+                from scripts.lib.variants_expander import print_multi_sku_estimate
+                _res["variants_count"] = print_multi_sku_estimate(
+                    draft.get("variants") or [], None)
+            return _res
         _price = float(est.get("price") or 0)
         _profit = float(est.get("profit_cny") or 0)
         _rate = round(float(est.get("profit_rate") or 0) * 100, 1)
@@ -146,7 +152,7 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
         print(f"💰 预估: 采购¥{_cost_f:.2f} + 运费¥{_logistics:.2f} → "
               f"售价≈{_sym}{_price:.2f} (利润¥{_profit:.2f}, 率{_rate}%)", flush=True)
         print("   （预估非终价，以 Worker 实算为准）", flush=True)
-        return {
+        out = {
             "estimated_retail_price_cny": round(_price, 2),
             "estimated_logistics_cny": round(_logistics, 2),
             "estimated_profit_cny": round(_profit, 2),
@@ -154,6 +160,12 @@ def _estimate_and_print(draft: dict, store: str = "") -> dict | None:
             "estimate_source": "worker",
             "currency": _unit,
         }
+        # multi-SKU V1（PLAN-multi-sku-v1）: --variants 信封逐行打主价+每 variant delta
+        if draft.get("multi_sku"):
+            from scripts.lib.variants_expander import print_multi_sku_estimate
+            out["variants_count"] = print_multi_sku_estimate(
+                draft.get("variants") or [], _price)
+        return out
     except Exception:
         return None
 
@@ -939,6 +951,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
             # 恢复评审 A（620eb14d）当时拆掉的传参。
             category_id=getattr(args, 'category_id', '') or "",
             type_id=getattr(args, 'type_id', '') or "",
+            # multi-SKU V1（PLAN-multi-sku-v1）: --variants → 多 SKU 合卡展开
+            # （draft.variants/draft.multi_sku；缺省关 = 单 SKU 现状零变化）
+            multi_sku=bool(getattr(args, 'variants', False)),
         )
 
         # ⚠️ v0.29.x 竞品属性复用: --ozon-ref-url 抓 Ozon 竞品属性表 → draft.ozon_attributes
@@ -1320,6 +1335,30 @@ def _chrome_profile_dir() -> str:
     """
     return str(Path(__file__).resolve().parent.parent
                / "data" / "browser" / "profiles" / "1688" / "default")
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """整体体检：六区红绿清单（配置语义/版本/文档/契约/MCP/CDP 轻探）。
+
+    v0.84.0：与 ``check`` 的分工——check 是**运行前环境诊断**（拉 Chrome、探
+    Ozon DataDome、验凭证有效性）；doctor 是**安装/升级后的整体体检**（零
+    副作用：不拉 Chrome 不写文件，3s 级网络轻探）。动因：Sentry 实录两台病机
+    （WORKER_URL=http://x、AK 过期）各灌 80+ 事件——检查面分散无单一入口，
+    用户装完/升级完没有「跑一次全查」的习惯位。出口码 0=全 PASS/SKIP。
+    """
+    from scripts.lib.doctor import render_json, render_text, run_doctor
+
+    results, exit_code = run_doctor()
+    if getattr(args, "as_json", False):
+        print(render_json(results, exit_code))
+    else:
+        print("🩺 skill 整体体检（doctor）——零副作用；运行前完整诊断请跑 `check`")
+        print(render_text(results))
+        if exit_code == 0:
+            _print_next("体检无阻塞项；涉及 Chrome/Ozon 会话的深度诊断跑 `check`")
+        else:
+            _print_next("按上方各 FAIL 项的 NEXT 逐个修复，修完重跑 `doctor` 直至全绿")
+    return exit_code
 
 
 def cmd_check(args) -> int:
@@ -1795,7 +1834,9 @@ def cmd_follow(args) -> int:
                                    review=getattr(args, "review", False),
                                    notify=getattr(args, "notify", False),
                                    to_box=getattr(args, "to_box", False),
-                                   min_margin=float(getattr(args, "min_margin", 0.0) or 0.0))
+                                   min_margin=float(getattr(args, "min_margin", 0.0) or 0.0),
+                                   clone=bool(getattr(args, "clone", False)),
+                                   allow_latin_name=bool(getattr(args, "allow_latin_name", False)))
     except AuthError as e:
         _out({"success": False, "error": str(e)})
         return 1
@@ -1818,7 +1859,7 @@ def cmd_follow(args) -> int:
                     "用户确认后加 --auto-submit 重跑本命令提交（可加 --wait 直达终态）")
     # ✅ v0.78 批B6: --min-margin 拦截在 follow_sell_cloud 内部提交前执行（预估后），
     # 这里只认领退出码（对齐 graph 腿 exit 3 语义）。
-    if result.get("blocked_reason") in ("low_margin", "source_preflight"):
+    if result.get("blocked_reason") in ("low_margin", "source_preflight", "latin_name"):
         return 3
     # ✅ v0.78 批B3: --wait 一次性命令——直提 task_id 此前只埋 _out JSON 不打行，
     # 现在轮询到终态并打印人话一行（缺省 fire-and-forget 零变化）。
@@ -3999,6 +4040,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "JSONL 事件；`--logs`（不带值）列 data/logs/ 最近 5 个日志文件")
     cp.set_defaults(func=cmd_check)
 
+    # doctor (整体体检) — v0.84.0：一条命令端到端红绿清单（配置语义/版本/文档/契约/MCP/CDP 轻探）
+    dp = sub.add_parser(
+        "doctor", help="整体体检：WORKER_URL 语义/版本一致性/文档同步/信封契约 parity/MCP 工具对账/CDP 轻探（零副作用，不拉 Chrome）")
+    dp.add_argument("--json", action="store_true", dest="as_json",
+                    help="机器可读 JSON 输出（agent 消费）；出口码 0=全 PASS/SKIP，1=存在 FAIL")
+    dp.set_defaults(func=cmd_doctor)
+
     # search
     sp = sub.add_parser("search", help="搜索 1688 商品")
     sp.add_argument("query", help="搜索关键词")
@@ -4070,6 +4118,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="D11: worker listing_templates 模板 ID（显式指定优先于默认模板）")
     gp.add_argument("--notify", action="store_true",
                     help="P1-4: 提交时 GraphInput 顶层携带 notify=True，Worker 完成推送通知")
+    # multi-SKU V1（PLAN-multi-sku-v1）: 颜色 SKU 逐个进 draft.variants 合卡
+    gp.add_argument("--variants", action="store_true",
+                    help="多SKU合卡：颜色维度 SKU 逐个展开 draft.variants（≤15，"
+                         "draft.multi_sku=True）→ worker 合成一张多变体卡（每色可选）。"
+                         "缺省关 = 单 SKU 现状零变化；仅颜色类简单规格品适用，"
+                         "跟卖/克隆模式不适用")
     _add_heavy_gate_args(gp)
     gp.set_defaults(func=cmd_graph)
 
@@ -4106,6 +4160,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="预估利润率下限 %%（默认 0=不拦截；提交前按预估打印，"
                          "低于阈值 → 打印拦截原因并 exit 3。预估非终价，"
                          "以 Worker 实算为准）")
+    # ✅ v0.85 跟卖克隆（PLAN-follow-clone-v1）：import-by-sku 复制竞品卡 +
+    # 零 LLM 零生图（复制成功 images=[] 不动卡图；不可复制走 clone_card 回退）
+    fp.add_argument("--clone", action="store_true",
+                    help="跟卖克隆模式：官方复制竞品卡，不生图不写文案，"
+                         "上架价卡跟卖列表前 20 均值（B1 批接入选品筛选）")
+    # ✅ feat/multi-sku-9048-only: clone 源名拉丁前置守卫豁免（判定/文案在
+    # lib/name_lang_guard；默认阻断——拉丁名竞品 worker LOCAL_NAME_LATIN 必拒终态）
+    fp.add_argument("--allow-latin-name", action="store_true",
+                    help="（仅 --clone）豁免竞品源卡名拉丁前置拦截：默认拉丁名"
+                         "提交必被 worker LOCAL_NAME_LATIN 拒终态；本开关仅用户"
+                         "知情放行走已知必拒路径，建议换西里尔名竞品")
     _add_heavy_gate_args(fp)
     fp.set_defaults(func=cmd_follow)
 

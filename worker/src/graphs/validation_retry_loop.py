@@ -32,6 +32,7 @@ import logging
 from utils.ozon_client import ozon_post
 from utils.ozon_errors import OzonError
 from utils.title_sanitizer import sanitize_title, sanitize_title_structure
+from utils.multi_sku_title_repair import apply_title_repair  # ✅ fix/multi-sku-9048-fixes
 from utils.safe_template import render_safe_mapping
 from utils.volume_weight_guard import compute_density_kg_m3  # ✅ W3a SoT: 密度公式唯一化
 from typing import Dict, List, Any, Optional
@@ -58,6 +59,17 @@ from utils.volume_weight_guard import (
 # _payload_has_generated_images / _prefer_generated_payload_images 消费，
 # mxou-b64/ 从 marker 盲区转明；禁止再内联 "/file/images/" 字面子串）
 from utils import image_source
+# ✅ fix/dedupe-batch1 C7: 管线本地码唯一事实源（赋值/路由表键/比较点禁裸字符串）
+from utils.pipeline_error_codes import (
+    LOCAL_CATEGORY_INVALID_REQUEST,
+    LOCAL_CATEGORY_RECATEGORIZE_FAILED,
+    LOCAL_NAME_LATIN,
+    LOCAL_PRICING_FAILED,
+    LOCAL_REUPLOAD_FAILED,
+    LOCAL_STATUS_QUERY_FAILED,
+    LOCAL_TITLE_CATEGORY_MISMATCH,
+    LOCAL_UPLOAD_NO_TASK_ID,
+)
 # ✅ v0.78 批H (fix/attr4194-regen-v1): H2 重传出口闸复用批E 错误码与消息
 # （IMAGE_GEN_ALL_FAILED 语义——见 errors.py PIPELINE_ERROR_MESSAGES 注释）
 from api.errors import PIPELINE_ERROR_MESSAGES, WorkerErrorCode
@@ -263,9 +275,11 @@ ERROR_NOTICE_MAP: Dict[str, str] = {
     "BR_hashtag_brand": "标签与品牌冲突被拒:已移除违规标签",
     "FB_INSTA": "描述含 Instagram/Facebook 等社交媒体，俄政府认定极端组织，已自动过滤重试",
     # ✅ fix/category-bridge-v1: 请求级类目 400 人话（非审核拒绝，勿再标「审核拒绝」）
-    "LOCAL_CATEGORY_INVALID_REQUEST": "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
+    LOCAL_CATEGORY_INVALID_REQUEST: "类目无效(请求级400,非审核拒绝):import 携带非法 description_category_id/type_id,自动修复已停止,请人工改配类目后重提",
     "description_category_invalid": "类目无效:Ozon 未识别该类目 ID,请人工改配后重提",
     "description_category_has_no_description_type": "类目与类型不匹配:type_id 不属于该类目,请人工改配后重提",
+    # ✅ v0.85.x follow_clone 快速终态人话（复测 4/5 死因的 retry 侧根治）
+    LOCAL_NAME_LATIN: "竞品卡名拉丁，克隆零 LLM 不可译——换西里尔名竞品或开单次翻译豁免",
 }
 
 
@@ -297,7 +311,7 @@ def _build_notice(error_type: str, error_message: str, upload_status: str,
     v0.67.1 wave①: 调用点改传 error_code（ERROR_NOTICE_MAP 的 code 级
     说明此前因传 error_type 恒为 fixable/unfixable 而成死代码）；
     error_message 被 revalidate 清空时，兜底携带 decline_errors 里的俄语原文。
-    ⚠️ 条数以 len(ERROR_NOTICE_MAP) 为准（2026-09-25 核对 = 21 条）——历史上
+    ⚠️ 条数以 len(ERROR_NOTICE_MAP) 为准（2026-10-04 核对 = 22 条）——历史上
     本注释写死「18 条」随加码漂移失真，新增码后同步核对勿再写死旧数。
     """
     if upload_status == "success":
@@ -396,7 +410,7 @@ REPAIR_STRATEGY: Dict[str, str] = {
     # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入采集箱（final_result 直达，
     # 不进任何 repair/reupload 节点——错配中文/重写支路修不了类目错，重传只会
     # 再被拒或错货过审）。入箱文案见 final_result 的 block_to_box 出口。
-    "LOCAL_TITLE_CATEGORY_MISMATCH": "block_to_box",
+    LOCAL_TITLE_CATEGORY_MISMATCH: "block_to_box",
     # ✅ fix/category-bridge-v1（2026-09-24 follow ×5 事故）：类目无效是**请求级
     # 400**（非审核拒绝）——LLM/属性修复都改不了 import item 的 dc/tp，重传必再炸
     # 且白烧额度。官方 code（description_category_invalid / has_no_description_type）
@@ -406,7 +420,11 @@ REPAIR_STRATEGY: Dict[str, str] = {
     "DESCRIPTION_CATEGORY_INVALID": "unfixable",
     "description_category_has_no_description_type": "unfixable",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE": "unfixable",
-    "LOCAL_CATEGORY_INVALID_REQUEST": "unfixable",
+    LOCAL_CATEGORY_INVALID_REQUEST: "unfixable",
+    # ✅ v0.85.x follow_clone 快速终态（复测 4/5 死因 retry 侧根治）：clone 模式
+    # name 拉丁错零 LLM 不可译——旧路径误分类 BR_chinese_hieroglyphs_in_attribute
+    # 走中文属性翻译空转 3 轮终态还挂误导错误码。识别即直达 final_result 失败。
+    LOCAL_NAME_LATIN: "unfixable",
 }
 
 
@@ -470,7 +488,9 @@ FIX_TYPE_UNFIXABLE: set = {
     "description_category_invalid", "DESCRIPTION_CATEGORY_INVALID",
     "description_category_has_no_description_type",
     "DESCRIPTION_CATEGORY_HAS_NO_DESCRIPTION_TYPE",
-    "LOCAL_CATEGORY_INVALID_REQUEST",
+    LOCAL_CATEGORY_INVALID_REQUEST,
+    # ✅ v0.85.x follow_clone: name 拉丁错快速终态（与 REPAIR_STRATEGY 同码登记）
+    LOCAL_NAME_LATIN,
 }
 
 
@@ -777,6 +797,17 @@ def _call_mxou_llm(token: str, config_path: str, context_vars: Dict[str, Any]) -
 # ============================================================
 # 子图节点函数
 # ============================================================
+def _is_name_latin_error(msg: Any) -> bool:
+    """v0.85.x: 识别本地预检「name 拉丁」错误（follow_clone 快速终态判据）。
+
+    命中 ozon_validate_node 名称拉丁预检原文形态（``item[i].name含拉丁字母
+    （Ozon要求俄语名称）``）。description/属性拉丁错不命中（各自有修复链），
+    「无≥4字符西里尔词」空槽坏标题不命中（那是标题质量问题，非克隆卡名事实）。
+    """
+    m = str(msg or "")
+    return "拉丁" in m and (".name" in m or "名称" in m)
+
+
 def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     """解析错误节点：从Ozon官方错误结构中提取错误代码和属性ID"""
     logger.info("📋 开始解析Ozon错误...")
@@ -789,6 +820,38 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
     if not errors:
         local_errs: list = state.validation_errors or []
         if local_errs:
+            # ✅ v0.85.x follow_clone 快速终态（复测 4/5 死因 retry 侧根治）：
+            # clone 模式零 LLM——name 拉丁错不可修复（竞品卡名/CDP 占位名就是
+            # 拉丁，克隆模式无翻译通道），识别即 LOCAL_NAME_LATIN 直达失败终态。
+            # 旧路径：该消息含「name/名称」被下方关键词粗分类误归
+            # BR_chinese_hieroglyphs_in_attribute → 中文属性翻译支路空转 3 轮，
+            # 终态还挂误导错误码。非 clone 模式不进此分支（主链有翻译通道，
+            # 行为零变化）。
+            if bool((state.extensions or {}).get("follow_clone")) \
+                    and any(_is_name_latin_error(_le) for _le in local_errs):
+                _le_struct = [
+                    {"code": LOCAL_NAME_LATIN, "attribute_id": 0,
+                     "texts": {"message": str(_le)}}
+                    for _le in local_errs if _is_name_latin_error(_le)
+                ]
+                # v0.67.1 wave① 纪律：消费前原样累积（留存表 moderation_texts 审计）
+                _accumulate_decline_errors(state, _le_struct)
+                state.error_code = LOCAL_NAME_LATIN
+                state.attribute_id = 0
+                state.error_type = "unfixable"
+                state.repair_node = "final_result"
+                # 显式失败终态（_graph_result_is_failed 按 upload_status=failed 判）
+                state.upload_status = "failed"
+                state.is_valid = False
+                state.error_message = (
+                    "竞品卡名拉丁，克隆零 LLM 不可译——换西里尔名竞品或开单次翻译豁免；"
+                    f"原文: {str(_le_struct[0]['texts']['message'])[:150]}"
+                )
+                state.retry_count += 1
+                logger.error(
+                    "⛔ clone 模式 name 拉丁错 → %s 快速终态（不进中文属性翻译修复循环）",
+                    LOCAL_NAME_LATIN)
+                return state
             # 本地校验错误（字符串列表）→ 结构化 error dict + 关键词粗分类
             for _le in local_errs:
                 _le_msg = str(_le)
@@ -802,7 +865,7 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
                     # 属性批量翻译修复支路（对本错误无效）→ revalidate 放行 →
                     # 错货重传。该错只能人工改配类目（入采集箱，见 final_result
                     # 的 block_to_box 出口），任何自动修复都不该碰。
-                    _code = "LOCAL_TITLE_CATEGORY_MISMATCH"
+                    _code = LOCAL_TITLE_CATEGORY_MISMATCH
                 elif any(kw in _le_lower for kw in ("名称", "标题", "name", "title", "латиниц")):
                     _code = "BR_chinese_hieroglyphs_in_attribute"
                 elif any(kw in _le_lower for kw in ("价格", "price", "цен")):
@@ -827,7 +890,7 @@ def parse_error_node(state: ValidationRetryLoopState) -> ValidationRetryLoopStat
                 and "type=" in _em_l)  # schema API 400 模板（level_3_id=X and type=Y is not found）
         )
         if _is_cat_req_400:
-            state.error_code = "LOCAL_CATEGORY_INVALID_REQUEST"
+            state.error_code = LOCAL_CATEGORY_INVALID_REQUEST
             state.attribute_id = 0
             state.error_type = "unfixable"
             state.repair_node = "final_result"
@@ -2135,30 +2198,56 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                     # 未绑定变量抛 UnboundLocalError（本 try 只捕获 JSONDecodeError，
                     # 异常会打断整个 error_repair_llm 修复支路，标题修复路径必炸）。
                     # 仅 repaired_title 真值时写 name/4180，空标题不动卡（宁缺毋滥）。
+                    # ✅ fix/multi-sku-9048-fixes: multi_sku（items>1）标题修复变体
+                    # 盲守卫——9048-only 合卡的变体区分 = per-item 色尾缀，旧逻辑把
+                    # 所有 items name 整体抹平成同一标题 → 尾缀丢失 items 同质
+                    # Ozon 不并卡（终验实录：7 变体「标题已修复（所有变体）」→
+                    # 6 张独立卡）。items>1 走 utils/multi_sku_title_repair 唯一
+                    # 入口（只修报错 item + 保原尾缀；不可定位/不可还原 → 降级
+                    # per-item 确定性清理，绝不抹平）；单 SKU 路径逐字不变（回归锁）。
                     ozon_payload_title: Dict[str, Any] = state.ozon_payload
                     items_title: list = ozon_payload_title.get("items", [])
+                    _title_adopted: bool = bool(
+                        repaired_title and items_title and len(items_title) > 0
+                    )
                     if repaired_title and items_title and len(items_title) > 0:
-                        # 修复所有变体的name字段
-                        for it in items_title:
-                            if isinstance(it, dict):
-                                it["name"] = repaired_title
-                        logger.info(f"✅ 标题已修复（所有变体）：{repaired_title[:80]}")
+                        if len(items_title) > 1:
+                            _ms_act = apply_title_repair(
+                                items_title, repaired_title,
+                                error_message=state.error_message,
+                                errors=state.errors,
+                                decline_errors=state.decline_errors,
+                            )
+                            # 仅 targeted（报错 item 修复且尾缀保留）才采纳 LLM 标题
+                            # 同步 4180；降级确定性清理路径残标题整体弃用。
+                            _title_adopted = (_ms_act == "targeted")
+                            if _ms_act == "targeted":
+                                logger.info("✅ 标题已修复（multi_sku 只修报错 item，保留变体尾缀）：%s", repaired_title[:80])
+                            elif _ms_act == "deterministic":
+                                logger.warning("⚠️ multi_sku 标题修复降级确定性清理（拒绝抹平重生成，LLM 标题弃用）")
+                        else:
+                            # 修复所有变体的name字段
+                            for it in items_title:
+                                if isinstance(it, dict):
+                                    it["name"] = repaired_title
+                            logger.info(f"✅ 标题已修复（所有变体）：{repaired_title[:80]}")
                         # 同步修复final_attributes中的4180（空标题不清既有4180值）
-                        updated_title_attrs: list = []
-                        for attr in state.final_attributes:
-                            if not isinstance(attr, dict):
+                        if _title_adopted:
+                            updated_title_attrs: list = []
+                            for attr in state.final_attributes:
+                                if not isinstance(attr, dict):
+                                    updated_title_attrs.append(attr)
+                                    continue
+                                aid_val: Any = attr.get("id") or attr.get("attribute_id")
+                                if aid_val is not None:
+                                    try:
+                                        if int(aid_val) == 4180:
+                                            attr["value"] = repaired_title
+                                            logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
+                                    except (ValueError, TypeError):
+                                        pass
                                 updated_title_attrs.append(attr)
-                                continue
-                            aid_val: Any = attr.get("id") or attr.get("attribute_id")
-                            if aid_val is not None:
-                                try:
-                                    if int(aid_val) == 4180:
-                                        attr["value"] = repaired_title
-                                        logger.info(f"✅ 属性4180同步修复为：{repaired_title[:80]}")
-                                except (ValueError, TypeError):
-                                    pass
-                            updated_title_attrs.append(attr)
-                        state.final_attributes = updated_title_attrs
+                            state.final_attributes = updated_title_attrs
 
                 # 自动判断修复类型
                 if repaired_desc:
@@ -2224,18 +2313,36 @@ def error_repair_llm_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
                         logger.warning(f"⚠️ 强制俄语标题生成失败: {_force_e}")
                 
                 # 应用强制生成的标题
+                # ✅ fix/multi-sku-9048-fixes: items>1 走 multi_sku 守卫（同写回点
+                # ①：只修报错 item + 保尾缀，不可定位/不可还原 → 降级确定性清理
+                # 绝不抹平，且弃用标题不同步 4180）；单 SKU 路径逐字不变（回归锁）。
                 if repaired_title and repair_type == "title":
                     ozon_payload_t: Dict[str, Any] = state.ozon_payload
                     items_t: list = ozon_payload_t.get("items", [])
+                    _t_adopt: str = repaired_title
                     if items_t and len(items_t) > 0:
-                        for it in items_t:
-                            if isinstance(it, dict):
-                                it["name"] = repaired_title
-                        logger.info(f"✅ 标题已强制修复（所有变体）：{repaired_title[:80]}")
-                    # 同步 final_attributes 中的 4180
-                    for attr in state.final_attributes:
-                        if isinstance(attr, dict) and int(attr.get("id") or attr.get("attribute_id") or 0) == 4180:
-                            attr["value"] = repaired_title
+                        if len(items_t) > 1:
+                            _ms_act2 = apply_title_repair(
+                                items_t, repaired_title,
+                                error_message=state.error_message,
+                                errors=state.errors,
+                                decline_errors=state.decline_errors,
+                            )
+                            if _ms_act2 == "targeted":
+                                logger.info("✅ 标题已强制修复（multi_sku 只修报错 item，保留变体尾缀）：%s", repaired_title[:80])
+                            else:
+                                _t_adopt = ""
+                                logger.warning("⚠️ multi_sku 强制标题降级确定性清理（拒绝抹平重生成，标题弃用）")
+                        else:
+                            for it in items_t:
+                                if isinstance(it, dict):
+                                    it["name"] = repaired_title
+                            logger.info(f"✅ 标题已强制修复（所有变体）：{repaired_title[:80]}")
+                    # 同步 final_attributes 中的 4180（降级弃用路径不同步残标题）
+                    if _t_adopt:
+                        for attr in state.final_attributes:
+                            if isinstance(attr, dict) and int(attr.get("id") or attr.get("attribute_id") or 0) == 4180:
+                                attr["value"] = _t_adopt
 
                 logger.info(f"✅ LLM修复结果: type={repair_type}, value={repaired_value[:50] if repaired_value else '(empty)'}")
 
@@ -2599,7 +2706,7 @@ def repair_pricing_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error("❌ repair_pricing: pricing_info 无有效价格，阻断修复")
                 state.error_message = "[PRICING_FAILED] 无有效定价信息，无法修复价格"
                 state.failed_stage = "pricing"
-                state.error_code = state.error_code or "LOCAL_PRICING_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_PRICING_FAILED  # v0.77.2
                 return state
 
             # F-F02（2026-09-09 审计）：划线价/促销底线派生收敛唯一入口
@@ -3642,7 +3749,7 @@ def should_continue(state: ValidationRetryLoopState) -> str:
         state.is_valid = False
         state.upload_status = "failed"
         # ✅ v0.77.2: 终态失败必须带码（此前只写 error_message → 留存表 error_code 空）
-        state.error_code = "LOCAL_CATEGORY_RECATEGORIZE_FAILED"
+        state.error_code = LOCAL_CATEGORY_RECATEGORIZE_FAILED
         if not state.error_message:
             state.error_message = "类目需人工确认：自动重配类目无解，已停止重传"
         logger.warning(
@@ -3701,15 +3808,22 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     """生图全失败导致首传空载荷时，从信封 draft 图恢复图片到上传载荷。
 
     实机 gate 实证（2026-09-08）：采集箱路径 draft 图非 alicdn → 生图参考链全跳过 →
-    prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。R4 整卡重配路径已证明
-    draft 图可过 Ozon import + 审核approved（同批任务实证）——本恢复让 pictures-only
-    死端复用同一来源。恢复成功返回 True（payload 已就地更新）。
+    prepare 产出空图载荷首传即拒（IMAGE_ERROR images缺失）。恢复成功返回 True
+    （payload 已就地更新）。
 
     ✅ fix/retry-image-restore-v1 双保险（2026-09-18 商品 6381680593 实证）：
     ① 载荷已含 AI 生成图（file/images/）→ 拒绝恢复（生成图是卡图最高优先来源，
-    本函数只救「空载荷」，绝不覆盖已有图）；② 入箱预镜像停用后 draft 图是裸
-    1688 链（Ozon 抓不到）→ 恢复前经 COS 同步转存（cos_enabled 时），转存失败
-    保留原 URL（诚实降级）。
+    本函数只救「空载荷」，绝不覆盖已有图）。
+
+    ✅ fix/sentry-ga-retransmit-leak（2026-10-04，POUDING_OZON-GA 写入口根修）：
+    ② 恢复源在**写入 ozon_payload 之前**过 ``image_source.filter_uploadable_images``
+    ——draft.images 里的 mirror_draft（draft-images/ 镜像）/salvage（逃生门关时）/
+    external（裸 1688 链）在此剔除，绝不进载荷。v0.78 出口闸只能拦 POST，拦不住
+    「先写后拦」：白写一轮重传 + 「⛔ 重传出口闸拦截」Sentry 噪音。draft 有图但
+    全部不可上卡 → 置 IMAGE_GEN_ALL_FAILED（与出口闸同语义，非永久 → 整任务重试
+    重跑生图）后返回 False；draft 真无图 → 仍走既有无图语义（False，调用方
+    rejected_unfixable）。原「裸链先同步转存 COS」块随之删除：过滤幸存者恒为本方
+    COS（ai/salvage），已无裸链可转存（转存是镜像服务 spawn_image_mirror 的职责）。
     """
     # ① 载荷已有生成图 → 不动（调用方据 False 走既有分支语义）
     if _payload_has_generated_images(state):
@@ -3728,26 +3842,14 @@ def _restore_draft_images_to_payload(state: ValidationRetryLoopState) -> bool:
     images = [str(u) for u in images if str(u).strip()]
     if not images:
         return False
-    # ② 裸链 1688 图先同步转存 COS（Ozon 侧可访问；入箱预镜像停用后的必要步骤）
-    try:
-        from utils.cos_uploader import cos_enabled as _cos_enabled
-        from utils.cos_uploader import is_cos_url as _is_cos_url
-        if _cos_enabled():
-            from services.draft_image_mirror import _mirror_one
-            _hosted: list[str] = []
-            for _u in images:
-                if _is_cos_url(_u):
-                    _hosted.append(_u)
-                    continue
-                _mirrored = _mirror_one(_u)
-                _hosted.append(_mirrored or _u)
-            images = _hosted
-    except Exception as _sync_err:
-        logger.warning("⚠️ draft 图同步转存失败（保留原 URL 继续恢复）: %s", _sync_err)
-    items = state.ozon_payload.get("items") or []
-    images = [str(u) for u in images if str(u).strip()]
-    if not images:
+    # ② 写入口净化：非可上卡来源在进载荷前剔除（根修，见 docstring fix/sentry-ga-retransmit-leak）
+    uploadable = image_source.filter_uploadable_images(images)
+    if not uploadable:
+        logger.error(
+            "⛔ draft 恢复源全部不可上卡（写入口剔除，不进载荷不 POST）: %s", images)
+        _mark_image_gen_all_failed(state, images)
         return False
+    images = uploadable
     items = state.ozon_payload.get("items") or []
     if not items or not isinstance(items[0], dict):
         return False
@@ -3814,7 +3916,7 @@ def regen_main_image_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
 
     用严格合规 prompt（REGEN_MAIN_IMAGE_PROMPT，白底/单品居中/无文字·角标·水印）
     + 合格参考图重生成主图；成功 → 替换 payload items[0].primary_image（旧主图从
-    图廊移除、新图插首位、其余槽位不动）→ repair_node=reupload 走既有重传链；
+    图廊移除、新图插首位、其余槽位净化后保留）→ repair_node=reupload 走既有重传链；
     失败（任何异常/None/产物非本方 AI 图）→ logger.error + 回落 warn-and-pass。
     防循环：入口即置 regen_main_image_done=True（成功失败都置位，一次任务只做一次）。
     """
@@ -3850,12 +3952,15 @@ def regen_main_image_node(state: ValidationRetryLoopState) -> ValidationRetryLoo
         if not image_source.has_generated_images((new_url,)):
             raise ValueError(f"重生成产物非本方 AI 图（拒绝入载荷）: {new_url[:80]}")
 
-        # 载荷手术：旧主图（不合规 AI 图）从图廊整体移除（防二次 4194），新图插首位，
-        # 图廊其余槽位保持不动
+        # 载荷手术：旧主图（不合规 AI 图）从图廊整体移除（防二次 4194），新图插首位。
+        # ✅ fix/sentry-ga-retransmit-leak：其余槽位写回前同样过写入口净化——mirror/
+        # salvage(逃生门关)/external 残余在此剔除（历史轮次 restore 泄漏的载荷在
+        # regen 重写时被顺手洗净），不给出口闸留「先写后拦」的机会。
         old_primary = str(item0.get("primary_image") or "").strip()
         images = [str(u).strip() for u in (item0.get("images") or []) if str(u).strip()]
         if old_primary:
             images = [u for u in images if u != old_primary]
+        images = image_source.filter_uploadable_images(images)
         images.insert(0, new_url)
         item0["primary_image"] = new_url
         item0["images"] = images
@@ -3916,9 +4021,17 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             if _payload_has_generated_images(state):
                 logger.info("📦 图片错误且无 product_id：载荷已含 AI 生成图，跳过 draft 恢复直接全量重导")
                 return _full_import_create(state)
+            _code_before_restore = state.error_code
             if _restore_draft_images_to_payload(state):
                 logger.info("📦 图片错误且无 product_id：draft 图已恢复，全量 CREATE 重导")
                 return _full_import_create(state)
+            # ✅ fix/sentry-ga-retransmit-leak: 恢复失败分两态——restore 置了
+            # IMAGE_GEN_ALL_FAILED（draft 有图但全部不可上卡，写入口已剔除）与出口闸
+            # 同语义按 failed 收口（非永久 → 整任务重试重跑生图）；仅 draft 真无图
+            # 才落 rejected_unfixable（诚实不硬修，不烧重试）。
+            if (state.error_code == WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+                    and _code_before_restore != state.error_code):
+                return state
             logger.warning("⚠️ 图片错误且无 product_id 且无可用 draft 图，标记 rejected_unfixable")
             state.upload_status = "rejected_unfixable"
             state.is_valid = True
@@ -3987,7 +4100,7 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
             if state.error_code != WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value:
                 state.error_message = f"product/import(UPDATE) 失败: error_code={error_code}"
                 # ✅ v0.77.2: 终态失败补码（保留更具体的既有 Ozon 码，缺省填本地码）
-                state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"
+                state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED
             return state
 
     # 类型 4: 不可修复 → 直接标记成功
@@ -4002,6 +4115,21 @@ def reupload_node(state: ValidationRetryLoopState) -> ValidationRetryLoopState:
     return _full_import_create(state)
 
 
+def _mark_image_gen_all_failed(state: ValidationRetryLoopState, violations: list) -> None:
+    """IMAGE_GEN_ALL_FAILED 失败语义统一出口（fix/sentry-ga-retransmit-leak）。
+
+    出口闸（_reupload_gate_blocked）与写入口净化（_restore_draft_images_to_payload）
+    共用同一失败收口：非永久码 → task_processor 整任务重试一轮重跑生图。
+    """
+    state.upload_status = "failed"
+    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
+    state.error_message = (
+        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
+        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
+        f"（违规图: {'; '.join(str(v) for v in violations)}）"
+    )
+
+
 def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
     """重传出口闸统一封装（✅ v0.78 fix round 1, fix/attr4194-regen-v1）。
 
@@ -4011,6 +4139,8 @@ def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
     IMAGE_SALVAGE_FALLBACK 时并入 salvage）。违规 → 不 POST，置 IMAGE_GEN_ALL_FAILED
     语义（复用批E 错误码与消息；非永久 → task_processor 整任务重试一轮），
     返回 True 表示已拦截（调用方直接收口返回）。
+    ✅ fix/sentry-ga-retransmit-leak：本闸降级为最后防线——restore/regen 写入口
+    已前置 filter_uploadable_images 净化，违规图进不了载荷（本闸只兜外部注入）。
     """
     items: list = (
         state.ozon_payload.get("items", [])
@@ -4030,19 +4160,19 @@ def _reupload_gate_blocked(state: ValidationRetryLoopState) -> bool:
                     str(u).strip() for u in val
                     if isinstance(u, str) and u.strip()
                 )
+    # ✅ v0.85 follow_clone：模式作用域放行 Ozon CDN 原尺寸竞品图（克隆 CREATE
+    # 回退载荷重传场景；信封 extensions.follow_clone 标记，非 clone 语义零变化）。
+    _fc_ext = ((getattr(state, "envelope", None) or {}).get("extensions") or {})
+    _fc_mode = isinstance(_fc_ext, dict) and bool(_fc_ext.get("follow_clone"))
     ok, violations = image_source.enforce_upload_policy(
-        gate_urls, allow_salvage=image_source.salvage_fallback_enabled()
+        gate_urls,
+        allow_salvage=image_source.salvage_fallback_enabled(),
+        allow_competitor_cdn=_fc_mode,
     )
     if ok:
         return False
     logger.error("⛔ 重传出口闸拦截（非 ai 来源混入重传载荷，不 POST）: %s", violations)
-    state.upload_status = "failed"
-    state.error_code = WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value
-    state.error_message = (
-        f"{WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value}: "
-        f"{PIPELINE_ERROR_MESSAGES[WorkerErrorCode.IMAGE_GEN_ALL_FAILED.value]}"
-        f"（违规图: {'; '.join(violations)}）"
-    )
+    _mark_image_gen_all_failed(state, violations)
     return True
 
 
@@ -4084,12 +4214,12 @@ def _full_import_create(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ 全量 import(CREATE) 失败: {error_msg}")
         state.upload_status = "failed"
         state.error_message = f"重新上传失败: {error_msg}"
-        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED  # v0.77.2
     except Exception as e:
         logger.error(f"❌ 全量 import(CREATE) 异常: {e}")
         state.upload_status = "failed"
         state.error_message = f"重新上传异常: {str(e)}"
-        state.error_code = state.error_code or "LOCAL_REUPLOAD_FAILED"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_REUPLOAD_FAILED  # v0.77.2
 
     return state
 
@@ -4125,7 +4255,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error("❌ task_id为空，无法查询状态")
         state.upload_status = "failed"
         state.error_message = "task_id为空"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     # ✅ 防御：检测 UUID 格式（ingest_node 生成的系统 task_id）
@@ -4134,7 +4264,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id 仍为系统 UUID（上传失败未覆盖）: {task_id}")
         state.upload_status = "failed"
         state.error_message = "Ozon 上传失败，未获取到 Ozon task_id"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     try:
@@ -4143,7 +4273,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
         logger.error(f"❌ task_id转换失败：{task_id}")
         state.upload_status = "failed"
         state.error_message = f"task_id格式错误: {task_id}"
-        state.error_code = state.error_code or "LOCAL_UPLOAD_NO_TASK_ID"  # v0.77.2
+        state.error_code = state.error_code or LOCAL_UPLOAD_NO_TASK_ID  # v0.77.2
         return state
 
     payload: Dict[str, Any] = {"task_id": task_id_int}
@@ -4167,7 +4297,7 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
                 logger.error(f"❌ 响应中无items数据(attempt {attempt}/{max_polls})")
                 if attempt == max_polls:
                     state.upload_status = "failed"
-                    state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                    state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
                 continue
 
             first_item: Dict[str, Any] = result_items[0]
@@ -4246,13 +4376,13 @@ def recheck_status_node(state: ValidationRetryLoopState) -> ValidationRetryLoopS
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态失败: {_oe}"
-                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
         except Exception as e:
             logger.error(f"❌ 查询状态异常(attempt {attempt}/{max_polls}): {e}")
             if attempt == max_polls:
                 state.upload_status = "failed"
                 state.error_message = f"查询状态异常: {str(e)}"
-                state.error_code = state.error_code or "LOCAL_STATUS_QUERY_FAILED"  # v0.77.2
+                state.error_code = state.error_code or LOCAL_STATUS_QUERY_FAILED  # v0.77.2
 
     return state
 
@@ -4398,7 +4528,7 @@ def _final_result_blocked_to_box(state: ValidationRetryLoopState) -> ValidationR
         error_message=LOCAL_TITLE_MISMATCH_BLOCK_REASON,
         # ✅ v0.77.2: 本出口码必须显式透出（此前只写子图 state，被 output_schema 吞掉
         # → 生产 listing_result_log.error_code 全空串的根因）
-        error_code="LOCAL_TITLE_CATEGORY_MISMATCH",
+        error_code=LOCAL_TITLE_CATEGORY_MISMATCH,
         product_id=state.product_id if state.product_id else None,
         upload_status="blocked",
         moderation_status=state.moderation_status,
@@ -4428,7 +4558,7 @@ def final_result(state: ValidationRetryLoopState) -> ValidationRetryLoopOutput:
         logger.info("✅ 重新上传成功，清除之前的错误消息")
     # ✅ v0.73: 本地预检标题-类目零交集 → 拦截入箱（REPAIR_STRATEGY block_to_box
     # 路由直达本节点）。分支置于负反馈之前：该码刻意不记 L0 负反馈（见 helper 注释）
-    if str(getattr(state, "error_code", "") or "") == "LOCAL_TITLE_CATEGORY_MISMATCH":
+    if str(getattr(state, "error_code", "") or "") == LOCAL_TITLE_CATEGORY_MISMATCH:
         return _final_result_blocked_to_box(state)
     # ✅ v0.66 L0 declined 负反馈挂点：final_result 每任务仅执行一次（子图收尾，
     # 不随 parse_error 循环重复计数）——终态 failed + 类目错特征 → L0 学习行 fail+1。

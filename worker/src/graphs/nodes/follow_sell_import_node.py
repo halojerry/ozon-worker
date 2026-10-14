@@ -21,6 +21,11 @@ from typing import Any
 # F-F01（2026-09-09 审计）：Ozon 直连收敛 ozon_post（全局限流 + 429/5xx 重试 +
 # 类型化错误），移除裸 requests 直发
 from utils.ozon_client import ozon_post
+# ✅ v0.85.1: 新建/复制卡 /v4 索引延迟 404 识别（A6 读回有界重试的唯一口径）
+from utils.ozon_errors import is_index_latency_404 as _is_v4_index_latency
+# ✅ fix/dedupe-batch1 A1（v0.81.1 立法）：划线价唯一规则出口——占位 old_price
+# 不得手写倍率（旧 int(*1.3) 低价卡差价 <20 被 Ozon 拒，见下）
+from utils.pricing_estimate import MIN_OLD_PRICE_GAP, enforce_old_price_rule
 
 from graphs.state import GlobalState
 
@@ -37,7 +42,9 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # ⚠️ v0.22（参考 maozi follow_type）：hand=防侵权跟卖（模拟人工，跳过
     # import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做类目/属性/生图，
     # 天然防同款/侵权检测）；api=强制跟卖（import-by-sku 1:1 复制竞品卡片，
-    # 快但可能报错/被下架）。默认 hand。
+    # 快但可能报错/被下架）；**clone=跟卖克隆（v0.85 follow_clone）**——
+    # import-by-sku 复制成功 → images=[] 不动卡图零生图零 LLM；不可复制 →
+    # 信封 clone_card 逐字克隆回退（CDP 读卡，PLAN-follow-clone-v1）。
     follow_type = str(extensions.get("follow_type") or "hand").lower()
 
     # ── 局部变量（替代 state.xxx 直接赋值）──
@@ -69,6 +76,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # fix/category-bridge-v1: import-by-sku 复制卡的真实 dc/tp（复制完成后反查回填；
     # 见 import 完成点注释——UPDATE 项 required dc/tp，此值是权威来源）
     ibs_dc, ibs_tp = "", ""
+    # ✅ v0.85.x 克隆卡名回读（复测 4/5 死因修复）：复制卡的卡上 name（/v3 反查，
+    # 与类目回填同一次调用）——import-by-sku 成功后卡上 name=竞品卡俄语原名（Ozon
+    # 已接受的事实），draft.title 只是 CDP 抓取的拉丁占位（"Beanie Hat"）；
+    # prepare follow_clone 模式据此用真值组装 item name，拉丁预检不再拒。
+    ibs_name: str = ""
     ibs_attrs: list[dict] = []  # A6: 复制卡原带特征表（/v4 反查，prepare 合并）
 
     # ⚠️ v0.25 FIX: offer_id 统一用竞品 ID（无 follow_ 前缀），与 prepare/upload 一致。
@@ -84,7 +96,14 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     purchase_cost = float(draft.get("purchase_cost", 0) or 0)
     placeholder_price = max(10, int(purchase_cost * 2.0)) if purchase_cost > 0 else 100
     price_val = placeholder_price
-    old_price_val = int(placeholder_price * 1.3)
+    # ✅ fix/dedupe-batch1 A1: 划线价唯一规则 enforce_old_price_rule（≥price×1.2
+    # 且差价 <400 时必须 ≥20，v0.81.1 立法）。旧手写 int(*1.3)：低价跟卖卡
+    # （purchase_cost=10 → placeholder 20 → old 26，差价 6）违反 Ozon 差价契约
+    # 被拒——import-by-sku 是每单真实路径，占位价同样必须过唯一出口。
+    old_price_val = int(
+        enforce_old_price_rule(price_val, int(price_val * 1.3))
+        or price_val + MIN_OLD_PRICE_GAP
+    )
 
     # 类目解析（v0.69 P-B：确定性直采 → 门控仲裁，模糊直采通道全部移除）
     dc_raw = str(ozon_cat.get("description_category_id") or "")
@@ -137,12 +156,20 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         dc_raw, type_raw = "", ""
     # v0.69 P-B: 确定性失败/无 dc → 门控仲裁（搜索词=面包屑末两段+1688 来源类目末两段）
     if not dc_raw or not type_raw:
-        _terms = _gate_search_terms(ozon_cat, _src, extra=_gate_extra)
-        if _terms:
-            _g_dc, _g_tp = _gated_category_arbitration(
-                _terms, " ".join(_terms), draft, state)
-            if _g_dc and _g_tp:
-                dc_raw, type_raw = _g_dc, _g_tp
+        # ✅ v0.85.1 clone 模式零 LLM：门控仲裁（vision LLM）整段跳过——首战实录
+        # （2026-10-04 测试店 5371047）单均烧 1 次 vision，且仲裁结果随后被
+        # import-by-sku 复制卡反查（ibs）同值覆盖，纯浪费。clone 的权威类目 =
+        # 复制卡反查 / clone_card 真值（竞品在售事实），两者都不在 → 走既有
+        # 失败链诚实拒（绝不编造类目）。
+        if follow_type == "clone":
+            logger.info("🧬 clone 模式：跳过类目门控仲裁（零 LLM）——类目由复制卡反查/clone_card 定稿")
+        else:
+            _terms = _gate_search_terms(ozon_cat, _src, extra=_gate_extra)
+            if _terms:
+                _g_dc, _g_tp = _gated_category_arbitration(
+                    _terms, " ".join(_terms), draft, state)
+                if _g_dc and _g_tp:
+                    dc_raw, type_raw = _g_dc, _g_tp
 
     # 拉取属性 schema
     client_id = state.ozon_client_id
@@ -185,7 +212,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         # 会把竞品卡 1:1 建进店铺（wave D 测试店 5 卡实证）+ 每单 180s 轮询白等，
         # discover 场景有百害无一利。类目未定稿 → 置空交由 assemble 全闸链。
         logger.info("🧭 discover 变体：跳过 import-by-sku/api 复制，走 CREATE 重建")
-    elif follow_type == "api":
+    elif follow_type in ("api", "clone"):
+        # ✅ v0.85: clone 同走 import-by-sku（官方复制通道）；差异在下游——
+        # 复制成功 → 跳生图 + UPDATE images=[] 不动卡图（route/prepare 分支）；
+        # 复制失败 → clone_card 逐字克隆回退（prepare 构造，不走 hand 重建）。
         try:
             import_body = {
                 "items": [{
@@ -242,6 +272,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                                     _ibs_item = ((_ibs_info.get("items") or [{}])[0]) or {}
                                     _ibs_dc = str(_ibs_item.get("description_category_id") or "")
                                     _ibs_tp = str(_ibs_item.get("type_id") or "")
+                                    # ✅ v0.85.x 克隆卡名回读：同一次反查带回卡上 name
+                                    # （俄语原名，Ozon 已接受事实；空值不覆盖保持 ""）
+                                    _ibs_nm = str(_ibs_item.get("name") or "").strip()
+                                    if _ibs_nm:
+                                        ibs_name = _ibs_nm
                                     if _ibs_dc.isdigit() and _ibs_tp.isdigit() \
                                             and int(_ibs_dc) > 0 and int(_ibs_tp) > 0:
                                         ibs_dc, ibs_tp = _ibs_dc, _ibs_tp
@@ -261,34 +296,54 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                                 # payload 里的特征全部洗掉。此处先 /v4 读回原表存 state，
                                 # prepare 合并回 payload（我们已填的属性我方权威，其余
                                 # 竞品值照抄）。非致命：读不到只丢填满率，不阻断主流程。
+                                # ✅ v0.85.1 首战修正（2026-10-04 测试店 5371047 五单实录：
+                                # 复制确认后 +5s 读恒 404 "item not found"，+15s 即 200）：
+                                # 新建/复制卡 /v4 有索引延迟（B0-D 同款实录）——有界重试
+                                # 3 次 × 5s；只对 404（索引延迟）重试，其他异常照旧一次
+                                # 放弃不阻断；200 但无匹配 item（空表）同样按延迟重试。
                                 try:
-                                    _ibs_v4 = ozon_post(
-                                        state.ozon_client_id, state.ozon_api_key,
-                                        "/v4/product/info/attributes",
-                                        {"filter": {"product_id": [str(_pid)],
-                                                    "visibility": "ALL"},
-                                         "limit": 10},
-                                        timeout=15,
-                                    )
-                                    _ibs_v4_items = (_ibs_v4.get("result") or {}).get("items") \
-                                        if isinstance(_ibs_v4.get("result"), dict) \
-                                        else _ibs_v4.get("result")
-                                    for _ibs_it in (_ibs_v4_items or []):
-                                        if int((_ibs_it or {}).get("id") or 0) != int(_pid):
-                                            continue
-                                        _copied = [
-                                            {"complex_id": int(a.get("complex_id") or 0),
-                                             "id": int(a.get("id") or 0),
-                                             "values": a.get("values") or []}
-                                            for a in (_ibs_it.get("attributes") or [])
-                                            if isinstance(a, dict) and int(a.get("id") or 0) > 0
-                                        ]
-                                        if _copied:
-                                            ibs_attrs = _copied
+                                    for _v4_attempt in range(3):
+                                        _v4_matched = False
+                                        try:
+                                            _ibs_v4 = ozon_post(
+                                                state.ozon_client_id, state.ozon_api_key,
+                                                "/v4/product/info/attributes",
+                                                {"filter": {"product_id": [str(_pid)],
+                                                            "visibility": "ALL"},
+                                                 "limit": 10},
+                                                timeout=15,
+                                            )
+                                            _ibs_v4_items = (_ibs_v4.get("result") or {}).get("items") \
+                                                if isinstance(_ibs_v4.get("result"), dict) \
+                                                else _ibs_v4.get("result")
+                                            for _ibs_it in (_ibs_v4_items or []):
+                                                if int((_ibs_it or {}).get("id") or 0) != int(_pid):
+                                                    continue
+                                                _v4_matched = True
+                                                _copied = [
+                                                    {"complex_id": int(a.get("complex_id") or 0),
+                                                     "id": int(a.get("id") or 0),
+                                                     "values": a.get("values") or []}
+                                                    for a in (_ibs_it.get("attributes") or [])
+                                                    if isinstance(a, dict) and int(a.get("id") or 0) > 0
+                                                ]
+                                                if _copied:
+                                                    ibs_attrs = _copied
+                                                    logger.info(
+                                                        "✅ 复制卡原带特征表读回: %d 个属性"
+                                                        "（prepare 合并防 import 洗卡）", len(_copied))
+                                                break
+                                        except Exception as _cp_err:
+                                            if not _is_v4_index_latency(_cp_err):
+                                                logger.warning("⚠️ 复制卡特征表读回失败（不阻断）: %s", _cp_err)
+                                                break
+                                        if ibs_attrs or _v4_matched:
+                                            break
+                                        if _v4_attempt < 2:
                                             logger.info(
-                                                "✅ 复制卡原带特征表读回: %d 个属性"
-                                                "（prepare 合并防 import 洗卡）", len(_copied))
-                                        break
+                                                "⏳ 复制卡 /v4 索引延迟（第 %d/3 次无 404 命中），5s 后重试",
+                                                _v4_attempt + 1)
+                                            time.sleep(5)
                                 except Exception as _cp_err:
                                     logger.warning("⚠️ 复制卡特征表读回失败（不阻断）: %s", _cp_err)
                                 break
@@ -343,6 +398,23 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # 2) Fallback CREATE 才需要类目：缺失时用 1688 来源类目/标题 pg_trgm 兜底
     #    （复用 direct 管线现成引擎）
     import_by_sku_ok = bool(product_id)
+
+    # ✅ v0.85 follow_clone 回退：import-by-sku 未成（无 product_id）且信封带
+    # clone_card → dc/tp 直接采竞品卡真值（竞品在售事实，比任何解析都权威）；
+    # 无 clone_card 或 dc/tp 非法 → 不采，走既有失败链（绝不裸奔空类目）。
+    if follow_type == "clone" and not import_by_sku_ok:
+        _cc = extensions.get("clone_card") or {}
+        if isinstance(_cc, dict):
+            _cc_dc = str(_cc.get("dc") or "").strip()
+            _cc_tp = str(_cc.get("tp") or "").strip()
+            if _cc_dc.isdigit() and _cc_tp.isdigit() and int(_cc_dc) > 0 and int(_cc_tp) > 0:
+                dc_id, tp_id = _cc_dc, _cc_tp
+                logger.info("🧬 克隆回退：采用 clone_card 类目 dc=%s tp=%s（竞品卡真值）",
+                            _cc_dc, _cc_tp)
+            else:
+                logger.warning("🧬 克隆回退：clone_card 类目缺失/非法（dc=%r tp=%r），"
+                               "走既有类目失败链", _cc_dc, _cc_tp)
+
     if not dc_id or not tp_id:
         if import_by_sku_ok:
             logger.warning("⚠️ 跟卖无类目但 import-by-sku 已成功（%s），"
@@ -366,6 +438,11 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
                     _re_it = ((_re_info.get("items") or [{}])[0]) or {}
                     _re_dc = str(_re_it.get("description_category_id") or "")
                     _re_tp = str(_re_it.get("type_id") or "")
+                    # ✅ v0.85.x 克隆卡名回读：兜底反查同样带回 name（首次反查未命中时的补漏）
+                    if not ibs_name:
+                        _re_nm = str(_re_it.get("name") or "").strip()
+                        if _re_nm:
+                            ibs_name = _re_nm
                     if _re_dc.isdigit() and _re_tp.isdigit() and int(_re_dc) > 0 and int(_re_tp) > 0:
                         dc_id, tp_id = _re_dc, _re_tp
                         category_missing = False
@@ -442,26 +519,42 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
     # （品牌85/5076+产地4389+型号9048+数量8962），真实竞品属性(draft.ozon_attributes)全丢。
     # 合并链在 attr_defaults.build_follow_attr_merge: 字典属性 /values/search 解析 dict_id,
     # 竞品文本值无字典匹配 → 跳过(绝不注入原文)；硬编码 5 属性仅作双无兜底。
-    try:
-        from utils.attr_defaults import build_follow_attr_merge
-        final_attrs = build_follow_attr_merge(
-            draft=draft,
-            schema=attrs_schema,
-            dc_id=dc_id,
-            tp_id=tp_id,
-            client_id=client_id,
-            api_key=api_key,
-            product_id=ozon_product_id,
-        )
-    except Exception as _merge_err:
-        logger.warning("跟卖属性合并链异常，回退硬编码 5 属性: %s", _merge_err)
-        final_attrs = [
-            {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-            {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
-            {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
-            {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
-            {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
-        ]
+    # ✅ v0.85 follow_clone 回退：clone_card.attributes 经 normalize_clone_attributes
+    # → 生产 prepare 同形状（complex_id+id 主键+两键值；2026-10-04 留观卡实测：
+    # attribute_id 键无 complex_id 的形状 required 属性被判 error_attribute_values_empty）
+    # 逐字透传——零字典解析零 LLM（模式本意）。
+    _clone_attrs_passed = False
+    if follow_type == "clone" and not import_by_sku_ok:
+        _cc_obj = extensions.get("clone_card")
+        _cc_attrs = _cc_obj.get("attributes") if isinstance(_cc_obj, dict) else None
+        if isinstance(_cc_attrs, list) and _cc_attrs:
+            from utils.clone_card_builder import normalize_clone_attributes
+            final_attrs, _cc_skipped = normalize_clone_attributes(_cc_attrs)
+            _clone_attrs_passed = bool(final_attrs)
+            if _clone_attrs_passed:
+                logger.info("🧬 克隆回退：clone_card 属性逐字透传 %d 个（生产形状，"
+                            "skipped=%s）", len(final_attrs), _cc_skipped)
+    if not _clone_attrs_passed:
+        try:
+            from utils.attr_defaults import build_follow_attr_merge
+            final_attrs = build_follow_attr_merge(
+                draft=draft,
+                schema=attrs_schema,
+                dc_id=dc_id,
+                tp_id=tp_id,
+                client_id=client_id,
+                api_key=api_key,
+                product_id=ozon_product_id,
+            )
+        except Exception as _merge_err:
+            logger.warning("跟卖属性合并链异常，回退硬编码 5 属性: %s", _merge_err)
+            final_attrs = [
+                {"id": 85, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+                {"id": 5076, "values": [{"dictionary_value_id": BRAND_DICT_ID, "value": "Нет бренда"}]},
+                {"id": 4389, "values": [{"dictionary_value_id": CHINA_DICT_ID, "value": "Китай"}]},
+                {"id": 9048, "values": [{"dictionary_value_id": 0, "value": str(ozon_product_id)}]},
+                {"id": 8962, "values": [{"dictionary_value_id": 0, "value": "1"}]},
+            ]
     up_status = "pending"
 
     logger.info("✅ 跟卖 v5: product_id=%s, cat=%s/%s, imgs=%d",
@@ -482,6 +575,10 @@ def follow_sell_import_node(state: GlobalState) -> dict[str, Any]:
         # feat/follow-copy-attrs-v1 (A6): 复制卡原带特征表透传（channel 纪律：
         # GlobalState/PrepareOzonUploadInput 两处已声明）
         "follow_copied_attributes": ibs_attrs,
+        # ✅ v0.85.x 克隆卡名回读：复制卡卡上 name（俄语原名，空串=反查未命中/
+        # 非复制路径）。channel 纪律：GlobalState/PrepareOzonUploadInput 两处声明，
+        # prepare follow_clone 模式消费（prepare item name 逐字回显复制卡事实）。
+        "copied_card_name": ibs_name,
         # fix/image-ref-pollution R2: 信封 extensions 透传（follow_sell/
         # follow_type/competitor_ref_images），供 prepare 跟卖判定与生图参考分线
         "extensions": extensions,

@@ -166,6 +166,20 @@ grep -H "" VERSION skill/VERSION deploy/skill/VERSION | sed 's/:$/: /'; grep -m1
 - **skill 源码保护**：`compile.py` Cython 编译 13 个 lib 模块 + COPY/AUX 明文双清单；改模块归属必须同步 compile.py 三清单 + 跑 `test_compile_lists.py`；分发流程见 compile.py 头注释与 `build-skill.yml`。
 - **双 MCP 分工**：云端 worker `/mcp` 管上架/草稿/店铺/查询（改路由必须同步 `mcp_server.py` 的 `_call`）；本地 pounding-mcp 管采集（依赖本机 Chrome 登录态）。`run_store_action`/`submit_*` 是真实写操作，agent 侧需用户确认。
 
+## Agent skills
+
+### Issue tracker
+
+Issues 走本地 markdown：`.scratch/<feature-slug>/`（spec.md + issues/NN-<slug>.md 分票 + `Status:` 行 triage），不走 GitHub Issues。 See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+沿用五个默认角色标签：`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`，记录为 issue 文件头部 `Status:` 行。 See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context：根 `GLOSSARY.md` + `docs/adr/`，懒创建——不存在则静默跳过。 See `docs/agents/domain.md`.
+
 ---
 
 **历史与深读**：全部版本演进见根 `CHANGELOG.md`；架构全景 + 已知问题清单 `docs/ARCHITECTURE/`（09-findings）；过时文档在 `archive/docs/legacy/`。

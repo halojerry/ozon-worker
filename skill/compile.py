@@ -68,6 +68,9 @@ COPY_FILES = [
     # 逻辑反复调整（v0.28.3→v0.28.6 独立 profile 改造），编译态 .so/.pyd 无法
     # 热迭代，且跨平台 Cython 编译风险（cloud_probe 同款）。明文跨平台一致。
     "scripts/lib/chrome_launcher.py",
+    # ⚠️ doctor.py 明文（v0.84.0）：整体体检工具——纯诊断零业务，用户/审计
+    # 需直接读它的检查逻辑（六区红绿清单），明文同 probe_win_cookies 先例。
+    "scripts/lib/doctor.py",
     # ⚠️ stealth.py 明文（2026-08-07 从编译移回）：v0.28.7 极简化（真实指纹
     # 无需伪造），反检测是对抗性代码——1688/Ozon 升级检测必须能快速调，
     # 且编译态改 3 行就要重编译 4 平台。明文跨平台一致。
@@ -124,6 +127,12 @@ AUX_FILES = [
     "scripts/lib/vault_writer.py",       # cli report 导出（stores markdown 渲染）
     "scripts/lib/discovery_session.py",  # v0.83 批⑥ discover session 落盘（discover 主链）
     "scripts/lib/detach.py",             # v0.83 批⑥ 后台任务注册表（jobs/--detach/jobs 收割）
+    # multi-SKU 合卡 V1（PLAN-multi-sku-v1）：1688 颜色 SKU → draft.variants 展开
+    # （纯函数，cloud_probe/cli 薄调用；无源码保护诉求，match_scoring 同款明文）。
+    "scripts/lib/variants_expander.py",
+    # clone 源名语言前置守卫（feat/multi-sku-9048-only）：纯函数零 IO，
+    # cloud_probe 薄调用；无源码保护诉求，variants_expander 同款明文。
+    "scripts/lib/name_lang_guard.py",
     "scripts/capabilities/__init__.py",
     "scripts/capabilities/browser_probe/__init__.py",
     # ⚠️ service.py 明文（不编译）：探针是改动最频繁的模块，需本地快速迭代

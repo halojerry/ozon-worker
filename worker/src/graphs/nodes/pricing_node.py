@@ -19,6 +19,8 @@ from utils.ozon_client import ozon_post  # F-F01: Ozon 直连统一入口
 from utils.price_sanity_guard import check_price_sanity  # ✅ v0.73: 价差守卫（Issue5b，锚价在场时校验终价倍数）
 # 佣金缓存查询注入点（core 经注入点调用，既保 patch 语义又保持 core 纯净）
 from utils.commission_resolver import get_category_commission
+# ✅ fix/dedupe-batch1 C7: 管线本地码唯一事实源（禁裸字符串，见 utils/pipeline_error_codes.py）
+from utils.pipeline_error_codes import LOCAL_PRICE_GAP_BLOCKED, LOCAL_PRICING_FAILED
 import time as _time
 
 
@@ -177,6 +179,141 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
         # 供排查「价格为何是该币种」（此前静默 RUB 无法回溯币种从哪来）。
         pricing_info["currency_source"] = currency_source
 
+        price: int = pricing_info["price"]
+        old_price: int = pricing_info["old_price"]
+        currency_unit: str = pricing_info["currency_unit"]
+        logistics_cost: float = pricing_info["logistics_cost_cny"]
+        packaging_cost: float = pricing_info["packaging_cost_cny"]
+        margin_rate: float = pricing_info["margin_rate"]
+        commission_rate: float = pricing_info["commission_rate"]
+        _dual_margin: bool = bool(_audit.get("dual_margin"))
+
+        # ✅ v0.85 follow_clone 锚价覆盖（PLAN-follow-clone-v1 §3，用户拍板
+        # 2026-10-03）：上架价卡「跟卖列表前 20 报价均值」×factor（缺省 1.0，
+        # env FOLLOW_CLONE_PRICE_FACTOR 可调——「比竞品增幅可调/出单后自改」）。
+        # - 锚价 = draft.competitor_price（skill 选品时**物化**均值，恒 RUB——
+        #   price_sanity 红线：绝不引用化/延迟解析）；
+        # - ✅ v0.85.1 首战修正（2026-10-04 测试店 5371047 五单实录，BL-01 边界）：
+        #   CNY 店 _get_exchange_rate(CNY) 恒返 1.0（CNY 定价路径不使用汇率），
+        #   旧代码 _fc_target_rub / 1.0 把 RUB 锚价原样当 CNY（4286₽→4286¥，
+        #   高报 ~12.5 倍）。CNY 店改走 utils.fx_rate_service.resolve_cny_rub_rate()
+        #   真换算（1 CNY 兑 N RUB → price = round(anchor_rub / rate)）——fx 只在
+        #   clone+CNY 需要换算时才拉，RUB 店零开销；来源打 pricing_info 留痕
+        #   （exchange_rate_source marks 同款先例）。
+        # - ✅ v0.85.1 clone 专用底线档（2026-10-04 产品拍板）：克隆锚价天然低于
+        #   三档 floor（core promo 档 ≈ 成本×2.5 起，对克隆恒拒失去闸意义）——
+        #   改用底线 = int(成本链 × FOLLOW_CLONE_MIN_MARGIN_MULT)（缺省 1.3）。
+        #   成本链 = 采购+物流+包装 = pricing_info.total_cost_cny
+        #   （compute_pricing_core 权威）；CNY 店底线即 CNY 数值，RUB 店按
+        #   exchange_rate（本店真汇率）折 RUB 比较。低于底线 → LOCAL_PRICING_FAILED
+        #   如实拒（宁缺毋滥，同 commission_fallback_not_profitable 语义）；
+        # - 价差守卫自动覆盖：均值同时物化进 discovery_meta.ozon_price（同锚槽）。
+        _fc_ext = extensions if isinstance(extensions, dict) else {}
+        if _fc_ext.get("follow_clone"):
+            import os as _os
+            try:
+                _fc_anchor_rub = float(draft.get("competitor_price") or 0)
+            except (TypeError, ValueError):
+                _fc_anchor_rub = 0.0
+            if _fc_anchor_rub > 0:
+                try:
+                    _fc_factor = float(_os.getenv("FOLLOW_CLONE_PRICE_FACTOR", "1.0") or 1.0)
+                except ValueError:
+                    _fc_factor = 1.0
+                if _fc_factor <= 0:
+                    logger.warning("FOLLOW_CLONE_PRICE_FACTOR 非法（%.4g），回落 1.0", _fc_factor)
+                    _fc_factor = 1.0
+                try:
+                    _fc_margin_mult = float(
+                        _os.getenv("FOLLOW_CLONE_MIN_MARGIN_MULT", "1.3") or 1.3)
+                except ValueError:
+                    _fc_margin_mult = 1.3
+                if _fc_margin_mult <= 0:
+                    logger.warning("FOLLOW_CLONE_MIN_MARGIN_MULT 非法（%.4g），回落 1.3", _fc_margin_mult)
+                    _fc_margin_mult = 1.3
+                _fc_target_rub = _fc_anchor_rub * _fc_factor
+                # CNY 跨境店：锚价 RUB → CNY 真换算（fx 只在此需要时拉；
+                # resolve_cny_rub_rate 三级源链内部吞错，恒返 (rate, source)）。
+                _fc_fx_rate: float = 0.0
+                _fc_fx_source: str = ""
+                if currency_code == "CNY":
+                    try:
+                        from utils.fx_rate_service import resolve_cny_rub_rate
+                        _fc_fx_rate, _fc_fx_source = resolve_cny_rub_rate()
+                    except Exception as _fc_fx_e:
+                        logger.warning("follow_clone 拉取 CNY→RUB 汇率异常（fail-closed）: %s", _fc_fx_e)
+                        _fc_fx_rate, _fc_fx_source = 0.0, ""
+                    if _fc_fx_rate <= 0:
+                        logger.error(
+                            "⛔ follow_clone CNY 店无有效换算汇率（rate=%s）——拒绝把 RUB 锚价当 CNY 上架",
+                            _fc_fx_rate)
+                        return PricingOutput(
+                            pricing_info={"follow_clone_anchor_rub": _fc_anchor_rub,
+                                          "clone_fx_source": _fc_fx_source},
+                            price="",
+                            old_price="",
+                            error_message=(
+                                f"[PRICING_FAILED] follow_clone CNY 店锚价 {round(_fc_anchor_rub)} RUB "
+                                "无有效 CNY→RUB 汇率可换算（fail-closed，绝不高报原币面值）"
+                            ),
+                            error_code=LOCAL_PRICING_FAILED,
+                            failed_stage="pricing",
+                        )
+                    _fc_price = round(_fc_target_rub / _fc_fx_rate)
+                else:
+                    _fc_price = round(_fc_target_rub)
+                _fc_price = max(1, _fc_price)
+                # clone 底线档：成本链 × 倍数（替代主链 promo floor——对克隆恒拒）。
+                _fc_total_cost_cny = float(pricing_info.get("total_cost_cny") or 0)
+                if currency_code == "CNY":
+                    _fc_floor = int(_fc_total_cost_cny * _fc_margin_mult)
+                else:
+                    _fc_floor = int(_fc_total_cost_cny * float(exchange_rate or 0) * _fc_margin_mult)
+                if _fc_floor > 0 and _fc_price < _fc_floor:
+                    logger.error(
+                        "⛔ follow_clone 克隆底线拒绝：锚价 %s RUB×%.4g → %s %s 低于底线 %s"
+                        "（成本链 %.2f CNY ×%.4g），宁缺毋滥",
+                        _fc_anchor_rub, _fc_factor, _fc_price, currency_unit,
+                        _fc_floor, _fc_total_cost_cny, _fc_margin_mult)
+                    return PricingOutput(
+                        pricing_info={"follow_clone_anchor_rub": _fc_anchor_rub,
+                                      "floor_price": _fc_floor,
+                                      "clone_total_cost_cny": _fc_total_cost_cny,
+                                      "clone_floor_margin_mult": _fc_margin_mult},
+                        price="",
+                        old_price="",
+                        error_message=(
+                            f"[PRICING_FAILED] follow_clone 锚价 {round(_fc_anchor_rub)} RUB "
+                            f"×{_fc_factor} = {_fc_price} {currency_unit} 低于克隆底线价 "
+                            f"{_fc_floor}（成本链 {_fc_total_cost_cny:.2f} CNY ×{_fc_margin_mult}"
+                            "——克隆锚价天然低于常规三档底线，改按成本×倍数闸；"
+                            "换货源或调 FOLLOW_CLONE_MIN_MARGIN_MULT / FOLLOW_CLONE_PRICE_FACTOR）"
+                        ),
+                        error_code=LOCAL_PRICING_FAILED,
+                        failed_stage="pricing",
+                    )
+                from utils.pricing_estimate import enforce_old_price_rule
+                _fc_old = enforce_old_price_rule(_fc_price, round(_fc_price * 1.3))
+                pricing_info["price_source"] = "follow_clone_anchor"
+                pricing_info["anchor_price_rub"] = round(_fc_anchor_rub)
+                pricing_info["anchor_factor"] = _fc_factor
+                pricing_info["clone_floor_price"] = _fc_floor
+                pricing_info["clone_floor_margin_mult"] = _fc_margin_mult
+                if currency_code == "CNY":
+                    # 换算留痕（fx keys 先例）：审计「克隆价是否源于兜底汇率」
+                    pricing_info["clone_fx_rate"] = _fc_fx_rate
+                    pricing_info["clone_fx_source"] = _fc_fx_source
+                price = _fc_price
+                old_price = _fc_old
+                pricing_info["price"] = price
+                pricing_info["old_price"] = old_price
+                logger.info(
+                    "🧬 follow_clone 锚价覆盖：anchor=%s RUB ×%.4g → price=%s %s "
+                    "(old=%s, clone_floor=%s, fx=%s)",
+                    round(_fc_anchor_rub), _fc_factor, price, currency_unit, old_price,
+                    _fc_floor,
+                    f"{_fc_fx_rate}({_fc_fx_source})" if currency_code == "CNY" else "n/a")
+
         # ✅ v0.37 A2/B2: 重量/尺寸标疑放行但上报 Sentry（留痕，不阻断定价）
         _wd_audit = _audit.get("wd_audit") or {}
         if _wd_audit.get("reasons"):
@@ -197,14 +334,6 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             except Exception:
                 pass
 
-        price: int = pricing_info["price"]
-        old_price: int = pricing_info["old_price"]
-        currency_unit: str = pricing_info["currency_unit"]
-        logistics_cost: float = pricing_info["logistics_cost_cny"]
-        packaging_cost: float = pricing_info["packaging_cost_cny"]
-        margin_rate: float = pricing_info["margin_rate"]
-        commission_rate: float = pricing_info["commission_rate"]
-        _dual_margin: bool = bool(_audit.get("dual_margin"))
 
         _price_log = (
             f"价格计算成功(三档): price(日常)={price} {currency_unit}, "
@@ -350,7 +479,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
                 old_price="",
                 notice=_notice,
                 error_message=_error,
-                error_code="LOCAL_PRICE_GAP_BLOCKED",
+                error_code=LOCAL_PRICE_GAP_BLOCKED,
                 failed_stage="pricing",
             )
         if _verdict == "warn":
@@ -376,7 +505,7 @@ def pricing_node(state: PricingInput, config: RunnableConfig, runtime: Runtime[C
             # ⚠️ v0.14 P1-4: [PRICING_FAILED] 标记，graph 检测后阻断管线，不再用 ¥1000 兜底上架
             error_message=f"[PRICING_FAILED] Pricing calculation failed: {str(e)}",
             # ✅ v0.77.2: 错误码透出（留存表 error_code 列）
-            error_code="LOCAL_PRICING_FAILED",
+            error_code=LOCAL_PRICING_FAILED,
             # ✅ v0.73 Task8: 失败出口显式带 failed_stage（默认值已归零，见上）
             failed_stage="pricing",
         )

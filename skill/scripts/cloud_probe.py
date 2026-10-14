@@ -1878,6 +1878,7 @@ def build_graph_envelope(
     template_id: str = "",
     category_id: str = "",
     type_id: str = "",
+    multi_sku: bool = False,
 ) -> dict[str, Any]:
     """1688 API + CDP → GraphInput 格式 envelope。
 
@@ -1893,6 +1894,10 @@ def build_graph_envelope(
         category_id/type_id: v0.69 T0.1b 人工指定 Ozon 类目（source="manual"）。
             两者同时非空才生效——直传信封覆盖任何 search_kw 猜测并跳过自校验；
             缺一回落自动匹配。
+        multi_sku: 多 SKU 合卡模式（PLAN-multi-sku-v1 V1，cli --variants）。
+            True 时颜色维度 SKU 展开 draft.variants（≤15）+ draft.multi_sku=True；
+            展开逻辑全在 lib/variants_expander.py（本函数只留薄调用点）。
+            缺省 False = 单 SKU 现状零变化。
     """
     from scripts.lib.config_store import _require_auth
     _require_auth()
@@ -2475,6 +2480,9 @@ def build_graph_envelope(
     # ⚠️ v0.14 P0-4: 无条件调用（_collapse_variants_to_single 内部已兼容 0/1/N 个变体）
     # 旧守卫 if len(variants) > 1 导致单SKU/跟卖/发现商品跳过折叠 → cost_cny 不含国内运费(freightCny)，
     # 采购成本偏低 → 定价利润失真（每单必现）。
+    # multi-SKU V1（PLAN-multi-sku-v1）: multi_sku=True 时先留折叠前快照——
+    # 合卡展开吃的是过滤后的整色卡列表，折叠只管单产品成本锚（两条通道互不干扰）。
+    _msku_pre_variants: list[dict] = list(variants) if multi_sku else []
     original_count = len(variants)
     variants, cost_cny = _collapse_variants_to_single(variants, cost_cny, shipping)
     # fix/listing-quality-v081 修复2: 代表档标记取回（variant 键消费即除，不外溢）
@@ -2570,6 +2578,22 @@ def build_graph_envelope(
         draft["sku_id"] = v0["sku_id"]
         draft["price"] = v0["price"]
         draft["original_price"] = v0["original_price"]
+
+    # ── 6.1 多 SKU 合卡展开（PLAN-multi-sku-v1 V1；multi_sku 缺省 False 时本块整体跳过，
+    # 单 SKU 现状零变化）。逻辑全在 lib/variants_expander.py（cloud_probe 冻结增长，
+    # 此处只留薄调用点）；draft.variants/draft.multi_sku 是 draft 键——不进 extensions
+    # 契约闸（envelope_contract 只类型化 extensions，draft 自由 dict），worker V2 读
+    # multi_sku 切 9048 合卡语义。放在 6 的 is_multi/else 之后：合卡形状覆盖 legacy
+    # 全量 variants 形状（折叠后 is_multi 实际恒 False，防御性后置保序）。
+    if multi_sku and _msku_pre_variants:
+        from scripts.lib.variants_expander import expand_multi_sku_variants
+        _msku = expand_multi_sku_variants(
+            _msku_pre_variants,
+            base_sku_id=str((variants[0] if variants else {}).get("sku_id") or ""),
+        )
+        if _msku["variants"]:
+            draft["multi_sku"] = True
+            draft["variants"] = _msku["variants"]
 
     envelope: dict[str, Any] = {
         "draft": draft,
@@ -3334,6 +3358,7 @@ def build_graph_envelope_with_retry(
     template_id: str = "",
     category_id: str = "",
     type_id: str = "",
+    multi_sku: bool = False,
 ) -> dict[str, Any]:
     """build_graph_envelope() with CDP retry on degradation.
 
@@ -3358,6 +3383,8 @@ def build_graph_envelope_with_retry(
             template_id=template_id,
             category_id=category_id,
             type_id=type_id,
+            # multi-SKU V1: 跨平台腿暂不支持合卡展开（1688 采集腿专属）——
+            # 显式丢弃 multi_sku 保持该腿零变化（V1 范围裁剪，PLAN-multi-sku-v1）
         )
     import random as _random
 
@@ -3378,6 +3405,8 @@ def build_graph_envelope_with_retry(
                 # ✅ v0.69 T0.1b: manual 类目直传透传（默认 ""，不传=自动匹配）
                 category_id=category_id,
                 type_id=type_id,
+                # multi-SKU V1（PLAN-multi-sku-v1）: cli --variants 透传（缺省 False 零变化）
+                multi_sku=multi_sku,
             )
         except RuntimeError as exc:
             last_error = exc
@@ -3472,7 +3501,10 @@ def check_task_status(task_id: str, token: str = "") -> dict[str, Any]:
             result = {}
 
     # Map Worker statuses to skill terminal statuses
-    terminal = status in ("completed", "failed", "cancelled")
+    # ✅ v0.85.1 首战修正（2026-10-04）：补 "rejected"（Ozon 拒审终态，worker
+    # task_progress_service 同口径）——漏判曾让 follow --wait 对已拒任务按 10s
+    # 空转到 900s 超时，占死重采集闸。
+    terminal = status in ("completed", "failed", "cancelled", "rejected")
     ok = status == "completed"
 
     return {
@@ -3687,7 +3719,9 @@ def _cached_ozon_scrape(
 
 def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = "",
                       review: bool = False, notify: bool = False,
-                      to_box: bool = False, min_margin: float = 0.0) -> dict[str, Any]:
+                      to_box: bool = False, min_margin: float = 0.0,
+                      clone: bool = False,
+                      allow_latin_name: bool = False) -> dict[str, Any]:
     """
     跟卖 Ozon 商品 (v9: Skill 不调 Ozon API, import-by-sku 移到 Worker):
       1. CDP 抓取 Ozon 商品页 → 拿到竞品图片 + 标题
@@ -3703,6 +3737,13 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
 
     review: D3 L3 人工评审暂停——展示全部 1688 候选，人工接受/改选/拒绝；
     拒绝 → no_relevant_match（不组装信封不提交），决策写 review_log。
+
+    ✅ feat/multi-sku-9048-only: ``allow_latin_name``（--allow-latin-name，仅 clone
+    模式生效）——克隆源名拉丁前置守卫豁免开关。双 gate 铁证：竞品源卡名拉丁 →
+    worker LOCAL_NAME_LATIN 秒拒终态（零 LLM 不可译）；守卫判定在
+    lib/name_lang_guard（cloud_probe 冻结纪律），此处只留薄调用点：CDP 抓到卡名
+    即判（提前警示，选品阶段就能换竞品）+ 提交前默认阻断，豁免时放行走必拒
+    已知路径（用户知情）。
 
     Returns: {success, product_id, slug, images, title, 1688_matches, task_id}
     """
@@ -3849,6 +3890,21 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
     result["images"] = ozon_images
     if ozon_title:
         result["title"] = ozon_title
+
+    # ✅ feat/multi-sku-9048-only: clone 源名语言前置守卫（判定 lib/name_lang_guard
+    # 唯一实现，cloud_probe 冻结纪律只留薄调用点）。CDP 抓到卡名即判+提前警示
+    # （选品阶段就能换西里尔名竞品，省整条 1688 搜索链）；提交闸在下方 Step 5。
+    if clone and ozon_title:
+        from scripts.lib.name_lang_guard import name_language_verdict
+        _nlv = name_language_verdict(ozon_title)
+        result["competitor_name_language"] = _nlv
+        if _nlv.get("latin_only"):
+            logger.warning(
+                "⚠️ clone 源名前置警示: 竞品卡名为拉丁字符（latin=%.0f%% 无西里尔）→ "
+                "提交将被拦截（worker LOCAL_NAME_LATIN 必拒终态）；建议换西里尔名竞品"
+                "（或 --allow-latin-name 显式豁免，仍必拒）",
+                float(_nlv.get("latin_ratio") or 0.0) * 100,
+            )
 
     # ── Step 2.5: 竞品运营数据 + 重量/尺寸（what_to_sell，卖家后台借道）──
     # v0.22（参考 maozi）：竞品重量(4497)/尺寸(9454/9455/9456)/月销/GMV 从
@@ -4156,8 +4212,23 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                         extensions["competitor_ref_images"] = list(ozon_images[:1])
                     # ✅ v0.22（参考 maozi follow_type）: hand=防侵权跟卖（默认，
                     # 跳过 import-by-sku 1:1 复制，走 CREATE 重建——我们管线重做
-                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制
-                    extensions["follow_type"] = extensions.get("follow_type") or "hand"
+                    # 类目/属性/生图，天然防同款/侵权检测）；api=import-by-sku 强制；
+                    # ✅ v0.85 clone=跟卖克隆（--clone，PLAN-follow-clone-v1）：
+                    # import-by-sku 复制 + 零 LLM 零生图（worker 侧跳撰写/生图链，
+                    # 复制卡 images=[] 不动卡图；不可复制走 clone_card 逐字回退）。
+                    extensions["follow_type"] = extensions.get("follow_type") or \
+                        ("clone" if clone else "hand")
+                    if clone:
+                        extensions["follow_clone"] = True
+                        # clone_card 最小回退载荷（B1 批补 CDP 全量读卡——
+                        # webCharacteristics 属性表/dc/tp/重量尺寸；worker 侧
+                        # validate_clone_card 逐字校验，缺 dc/tp 时克隆回退
+                        # 诚实不启用，import-by-sku 主路径不受影响）。
+                        extensions["clone_card"] = {
+                            "product_id": str(product_id),
+                            "name": str(draft.get("title") or slug or "").strip(),
+                            "images": [u for u in (ozon_images or []) if isinstance(u, str)],
+                        }
                     # ⚠️ arch-findings #5 信封三腿统一：定价参数注入改走与 graph 主链
                     # 同一 _merge_config_tiers 三段降级（显式 > worker 模板
                     # get_template_profile > stores.json；数值键非零纪律同源）——
@@ -4349,7 +4420,27 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                                 logger.warning("⛔ follow 源前置拦截（提交前）: %s", _why_src)
                             else:
                                 logger.warning("⚠️ 展示态源数据质量警示: %s", _why_src)
-                        if auto_submit and not _low_margin_block and not _src_hard_block:
+                        # ✅ feat/multi-sku-9048-only: clone 源名拉丁前置闸（提交前默认
+                        # 阻断，--allow-latin-name 显式豁免=用户知情走 LOCAL_NAME_LATIN
+                        # 必拒已知路径）。判定 lib/name_lang_guard 唯一实现；--to-box
+                        # 入箱 warning 放行（对齐 _source_preflight 口径——入箱可逆，
+                        # WebUI 认领时人工把关）；展示态只警示（上方 CDP 抓名后已警示）。
+                        _latin_block = False
+                        if clone and not allow_latin_name:
+                            from scripts.lib.name_lang_guard import latin_name_block_reason
+                            _why_latin = latin_name_block_reason(str(draft.get("title") or ""))
+                            if _why_latin:
+                                if auto_submit and not to_box:
+                                    _latin_block = True
+                                    result["blocked_reason"] = "latin_name"
+                                    result["success"] = False
+                                    result["submit_result"] = None
+                                    print(f"❌ 提交被前置拦截: {_why_latin}", flush=True)
+                                    logger.warning("⛔ clone 源名拉丁前置拦截（提交前）: %s", _why_latin)
+                                else:
+                                    logger.warning("⚠️ clone 源名拉丁警示（%s放行）: %s",
+                                                   "入箱" if to_box else "展示态", _why_latin)
+                        if auto_submit and not _low_margin_block and not _src_hard_block and not _latin_block:
                             if notify:
                                 envelope["notify"] = True
                             submit_res = submit_draft(envelope) if to_box else submit_envelope(envelope)
@@ -4363,8 +4454,8 @@ def follow_sell_cloud(ozon_url: str, auto_submit: bool = False, store_id: str = 
                             else:
                                 result["task_id"] = submit_res.get("task_id", "")
                                 result["success"] = bool(submit_res.get("ok")) and bool(submit_res.get("task_id"))
-                        elif auto_submit and (_low_margin_block or _src_hard_block):
-                            pass  # min-margin / 源前置拦截：不提交（success 已置 False）
+                        elif auto_submit and (_low_margin_block or _src_hard_block or _latin_block):
+                            pass  # min-margin / 源前置 / clone 源名拉丁拦截：不提交（success 已置 False）
                         else:
                             # dry-run：仅组装信封，构建成功即算成功
                             result["success"] = True

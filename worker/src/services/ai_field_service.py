@@ -233,15 +233,23 @@ def _suggest_category(title_text: str) -> Optional[dict]:
 
 
 def _get_cny_rub_rate() -> float:
-    """CNY→RUB 汇率：PG 缓存优先，fallback 12.0（与 pricing_node._get_exchange_rate 同语义）。"""
+    """CNY→RUB 汇率：BL-01 三级源链唯一入口 resolve_cny_rub_rate。
+
+    ✅ fix/dedupe-batch1 A2：旧实现只读 PG（exchange_rates 死缓存——写侧零调用，
+    24h 新鲜度一过恒 None → 兜底恒 12.0 无告警），改走三级源链
+    pg_cache → live 拉取并回写 → 12.0 兜底（同源先例：estimate_service:147、
+    pricing_node._get_exchange_rate）。调用频率：assemble_draft 每个 draft 一次
+    （LLM 重操作非热循环），且 main.py 周期 refresh_cny_rub_if_due 预热 PG 缓存
+    ——主路径多数命中 pg_cache，不再额外包一层薄缓存（重复实现无收益）。
+    返回 float（调用方 _estimate_pricing 只消费数值，source 不透传展示）。
+    """
     try:
-        from utils.local_db_manager import LocalDBManager
-        rate = LocalDBManager().get_exchange_rate("CNY", "RUB")
-        if rate and float(rate) > 1:
-            return float(rate)
-    except Exception as exc:
-        logger.debug("assemble 汇率查询失败，用默认 12.0: %s", str(exc)[:120])
-    return 12.0
+        from utils.fx_rate_service import resolve_cny_rub_rate
+        rate, _source = resolve_cny_rub_rate()
+        return float(rate)
+    except Exception as exc:  # resolve 自身不 raise；防御性兜底保持旧语义
+        logger.warning("assemble 汇率解析异常，用默认 12.0: %s", str(exc)[:120])
+        return 12.0
 
 
 def _estimate_pricing(payload: dict) -> Optional[dict]:

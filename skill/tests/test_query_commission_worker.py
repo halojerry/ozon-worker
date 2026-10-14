@@ -149,10 +149,14 @@ def test_worker_batch_commission_backfilled():
     assert cand.commission_source == "segments:leq_5000"
     assert cand.estimated_commission == pytest.approx(cand.ozon_price * 0.08 * 0.14), \
         f"应使用 worker 回填的 14%, got {cand.estimated_commission}"
-    # 候选 dc / currency 透传进 batch item（worker 侧 resolver 消费）
+    # 候选 dc 透传进 batch item（worker 侧 resolver 消费）
     item = captured["items"][0]
     assert item["dc"] == "17028892"
-    assert item["currency_code"] == "RUB"
+    # v0.85 修「profit_margin 恒 4.18%」：**绝不传 currency_code="RUB"**——
+    # worker 三档 RUB 路径 profit_rate 分子 CNY/分母 RUB 售价，净利率被汇率整除
+    # （44.9%→~4.2% 且与成本无关恒定）；缺省 → worker schema 契约"缺省按 CNY"
+    # （货币中性净利率，与直调参考一致）。见 _build_estimate_item docstring。
+    assert "currency_code" not in item
 
 
 # ── ⑤ 候选本地分段落进 batch item ─────────────────────────────────────

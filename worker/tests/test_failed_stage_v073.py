@@ -511,6 +511,41 @@ def test_status_non_numeric_pid_pending_failed_stage_empty():
     assert out.failed_stage == ""
 
 
+# ══════════════ 8. completed 终态剥离累积残留 failed_stage（2026-10-04 事故 6516590295）══════════════
+# 「ozon_status 报 validation_failed → 修复循环成功」的任务，GlobalState.failed_stage
+# （operator.add 累积）无法被任何节点清空 → completed result 残留 failed_stage=
+# "ozon_status"，消费方读 result.failed_stage 误读任务失败（卡实际 approved，
+# 「假失败真在架」表象；2026-10-04 本地实锤 14 单）。
+
+def test_completed_persist_view_strips_stale_failed_stage():
+    """completed 落库视图剥离累积残留 failed_stage；原字典不被原地修改
+    （内存返回值/Sentry/listing_result_log 留存取证仍见全史）。"""
+    from orchestrator.task_processor import _completed_persist_view
+
+    graph_result = {
+        "task_id": "t1",
+        "product_id": "6516590295",
+        "upload_status": "success",
+        "moderation_status": "approved",
+        "failed_stage": "ozon_status",  # 修复成功后的累积残留
+        "stages": {"ozon_status": "failed", "ozon_validate": "success"},
+    }
+    view = _completed_persist_view(graph_result)
+    assert "failed_stage" not in view
+    assert view["upload_status"] == "success"
+    assert view["product_id"] == "6516590295"
+    assert graph_result["failed_stage"] == "ozon_status"
+
+
+def test_completed_persist_view_empty_and_none_safe():
+    """空 dict / None 入参安全（终态组装路径不允许再抛）。"""
+    from orchestrator.task_processor import _completed_persist_view
+
+    assert _completed_persist_view({}) == {}
+    assert _completed_persist_view(None) == {}
+
+
+
 if __name__ == "__main__":
     import traceback
 

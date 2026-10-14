@@ -177,6 +177,28 @@ class TestRegenMainImageNode:
         assert _regen_main_image_route(out) == "reupload"
         assert m_gen.call_count == 1
 
+    def test_regen_drops_non_ai_remaining_slots(self):
+        """✅ fix/sentry-ga-retransmit-leak 写入口净化：其余槽位含 mirror_draft 残余
+        → regen 重写时剔除，重传出口闸不再被触发（「先写后拦」路径不可达）。
+        （旧主图本身仍按既有语义从图廊移除——它正是被重生成的违规主图。）"""
+        from graphs.validation_retry_loop import (
+            _regen_main_image_route,
+            _reupload_gate_blocked,
+            regen_main_image_node,
+        )
+
+        st = _mk_state([COS_AI, COS_MIRROR, COS_AI_2])
+        p_gen, p_model, p_rw = _patch_gen(return_value=COS_AI_NEW)
+        with p_gen, p_model, p_rw:
+            out = regen_main_image_node(st)
+
+        item0 = out.ozon_payload["items"][0]
+        assert item0["primary_image"] == COS_AI_NEW
+        assert item0["images"] == [COS_AI_NEW, COS_AI_2]  # mirror 槽位被写入口剔除
+        # 端到端：重写后的载荷过出口闸（GA 事件路径已不可达）
+        assert _reupload_gate_blocked(out) is False
+        assert _regen_main_image_route(out) == "reupload"
+
     def test_strict_prompt_and_main_model_args(self):
         """严格合规 prompt（白底/单品居中/无文字·角标·水印）+ 主模型与 main 槽一致。"""
         from graphs.validation_retry_loop import (

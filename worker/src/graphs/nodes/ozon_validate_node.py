@@ -849,11 +849,17 @@ def ozon_validate_node(
             # 时已失效/防盗链」的时间窗——declined IMAGE_ERROR 实证：外链卡
             # images=0 被拒，同批 COS 卡 approved。静态判定不依赖时点，直传外链
             # 一律拦在上传前（绕过 draft 通道的直连 submit_task 信封由此兜住）。
+            # ✅ v0.85.1 follow_clone 模式作用域豁免（与 prepare 出口闸
+            # allow_competitor_cdn / retry 放行同口径）：克隆链图片就是 Ozon 自家
+            # CDN 原尺寸 URL 直传（B0-C 实锤 import 接受并挂图，零下载零 COS），
+            # 全外链闸对本模式恒杀。全局闸不松——extensions 无 follow_clone 时
+            # 行为零变化（首战 5371047：复制卡零图回填 CDN 后曾被本闸误杀）。
             _all_imgs = (
                 ([str(item.get("primary_image"))] if item.get("primary_image") else [])
                 + [str(u) for u in (item.get("images") or []) if u]
             )
-            if _all_imgs and not any(is_cos_url(u) for u in _all_imgs):
+            _fc_clone_mode = isinstance(state.extensions, dict) and bool(state.extensions.get("follow_clone"))
+            if _all_imgs and not _fc_clone_mode and not any(is_cos_url(u) for u in _all_imgs):
                 validation_errors.append(
                     f"item[{i}]图片全外链（{len(_all_imgs)} 张均非 COS 托管）——"
                     f"Ozon 下载外链失败为已知必拒项 IMAGE_ERROR，须先镜像至 COS 再上传"

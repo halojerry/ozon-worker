@@ -18,9 +18,12 @@
   python scripts/repair_cards.py --offer 831249914209_0   # 只修指定卡
   python scripts/repair_cards.py                       # 修全部 FIX_MAP 内卡片
 
-凭证：必须显式提供 --client-id/--api-key，或设置环境变量 OZON_CLIENT_ID/OZON_API_KEY。
+凭证：设置环境变量 OZON_CLIENT_ID/OZON_API_KEY。
 ⚠️ 历史版本曾硬编码真实凭证入 git——该 key 必须轮换，历史清除方案见
    docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。
+⚠️ 2026-10-04 安全批（Mimosa finding 根修）：--client-id/--api-key argv 形参
+   删除（凭证挂进程列表/shell history），只认环境变量；裸 requests.post 收敛
+   utils.ozon_client.ozon_post（F-F01 同款：类型化错误 + 429/5xx 重试）。
 """
 from __future__ import annotations
 
@@ -28,38 +31,29 @@ import argparse
 import json
 import os
 import sys
-import time
+import time  # 归档/删除/重建轮询仍用 time.sleep（2026-10-04 安全批补回：删旧重试循环时误删）
 from pathlib import Path
 
-import requests
+# src 自举（image_prompt_ab_test 同款）——ozon_post 收敛需要 utils 在路径上
+_SRC = Path(__file__).resolve().parent.parent / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from utils.ozon_client import ozon_post  # noqa: E402
 
 # ⚠️ 历史版本曾硬编码真实凭证入 git——该 key 必须轮换，历史清除方案见
-# docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。现改为 --client-id/--api-key
-# 或环境变量 OZON_CLIENT_ID/OZON_API_KEY（main() 里解析后回填这两个全局）。
+# docs/audit/2026-09-11-repo-gov/BACKLOG.md BL-04。现只认环境变量
+# OZON_CLIENT_ID/OZON_API_KEY（main() 里解析后回填这两个全局）。
 CLIENT_ID = ""
 API_KEY = ""
-BASE = "https://api-seller.ozon.ru"
-
-
-def _hdr() -> dict:
-    return {"Client-Id": CLIENT_ID, "Api-Key": API_KEY, "Content-Type": "application/json"}
 
 
 def _post(ep: str, body: dict) -> dict:
-    # TLS 证书校验保持 requests 默认 verify=True（certifi 根证书，标准环境无
-    # 证书链问题；历史注释称「本机证书链不完整」实为网络问题——偶发 SSL EOF
-    # 由下方 3 次重试覆盖，绝不应以关闭证书校验为代价）。（v0.81 安全批）
-    # 网络偶发 SSL EOF → 重试 3 次
-    last = None
-    for _ in range(3):
-        try:
-            r = requests.post(BASE + ep, headers=_hdr(), json=body, timeout=40)
-            r.raise_for_status()
-            return r.json()
-        except Exception as e:
-            last = e
-            time.sleep(3)
-    raise last
+    """出站唯一出口 ozon_post（F-F01：类型化 OzonError + 429/5xx 重试）。
+
+    2026-10-04 安全批：裸 requests.post 三连重试收敛——同仓出站纪律
+    （scripts 侧与 worker 同口径），Mimosa SSRF finding 根修。"""
+    return ozon_post(CLIENT_ID, API_KEY, ep, body, timeout=40)
 
 
 # ── 修复映射：offer_id → (description_category_id, type_id, 说明) ──
@@ -277,17 +271,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="只打印 payload，不调用 Ozon")
     ap.add_argument("--offer", default="", help="只修指定 offer_id")
-    ap.add_argument("--client-id", default=os.environ.get("OZON_CLIENT_ID", ""),
-                    help="Ozon 卖家 Client-Id（必填，缺省回退 env OZON_CLIENT_ID）")
-    ap.add_argument("--api-key", default=os.environ.get("OZON_API_KEY", ""),
-                    help="Ozon 卖家 Api-Key（必填，缺省回退 env OZON_API_KEY）")
     args = ap.parse_args()
 
-    # 凭证解析：显式参数 > 环境变量；两者皆缺 → 提示后退出（绝不再硬编码）
-    CLIENT_ID = (args.client_id or "").strip()
-    API_KEY = (args.api_key or "").strip()
+    # 凭证解析：只认环境变量（2026-10-04 安全批：argv 形参删除，防进程列表泄漏）
+    CLIENT_ID = (os.environ.get("OZON_CLIENT_ID") or "").strip()
+    API_KEY = (os.environ.get("OZON_API_KEY") or "").strip()
     if not CLIENT_ID or not API_KEY:
-        print("缺少 Ozon 凭证：请传 --client-id/--api-key，或设置环境变量 OZON_CLIENT_ID / OZON_API_KEY")
+        print("缺少 Ozon 凭证：请设置环境变量 OZON_CLIENT_ID / OZON_API_KEY")
         sys.exit(2)
 
     targets = {k: v for k, v in FIX_MAP.items() if not args.offer or k == args.offer}

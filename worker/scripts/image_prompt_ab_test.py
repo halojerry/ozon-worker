@@ -24,7 +24,17 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from jinja2 import Template
+from utils.safe_template import render_safe_mapping  # 沙箱渲染唯一出口（2026-10-04 安全批：替换裸 Template）
+
+
+def _render(cfg: dict, key: str, vars_: dict) -> str:
+    tpl = cfg.get(key, "")
+    if not isinstance(tpl, str):
+        tpl = json.dumps(tpl, ensure_ascii=False)
+    # ✅ 沙箱渲染（render_safe_mapping）——模板来自 worker/config/imagegen.json
+    # 等配置面，属不可完全信任输入；旧裸 Template(t).render() 是 Mimosa 实锤
+    # SSTI finding，收敛到仓内唯一出口（良性模板渲染结果逐字一致）。
+    return render_safe_mapping(tpl, vars_)
 
 # ── 8 必填 + 11 可选（对抗收敛 AC-1 重写：8 必填非空 + 11 可选默认化）──
 REQUIRED_VARS = ("product", "color", "material", "appearance", "size", "lighting", "effects", "text_areas")
@@ -42,13 +52,6 @@ DEFAULT_SAMPLES = [
     {"title": "智能风扇 露营灯", "attributes": {"材质": "塑料"},
      "weight": 2000, "dimensions": {"length": 188, "width": 141, "height": 94}, "category": "风扇"},
 ]
-
-
-def _render(cfg: dict, key: str, vars_: dict) -> str:
-    tpl = cfg.get(key, "")
-    if not isinstance(tpl, str):
-        tpl = json.dumps(tpl, ensure_ascii=False)
-    return Template(tpl).render(**vars_)
 
 
 def _completeness(prompt: str, vars_: dict) -> dict:

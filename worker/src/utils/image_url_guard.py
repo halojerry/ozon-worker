@@ -182,9 +182,16 @@ def _is_competitor_reference_candidate(url: str) -> bool:
     lowered = url.strip().lower()
     if not lowered.startswith(("http://", "https://")):
         return False
-    # Ozon CDN 域形态多变（ir / ir-N / cdn1 子域），按域后缀判定而非穷举
+    # Ozon CDN 域形态多变（ir / ir-N / cdn1 子域），按域后缀判定而非穷举。
+    # fix/ozonstatic-ref-domain（2026-10-14 生产实证）：竞品卡图实际多挂
+    # ir-N.ozonstatic.cn / *.ozonstatic.com（Ozon 中国侧静态 CDN），旧判定只认
+    # ozon.ru/ozone.ru → 跟卖信封竞品图被误拒 →「无合格参考图」→ 生图全跳过
+    # → IMAGE_GEN_ALL_FAILED（Sentry POUDING_OZON-KX/M1，13 单实锤）。
+    # 域家族口径对齐 utils/card_image_assert.py 卡图白名单（.ozonstatic.cn/.com）。
     if not (".ozon.ru/" in lowered or ".ozone.ru/" in lowered
-            or "//ozon.ru/" in lowered or "//ozone.ru/" in lowered):
+            or ".ozonstatic.cn/" in lowered or ".ozonstatic.com/" in lowered
+            or "//ozon.ru/" in lowered or "//ozone.ru/" in lowered
+            or "//ozonstatic.cn/" in lowered or "//ozonstatic.com/" in lowered):
         return False
     if lowered.endswith(".webp") or ".jpg_.webp" in lowered:
         return False
@@ -205,5 +212,20 @@ def filter_reference_images(urls: Iterable[object], allow_competitor: bool = Fal
             continue
         if is_product_image_candidate(u) or (
                 allow_competitor and _is_competitor_reference_candidate(u)):
+            out.append(u.strip())
+    return out
+
+
+def filter_competitor_cdn_images(urls: Iterable[object]) -> List[str]:
+    """✅ v0.85 follow_clone 克隆上卡专用：仅 Ozon 自家 CDN 原尺寸图。
+
+    与 filter_reference_images(allow_competitor=True) 的区别：后者是**并集**
+    （货源白名单图 alicdn 等也放行——生图参考语义）；克隆卡图只认竞品 CDN——
+    货源图/外站图混入 clone_card.images 即拒（防串图防污染，批I 质量红线同源：
+    缩略/.webp 恒拒）。
+    """
+    out: List[str] = []
+    for u in urls:
+        if isinstance(u, str) and u.strip() and _is_competitor_reference_candidate(u):
             out.append(u.strip())
     return out
